@@ -1,0 +1,45 @@
+:root {
+  font-family:
+    "Avenir Next",
+    "Trebuchet MS",
+    "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #3d3028;
+  background:
+    radial-gradient(circle at top left, rgba(255, 213, 170, 0.75), transparent 34%),
+    radial-gradient(circle at top right, rgba(246, 185, 145, 0.6), transparent 28%),
+    linear-gradient(180deg, #f8efe4 0%, #efe0d1 52%, #ead7c6 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --ink: #4c372b;
+  --muted: #7a6255;
+  --line: rgba(122, 98, 85, 0.12);
+  --accent: #8c5738;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
