@@ -12,12 +12,14 @@ type Chat = {
   id: number
   title: string
   handle: string
+  phone: string
   accent: string
   mood: string
   status: string
   typing?: boolean
   unread: number
   pinned?: boolean
+  premium?: boolean
   messages: Message[]
 }
 
@@ -25,18 +27,22 @@ type SearchResult = {
   id: number
   title: string
   handle: string
+  phone: string
   accent: string
   subtitle: string
 }
 
-type AuthMode = 'login' | 'register'
+type AuthStep = 'phone' | 'code' | 'profile'
 
 type Account = {
   identifier: string
-  password: string
   displayName: string
   surname?: string
   nickname?: string
+  status?: string
+  premium?: boolean
+  premiumExpiresAt?: string
+  blockedContactIds?: number[]
   createdAt: string
 }
 
@@ -45,21 +51,31 @@ type Session = {
   displayName: string
   surname?: string
   nickname?: string
+  status?: string
+  premium?: boolean
+  premiumExpiresAt?: string
+  blockedContactIds?: number[]
 }
 
-type StageView = 'main' | 'settings'
+type StageView = 'main' | 'settings' | 'premium'
+type SettingsView = 'profile' | 'management' | 'blocked'
+
+const profileFieldMaxLength = 16
+const statusFieldMaxLength = 32
 
 const initialChats: Chat[] = [
   {
     id: 1,
     title: 'Мира',
     handle: '@mira_night',
+    phone: '+79673215453',
     accent: '#ff8a5b',
     mood: 'Вайбит',
     status: 'печатает ответ в тайник',
     typing: true,
     unread: 2,
     pinned: true,
+    premium: true,
     messages: [
       { id: 1, author: 'them', text: 'Нужен мессенджер без лишнего шума.', time: '21:03' },
       { id: 2, author: 'me', text: 'Делаем. Только свои люди и приватные треды.', time: '21:05' },
@@ -75,6 +91,7 @@ const initialChats: Chat[] = [
     id: 2,
     title: 'Соня',
     handle: '@sonya.jpeg',
+    phone: '+79885551212',
     accent: '#66d9b8',
     mood: 'На месте',
     status: 'была в сети 8 мин назад',
@@ -98,10 +115,12 @@ const initialChats: Chat[] = [
     id: 3,
     title: 'Лев',
     handle: '@lev.codes',
+    phone: '+79997778811',
     accent: '#8aa6ff',
     mood: 'Собирает билд',
     status: 'отправил прототип тем',
     unread: 4,
+    premium: true,
     messages: [
       {
         id: 1,
@@ -117,14 +136,240 @@ const initialChats: Chat[] = [
       },
     ],
   },
+  {
+    id: 4,
+    title: 'Ася',
+    handle: '@asya.echo',
+    phone: '+79261239876',
+    accent: '#f29f67',
+    mood: 'Слушает',
+    status: 'была в сети 3 мин назад',
+    unread: 1,
+    messages: [
+      { id: 1, author: 'them', text: 'Оставим интерфейс тихим и светлым.', time: '17:52' },
+    ],
+  },
+  {
+    id: 5,
+    title: 'Никита',
+    handle: '@nikita.wave',
+    phone: '+79035554422',
+    accent: '#6eb6ff',
+    mood: 'В дороге',
+    status: 'открыл чат с телефона',
+    unread: 0,
+    messages: [
+      { id: 1, author: 'me', text: 'Проверь, как список ведёт себя на маленькой высоте.', time: '17:31' },
+    ],
+  },
+  {
+    id: 6,
+    title: 'Полина',
+    handle: '@poly.secret',
+    phone: '+79161234567',
+    accent: '#82c9a3',
+    mood: 'На связи',
+    status: 'отправила голосовое',
+    unread: 3,
+    pinned: true,
+    premium: true,
+    messages: [
+      { id: 1, author: 'them', text: 'Хочу больше воздуха между карточками и мягче тени.', time: '17:08' },
+    ],
+  },
+  {
+    id: 7,
+    title: 'Илья',
+    handle: '@ilya.grid',
+    phone: '+79001112233',
+    accent: '#d18fff',
+    mood: 'Рядом',
+    status: 'ждёт ответ',
+    unread: 0,
+    messages: [
+      { id: 1, author: 'them', text: 'Проверь скролл и обрезание бейджей сверху.', time: '16:54' },
+    ],
+  },
+  {
+    id: 8,
+    title: 'Варя',
+    handle: '@varya.north',
+    phone: '+79214445566',
+    accent: '#ff9db1',
+    mood: 'Смотрит макет',
+    status: 'сохранила тред',
+    unread: 5,
+    messages: [
+      { id: 1, author: 'them', text: 'Карточки уже почти идеальны, но хочется больше ритма.', time: '16:40' },
+    ],
+  },
+  {
+    id: 9,
+    title: 'Гриша',
+    handle: '@grisha.loop',
+    phone: '+79524443322',
+    accent: '#ffd166',
+    mood: 'Тестирует',
+    status: 'был здесь только что',
+    unread: 0,
+    messages: [
+      { id: 1, author: 'me', text: 'Добавил двадцать контактов, чтобы гонять список.', time: '16:21' },
+    ],
+  },
+  {
+    id: 10,
+    title: 'Лада',
+    handle: '@lada.bloom',
+    phone: '+79995556677',
+    accent: '#7dd3fc',
+    mood: 'Пишет заметки',
+    status: 'набрасывает идеи',
+    typing: true,
+    unread: 2,
+    messages: [
+      { id: 1, author: 'them', text: 'Можно ещё проверить поведение при печати на длинных именах.', time: '16:07' },
+    ],
+  },
+  {
+    id: 11,
+    title: 'Марк',
+    handle: '@mark.signal',
+    phone: '+79117778899',
+    accent: '#9ad0c2',
+    mood: 'В сети',
+    status: 'ответил на сообщение',
+    unread: 0,
+    messages: [
+      { id: 1, author: 'them', text: 'Тут хорошо бы посмотреть, как ведут себя фильтры со скроллом.', time: '15:49' },
+    ],
+  },
+  {
+    id: 12,
+    title: 'Юля',
+    handle: '@julia.soft',
+    phone: '+79038889900',
+    accent: '#fca5a5',
+    mood: 'Молчит',
+    status: 'без новых сообщений',
+    unread: 1,
+    messages: [
+      { id: 1, author: 'them', text: 'Сделай кнопку настроек чуть компактнее, но не мелкой.', time: '15:36' },
+    ],
+  },
+  {
+    id: 13,
+    title: 'Руслан',
+    handle: '@rus_frame',
+    phone: '+79650001122',
+    accent: '#c4b5fd',
+    mood: 'У окна',
+    status: 'последний онлайн 12 мин назад',
+    unread: 0,
+    messages: [
+      { id: 1, author: 'me', text: 'Список уже выглядит убедительно, нужно ещё больше разных состояний.', time: '15:18' },
+    ],
+  },
+  {
+    id: 14,
+    title: 'Ева',
+    handle: '@eva.silent',
+    phone: '+79100001234',
+    accent: '#86efac',
+    mood: 'Тихо',
+    status: 'включила беззвучный режим',
+    unread: 7,
+    messages: [
+      { id: 1, author: 'them', text: 'Мне нравится, что бейджи теперь сидят как наклейки.', time: '15:02' },
+    ],
+  },
+  {
+    id: 15,
+    title: 'Тимур',
+    handle: '@timur.draft',
+    phone: '+79250002211',
+    accent: '#fdba74',
+    mood: 'Черновик',
+    status: 'собирает сценарий',
+    unread: 0,
+    messages: [
+      { id: 1, author: 'them', text: 'Я бы ещё погонял список на старом ноутбуке.', time: '14:47' },
+    ],
+  },
+  {
+    id: 16,
+    title: 'Надя',
+    handle: '@nadya.line',
+    phone: '+79332221100',
+    accent: '#93c5fd',
+    mood: 'Читает',
+    status: 'читала 1 мин назад',
+    unread: 2,
+    messages: [
+      { id: 1, author: 'them', text: 'В поиске по номеру всё должно выглядеть так же спокойно.', time: '14:30' },
+    ],
+  },
+  {
+    id: 17,
+    title: 'Стас',
+    handle: '@stas.cloud',
+    phone: '+79001239988',
+    accent: '#f0abfc',
+    mood: 'В эфире',
+    status: 'отправил стикер',
+    unread: 0,
+    messages: [
+      { id: 1, author: 'them', text: 'Можем потом проверить и тёмную подложку, но не сейчас.', time: '14:11' },
+    ],
+  },
+  {
+    id: 18,
+    title: 'Оля',
+    handle: '@olya.mint',
+    phone: '+79550004466',
+    accent: '#5eead4',
+    mood: 'Утро',
+    status: 'сохранила сообщение',
+    unread: 4,
+    premium: true,
+    messages: [
+      { id: 1, author: 'them', text: 'Проверь, не устаёт ли глаз от плотных повторяющихся карточек.', time: '13:55' },
+    ],
+  },
+  {
+    id: 19,
+    title: 'Дима',
+    handle: '@dima.room',
+    phone: '+79039997755',
+    accent: '#fda4af',
+    mood: 'Скроллит',
+    status: 'открыл поиск',
+    unread: 0,
+    messages: [
+      { id: 1, author: 'them', text: 'Если хочешь, потом добавим ещё больше людей для stress-теста.', time: '13:33' },
+    ],
+  },
+  {
+    id: 20,
+    title: 'Карина',
+    handle: '@karina.fold',
+    phone: '+79217773311',
+    accent: '#a7f3d0',
+    mood: 'Спокойно',
+    status: 'последний онлайн 21 мин назад',
+    unread: 6,
+    messages: [
+      { id: 1, author: 'them', text: 'У верхних и нижних карточек теперь достаточно воздуха для бейджей.', time: '13:20' },
+    ],
+  },
 ]
 
-const quickFilters = ['Все', '★', 'Новые', 'Поиск']
+const quickFilters = ['Все', '★', 'Новые']
 const discoveryResults: SearchResult[] = [
   {
     id: 101,
     title: 'Ася',
     handle: '@asya.echo',
+    phone: '+79261239876',
     accent: '#f29f67',
     subtitle: 'дизайн-система и тихие интерфейсы',
   },
@@ -132,6 +377,7 @@ const discoveryResults: SearchResult[] = [
     id: 102,
     title: 'Никита',
     handle: '@nikita.wave',
+    phone: '+79035554422',
     accent: '#6eb6ff',
     subtitle: 'ищет собеседников для night shift',
   },
@@ -139,6 +385,7 @@ const discoveryResults: SearchResult[] = [
     id: 103,
     title: 'Полина',
     handle: '@poly.secret',
+    phone: '+79161234567',
     accent: '#82c9a3',
     subtitle: 'любит voice notes и приватные комнаты',
   },
@@ -151,15 +398,17 @@ function formatPreview(chat: Chat) {
   return latest ? latest.text : 'Пока пусто'
 }
 
+function formatContactStatus(chat: Chat) {
+  return chat.status.trim() || '\u00A0'
+}
+
 function normalizeIdentifier(value: string) {
   const trimmed = value.trim()
+  const digits = trimmed.replace(/[^\d]/g, '')
 
-  if (trimmed.includes('@')) {
-    return trimmed.toLowerCase()
-  }
+  if (digits === '') return ''
 
-  const digits = trimmed.replace(/[^\d+]/g, '')
-  return digits
+  return `+${digits}`
 }
 
 function matchesQuery(value: string, query: string) {
@@ -170,8 +419,51 @@ function formatSessionName(session: Session) {
   return [session.displayName, session.surname ?? ''].filter(Boolean).join(' ')
 }
 
+function sanitizePersonField(value: string) {
+  return value
+    .replace(/[^A-Za-zА-Яа-яЁё -]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/-+/g, '-')
+    .trim()
+    .slice(0, profileFieldMaxLength)
+}
+
 function normalizeNickname(value: string) {
-  return value.replace(/@/g, '').replace(/\s+/g, '')
+  return value.replace(/[^A-Za-z0-9_]/g, '').slice(0, profileFieldMaxLength)
+}
+
+function sanitizeStatusField(value: string) {
+  return value
+    .replace(/[^A-Za-zА-Яа-яЁё0-9 .,!?():;-]/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, statusFieldMaxLength)
+}
+
+function makePremiumExpiry(days: number) {
+  const expiryDate = new Date()
+  expiryDate.setDate(expiryDate.getDate() + days)
+  return expiryDate.toISOString()
+}
+
+function normalizePremiumExpiry(premium: boolean | undefined, premiumExpiresAt?: string) {
+  if (!premium) return ''
+  return premiumExpiresAt || makePremiumExpiry(30)
+}
+
+function getPremiumDaysLeft(premium: boolean | undefined, premiumExpiresAt?: string) {
+  if (!premium || !premiumExpiresAt) return null
+
+  const expiresAt = new Date(premiumExpiresAt).getTime()
+  if (Number.isNaN(expiresAt)) return null
+
+  const millisecondsLeft = expiresAt - Date.now()
+  if (millisecondsLeft <= 0) return 0
+
+  return Math.ceil(millisecondsLeft / (1000 * 60 * 60 * 24))
+}
+
+function isPhoneQuery(value: string) {
+  return value.replace(/[^\d]/g, '').length >= 3
 }
 
 function loadAccounts() {
@@ -181,7 +473,12 @@ function loadAccounts() {
   if (!raw) return []
 
   try {
-    return JSON.parse(raw) as Account[]
+    return (JSON.parse(raw) as Account[]).map((account) => ({
+      ...account,
+      premium: account.premium ?? true,
+      premiumExpiresAt: normalizePremiumExpiry(account.premium ?? true, account.premiumExpiresAt),
+      blockedContactIds: account.blockedContactIds ?? [],
+    }))
   } catch {
     return []
   }
@@ -194,7 +491,13 @@ function loadSession() {
   if (!raw) return null
 
   try {
-    return JSON.parse(raw) as Session
+    const parsed = JSON.parse(raw) as Session
+    return {
+      ...parsed,
+      premium: parsed.premium ?? true,
+      premiumExpiresAt: normalizePremiumExpiry(parsed.premium ?? true, parsed.premiumExpiresAt),
+      blockedContactIds: parsed.blockedContactIds ?? [],
+    }
   } catch {
     return null
   }
@@ -205,43 +508,75 @@ function App() {
   const [chats, setChats] = useState(initialChats)
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
   const [stageView, setStageView] = useState<StageView>('main')
+  const [settingsView, setSettingsView] = useState<SettingsView>('profile')
   const [query, setQuery] = useState('')
   const [messageDraft, setMessageDraft] = useState('')
   const [activeFilter, setActiveFilter] = useState('Все')
   const [searchOpen, setSearchOpen] = useState(false)
   const [quietMode, setQuietMode] = useState(false)
-  const [authMode, setAuthMode] = useState<AuthMode>('register')
+  const [authStep, setAuthStep] = useState<AuthStep>('phone')
   const [displayName, setDisplayName] = useState('')
   const [identifier, setIdentifier] = useState('')
-  const [password, setPassword] = useState('')
+  const [smsCode, setSmsCode] = useState('')
   const [authError, setAuthError] = useState('')
   const [session, setSession] = useState<Session | null>(() => loadSession())
+  const [confirmingLogout, setConfirmingLogout] = useState(false)
+  const [bottomSection, setBottomSection] = useState<'chats' | 'contacts'>('chats')
+  const [chatActionsOpen, setChatActionsOpen] = useState(false)
+  const [blockedActionChatId, setBlockedActionChatId] = useState<number | null>(null)
+  const [premiumGiftChatId, setPremiumGiftChatId] = useState<number | null>(null)
+  const [confirmingDeleteHistoryChatId, setConfirmingDeleteHistoryChatId] = useState<number | null>(
+    null,
+  )
+  const [confirmingDeleteContactChatId, setConfirmingDeleteContactChatId] = useState<number | null>(
+    null,
+  )
 
-  const visibleChats = chats.filter((chat) => {
+  const blockedContactIds = session?.blockedContactIds ?? []
+  const availableChats = chats.filter((chat) => !blockedContactIds.includes(chat.id))
+  const blockedChats = chats.filter((chat) => blockedContactIds.includes(chat.id))
+
+  const visibleChats = availableChats.filter((chat) => {
     if (searchOpen) return true
+    if (bottomSection === 'contacts') return true
     if (activeFilter === '★') return Boolean(chat.pinned)
     if (activeFilter === 'Новые') return chat.unread > 0
 
     return true
   })
 
-  const myContactsResults = chats.filter((chat) => {
+  const myContactsResults = availableChats.filter((chat) => {
     if (query.trim() === '') return false
 
-    return matchesQuery(chat.title, query) || matchesQuery(chat.handle, query)
+    return (
+      matchesQuery(chat.title, query) ||
+      matchesQuery(chat.handle, query) ||
+      matchesQuery(chat.phone, query)
+    )
   })
 
   const searchResults = discoveryResults.filter((result) => {
     if (query.trim() === '') return true
 
-    return matchesQuery(result.title, query) || matchesQuery(result.handle, query)
+    return (
+      matchesQuery(result.title, query) ||
+      matchesQuery(result.handle, query) ||
+      matchesQuery(result.phone, query)
+    )
   })
 
   const activeChat =
-    activeChatId === null ? null : chats.find((chat) => chat.id === activeChatId) ?? null
+    activeChatId === null ? null : availableChats.find((chat) => chat.id === activeChatId) ?? null
+  const premiumGiftChat =
+    premiumGiftChatId === null ? null : chats.find((chat) => chat.id === premiumGiftChatId) ?? null
   const activeChatMessageCount = activeChat?.messages.length ?? 0
   const isSettingsView = stageView === 'settings'
+  const isPremiumView = stageView === 'premium'
   const isChatOpen = stageView === 'main' && activeChat !== null
+  const searchShowsPhone = isPhoneQuery(query)
+  const totalUnreadCount = availableChats.reduce((sum, chat) => sum + chat.unread, 0)
+  const sessionHasPremium = session?.premium ?? true
+  const premiumDaysLeft = getPremiumDaysLeft(sessionHasPremium, session?.premiumExpiresAt)
 
   useEffect(() => {
     if (!isChatOpen || activeChatId === null || !messageFeedRef.current) return
@@ -261,77 +596,129 @@ function App() {
     }
   }
 
-  function submitAuth() {
+  function syncSession(nextSession: Session) {
+    persistSession(nextSession)
+
+    const nextAccounts = loadAccounts().map((account) =>
+      account.identifier === nextSession.identifier
+        ? {
+            ...account,
+            displayName: nextSession.displayName,
+            surname: nextSession.surname ?? '',
+            nickname: nextSession.nickname ?? '',
+            status: nextSession.status ?? '',
+            premium: nextSession.premium ?? true,
+            premiumExpiresAt: normalizePremiumExpiry(
+              nextSession.premium ?? true,
+              nextSession.premiumExpiresAt,
+            ),
+            blockedContactIds: nextSession.blockedContactIds ?? [],
+          }
+        : account,
+    )
+
+    window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
+  }
+
+  function submitPhoneStep() {
     const normalized = normalizeIdentifier(identifier)
-    const trimmedPassword = password.trim()
-    const trimmedName = displayName.trim()
 
     if (!normalized) {
-      setAuthError('Введи почту или номер телефона.')
+      setAuthError('Введи номер телефона.')
       return
     }
 
-    if (trimmedPassword.length < 4) {
-      setAuthError('Пароль слишком короткий. Минимум 4 символа.')
+    if (normalized.length < 12) {
+      setAuthError('Проверь номер телефона.')
       return
     }
 
+    setIdentifier(normalized)
+    setAuthError('')
+    setAuthStep('code')
+  }
+
+  function submitCodeStep() {
+    const normalized = normalizeIdentifier(identifier)
+    const trimmedCode = smsCode.trim()
     const accounts = loadAccounts()
     const existingAccount = accounts.find((account) => account.identifier === normalized)
 
-    if (authMode === 'register') {
-      if (!trimmedName) {
-        setAuthError('Для регистрации нужен ник или имя.')
-        return
-      }
+    if (trimmedCode.length < 4) {
+      setAuthError('Введи код из SMS.')
+      return
+    }
 
-      if (existingAccount) {
-        setAuthError('Такой контакт уже занят. Переключись на вход.')
-        return
-      }
-
-      const nextAccount: Account = {
-        identifier: normalized,
-        password: trimmedPassword,
-        displayName: trimmedName,
-        surname: '',
-        nickname: '',
-        createdAt: new Date().toISOString(),
-      }
-
-      window.localStorage.setItem(
-        accountsStorageKey,
-        JSON.stringify([...accounts, nextAccount]),
-      )
+    if (existingAccount) {
       persistSession({
-        identifier: nextAccount.identifier,
-        displayName: nextAccount.displayName,
-        surname: nextAccount.surname,
-        nickname: nextAccount.nickname,
+        identifier: existingAccount.identifier,
+        displayName: existingAccount.displayName,
+        surname: existingAccount.surname ?? '',
+        nickname: existingAccount.nickname ?? '',
+        status: existingAccount.status ?? '',
+        premium: existingAccount.premium ?? true,
+        premiumExpiresAt: normalizePremiumExpiry(
+          existingAccount.premium ?? true,
+          existingAccount.premiumExpiresAt,
+        ),
+        blockedContactIds: existingAccount.blockedContactIds ?? [],
       })
       setAuthError('')
       return
     }
 
-    if (!existingAccount || existingAccount.password !== trimmedPassword) {
-      setAuthError('Контакт не найден или пароль неверный.')
+    setAuthError('')
+    setAuthStep('profile')
+  }
+
+  function submitProfileStep() {
+    const normalized = normalizeIdentifier(identifier)
+    const trimmedName = sanitizePersonField(displayName)
+
+    if (!trimmedName) {
+      setAuthError('Для регистрации нужен ник или имя.')
       return
     }
 
+    const accounts = loadAccounts()
+    const nextAccount: Account = {
+      identifier: normalized,
+      displayName: trimmedName,
+      surname: '',
+      nickname: '',
+      status: '',
+      premium: true,
+      premiumExpiresAt: makePremiumExpiry(30),
+      blockedContactIds: [],
+      createdAt: new Date().toISOString(),
+    }
+
+    window.localStorage.setItem(accountsStorageKey, JSON.stringify([...accounts, nextAccount]))
     persistSession({
-      identifier: existingAccount.identifier,
-      displayName: existingAccount.displayName,
-      surname: existingAccount.surname ?? '',
-      nickname: existingAccount.nickname ?? '',
+      identifier: nextAccount.identifier,
+      displayName: nextAccount.displayName,
+      surname: nextAccount.surname,
+      nickname: nextAccount.nickname,
+      status: nextAccount.status,
+      premium: nextAccount.premium,
+      premiumExpiresAt: nextAccount.premiumExpiresAt,
+      blockedContactIds: nextAccount.blockedContactIds,
     })
     setAuthError('')
   }
 
   function logout() {
     persistSession(null)
-    setPassword('')
     setIdentifier('')
     setDisplayName('')
+    setSmsCode('')
+    setAuthStep('phone')
+    setConfirmingLogout(false)
+    setChatActionsOpen(false)
+    setBlockedActionChatId(null)
+    setPremiumGiftChatId(null)
+    setConfirmingDeleteHistoryChatId(null)
+    setConfirmingDeleteContactChatId(null)
   }
 
   function sendMessage() {
@@ -368,6 +755,14 @@ function App() {
 
   function openChat(chatId: number) {
     setStageView('main')
+    setSettingsView('profile')
+    setConfirmingLogout(false)
+    setChatActionsOpen(false)
+    setBlockedActionChatId(null)
+    setPremiumGiftChatId(null)
+    setConfirmingDeleteHistoryChatId(null)
+    setConfirmingDeleteContactChatId(null)
+    setBottomSection('chats')
     setActiveChatId(chatId)
     setChats((currentChats) =>
       currentChats.map((chat) =>
@@ -397,26 +792,105 @@ function App() {
   function updateSessionProfile(patch: Partial<Session>) {
     if (!session) return
 
+    const nextDisplayName =
+      patch.displayName !== undefined
+        ? sanitizePersonField(patch.displayName)
+        : session.displayName
+    const nextSurname =
+      patch.surname !== undefined
+        ? sanitizePersonField(patch.surname)
+        : session.surname ?? ''
+    const nextNickname =
+      patch.nickname !== undefined
+        ? normalizeNickname(patch.nickname)
+        : session.nickname ?? ''
+    const nextStatus =
+      patch.status !== undefined ? sanitizeStatusField(patch.status) : session.status ?? ''
+
+    if (nextDisplayName === '') return
+
     const nextSession: Session = {
       ...session,
-      ...patch,
+      displayName: nextDisplayName,
+      surname: nextSurname,
+      nickname: nextNickname,
+      status: nextStatus,
+      premium: session.premium ?? true,
+      premiumExpiresAt: normalizePremiumExpiry(session.premium ?? true, session.premiumExpiresAt),
     }
 
-    setSession(nextSession)
-    window.localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession))
+    syncSession(nextSession)
+  }
 
-    const nextAccounts = loadAccounts().map((account) =>
-      account.identifier === session.identifier
-        ? {
-            ...account,
-            displayName: nextSession.displayName,
-            surname: nextSession.surname ?? '',
-            nickname: nextSession.nickname ?? '',
-          }
-        : account,
+  function blockChat(chatId: number) {
+    if (!session || blockedContactIds.includes(chatId)) return
+
+    syncSession({
+      ...session,
+      blockedContactIds: [...blockedContactIds, chatId],
+    })
+    setChatActionsOpen(false)
+    setActiveChatId(null)
+    setStageView('main')
+  }
+
+  function blockThenDeleteChat(chatId: number) {
+    if (session && !blockedContactIds.includes(chatId)) {
+      syncSession({
+        ...session,
+        blockedContactIds: [...blockedContactIds, chatId],
+      })
+    }
+
+    deleteContact(chatId)
+  }
+
+  function unblockChat(chatId: number) {
+    if (!session) return
+
+    syncSession({
+      ...session,
+      blockedContactIds: blockedContactIds.filter((id) => id !== chatId),
+    })
+    setBlockedActionChatId(null)
+  }
+
+  function deleteChatHistory(chatId: number) {
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              typing: false,
+              unread: 0,
+              messages: [],
+            }
+          : chat,
+      ),
     )
+    setChatActionsOpen(false)
+    setBlockedActionChatId(null)
+    setConfirmingDeleteHistoryChatId(null)
+    setConfirmingDeleteContactChatId(null)
+  }
 
-    window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
+  function deleteContact(chatId: number) {
+    setChats((currentChats) => currentChats.filter((chat) => chat.id !== chatId))
+
+    if (session && blockedContactIds.includes(chatId)) {
+      syncSession({
+        ...session,
+        blockedContactIds: blockedContactIds.filter((id) => id !== chatId),
+      })
+    }
+
+    if (activeChatId === chatId) {
+      setActiveChatId(null)
+      setStageView('main')
+    }
+
+    setChatActionsOpen(false)
+    setBlockedActionChatId(null)
   }
 
   if (!session) {
@@ -424,128 +898,170 @@ function App() {
       <main className="auth-shell">
         <section className="auth-panel auth-promo">
           <p className="eyebrow">Тайничок</p>
-          <h1>Вход без кода подтверждения.</h1>
+          <h1>Тихое общение без лишнего шума</h1>
           <p className="auth-copy">
-            Любая почта или любой номер могут стать логином. Пароль обязателен.
-            Это удобно для MVP, но не доказывает, что контакт реально твой.
+            Тайничок создан для личных разговоров. Здесь по умолчанию включена тишина:
+            без рекламных пушей, без баннеров, без навязчивых рассылок и случайных массовых сообщений.
           </p>
           <div className="hero-stats">
             <div>
-              <strong>1 поле</strong>
-              <span>почта или телефон</span>
+              <strong>Тишина</strong>
+              <span>включена по умолчанию</span>
             </div>
             <div>
-              <strong>0 кодов</strong>
-              <span>без SMS и email-подтверждений</span>
+              <strong>0 рекламы</strong>
+              <span>никаких баннеров и рассылок</span>
             </div>
           </div>
         </section>
 
         <section className="auth-panel auth-card">
-          <div className="auth-tabs" aria-label="Режим авторизации">
-            <button
-              type="button"
-              className={authMode === 'register' ? 'filter active' : 'filter'}
-              onClick={() => {
-                setAuthMode('register')
-                setAuthError('')
-              }}
-            >
-              Регистрация
-            </button>
-            <button
-              type="button"
-              className={authMode === 'login' ? 'filter active' : 'filter'}
-              onClick={() => {
-                setAuthMode('login')
-                setAuthError('')
-              }}
-            >
-              Вход
-            </button>
+          <div className="auth-card-brand">
+            <p className="eyebrow">Тайничок</p>
+            <h2>Тихое общение без лишнего шума</h2>
           </div>
 
           <form
             className="auth-form"
             onSubmit={(event) => {
               event.preventDefault()
-              submitAuth()
+              if (authStep === 'phone') {
+                submitPhoneStep()
+                return
+              }
+
+              if (authStep === 'code') {
+                submitCodeStep()
+                return
+              }
+
+              submitProfileStep()
             }}
           >
-            {authMode === 'register' ? (
+            {authStep === 'profile' ? (
               <label className="auth-field">
                 <span>Имя в Тайничке</span>
                 <input
                   type="text"
                   placeholder="Например, Луна"
                   value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
+                  onChange={(event) => setDisplayName(sanitizePersonField(event.target.value))}
                 />
               </label>
             ) : null}
 
-            <label className="auth-field">
-              <span>Почта или телефон</span>
-              <input
-                type="text"
-                placeholder="name@mail.com или +79990000000"
-                value={identifier}
-                onChange={(event) => setIdentifier(event.target.value)}
-              />
-            </label>
+            {authStep === 'phone' ? (
+              <label className="auth-field">
+                <span>Номер телефона</span>
+                <input
+                  type="tel"
+                  placeholder="+79990000000"
+                  value={identifier}
+                  onChange={(event) => setIdentifier(event.target.value)}
+                />
+              </label>
+            ) : null}
 
-            <label className="auth-field">
-              <span>Пароль</span>
-              <input
-                type="password"
-                placeholder="Минимум 4 символа"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
+            {authStep === 'code' ? (
+              <>
+                <div className="auth-code-note">
+                  <span className="settings-label">Код отправлен на номер</span>
+                  <strong>{identifier}</strong>
+                </div>
+                <label className="auth-field">
+                  <span>Код из SMS</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Например, 4821"
+                    value={smsCode}
+                    onChange={(event) => setSmsCode(event.target.value.replace(/[^\d]/g, ''))}
+                  />
+                </label>
+              </>
+            ) : null}
 
             {authError ? <p className="auth-error">{authError}</p> : null}
 
             <button type="submit" className="send-button auth-submit">
-              {authMode === 'register' ? 'Создать тайник' : 'Войти'}
+              {authStep === 'phone'
+                ? 'Получить код'
+                : authStep === 'code'
+                  ? 'Подтвердить номер'
+                  : 'Создать тайник'}
             </button>
           </form>
 
           <p className="auth-note">
-            Для production так делать рискованно: любой человек может занять чужую почту или номер,
-            пока владелец не успел зарегистрироваться.
+            Сейчас это demo-flow. Если номер уже есть в Тайничке, после кода откроются чаты.
+            Если номер новый, мы попросим имя и создадим профиль.
           </p>
         </section>
       </main>
     )
   }
 
-  return (
-    <main className="shell">
-      <aside className="rail">
-        <div className="brand">
-          <h1>Тайничок</h1>
-          <button
-            className={quietMode ? 'ghost-button active' : 'ghost-button'}
-            type="button"
-            onClick={() => setQuietMode((current) => !current)}
-          >
-            Тихо
-          </button>
-        </div>
-
-        <div className="account-chip">
-          <div>
-            <strong>{formatSessionName(session)}</strong>
-            <span>{session.identifier}</span>
+  if (confirmingLogout) {
+    return (
+      <main className="confirm-shell">
+        <section className="confirm-card">
+          <p className="eyebrow">Выход</p>
+          <h2>Вы точно хотите выйти из аккаунта?</h2>
+          <p className="confirm-copy">
+            Сессия закроется на этом устройстве. Чтобы вернуться, нужно будет снова войти по номеру телефона.
+          </p>
+          <div className="confirm-actions">
+            <button
+              type="button"
+              className="send-button confirm-stay"
+              onClick={() => setConfirmingLogout(false)}
+            >
+              Остаться
+            </button>
+            <button type="button" className="soft-button confirm-exit" onClick={logout}>
+              Выйти
+            </button>
           </div>
-          <button
-            type="button"
-            className={isSettingsView ? 'soft-button active' : 'soft-button'}
-            onClick={() => setStageView('settings')}
-          >
-            Настройки
-          </button>
+        </section>
+      </main>
+    )
+  }
+
+  return (
+    <main
+      className={
+        isPremiumView
+          ? 'shell shell-settings shell-premium'
+          : isSettingsView
+            ? 'shell shell-settings'
+            : 'shell'
+      }
+    >
+      {!isSettingsView && !isPremiumView ? (
+        <aside className="rail">
+        <div className="account-header">
+          <div className="account-headline">
+            <div className="account-name">
+              <h2>{formatSessionName(session)}</h2>
+              {sessionHasPremium ? (
+                <span className="premium-crown" aria-label="Премиум">
+                  <img src="/icons/crown64.png" alt="" />
+                </span>
+              ) : null}
+            </div>
+            <button
+              className={quietMode ? 'ghost-button active' : 'ghost-button'}
+              type="button"
+              onClick={() => setQuietMode((current) => !current)}
+            >
+              Тихо
+            </button>
+          </div>
+          {session.status?.trim() ? (
+            <div className="account-status-row">
+              <p>{session.status}</p>
+            </div>
+          ) : null}
         </div>
 
         <div className="filters" aria-label="Фильтры чатов">
@@ -573,7 +1089,16 @@ function App() {
                 setSearchOpen(false)
               }}
             >
-              {filter}
+              {filter === '★' ? (
+                <img className="filter-icon" src="/icons/star100.png" alt="Избранное" />
+              ) : filter === 'Поиск' ? (
+                <img className="filter-icon" src="/icons/search100.svg" alt="Поиск" />
+              ) : (
+                <span>{filter}</span>
+              )}
+              {filter === 'Новые' && !quietMode && totalUnreadCount > 0 ? (
+                <span className="filter-badge">{totalUnreadCount}</span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -606,29 +1131,28 @@ function App() {
                       {chat.title.slice(0, 1)}
                     </span>
                     <span className="chat-copy">
-                      <span className="chat-topline">
-                        <strong>
-                          {chat.title}
-                          {chat.pinned ? <span className="chat-star"> ★</span> : null}
-                        </strong>
-                        <span>{quietMode ? '' : chat.messages.at(-1)?.time}</span>
+                    <span className="chat-topline">
+                      <span className="chat-name-row">
+                        <strong className="chat-name-text">{chat.title}</strong>
+                        {chat.premium ? (
+                          <span className="premium-crown chat-crown" aria-label="Премиум">
+                            <img src="/icons/crown64.png" alt="" />
+                          </span>
+                        ) : null}
+                        {chat.pinned ? (
+                          <span className="chat-star">
+                            <img src="/icons/star100.png" alt="Избранный контакт" />
+                          </span>
+                        ) : null}
                       </span>
-                      <span className="chat-handle">{chat.handle}</span>
-                      {!quietMode ? (
-                        chat.typing ? (
-                          <div className="chat-typing" aria-label={`${chat.title} печатает`}>
-                            <span className="typing-dot" />
-                            <span className="typing-dot" />
-                            <span className="typing-dot" />
-                            <span className="chat-typing-label">печатает...</span>
-                          </div>
-                        ) : (
-                          <span className="chat-preview">{formatPreview(chat)}</span>
-                        )
-                      ) : null}
+                      <span>{quietMode ? '' : chat.messages.at(-1)?.time}</span>
                     </span>
-                    {!quietMode && chat.unread > 0 ? <span className="badge">{chat.unread}</span> : null}
-                  </button>
+                    <span className="chat-handle">
+                      {searchShowsPhone ? chat.phone : chat.handle}
+                    </span>
+                  </span>
+                  {!quietMode && chat.unread > 0 ? <span className="badge">{chat.unread}</span> : null}
+                </button>
                 ))}
               </section>
             ) : null}
@@ -644,8 +1168,9 @@ function App() {
                     <span className="chat-topline">
                       <strong>{result.title}</strong>
                     </span>
-                    <span className="chat-handle">{result.handle}</span>
-                    <span className="chat-preview">{result.subtitle}</span>
+                    <span className="chat-handle">
+                      {searchShowsPhone ? result.phone : result.handle}
+                    </span>
                   </span>
                 </article>
               ))}
@@ -665,14 +1190,26 @@ function App() {
                 </span>
                 <span className="chat-copy">
                   <span className="chat-topline">
-                    <strong>
-                      {chat.title}
-                      {chat.pinned ? <span className="chat-star"> ★</span> : null}
-                    </strong>
+                    <span className="chat-name-row">
+                      <strong className="chat-name-text">{chat.title}</strong>
+                      {chat.premium ? (
+                        <span className="premium-crown chat-crown" aria-label="Премиум">
+                          <img src="/icons/crown64.png" alt="" />
+                        </span>
+                      ) : null}
+                      {chat.pinned ? (
+                        <span className="chat-star">
+                          <img src="/icons/star100.png" alt="Избранный контакт" />
+                        </span>
+                        ) : null}
+                    </span>
+                    {bottomSection === 'contacts' ? null : (
                       <span>{quietMode ? '' : chat.messages.at(-1)?.time}</span>
+                    )}
                   </span>
-                  <span className="chat-handle">{chat.handle}</span>
-                  {!quietMode ? (
+                  {bottomSection === 'contacts' ? (
+                    <span className="chat-preview chat-status-preview">{formatContactStatus(chat)}</span>
+                  ) : !quietMode ? (
                     chat.typing ? (
                       <div className="chat-typing" aria-label={`${chat.title} печатает`}>
                         <span className="typing-dot" />
@@ -685,33 +1222,96 @@ function App() {
                     )
                   ) : null}
                 </span>
-                  {!quietMode && chat.unread > 0 ? <span className="badge">{chat.unread}</span> : null}
+                {bottomSection === 'contacts' || quietMode || chat.unread <= 0 ? null : (
+                  <span className="badge">{chat.unread}</span>
+                )}
               </button>
             ))}
           </div>
         )}
-      </aside>
+
+        <div className="bottom-nav" aria-label="Основная навигация">
+          <button
+            type="button"
+            className={!searchOpen && bottomSection === 'chats' ? 'soft-button icon-button active' : 'soft-button icon-button'}
+            onClick={() => {
+              setBottomSection('chats')
+              setSearchOpen(false)
+              setQuery('')
+              setActiveFilter('Все')
+            }}
+            aria-label="Чаты"
+          >
+            <img src="/icons/chat100.png" alt="" />
+          </button>
+          <button
+            type="button"
+            className={!searchOpen && bottomSection === 'contacts' ? 'soft-button icon-button active' : 'soft-button icon-button'}
+            onClick={() => {
+              setBottomSection('contacts')
+              setSearchOpen(false)
+              setQuery('')
+              setActiveFilter('Все')
+            }}
+            aria-label="Контакты"
+          >
+            <img src="/icons/contacts100.svg" alt="" />
+          </button>
+          <button
+            type="button"
+            className={searchOpen ? 'soft-button icon-button active' : 'soft-button icon-button'}
+            onClick={() => {
+              setSearchOpen(true)
+              setActiveFilter('Поиск')
+            }}
+            aria-label="Поиск"
+          >
+            <img src="/icons/search100.svg" alt="" />
+          </button>
+          <button
+            type="button"
+            className="soft-button icon-button"
+            onClick={() => {
+              setStageView('premium')
+              setConfirmingLogout(false)
+              setPremiumGiftChatId(null)
+            }}
+            aria-label="Премиум"
+          >
+            <img src="/icons/crown100.png" alt="" />
+          </button>
+          <button
+            type="button"
+            className={isSettingsView ? 'soft-button icon-button active' : 'soft-button icon-button'}
+            onClick={() => {
+              setStageView('settings')
+              setSettingsView('profile')
+              setConfirmingLogout(false)
+            }}
+            aria-label="Настройки"
+          >
+            <img src="/icons/settings50.svg" alt="" />
+          </button>
+        </div>
+        </aside>
+      ) : null}
 
       <section
         className={
-          isSettingsView ? 'stage settings-open' : isChatOpen ? 'stage chat-open' : 'stage'
+          isPremiumView
+            ? 'stage settings-open premium-open'
+            : isSettingsView
+              ? 'stage settings-open'
+            : isChatOpen
+              ? 'stage chat-open'
+              : 'stage'
         }
       >
-        {!isSettingsView && !activeChat ? (
+        {!isSettingsView && !isPremiumView && !activeChat ? (
           <div className="hero-panel hero-panel-idle">
             <div>
               <p className="eyebrow">Личный канал</p>
-              <h2>Мессенджер для тихих разговоров и маленьких секретов.</h2>
-            </div>
-            <div className="hero-stats">
-              <div>
-                <strong>03</strong>
-                <span>режима приватности</span>
-              </div>
-              <div>
-                <strong>Local first</strong>
-                <span>сессия живёт в браузере</span>
-              </div>
+              <h2>Мессенджер для тихих разговоров и маленьких секретов</h2>
             </div>
           </div>
         ) : null}
@@ -722,60 +1322,258 @@ function App() {
               <div className="settings-heading">
                 <p className="eyebrow">Настройки</p>
                 <h2>{formatSessionName(session)}</h2>
+                <p className="settings-identity">{session.identifier}</p>
               </div>
 
-              <div className="settings-stack">
-                <article className="settings-item">
-                  <span className="settings-label">Имя</span>
-                  <input
+              {settingsView === 'profile' ? (
+                <div className="settings-stack">
+                  <article className="settings-item">
+                    <span className="settings-label">Имя</span>
+                    <input
                     type="text"
                     className="settings-input"
                     value={session.displayName}
+                    maxLength={profileFieldMaxLength}
                     onChange={(event) =>
                       updateSessionProfile({ displayName: event.target.value })
                     }
-                  />
-                </article>
-                <article className="settings-item">
-                  <span className="settings-label">Фамилия</span>
-                  <input
+                    />
+                  </article>
+                  <article className="settings-item">
+                    <span className="settings-label">Фамилия</span>
+                    <input
                     type="text"
                     className="settings-input"
                     value={session.surname ?? ''}
+                    maxLength={profileFieldMaxLength}
                     onChange={(event) =>
                       updateSessionProfile({ surname: event.target.value })
                     }
-                  />
-                </article>
-                <article className="settings-item">
-                  <span className="settings-label">Никнейм</span>
-                  <label className="settings-handle">
-                    <span>@</span>
+                    />
+                  </article>
+                  <article className="settings-item">
+                    <span className="settings-label">Статус</span>
                     <input
                       type="text"
-                      className="settings-input handle-input"
-                      value={session.nickname ?? ''}
-                      placeholder="nickname"
+                      className="settings-input"
+                      value={session.status ?? ''}
+                      placeholder="Статус не задан"
+                      maxLength={statusFieldMaxLength}
                       onChange={(event) =>
-                        updateSessionProfile({
-                          nickname: normalizeNickname(event.target.value),
-                        })
+                        updateSessionProfile({ status: event.target.value })
                       }
                     />
-                  </label>
+                  </article>
+                  <article className="settings-item">
+                    <span className="settings-label">Никнейм</span>
+                    <label className="settings-handle">
+                      <span>@</span>
+                      <input
+                        type="text"
+                        className="settings-input handle-input"
+                        value={session.nickname ?? ''}
+                        placeholder="nickname"
+                        maxLength={profileFieldMaxLength}
+                        onChange={(event) =>
+                          updateSessionProfile({
+                            nickname: normalizeNickname(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                  </article>
+                </div>
+              ) : settingsView === 'management' ? (
+                <div className="settings-stack">
+                  <article className="settings-item">
+                    <span className="settings-label">Аккаунт</span>
+                    <p className="settings-text">
+                      Управление номером, учётной записью и запросами на удаление данных.
+                    </p>
+                  </article>
+                  <button
+                    type="button"
+                    className="settings-action-card"
+                    onClick={() => setSettingsView('blocked')}
+                  >
+                    Заблокированные контакты
+                  </button>
+                  <button type="button" className="settings-action-card">
+                    Сменить номер телефона
+                  </button>
+                  <button type="button" className="settings-action-card danger">
+                    Удалить аккаунт
+                  </button>
+                  <button type="button" className="settings-action-card danger">
+                    Удалить данные и аккаунт
+                  </button>
+                </div>
+              ) : (
+                <div className="settings-stack">
+                  <article className="settings-item">
+                    <span className="settings-label">Заблокированные контакты</span>
+                    <p className="settings-text">
+                      Контакты скрыты из списка, но переписка с ними сохранена.
+                    </p>
+                  </article>
+                  {blockedChats.length > 0 ? (
+                    blockedChats.map((chat) => (
+                      <button
+                        key={chat.id}
+                        type="button"
+                        className="settings-action-card"
+                        onClick={() => setBlockedActionChatId(chat.id)}
+                      >
+                        {chat.title}
+                      </button>
+                    ))
+                  ) : (
+                    <article className="settings-item">
+                      <p className="settings-text">Пока нет заблокированных контактов.</p>
+                    </article>
+                  )}
+                  {blockedActionChatId !== null ? (
+                    <div className="settings-popover">
+                      <button
+                        type="button"
+                        className="settings-action-card danger"
+                        onClick={() => deleteChatHistory(blockedActionChatId)}
+                      >
+                        Удалить переписку
+                      </button>
+                      <button
+                        type="button"
+                        className="settings-action-card"
+                        onClick={() => unblockChat(blockedActionChatId)}
+                      >
+                        Вернуть контакт
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="soft-button"
+                  onClick={() => {
+                    setStageView('main')
+                    setConfirmingLogout(false)
+                  }}
+                >
+                  Назад
+                </button>
+                {settingsView === 'profile' ? (
+                  <button
+                    type="button"
+                    className="soft-button"
+                    onClick={() => {
+                      setSettingsView('management')
+                      setConfirmingLogout(false)
+                      setBlockedActionChatId(null)
+                    }}
+                  >
+                    Управление
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="soft-button"
+                    onClick={() => {
+                      setSettingsView(settingsView === 'blocked' ? 'management' : 'profile')
+                      setConfirmingLogout(false)
+                      setBlockedActionChatId(null)
+                    }}
+                  >
+                    {settingsView === 'blocked' ? 'Управление' : 'К настройкам'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => setConfirmingLogout(true)}
+                >
+                  Выйти
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {isPremiumView ? (
+          <section className="settings-view premium-view">
+            <div className="settings-panel premium-panel">
+              <div className="settings-heading premium-heading">
+                {premiumGiftChat ? (
+                  <>
+                    <div className="premium-gift-title">
+                      <h2>Подарить Премиум</h2>
+                      <img src="/icons/crown100.png" alt="" />
+                    </div>
+                    <p className="premium-gift-contact">{`Контакту ${premiumGiftChat.title}`}</p>
+                  </>
+                ) : (
+                  <h2>Премиум Тайничок</h2>
+                )}
+                <p className="settings-copy">
+                  {premiumGiftChat
+                    ? 'В Тайничке нет рекламы, поэтому, совершая покупку, вы помогаете обслуживать серверы.'
+                    : 'В Тайничке нет рекламы, поэтому, совершая покупку, вы помогаете обслуживать серверы.'}
+                </p>
+                {!premiumGiftChat && sessionHasPremium && premiumDaysLeft !== null ? (
+                  <p className="premium-gift-contact">
+                    {premiumDaysLeft > 0
+                      ? `Премиум активен ещё ${premiumDaysLeft} дн.`
+                      : 'Премиум заканчивается сегодня'}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="premium-stack">
+                <article className="premium-card">
+                  <div className="premium-price">
+                    <strong>199р</strong>
+                    <span>/ месяц</span>
+                  </div>
+                  <p className="premium-note">Для спокойного доступа ко всем премиум-возможностям.</p>
+                  <ul className="premium-features">
+                    <li>Скидывать картинки</li>
+                    <li>Отправлять голосовые сообщения</li>
+                    <li>Создавать группы</li>
+                  </ul>
+                  <button type="button" className="send-button premium-submit">
+                    Выбрать месяц
+                  </button>
                 </article>
-                <article className="settings-item">
-                  <span className="settings-label">Логин</span>
-                  <strong>{session.identifier}</strong>
+
+                <article className="premium-card premium-card-annual">
+                  <div className="premium-price">
+                    <strong>1390р</strong>
+                    <span>/ год</span>
+                  </div>
+                  <p className="premium-note">Выгоднее для тех, кто остаётся в Тайничке надолго.</p>
+                  <ul className="premium-features">
+                    <li>Скидывать картинки</li>
+                    <li>Отправлять голосовые сообщения</li>
+                    <li>Создавать группы</li>
+                  </ul>
+                  <button type="button" className="send-button premium-submit">
+                    Выбрать год
+                  </button>
                 </article>
               </div>
 
               <div className="settings-actions">
-                <button type="button" className="soft-button" onClick={() => setStageView('main')}>
-                  К чатам
-                </button>
-                <button type="button" className="ghost-button" onClick={logout}>
-                  Выйти
+                <button
+                  type="button"
+                  className="soft-button"
+                  onClick={() => {
+                    setStageView('main')
+                    setPremiumGiftChatId(null)
+                  }}
+                >
+                  Назад
                 </button>
               </div>
             </div>
@@ -791,19 +1589,88 @@ function App() {
                 </span>
                 <div>
                   <div className="room-title">
-                    <h3>{activeChat.title}</h3>
-                    <button
-                      type="button"
-                      className={activeChat.pinned ? 'soft-button active room-star' : 'soft-button room-star'}
-                      onClick={() => togglePinnedChat(activeChat.id)}
-                    >
-                      ★
-                    </button>
+                    <div className="room-title-name">
+                      <h3>{activeChat.title}</h3>
+                      {activeChat.premium ? (
+                        <span className="premium-crown room-crown" aria-label="Премиум">
+                          <img src="/icons/crown64.png" alt="" />
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <p>
                     {quietMode ? `${activeChat.mood} · без уведомлений` : `${activeChat.mood} · ${activeChat.status}`}
                   </p>
                 </div>
+              </div>
+              <div className="room-actions">
+                <button
+                  type="button"
+                  className={activeChat.pinned ? 'soft-button active room-star' : 'soft-button room-star'}
+                  onClick={() => togglePinnedChat(activeChat.id)}
+                  aria-label="Избранное"
+                >
+                  <img src="/icons/star100.png" alt="" />
+                </button>
+                <button
+                  type="button"
+                  className="soft-button room-menu-button"
+                  onClick={() => setChatActionsOpen((current) => !current)}
+                  aria-label="Меню контакта"
+                >
+                  ...
+                </button>
+                {chatActionsOpen ? (
+                  <>
+                    <button
+                      type="button"
+                      className="room-menu-scrim"
+                      aria-label="Закрыть меню"
+                      onClick={() => setChatActionsOpen(false)}
+                    />
+                    <div className="room-menu">
+                      <button
+                        type="button"
+                        className="room-menu-item room-menu-item-premium"
+                        onClick={() => {
+                          setPremiumGiftChatId(activeChat.id)
+                          setStageView('premium')
+                          setChatActionsOpen(false)
+                        }}
+                      >
+                        <span>Подарить</span>
+                        <img src="/icons/crown100.png" alt="" />
+                      </button>
+                      <button
+                        type="button"
+                        className="room-menu-item danger"
+                        onClick={() => blockChat(activeChat.id)}
+                      >
+                        Заблокировать
+                      </button>
+                      <button
+                        type="button"
+                        className="room-menu-item danger"
+                        onClick={() => {
+                          setConfirmingDeleteContactChatId(activeChat.id)
+                          setChatActionsOpen(false)
+                        }}
+                      >
+                        Удалить контакт
+                      </button>
+                      <button
+                        type="button"
+                        className="room-menu-item danger"
+                        onClick={() => {
+                          setConfirmingDeleteHistoryChatId(activeChat.id)
+                          setChatActionsOpen(false)
+                        }}
+                      >
+                        Удалить переписку
+                      </button>
+                    </div>
+                  </>
+                ) : null}
               </div>
             </header>
 
@@ -847,6 +1714,86 @@ function App() {
                 </button>
               </div>
             </form>
+
+            {confirmingDeleteHistoryChatId !== null ? (
+              <>
+                <button
+                  type="button"
+                  className="room-confirm-scrim"
+                  aria-label="Закрыть подтверждение"
+                  onClick={() => setConfirmingDeleteHistoryChatId(null)}
+                />
+                <div className="room-confirm">
+                  <p className="room-confirm-copy">
+                    Вы точно хотите удалить всю переписку с этим контактом?
+                  </p>
+                  <div className="room-confirm-actions">
+                    <button
+                      type="button"
+                      className="room-confirm-button room-confirm-danger"
+                      onClick={() => deleteChatHistory(confirmingDeleteHistoryChatId)}
+                    >
+                      Удалить у меня
+                    </button>
+                    <button
+                      type="button"
+                      className="room-confirm-button room-confirm-danger"
+                      onClick={() => deleteChatHistory(confirmingDeleteHistoryChatId)}
+                    >
+                      Удалить у всех
+                    </button>
+                    <button
+                      type="button"
+                      className="room-confirm-button"
+                      onClick={() => setConfirmingDeleteHistoryChatId(null)}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {confirmingDeleteContactChatId !== null ? (
+              <>
+                <button
+                  type="button"
+                  className="room-confirm-scrim"
+                  aria-label="Закрыть подтверждение удаления контакта"
+                  onClick={() => setConfirmingDeleteContactChatId(null)}
+                />
+                <div className="room-confirm">
+                  <p className="room-confirm-copy">
+                    {`Удалить контакт ${
+                      chats.find((chat) => chat.id === confirmingDeleteContactChatId)?.title ?? ''
+                    } и всю переписку с ним?`}
+                  </p>
+                  <div className="room-confirm-actions">
+                    <button
+                      type="button"
+                      className="room-confirm-button room-confirm-danger"
+                      onClick={() => blockThenDeleteChat(confirmingDeleteContactChatId)}
+                    >
+                      Удалить и заблокировать
+                    </button>
+                    <button
+                      type="button"
+                      className="room-confirm-button room-confirm-danger"
+                      onClick={() => deleteContact(confirmingDeleteContactChatId)}
+                    >
+                      Да, удалить
+                    </button>
+                    <button
+                      type="button"
+                      className="room-confirm-button"
+                      onClick={() => setConfirmingDeleteContactChatId(null)}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : null}
           </section>
         ) : null}
       </section>
