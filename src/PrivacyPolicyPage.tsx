@@ -1,4 +1,5 @@
 import {
+  privacyPolicyLead,
   privacyPolicyPdfPath,
   privacyPolicySections,
   privacyPolicyUpdatedAt,
@@ -19,11 +20,7 @@ export function PrivacyPolicyPage() {
             <div className="policy-page-badge">Редакция от {privacyPolicyUpdatedAt}</div>
           </div>
 
-          <p className="policy-page-copy">
-            На этой странице собрана актуальная информация по обработке персональных данных в
-            сервисе Tinychok. Полный юридически значимый текст политики доступен в PDF-файле,
-            размещённом в проекте.
-          </p>
+          <p className="policy-page-copy">{privacyPolicyLead}</p>
 
           <div className="policy-page-actions">
             <a
@@ -64,22 +61,25 @@ export function PrivacyPolicyPage() {
             <article key={section.title} className="policy-page-section">
               <h2>{section.title}</h2>
 
-              {section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-
-              {section.bullets?.length ? (
-                <ul className="policy-page-list">
-                  {section.bullets.map((bullet) => (
-                    <li key={bullet}>{bullet}</li>
-                  ))}
-                </ul>
-              ) : null}
+              {section.blocks.map((block) =>
+                block.type === 'paragraph' ? (
+                  <p key={block.content}>{block.content}</p>
+                ) : (
+                  <ul className="policy-page-list" key={block.items.join('|')}>
+                    {block.items.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ),
+              )}
             </article>
           ))}
         </section>
 
         <footer className="policy-page-footer">
           <span className="policy-page-caption">
-            Актуальная PDF-версия хранится в публичной папке проекта и доступна по прямой ссылке.
+            На странице размещён полный текст документа, а PDF-версия хранится в публичной папке
+            проекта и доступна по прямой ссылке.
           </span>
           <a
             className="policy-page-button"

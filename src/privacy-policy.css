@@ -28,8 +28,8 @@
 }
 
 .policy-page-topline {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   align-items: start;
 }
@@ -45,11 +45,12 @@
 
 .policy-page-title {
   margin: 0;
-  max-width: 14ch;
+  max-width: min(22ch, 100%);
   font-size: clamp(2.1rem, 4vw, 3.5rem);
   line-height: 0.94;
   letter-spacing: -0.06em;
   color: var(--ink);
+  text-wrap: balance;
 }
 
 .policy-page-copy {
@@ -172,7 +173,7 @@
   }
 
   .policy-page-topline {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .policy-page-badge {
