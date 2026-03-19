@@ -125,6 +125,8 @@ const displayNameFieldMaxLength = 24
 const surnameFieldMaxLength = 32
 const nicknameFieldMaxLength = 16
 const statusFieldMaxLength = 80
+const accountNameMaxFontSize = 30.4
+const accountNameMinFontSize = 20
 const accountStatusMaxFontSize = 15
 const accountStatusMinFontSize = 10.5
 const channelTitleMaxLength = 30
@@ -634,6 +636,16 @@ function formatPreview(chat: Chat) {
   return latest ? latest.text : 'Пока пусто'
 }
 
+function formatGroupPreview(group: GroupPreview) {
+  const latest = group.messages.at(-1)
+  return latest ? latest.text : group.preview
+}
+
+function formatGroupTime(group: GroupPreview) {
+  const latest = group.messages.at(-1)
+  return latest ? latest.time : group.time
+}
+
 function formatMessageAuthor(author: Message['author'], chatTitle: string) {
   return author === 'me' ? 'Вы' : chatTitle
 }
@@ -731,11 +743,23 @@ function getActionAnchor(element: HTMLElement, align: 'start' | 'end' = 'start')
   }
 }
 
+function scheduleActionAnchor(
+  element: HTMLElement,
+  align: 'start' | 'end',
+  setAnchor: (anchor: ActionAnchor) => void,
+) {
+  window.requestAnimationFrame(() => {
+    if (!element.isConnected) return
+    setAnchor(getActionAnchor(element, align))
+  })
+}
+
 function getAnchoredMenuStyle(anchor: ActionAnchor, menuWidth: number, menuHeight: number) {
+  const menuOffset = 16
   const top =
-    anchor.bottom + 12 + menuHeight <= window.innerHeight - 16
-      ? anchor.bottom + 12
-      : Math.max(16, anchor.top - menuHeight - 12)
+    anchor.bottom + menuOffset + menuHeight <= window.innerHeight - 16
+      ? anchor.bottom + menuOffset
+      : Math.max(16, anchor.top - menuHeight - menuOffset)
   const preferredLeft = anchor.align === 'end' ? anchor.right - menuWidth : anchor.left
   const left = Math.min(window.innerWidth - menuWidth - 16, Math.max(16, preferredLeft))
 
@@ -743,6 +767,40 @@ function getAnchoredMenuStyle(anchor: ActionAnchor, menuWidth: number, menuHeigh
     top: `${top}px`,
     left: `${left}px`,
     width: `${menuWidth}px`,
+  }
+}
+
+function useAnchoredMenu(anchor: ActionAnchor | null, menuWidth: number, fallbackHeight: number) {
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const [menuHeight, setMenuHeight] = useState(fallbackHeight)
+
+  useLayoutEffect(() => {
+    if (anchor === null) return
+
+    const menuNode = menuRef.current
+    if (menuNode === null) return
+
+    const measureMenu = () => {
+      const nextHeight = menuNode.offsetHeight || fallbackHeight
+
+      setMenuHeight((currentHeight) => (Math.abs(currentHeight - nextHeight) < 1 ? currentHeight : nextHeight))
+    }
+
+    measureMenu()
+
+    const resizeObserver = new ResizeObserver(measureMenu)
+    resizeObserver.observe(menuNode)
+    window.addEventListener('resize', measureMenu)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', measureMenu)
+    }
+  }, [anchor, fallbackHeight])
+
+  return {
+    menuRef,
+    style: anchor ? getAnchoredMenuStyle(anchor, menuWidth, menuHeight) : undefined,
   }
 }
 
@@ -901,6 +959,7 @@ function loadSession() {
 
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
+  const accountNameRef = useRef<HTMLHeadingElement | null>(null)
   const accountStatusRef = useRef<HTMLParagraphElement | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const channelsPanelRef = useRef<HTMLDivElement | null>(null)
@@ -922,6 +981,7 @@ function App() {
   const [settingsView, setSettingsView] = useState<SettingsView>('profile')
   const [query, setQuery] = useState('')
   const [messageDraft, setMessageDraft] = useState('')
+  const [groupMessageDrafts, setGroupMessageDrafts] = useState<Record<number, string>>({})
   const [selectedAttachmentName, setSelectedAttachmentName] = useState('')
   const [activeFilter, setActiveFilter] = useState('Все')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -1069,6 +1129,23 @@ function App() {
     activeGroupMessageId === null
       ? null
       : activeGroup?.messages.find((message) => message.id === activeGroupMessageId) ?? null
+  const subscriptionMenuFallbackHeight =
+    activeSubscriptionChannel?.visibility === 'closed' ? channelBlockedMenuHeight : channelActionMenuHeight
+  const { menuRef: subscriptionPostMenuRef, style: subscriptionPostMenuStyle } = useAnchoredMenu(
+    subscriptionPostActionAnchor,
+    channelActionMenuWidth,
+    subscriptionMenuFallbackHeight,
+  )
+  const { menuRef: groupMessageMenuRef, style: groupMessageMenuStyle } = useAnchoredMenu(
+    groupMessageActionAnchor,
+    channelActionMenuWidth,
+    channelActionMenuHeight,
+  )
+  const { menuRef: messageMenuRef, style: messageMenuStyle } = useAnchoredMenu(
+    messageActionAnchor,
+    chatActionMenuWidth,
+    chatActionMenuHeight,
+  )
   const transferringChannel =
     transferringChannelId === null
       ? null
@@ -1099,6 +1176,7 @@ function App() {
   const isSubscriptionChannelOpen = stageView === 'main' && activeSubscriptionChannel !== null
   const isChannelsTopListOpen = topListView === 'channels'
   const isGroupsTopListOpen = topListView === 'groups'
+  const isAnyRoomOpen = isChatOpen || isSubscriptionChannelOpen || isGroupOpen
   const visibleRetainedSubscriptionChannelId =
     isChannelsTopListOpen &&
     stageView === 'main' &&
@@ -1130,6 +1208,7 @@ function App() {
   const totalChannelNotifications = subscriptionChannels.reduce((sum, channel) => sum + channel.unread, 0)
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
   const sessionHasPremium = session?.premium ?? true
+  const sessionName = session ? formatSessionName(session) : ''
   const premiumDaysLeft = getPremiumDaysLeft(sessionHasPremium, session?.premiumExpiresAt)
   const authExistingAccount = normalizeIdentifier(identifier)
     ? loadAccounts().find((account) => account.identifier === normalizeIdentifier(identifier)) ?? null
@@ -1172,6 +1251,29 @@ function App() {
     return () => window.clearTimeout(timeoutId)
   }, [copyHintText])
 
+  const adjustAccountNameFontSize = useCallback(() => {
+    const nameNode = accountNameRef.current
+
+    if (!nameNode) return
+
+    if (!sessionName.trim()) {
+      nameNode.style.removeProperty('font-size')
+      return
+    }
+
+    let nextFontSize = accountNameMaxFontSize
+    nameNode.style.fontSize = `${nextFontSize}px`
+
+    const computedStyle = window.getComputedStyle(nameNode)
+    const lineHeight = Number.parseFloat(computedStyle.lineHeight) || nextFontSize * 0.98
+    const maxHeight = lineHeight * 2 + 1
+
+    while (nameNode.scrollHeight > maxHeight && nextFontSize > accountNameMinFontSize) {
+      nextFontSize -= 0.5
+      nameNode.style.fontSize = `${nextFontSize}px`
+    }
+  }, [sessionName])
+
   const adjustAccountStatusFontSize = useCallback(() => {
     const statusNode = accountStatusRef.current
     const statusValue = session?.status?.trim()
@@ -1197,17 +1299,28 @@ function App() {
   }, [session?.status])
 
   useLayoutEffect(() => {
+    adjustAccountNameFontSize()
+  }, [adjustAccountNameFontSize])
+
+  useLayoutEffect(() => {
     adjustAccountStatusFontSize()
   }, [adjustAccountStatusFontSize])
 
   useEffect(() => {
-    if (!session?.status?.trim()) return
+    const hasName = sessionName.trim() !== ''
+    const hasStatus = Boolean(session?.status?.trim())
 
-    const handleResize = () => adjustAccountStatusFontSize()
+    if (!hasName && !hasStatus) return
+
+    const handleResize = () => {
+      adjustAccountNameFontSize()
+      adjustAccountStatusFontSize()
+    }
+
     window.addEventListener('resize', handleResize)
 
     return () => window.removeEventListener('resize', handleResize)
-  }, [adjustAccountStatusFontSize, session?.status])
+  }, [adjustAccountNameFontSize, adjustAccountStatusFontSize, session?.status, sessionName])
 
   function persistSession(nextSession: Session | null) {
     setSession(nextSession)
@@ -1338,6 +1451,9 @@ function App() {
     setDisplayName('')
     setSmsCode('')
     setAuthStep('phone')
+    setMessageDraft('')
+    setGroupMessageDrafts({})
+    setSelectedAttachmentName('')
     setConfirmingLogout(false)
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
@@ -1406,8 +1522,68 @@ function App() {
     setReplyTarget(null)
   }
 
+  function updateGroupDraft(groupId: number, value: string) {
+    setGroupMessageDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [groupId]: value,
+    }))
+  }
+
+  function sendGroupMessage() {
+    if (!activeGroup) return
+
+    const text = (groupMessageDrafts[activeGroup.id] ?? '').trim()
+    if (!text) return
+
+    setGroups((currentGroups) =>
+      currentGroups.map((group) =>
+        group.id === activeGroup.id
+          ? {
+              ...group,
+              unread: 0,
+              messages: [
+                ...group.messages,
+                {
+                  id: Date.now() + group.id,
+                  author: 'me',
+                  text,
+                  time: formatNowTime(),
+                },
+              ],
+            }
+          : group,
+      ),
+    )
+
+    setGroupMessageDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [activeGroup.id]: '',
+    }))
+    closeGroupMessageActions()
+  }
+
   function openAttachmentPicker() {
     attachmentInputRef.current?.click()
+  }
+
+  function closeActiveRoom() {
+    setActiveChatId(null)
+    setActiveSubscriptionChannelId(null)
+    setActiveSubscriptionPostId(null)
+    setActiveGroupId(null)
+    setActiveGroupMessageId(null)
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    setReplyTarget(null)
+    setChatActionsOpen(false)
+    setConfirmingDeleteHistoryChatId(null)
+    setConfirmingDeleteContactChatId(null)
+    setConfirmingDeleteMessageId(null)
+    setForwardingSubscriptionPostText('')
+    setForwardingGroupMessageText('')
+    setMessageActionAnchor(null)
+    setSubscriptionPostActionAnchor(null)
+    setGroupMessageActionAnchor(null)
   }
 
   function openSubscriptionChannel(channelId: number) {
@@ -2125,22 +2301,169 @@ function App() {
     )
   }
 
+  const shellClassName = [
+    'shell',
+    isPremiumView
+      ? 'shell-settings shell-premium'
+      : isSettingsView || isChannelsView
+        ? 'shell-settings'
+        : '',
+    !isSettingsView && !isPremiumView && !isChannelsView && !isAnyRoomOpen ? 'shell-main-list' : '',
+    !isSettingsView && !isPremiumView && !isChannelsView && isAnyRoomOpen ? 'shell-main-room' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const subscriptionPostActions = activeSubscriptionPost ? (
+    <>
+      <button
+        type="button"
+        className="room-confirm-scrim"
+        aria-label="Закрыть действия с постом канала"
+        onClick={closeSubscriptionPostActions}
+      />
+      {activeSubscriptionChannel?.visibility === 'closed' ? (
+        subscriptionPostActionAnchor ? (
+          <div
+            ref={subscriptionPostMenuRef}
+            className="message-menu message-menu-note"
+            style={subscriptionPostMenuStyle}
+          >
+            <p className="room-confirm-copy">
+              Канал имеет тип "закрытый", копирование и пересылка сообщений запрещена
+            </p>
+          </div>
+        ) : null
+      ) : forwardingSubscriptionPostText ? (
+        <div className="room-confirm room-forward">
+          <p className="room-confirm-copy">Кому переслать сообщение?</p>
+          <div className="room-forward-list">
+            {availableChats.map((chat) => (
+              <button
+                key={chat.id}
+                type="button"
+                className="room-forward-item"
+                onClick={() => {
+                  forwardTextToChat(chat.id, forwardingSubscriptionPostText)
+                  closeSubscriptionPostActions()
+                }}
+              >
+                <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                  {chat.title.slice(0, 1)}
+                </span>
+                <span>{chat.title}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="room-confirm-button"
+            onClick={() => setForwardingSubscriptionPostText('')}
+          >
+            Назад
+          </button>
+        </div>
+      ) : subscriptionPostActionAnchor ? (
+        <div
+          ref={subscriptionPostMenuRef}
+          className="message-menu"
+          style={subscriptionPostMenuStyle}
+        >
+          <button
+            type="button"
+            className="message-menu-item"
+            onClick={() => setForwardingSubscriptionPostText(activeSubscriptionPost.text)}
+          >
+            Переслать
+          </button>
+          <button
+            type="button"
+            className="message-menu-item"
+            onClick={() => {
+              copyToClipboard(activeSubscriptionPost.text, 'Сообщение скопировано')
+              closeSubscriptionPostActions()
+            }}
+          >
+            Скопировать
+          </button>
+        </div>
+      ) : null}
+    </>
+  ) : null
+
+  const groupMessageActions = activeGroupMessage ? (
+    <>
+      <button
+        type="button"
+        className="room-confirm-scrim"
+        aria-label="Закрыть действия с сообщением группы"
+        onClick={closeGroupMessageActions}
+      />
+      {forwardingGroupMessageText ? (
+        <div className="room-confirm room-forward">
+          <p className="room-confirm-copy">Кому переслать сообщение?</p>
+          <div className="room-forward-list">
+            {availableChats.map((chat) => (
+              <button
+                key={chat.id}
+                type="button"
+                className="room-forward-item"
+                onClick={() => {
+                  forwardTextToChat(chat.id, forwardingGroupMessageText)
+                  closeGroupMessageActions()
+                }}
+              >
+                <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                  {chat.title.slice(0, 1)}
+                </span>
+                <span>{chat.title}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="room-confirm-button"
+            onClick={() => setForwardingGroupMessageText('')}
+          >
+            Назад
+          </button>
+        </div>
+      ) : groupMessageActionAnchor ? (
+        <div
+          ref={groupMessageMenuRef}
+          className="message-menu"
+          style={groupMessageMenuStyle}
+        >
+          <button
+            type="button"
+            className="message-menu-item"
+            onClick={() => setForwardingGroupMessageText(activeGroupMessage.text)}
+          >
+            Переслать
+          </button>
+          <button
+            type="button"
+            className="message-menu-item"
+            onClick={() => {
+              copyToClipboard(activeGroupMessage.text, 'Сообщение скопировано')
+              closeGroupMessageActions()
+            }}
+          >
+            Скопировать
+          </button>
+        </div>
+      ) : null}
+    </>
+  ) : null
+
   return (
-    <main
-      className={
-        isPremiumView
-          ? 'shell shell-settings shell-premium'
-          : isSettingsView || isChannelsView
-            ? 'shell shell-settings'
-            : 'shell'
-      }
-    >
+    <main className={shellClassName}>
       {!isSettingsView && !isPremiumView && !isChannelsView ? (
         <aside className="rail">
         <div className="account-header">
-          <div className="account-headline">
-            <div className="account-name">
-              <h2>{formatSessionName(session)}</h2>
+            <div className="account-headline">
+              <div className="account-name">
+              <h2 ref={accountNameRef}>{sessionName}</h2>
             </div>
             <div className="quiet-toggle-stack">
               {sessionHasPremium ? (
@@ -2404,10 +2727,10 @@ function App() {
                         <img src="/icons/group100.png" alt="Группа" />
                       </span>
                     </span>
-                    <span className="group-time">{group.time}</span>
+                    <span className="group-time">{formatGroupTime(group)}</span>
                   </span>
                   <span className="chat-handle">{`${group.handle} · ${group.members} участников`}</span>
-                  <span className="chat-preview">{group.preview}</span>
+                  <span className="chat-preview">{formatGroupPreview(group)}</span>
                 </span>
                 {!quietMode && group.unread > 0 ? <span className="badge">{group.unread}</span> : null}
               </button>
@@ -3215,6 +3538,9 @@ function App() {
         {isSubscriptionChannelOpen ? (
           <section className="chat-room channel-room">
             <header className="room-header">
+              <button type="button" className="soft-button room-mobile-back" onClick={closeActiveRoom}>
+                Назад
+              </button>
               <div className="room-id">
                 <span className="avatar large" style={{ backgroundColor: activeSubscriptionChannel.accent }}>
                   {activeSubscriptionChannel.title.slice(0, 1)}
@@ -3245,7 +3571,7 @@ function App() {
                   }
                   onClick={(event) => {
                     setActiveSubscriptionPostId(post.id)
-                    setSubscriptionPostActionAnchor(getActionAnchor(event.currentTarget, 'start'))
+                    scheduleActionAnchor(event.currentTarget, 'start', setSubscriptionPostActionAnchor)
                     setForwardingSubscriptionPostText('')
                   }}
                 >
@@ -3255,12 +3581,17 @@ function App() {
                 </button>
               ))}
             </div>
+
+            {subscriptionPostActions}
           </section>
         ) : null}
 
         {isGroupOpen ? (
-          <section className="chat-room channel-room">
+          <section className="chat-room">
             <header className="room-header">
+              <button type="button" className="soft-button room-mobile-back" onClick={closeActiveRoom}>
+                Назад
+              </button>
               <div className="room-id">
                 <span className="avatar large" style={{ backgroundColor: activeGroup.accent }}>
                   {activeGroup.title.slice(0, 1)}
@@ -3295,8 +3626,10 @@ function App() {
                   }
                   onClick={(event) => {
                     setActiveGroupMessageId(message.id)
-                    setGroupMessageActionAnchor(
-                      getActionAnchor(event.currentTarget, message.author === 'me' ? 'end' : 'start'),
+                    scheduleActionAnchor(
+                      event.currentTarget,
+                      message.author === 'me' ? 'end' : 'start',
+                      setGroupMessageActionAnchor,
                     )
                     setForwardingGroupMessageText('')
                   }}
@@ -3309,12 +3642,38 @@ function App() {
                 </button>
               ))}
             </div>
+
+            <form
+              className="composer"
+              onSubmit={(event) => {
+                event.preventDefault()
+                sendGroupMessage()
+              }}
+            >
+              <div className="composer-input">
+                <textarea
+                  rows={3}
+                  placeholder="Напиши сообщение в группу..."
+                  value={groupMessageDrafts[activeGroup.id] ?? ''}
+                  onFocus={closeGroupMessageActions}
+                  onChange={(event) => updateGroupDraft(activeGroup.id, event.target.value)}
+                />
+                <button type="submit" className="send-button composer-send">
+                  Отправить
+                </button>
+              </div>
+            </form>
+
+            {groupMessageActions}
           </section>
         ) : null}
 
         {isChatOpen ? (
           <section className={pinnedMessage ? 'chat-room has-pinned-message' : 'chat-room'}>
             <header className="room-header">
+              <button type="button" className="soft-button room-mobile-back" onClick={closeActiveRoom}>
+                Назад
+              </button>
               <div className="room-id">
                 <span className="avatar large" style={{ backgroundColor: activeChat.accent }}>
                   {activeChat.title.slice(0, 1)}
@@ -3444,8 +3803,10 @@ function App() {
                   }
                   onClick={(event) => {
                     setMessageActionMessageId(message.id)
-                    setMessageActionAnchor(
-                      getActionAnchor(event.currentTarget, message.author === 'me' ? 'end' : 'start'),
+                    scheduleActionAnchor(
+                      event.currentTarget,
+                      message.author === 'me' ? 'end' : 'start',
+                      setMessageActionAnchor,
                     )
                   }}
                 >
@@ -3532,57 +3893,52 @@ function App() {
                     setMessageActionAnchor(null)
                   }}
                 />
-                <div
-                  className="message-menu"
-                  style={
-                    messageActionAnchor
-                      ? getAnchoredMenuStyle(
-                          messageActionAnchor,
-                          chatActionMenuWidth,
-                          chatActionMenuHeight,
-                        )
-                      : undefined
-                  }
-                >
-                  <button type="button" className="message-menu-item" onClick={() => replyToMessage(activeMessage)}>
-                    Ответить
-                  </button>
-                  <button
-                    type="button"
-                    className="message-menu-item"
-                    onClick={() => copyMessageText(activeMessage.text)}
+                {messageActionAnchor ? (
+                  <div
+                    ref={messageMenuRef}
+                    className="message-menu"
+                    style={messageMenuStyle}
                   >
-                    Копировать текст
-                  </button>
-                  <button
-                    type="button"
-                    className="message-menu-item"
-                    onClick={() => pinMessage(activeChat.id, activeMessage.id)}
-                  >
-                    Закрепить
-                  </button>
-                  <button
-                    type="button"
-                    className="message-menu-item"
-                    onClick={() => {
-                      setForwardingMessageId(activeMessage.id)
-                      setMessageActionMessageId(null)
-                      setMessageActionAnchor(null)
-                    }}
-                  >
-                    Переслать
-                  </button>
-                  <button
-                    type="button"
-                    className="message-menu-item danger"
-                    onClick={() => {
-                      setConfirmingDeleteMessageId(activeMessage.id)
-                      setMessageActionMessageId(null)
-                    }}
-                  >
-                    Удалить
-                  </button>
-                </div>
+                    <button type="button" className="message-menu-item" onClick={() => replyToMessage(activeMessage)}>
+                      Ответить
+                    </button>
+                    <button
+                      type="button"
+                      className="message-menu-item"
+                      onClick={() => copyMessageText(activeMessage.text)}
+                    >
+                      Копировать текст
+                    </button>
+                    <button
+                      type="button"
+                      className="message-menu-item"
+                      onClick={() => pinMessage(activeChat.id, activeMessage.id)}
+                    >
+                      Закрепить
+                    </button>
+                    <button
+                      type="button"
+                      className="message-menu-item"
+                      onClick={() => {
+                        setForwardingMessageId(activeMessage.id)
+                        setMessageActionMessageId(null)
+                        setMessageActionAnchor(null)
+                      }}
+                    >
+                      Переслать
+                    </button>
+                    <button
+                      type="button"
+                      className="message-menu-item danger"
+                      onClick={() => {
+                        setConfirmingDeleteMessageId(activeMessage.id)
+                        setMessageActionMessageId(null)
+                      }}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                ) : null}
               </>
             ) : null}
 
@@ -3858,167 +4214,6 @@ function App() {
                   onClick={closeChannelTransfer}
                 >
                   Назад
-                </button>
-              </div>
-            )}
-          </>
-        ) : null}
-
-        {activeSubscriptionPost ? (
-          <>
-            <button
-              type="button"
-              className="room-confirm-scrim"
-              aria-label="Закрыть действия с постом канала"
-              onClick={closeSubscriptionPostActions}
-            />
-            {activeSubscriptionChannel?.visibility === 'closed' ? (
-              <div
-                className="message-menu message-menu-note"
-                style={
-                  subscriptionPostActionAnchor
-                    ? getAnchoredMenuStyle(
-                        subscriptionPostActionAnchor,
-                        channelActionMenuWidth,
-                        channelBlockedMenuHeight,
-                      )
-                    : undefined
-                }
-              >
-                <p className="room-confirm-copy">
-                  Канал имеет тип "закрытый", копирование и пересылка сообщений запрещена
-                </p>
-              </div>
-            ) : forwardingSubscriptionPostText ? (
-              <div className="room-confirm room-forward">
-                <p className="room-confirm-copy">Кому переслать сообщение?</p>
-                <div className="room-forward-list">
-                  {availableChats.map((chat) => (
-                    <button
-                      key={chat.id}
-                      type="button"
-                      className="room-forward-item"
-                      onClick={() => {
-                        forwardTextToChat(chat.id, forwardingSubscriptionPostText)
-                        closeSubscriptionPostActions()
-                      }}
-                    >
-                      <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                        {chat.title.slice(0, 1)}
-                      </span>
-                      <span>{chat.title}</span>
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="room-confirm-button"
-                  onClick={() => setForwardingSubscriptionPostText('')}
-                >
-                  Назад
-                </button>
-              </div>
-            ) : (
-              <div
-                className="message-menu"
-                style={
-                  subscriptionPostActionAnchor
-                    ? getAnchoredMenuStyle(
-                        subscriptionPostActionAnchor,
-                        channelActionMenuWidth,
-                        channelActionMenuHeight,
-                      )
-                    : undefined
-                }
-              >
-                <button
-                  type="button"
-                  className="message-menu-item"
-                  onClick={() => setForwardingSubscriptionPostText(activeSubscriptionPost.text)}
-                >
-                  Переслать
-                </button>
-                <button
-                  type="button"
-                  className="message-menu-item"
-                  onClick={() => {
-                    copyToClipboard(activeSubscriptionPost.text, 'Сообщение скопировано')
-                    closeSubscriptionPostActions()
-                  }}
-                >
-                  Скопировать
-                </button>
-              </div>
-            )}
-          </>
-        ) : null}
-
-        {activeGroupMessage ? (
-          <>
-            <button
-              type="button"
-              className="room-confirm-scrim"
-              aria-label="Закрыть действия с сообщением группы"
-              onClick={closeGroupMessageActions}
-            />
-            {forwardingGroupMessageText ? (
-              <div className="room-confirm room-forward">
-                <p className="room-confirm-copy">Кому переслать сообщение?</p>
-                <div className="room-forward-list">
-                  {availableChats.map((chat) => (
-                    <button
-                      key={chat.id}
-                      type="button"
-                      className="room-forward-item"
-                      onClick={() => {
-                        forwardTextToChat(chat.id, forwardingGroupMessageText)
-                        closeGroupMessageActions()
-                      }}
-                    >
-                      <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                        {chat.title.slice(0, 1)}
-                      </span>
-                      <span>{chat.title}</span>
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="room-confirm-button"
-                  onClick={() => setForwardingGroupMessageText('')}
-                >
-                  Назад
-                </button>
-              </div>
-            ) : (
-              <div
-                className="message-menu"
-                style={
-                  groupMessageActionAnchor
-                    ? getAnchoredMenuStyle(
-                        groupMessageActionAnchor,
-                        channelActionMenuWidth,
-                        channelActionMenuHeight,
-                      )
-                    : undefined
-                }
-              >
-                <button
-                  type="button"
-                  className="message-menu-item"
-                  onClick={() => setForwardingGroupMessageText(activeGroupMessage.text)}
-                >
-                  Переслать
-                </button>
-                <button
-                  type="button"
-                  className="message-menu-item"
-                  onClick={() => {
-                    copyToClipboard(activeGroupMessage.text, 'Сообщение скопировано')
-                    closeGroupMessageActions()
-                  }}
-                >
-                  Скопировать
                 </button>
               </div>
             )}

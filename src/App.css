@@ -1,7 +1,8 @@
 .shell {
   height: 100vh;
+  height: 100dvh;
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
   gap: 24px;
   padding: 24px;
   box-sizing: border-box;
@@ -19,8 +20,9 @@
 
 .auth-shell {
   height: 100vh;
+  height: 100dvh;
   display: grid;
-  grid-template-columns: minmax(320px, 1.1fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(280px, 1.05fr) minmax(280px, 0.95fr);
   gap: 24px;
   padding: 24px;
   box-sizing: border-box;
@@ -29,6 +31,7 @@
 
 .policy-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 24px;
   box-sizing: border-box;
   overflow-y: auto;
@@ -36,6 +39,7 @@
 
 .confirm-shell {
   height: 100vh;
+  height: 100dvh;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -549,6 +553,7 @@
 }
 
 .account-name {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: flex-start;
@@ -574,7 +579,7 @@
 
 .account-headline h2 {
   margin: 0;
-  font-size: 1.9rem;
+  font-size: clamp(1.55rem, 4.4vw, 1.9rem);
   line-height: 0.98;
   letter-spacing: -0.04em;
   color: var(--ink);
@@ -873,14 +878,19 @@
 }
 
 .stage.settings-open {
-  place-items: center;
-  align-content: center;
+  justify-items: center;
+  align-items: start;
+  align-content: start;
+  padding: 24px 0;
+  overflow: auto;
 }
 
 .stage.premium-open {
-  place-items: center;
+  justify-items: center;
+  align-items: start;
   align-content: start;
   padding: 24px 0;
+  overflow: auto;
 }
 
 .hero-panel {
@@ -890,9 +900,11 @@
 
 .settings-view {
   width: 100%;
-  height: 100%;
+  min-height: max-content;
   display: grid;
-  place-items: center;
+  justify-items: center;
+  align-items: start;
+  padding-top: 8px;
 }
 
 .premium-view {
@@ -1270,6 +1282,7 @@
 
 .settings-panel {
   width: min(430px, 100%);
+  max-width: 100%;
   padding: 28px;
   display: grid;
   gap: 24px;
@@ -1495,8 +1508,9 @@
 
 .settings-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
 }
 
@@ -1575,6 +1589,15 @@
   display: flex;
   align-items: flex-start;
   gap: 14px;
+}
+
+.room-mobile-back {
+  display: none;
+  min-height: 34px;
+  padding: 0 14px;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .room-title {
@@ -2095,12 +2118,34 @@
 
 @media (max-width: 1080px) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+    gap: 16px;
+    padding: 16px;
   }
 
   .auth-shell {
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .hero-panel {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero-panel h2 {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 920px) {
+  .auth-shell {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
     grid-template-columns: 1fr;
     place-items: center;
+    overflow: auto;
   }
 
   .auth-promo {
@@ -2115,21 +2160,48 @@
     display: grid;
     gap: 8px;
   }
-
-  .hero-panel {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .hero-panel h2 {
-    max-width: 100%;
-  }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 820px) {
   .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
     padding: 16px;
     gap: 16px;
+  }
+
+  .shell-main-list .stage {
+    display: none;
+  }
+
+  .shell-main-room .rail {
+    display: none;
+  }
+
+  .shell-main-room .stage,
+  .shell-main-list .rail {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .filters {
+    padding-top: 6px;
+    padding-right: 10px;
+  }
+
+  .chat-list {
+    padding-top: 14px;
+    padding-inline: 12px 18px;
+  }
+
+  .filter-badge {
+    top: -4px;
+    right: -4px;
+  }
+
+  .badge {
+    top: -6px;
+    right: -4px;
   }
 
   .auth-shell {
@@ -2150,17 +2222,61 @@
     border-radius: 24px;
   }
 
-  .room-header,
   .auth-tabs,
-  .account-headline,
-  .account-status-row,
-  .settings-actions {
+  .account-status-row {
     flex-direction: column;
     align-items: flex-start;
   }
 
+  .settings-actions {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .account-headline {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .account-name {
+    min-width: 0;
+  }
+
+  .quiet-toggle-stack {
+    margin-top: 0;
+  }
+
+  .room-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 2px;
+  }
+
+  .room-mobile-back {
+    display: inline-flex;
+    flex: 0 0 100%;
+  }
+
+  .room-actions {
+    flex: 0 0 100%;
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+
   .settings-panel {
     padding: 22px;
+  }
+
+  .stage.settings-open {
+    padding: 16px 0;
+  }
+
+  .settings-view {
+    padding-top: 0;
   }
 
   .premium-panel {
@@ -2225,5 +2341,85 @@
   .composer-send {
     left: 12px;
     right: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .shell,
+  .auth-shell,
+  .confirm-shell,
+  .policy-shell {
+    padding: 12px;
+  }
+
+  .shell {
+    gap: 12px;
+  }
+
+  .rail,
+  .hero-panel,
+  .chat-room,
+  .auth-panel,
+  .settings-panel,
+  .confirm-card {
+    border-radius: 22px;
+  }
+
+  .chat-list {
+    padding-inline: 6px 14px;
+  }
+
+  .chat-card {
+    padding: 12px;
+  }
+
+  .filters {
+    gap: 6px;
+  }
+
+  .filter {
+    padding: 8px 10px;
+  }
+
+  .bottom-nav {
+    gap: 6px;
+  }
+
+  .bottom-nav .icon-button {
+    width: 48px;
+    height: 48px;
+  }
+
+  .chat-room {
+    padding: 16px;
+  }
+
+  .message-feed {
+    padding: 18px 0;
+  }
+
+  .room-confirm {
+    width: min(100vw - 24px, 720px);
+    padding: 18px;
+  }
+
+  .room-confirm-actions,
+  .room-confirm-actions-dual,
+  .confirm-actions,
+  .policy-footer,
+  .policy-actions {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .policy-panel,
+  .policy-section {
+    padding: 20px;
+  }
+
+  .copy-hint {
+    right: 12px;
+    bottom: 12px;
   }
 }
