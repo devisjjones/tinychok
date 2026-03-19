@@ -1,961 +1,79 @@
 import { type ChangeEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  accountNameMaxFontSize,
+  accountNameMinFontSize,
+  accountStatusMaxFontSize,
+  accountStatusMinFontSize,
+  accountsStorageKey,
+  channelActionMenuHeight,
+  channelActionMenuWidth,
+  channelAvatarTones,
+  channelBlockedMenuHeight,
+  channelDescriptionMaxLength,
+  channelTitleMaxLength,
+  chatActionMenuHeight,
+  chatActionMenuWidth,
+  displayNameFieldMaxLength,
+  nicknameFieldMaxLength,
+  quickFilters,
+  sessionStorageKey,
+  statusFieldMaxLength,
+  surnameFieldMaxLength,
+} from './app/constants'
+import {
+  discoveryResults,
+  initialChannels,
+  initialChats,
+  initialGroups,
+  initialSubscribedChannels,
+} from './app/mockData'
+import { loadAccounts, loadSession } from './app/storage'
+import type {
+  Account,
+  ActionAnchor,
+  AuthStep,
+  Channel,
+  ChannelsView,
+  Message,
+  ReplyTarget,
+  Session,
+  SettingsView,
+  StageView,
+  TopListView,
+} from './app/types'
+import { scheduleActionAnchor, useAnchoredMenu } from './app/useAnchoredMenu'
+import {
+  formatChannelAvatarLabel,
+  formatContactStatus,
+  formatGroupPreview,
+  formatGroupTime,
+  formatNowTime,
+  formatPreview,
+  formatSessionName,
+  getChannelVisibilityDescription,
+  getChannelVisibilityLabel,
+  getNextChannelVisibility,
+  getPremiumDaysLeft,
+  hasActivePremium,
+  isPhoneQuery,
+  makeDraftChannel,
+  makePremiumExpiry,
+  matchesQuery,
+  moveUnreadItemsFirst,
+  normalizeIdentifier,
+  normalizeNickname,
+  normalizePremiumExpiry,
+  sanitizeChannelDescription,
+  sanitizeChannelTitle,
+  sanitizePersonField,
+  sanitizeStatusField,
+} from './app/utils'
+import { AuthScreen } from './screens/AuthScreen'
+import { ConfirmLogoutScreen } from './screens/ConfirmLogoutScreen'
+import { DirectChatRoom } from './rooms/DirectChatRoom'
+import { GroupRoom } from './rooms/GroupRoom'
+import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
 import './App.css'
-
-type Message = {
-  id: number
-  author: 'me' | 'them'
-  text: string
-  time: string
-  displayAuthor?: string
-  replyTo?: {
-    text: string
-    author: 'me' | 'them'
-  }
-  forwarded?: boolean
-}
-
-type Chat = {
-  id: number
-  title: string
-  handle: string
-  phone: string
-  accent: string
-  mood: string
-  status: string
-  online?: boolean
-  lastSeen?: string
-  typing?: boolean
-  unread: number
-  pinned?: boolean
-  premium?: boolean
-  pinnedMessageId?: number
-  messages: Message[]
-}
-
-type SearchResult = {
-  id: number
-  title: string
-  handle: string
-  phone: string
-  accent: string
-  subtitle: string
-}
-
-type SubscriptionChannel = {
-  id: number
-  title: string
-  handle: string
-  accent: string
-  preview: string
-  time: string
-  unread: number
-  draft?: boolean
-  visibility: 'private' | 'public' | 'closed'
-  posts: Array<{
-    id: number
-    text: string
-    time: string
-  }>
-}
-
-type GroupPreview = {
-  id: number
-  title: string
-  handle: string
-  accent: string
-  preview: string
-  time: string
-  unread: number
-  members: number
-  messages: Message[]
-}
-
-type ActionAnchor = {
-  top: number
-  bottom: number
-  left: number
-  right: number
-  width: number
-  align: 'start' | 'end'
-}
-
-type Channel = {
-  id: number
-  title: string
-  directLink: string
-  description: string
-  avatarTone: string
-  avatarImage?: string
-  status: 'draft' | 'active'
-  visibility: 'private' | 'public' | 'closed'
-}
-
-type ChannelsView = 'list' | 'create' | 'detail'
-type TopListView = 'none' | 'channels' | 'groups'
-
-type AuthStep = 'phone' | 'code' | 'profile'
-
-type Account = {
-  identifier: string
-  displayName: string
-  surname?: string
-  nickname?: string
-  status?: string
-  premium?: boolean
-  premiumExpiresAt?: string
-  blockedContactIds?: number[]
-  createdAt: string
-}
-
-type Session = {
-  identifier: string
-  displayName: string
-  surname?: string
-  nickname?: string
-  status?: string
-  premium?: boolean
-  premiumExpiresAt?: string
-  blockedContactIds?: number[]
-}
-
-type StageView = 'main' | 'settings' | 'premium' | 'channels'
-type SettingsView = 'profile' | 'management' | 'blocked'
-
-const displayNameFieldMaxLength = 24
-const surnameFieldMaxLength = 32
-const nicknameFieldMaxLength = 16
-const statusFieldMaxLength = 80
-const accountNameMaxFontSize = 30.4
-const accountNameMinFontSize = 20
-const accountStatusMaxFontSize = 15
-const accountStatusMinFontSize = 10.5
-const channelTitleMaxLength = 30
-const channelDescriptionMaxLength = 160
-const channelActionMenuWidth = 280
-const channelActionMenuHeight = 132
-const channelBlockedMenuHeight = 146
-const chatActionMenuWidth = 320
-const chatActionMenuHeight = 290
-
-const initialChats: Chat[] = [
-  {
-    id: 1,
-    title: 'Мира',
-    handle: '@mira_night',
-    phone: '+79673215453',
-    accent: '#ff8a5b',
-    mood: 'Вайбит',
-    status: 'печатает ответ в тайник',
-    online: true,
-    typing: true,
-    unread: 2,
-    pinned: true,
-    premium: true,
-    messages: [
-      { id: 1, author: 'them', text: 'Нужен мессенджер без лишнего шума.', time: '21:03' },
-      { id: 2, author: 'me', text: 'Делаем. Только свои люди и приватные треды.', time: '21:05' },
-      {
-        id: 3,
-        author: 'them',
-        text: 'И чтобы чат ощущался как личный тайник, не как очередной work app.',
-        time: '21:08',
-      },
-    ],
-  },
-  {
-    id: 2,
-    title: 'Соня',
-    handle: '@sonya.jpeg',
-    phone: '+79885551212',
-    accent: '#66d9b8',
-    mood: 'На месте',
-    status: 'На месте',
-    lastSeen: 'была в сети 8 мин назад',
-    unread: 0,
-    messages: [
-      {
-        id: 1,
-        author: 'them',
-        text: 'Я за тихие уведомления и большие карточки голосовых.',
-        time: '19:40',
-      },
-      {
-        id: 2,
-        author: 'me',
-        text: 'Тогда закладываем спокойный интерфейс и мягкий свет.',
-        time: '19:47',
-      },
-    ],
-  },
-  {
-    id: 3,
-    title: 'Лев',
-    handle: '@lev.codes',
-    phone: '+79997778811',
-    accent: '#8aa6ff',
-    mood: 'Собирает билд',
-    status: 'отправил прототип тем',
-    lastSeen: 'был в сети 12 мин назад',
-    unread: 4,
-    premium: true,
-    messages: [
-      {
-        id: 1,
-        author: 'them',
-        text: 'Лента должна быть широкой, а bubbles почти бумажные.',
-        time: '18:15',
-      },
-      {
-        id: 2,
-        author: 'me',
-        text: 'Сделаю. Ещё добавлю переключатель режима "Тихо".',
-        time: '18:17',
-      },
-    ],
-  },
-  {
-    id: 4,
-    title: 'Ася',
-    handle: '@asya.echo',
-    phone: '+79261239876',
-    accent: '#f29f67',
-    mood: 'Слушает',
-    status: 'Слушает',
-    lastSeen: 'была в сети 3 мин назад',
-    unread: 1,
-    messages: [
-      { id: 1, author: 'them', text: 'Оставим интерфейс тихим и светлым.', time: '17:52' },
-    ],
-  },
-  {
-    id: 5,
-    title: 'Никита',
-    handle: '@nikita.wave',
-    phone: '+79035554422',
-    accent: '#6eb6ff',
-    mood: 'В дороге',
-    status: 'открыл чат с телефона',
-    online: true,
-    unread: 0,
-    messages: [
-      { id: 1, author: 'me', text: 'Проверь, как список ведёт себя на маленькой высоте.', time: '17:31' },
-    ],
-  },
-  {
-    id: 6,
-    title: 'Полина',
-    handle: '@poly.secret',
-    phone: '+79161234567',
-    accent: '#82c9a3',
-    mood: 'На связи',
-    status: 'отправила голосовое',
-    online: true,
-    unread: 3,
-    pinned: true,
-    premium: true,
-    messages: [
-      { id: 1, author: 'them', text: 'Хочу больше воздуха между карточками и мягче тени.', time: '17:08' },
-    ],
-  },
-  {
-    id: 7,
-    title: 'Илья',
-    handle: '@ilya.grid',
-    phone: '+79001112233',
-    accent: '#d18fff',
-    mood: 'Рядом',
-    status: 'ждёт ответ',
-    lastSeen: 'был в сети 5 мин назад',
-    unread: 0,
-    messages: [
-      { id: 1, author: 'them', text: 'Проверь скролл и обрезание бейджей сверху.', time: '16:54' },
-    ],
-  },
-  {
-    id: 8,
-    title: 'Варя',
-    handle: '@varya.north',
-    phone: '+79214445566',
-    accent: '#ff9db1',
-    mood: 'Смотрит макет',
-    status: 'сохранила тред',
-    online: true,
-    unread: 5,
-    messages: [
-      { id: 1, author: 'them', text: 'Карточки уже почти идеальны, но хочется больше ритма.', time: '16:40' },
-    ],
-  },
-  {
-    id: 9,
-    title: 'Гриша',
-    handle: '@grisha.loop',
-    phone: '+79524443322',
-    accent: '#ffd166',
-    mood: 'Тестирует',
-    status: 'был здесь только что',
-    online: true,
-    unread: 0,
-    messages: [
-      { id: 1, author: 'me', text: 'Добавил двадцать контактов, чтобы гонять список.', time: '16:21' },
-    ],
-  },
-  {
-    id: 10,
-    title: 'Лада',
-    handle: '@lada.bloom',
-    phone: '+79995556677',
-    accent: '#7dd3fc',
-    mood: 'Пишет заметки',
-    status: 'набрасывает идеи',
-    online: true,
-    typing: true,
-    unread: 2,
-    messages: [
-      { id: 1, author: 'them', text: 'Можно ещё проверить поведение при печати на длинных именах.', time: '16:07' },
-    ],
-  },
-  {
-    id: 11,
-    title: 'Марк',
-    handle: '@mark.signal',
-    phone: '+79117778899',
-    accent: '#9ad0c2',
-    mood: 'В сети',
-    status: 'ответил на сообщение',
-    unread: 0,
-    messages: [
-      { id: 1, author: 'them', text: 'Тут хорошо бы посмотреть, как ведут себя фильтры со скроллом.', time: '15:49' },
-    ],
-  },
-  {
-    id: 12,
-    title: 'Юля',
-    handle: '@julia.soft',
-    phone: '+79038889900',
-    accent: '#fca5a5',
-    mood: 'Молчит',
-    status: 'без новых сообщений',
-    unread: 1,
-    messages: [
-      { id: 1, author: 'them', text: 'Сделай кнопку настроек чуть компактнее, но не мелкой.', time: '15:36' },
-    ],
-  },
-  {
-    id: 13,
-    title: 'Руслан',
-    handle: '@rus_frame',
-    phone: '+79650001122',
-    accent: '#c4b5fd',
-    mood: 'У окна',
-    status: 'последний онлайн 12 мин назад',
-    unread: 0,
-    messages: [
-      { id: 1, author: 'me', text: 'Список уже выглядит убедительно, нужно ещё больше разных состояний.', time: '15:18' },
-    ],
-  },
-  {
-    id: 14,
-    title: 'Ева',
-    handle: '@eva.silent',
-    phone: '+79100001234',
-    accent: '#86efac',
-    mood: 'Тихо',
-    status: 'включила беззвучный режим',
-    unread: 7,
-    messages: [
-      { id: 1, author: 'them', text: 'Мне нравится, что бейджи теперь сидят как наклейки.', time: '15:02' },
-    ],
-  },
-  {
-    id: 15,
-    title: 'Тимур',
-    handle: '@timur.draft',
-    phone: '+79250002211',
-    accent: '#fdba74',
-    mood: 'Черновик',
-    status: 'собирает сценарий',
-    unread: 0,
-    messages: [
-      { id: 1, author: 'them', text: 'Я бы ещё погонял список на старом ноутбуке.', time: '14:47' },
-    ],
-  },
-  {
-    id: 16,
-    title: 'Надя',
-    handle: '@nadya.line',
-    phone: '+79332221100',
-    accent: '#93c5fd',
-    mood: 'Читает',
-    status: 'читала 1 мин назад',
-    unread: 2,
-    messages: [
-      { id: 1, author: 'them', text: 'В поиске по номеру всё должно выглядеть так же спокойно.', time: '14:30' },
-    ],
-  },
-  {
-    id: 17,
-    title: 'Стас',
-    handle: '@stas.cloud',
-    phone: '+79001239988',
-    accent: '#f0abfc',
-    mood: 'В эфире',
-    status: 'отправил стикер',
-    unread: 0,
-    messages: [
-      { id: 1, author: 'them', text: 'Можем потом проверить и тёмную подложку, но не сейчас.', time: '14:11' },
-    ],
-  },
-  {
-    id: 18,
-    title: 'Оля',
-    handle: '@olya.mint',
-    phone: '+79550004466',
-    accent: '#5eead4',
-    mood: 'Утро',
-    status: 'сохранила сообщение',
-    unread: 4,
-    premium: true,
-    messages: [
-      { id: 1, author: 'them', text: 'Проверь, не устаёт ли глаз от плотных повторяющихся карточек.', time: '13:55' },
-    ],
-  },
-  {
-    id: 19,
-    title: 'Дима',
-    handle: '@dima.room',
-    phone: '+79039997755',
-    accent: '#fda4af',
-    mood: 'Скроллит',
-    status: 'открыл поиск',
-    unread: 0,
-    messages: [
-      { id: 1, author: 'them', text: 'Если хочешь, потом добавим ещё больше людей для stress-теста.', time: '13:33' },
-    ],
-  },
-  {
-    id: 20,
-    title: 'Карина',
-    handle: '@karina.fold',
-    phone: '+79217773311',
-    accent: '#a7f3d0',
-    mood: 'Спокойно',
-    status: 'последний онлайн 21 мин назад',
-    unread: 6,
-    messages: [
-      { id: 1, author: 'them', text: 'У верхних и нижних карточек теперь достаточно воздуха для бейджей.', time: '13:20' },
-    ],
-  },
-]
-
-const quickFilters = ['Все', '★']
-const discoveryResults: SearchResult[] = [
-  {
-    id: 101,
-    title: 'Ася',
-    handle: '@asya.echo',
-    phone: '+79261239876',
-    accent: '#f29f67',
-    subtitle: 'дизайн-система и тихие интерфейсы',
-  },
-  {
-    id: 102,
-    title: 'Никита',
-    handle: '@nikita.wave',
-    phone: '+79035554422',
-    accent: '#6eb6ff',
-    subtitle: 'ищет собеседников для night shift',
-  },
-  {
-    id: 103,
-    title: 'Полина',
-    handle: '@poly.secret',
-    phone: '+79161234567',
-    accent: '#82c9a3',
-    subtitle: 'любит voice notes и приватные комнаты',
-  },
-]
-const initialSubscribedChannels: SubscriptionChannel[] = [
-  {
-    id: 1,
-    title: 'Ночной архив',
-    handle: '@night_archive',
-    accent: '#8c5738',
-    preview: 'Черновик публикации: тихие заметки и закрытые анонсы.',
-    time: '22:14',
-    unread: 3,
-    draft: true,
-    visibility: 'private',
-    posts: [
-      { id: 1, text: 'Первый драфтовый пост про тихие ночные заметки и редкие личные публикации.', time: '22:14' },
-      { id: 2, text: 'Сюда можно складывать анонсы, которые увидят только свои люди без лишнего шума.', time: '21:48' },
-      { id: 3, text: 'Визуально канал должен оставаться спокойным: много воздуха, короткие тексты и чистый ритм.', time: '21:02' },
-    ],
-  },
-  {
-    id: 2,
-    title: 'Тихие релизы',
-    handle: '@quiet_releases',
-    accent: '#6eb6ff',
-    preview: 'Новый выпуск: обновили premium flow и экран каналов.',
-    time: '20:06',
-    unread: 0,
-    draft: true,
-    visibility: 'public',
-    posts: [
-      { id: 1, text: 'Драфт релиза: добавлены экраны управления каналами и передача канала через SMS-подтверждение.', time: '20:06' },
-      { id: 2, text: 'Следом планируется добрать больше сценариев для подписок и отдельного канального просмотра.', time: '19:34' },
-    ],
-  },
-  {
-    id: 3,
-    title: 'Клуб сигналов',
-    handle: '@signal_club',
-    accent: '#82c9a3',
-    preview: '3 новых сигнала за вечер и подборка коротких постов.',
-    time: '18:42',
-    unread: 5,
-    draft: true,
-    visibility: 'closed',
-    posts: [
-      { id: 1, text: 'Сигнал 01: короткие посты лучше читаются, когда у канала есть спокойная шапка и стабильный ритм.', time: '18:42' },
-      { id: 2, text: 'Сигнал 02: непрочитанные публикации должны считываться мгновенно, без перегруза интерфейса.', time: '18:09' },
-      { id: 3, text: 'Сигнал 03: даже черновой канал уже должен ощущаться как законченный продуктовый экран.', time: '17:27' },
-    ],
-  },
-  {
-    id: 4,
-    title: 'Newsroom',
-    handle: '@tiny_newsroom',
-    accent: '#ff8a5b',
-    preview: 'Запустили тихий режим уведомлений для каналов.',
-    time: '16:11',
-    unread: 2,
-    visibility: 'public',
-    posts: [
-      { id: 1, text: 'Сегодняшний драфт: каналам добавили отдельную кнопку в верхнем меню и счётчик новых публикаций.', time: '16:11' },
-      { id: 2, text: 'Следующее обновление посвятим полировке чтения постов и стабильной навигации между каналами.', time: '15:38' },
-    ],
-  },
-]
-const initialGroups: GroupPreview[] = [
-  {
-    id: 1,
-    title: 'Ночной круг',
-    handle: '@night_circle',
-    accent: '#8c5738',
-    preview: 'Группа для спокойных ночных обсуждений продукта и интерфейса.',
-    time: '21:24',
-    unread: 4,
-    members: 8,
-    messages: [
-      {
-        id: 1,
-        author: 'them',
-        displayAuthor: 'Мира',
-        text: 'Соберём в этой группе спокойные обсуждения интерфейса и приватных сценариев.',
-        time: '20:48',
-      },
-      {
-        id: 2,
-        author: 'me',
-        text: 'Да, и без лишнего шума. Только короткие сообщения и понятные решения.',
-        time: '21:02',
-      },
-      {
-        id: 3,
-        author: 'them',
-        displayAuthor: 'Лев',
-        text: 'Тогда здесь же проверим, как ведёт себя меню действий у сообщений в групповом потоке.',
-        time: '21:24',
-      },
-    ],
-  },
-  {
-    id: 2,
-    title: 'Тихий релиз-комитет',
-    handle: '@quiet_release_committee',
-    accent: '#6eb6ff',
-    preview: 'Смотрим свежие сборки, правим тексты и добираем мелкие баги.',
-    time: '19:16',
-    unread: 0,
-    members: 5,
-    messages: [
-      {
-        id: 1,
-        author: 'them',
-        displayAuthor: 'Полина',
-        text: 'В эту группу складываем короткие заметки по сборкам, текстам и мелким визуальным багам.',
-        time: '18:40',
-      },
-      {
-        id: 2,
-        author: 'me',
-        text: 'Хорошо. Ещё удобно обсуждать здесь статусы релизов и мелкие правки перед пушем.',
-        time: '19:16',
-      },
-    ],
-  },
-  {
-    id: 3,
-    title: 'Сигнальная мастерская',
-    handle: '@signal_workshop',
-    accent: '#82c9a3',
-    preview: 'Внутренняя группа по каналам, уведомлениям и сценариям чтения.',
-    time: '17:42',
-    unread: 2,
-    members: 11,
-    messages: [
-      {
-        id: 1,
-        author: 'them',
-        displayAuthor: 'Соня',
-        text: 'Нужно накидать несколько черновых сообщений, чтобы группа ощущалась живой, а не пустой.',
-        time: '17:11',
-      },
-      {
-        id: 2,
-        author: 'them',
-        displayAuthor: 'Никита',
-        text: 'И сразу проверить, что копирование и пересылка из группы работают так же стабильно, как в обычном чате.',
-        time: '17:42',
-      },
-    ],
-  },
-]
-const channelAvatarTones = ['#8c5738', '#6eb6ff', '#ff8a5b', '#82c9a3', '#f29f67', '#d18fff']
-const initialChannels: Channel[] = [
-  makeDraftChannel(1, 1),
-  makeDraftChannel(2, 2),
-  makeDraftChannel(3, 3),
-]
-const accountsStorageKey = 'tinychok.accounts'
-const sessionStorageKey = 'tinychok.session'
-
-function formatPreview(chat: Chat) {
-  const latest = chat.messages.at(-1)
-  return latest ? latest.text : 'Пока пусто'
-}
-
-function formatGroupPreview(group: GroupPreview) {
-  const latest = group.messages.at(-1)
-  return latest ? latest.text : group.preview
-}
-
-function formatGroupTime(group: GroupPreview) {
-  const latest = group.messages.at(-1)
-  return latest ? latest.time : group.time
-}
-
-function formatMessageAuthor(author: Message['author'], chatTitle: string) {
-  return author === 'me' ? 'Вы' : chatTitle
-}
-
-function formatContactStatus(chat: Chat) {
-  return chat.status.trim() || '\u00A0'
-}
-
-function formatRoomPresence(chat: Chat) {
-  const parts = []
-  const status = chat.status.trim()
-
-  if (status) {
-    parts.push(status)
-  } else if (chat.online) {
-    parts.push('в сети')
-  }
-
-  if (!chat.online && chat.lastSeen?.trim()) {
-    parts.push(chat.lastSeen.trim())
-  }
-
-  return parts.join(' · ')
-}
-
-function normalizeIdentifier(value: string) {
-  const trimmed = value.trim()
-  const digits = trimmed.replace(/[^\d]/g, '')
-
-  if (digits === '') return ''
-
-  return `+${digits}`
-}
-
-function matchesQuery(value: string, query: string) {
-  return value.toLowerCase().includes(query.toLowerCase())
-}
-
-function formatSessionName(session: Session) {
-  return [session.displayName, session.surname ?? '']
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(' ')
-}
-
-function formatAccountName(account: Pick<Account, 'displayName' | 'surname'>) {
-  return [account.displayName, account.surname ?? '']
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(' ')
-}
-
-function sanitizePersonField(value: string, maxLength: number) {
-  const normalizedWhitespace = value
-    .replace(/[^\p{L}\p{M}\s\p{P}]/gu, '')
-    .replace(/\s+/g, ' ')
-    .replace(/^\s+/g, '')
-
-  const nextValue = /\s$/.test(normalizedWhitespace)
-    ? normalizedWhitespace
-    : normalizedWhitespace.trim()
-
-  return nextValue.slice(0, maxLength)
-}
-
-function normalizeNickname(value: string) {
-  return value.replace(/[^A-Za-z0-9_]/g, '').slice(0, nicknameFieldMaxLength)
-}
-
-function sanitizeStatusField(value: string) {
-  return value
-    .replace(/[^A-Za-zА-Яа-яЁё0-9 .,!?():;-]/g, '')
-    .replace(/\s+/g, ' ')
-    .slice(0, statusFieldMaxLength)
-}
-
-function sanitizeChannelTitle(value: string) {
-  return value.replace(/\s+/g, ' ').trim().slice(0, channelTitleMaxLength)
-}
-
-function sanitizeChannelDescription(value: string) {
-  return value.replace(/\s+/g, ' ').trim().slice(0, channelDescriptionMaxLength)
-}
-
-function getActionAnchor(element: HTMLElement, align: 'start' | 'end' = 'start'): ActionAnchor {
-  const rect = element.getBoundingClientRect()
-
-  return {
-    top: rect.top,
-    bottom: rect.bottom,
-    left: rect.left,
-    right: rect.right,
-    width: rect.width,
-    align,
-  }
-}
-
-function scheduleActionAnchor(
-  element: HTMLElement,
-  align: 'start' | 'end',
-  setAnchor: (anchor: ActionAnchor) => void,
-) {
-  window.requestAnimationFrame(() => {
-    if (!element.isConnected) return
-    setAnchor(getActionAnchor(element, align))
-  })
-}
-
-function getAnchoredMenuStyle(anchor: ActionAnchor, menuWidth: number, menuHeight: number) {
-  const menuOffset = 16
-  const top =
-    anchor.bottom + menuOffset + menuHeight <= window.innerHeight - 16
-      ? anchor.bottom + menuOffset
-      : Math.max(16, anchor.top - menuHeight - menuOffset)
-  const preferredLeft = anchor.align === 'end' ? anchor.right - menuWidth : anchor.left
-  const left = Math.min(window.innerWidth - menuWidth - 16, Math.max(16, preferredLeft))
-
-  return {
-    top: `${top}px`,
-    left: `${left}px`,
-    width: `${menuWidth}px`,
-  }
-}
-
-function useAnchoredMenu(anchor: ActionAnchor | null, menuWidth: number, fallbackHeight: number) {
-  const menuRef = useRef<HTMLDivElement | null>(null)
-  const [menuHeight, setMenuHeight] = useState(fallbackHeight)
-
-  useLayoutEffect(() => {
-    if (anchor === null) return
-
-    const menuNode = menuRef.current
-    if (menuNode === null) return
-
-    const measureMenu = () => {
-      const nextHeight = menuNode.offsetHeight || fallbackHeight
-
-      setMenuHeight((currentHeight) => (Math.abs(currentHeight - nextHeight) < 1 ? currentHeight : nextHeight))
-    }
-
-    measureMenu()
-
-    const resizeObserver = new ResizeObserver(measureMenu)
-    resizeObserver.observe(menuNode)
-    window.addEventListener('resize', measureMenu)
-
-    return () => {
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', measureMenu)
-    }
-  }, [anchor, fallbackHeight])
-
-  return {
-    menuRef,
-    style: anchor ? getAnchoredMenuStyle(anchor, menuWidth, menuHeight) : undefined,
-  }
-}
-
-function makePremiumExpiry(days: number) {
-  const expiryDate = new Date()
-  expiryDate.setDate(expiryDate.getDate() + days)
-  return expiryDate.toISOString()
-}
-
-function normalizePremiumExpiry(premium: boolean | undefined, premiumExpiresAt?: string) {
-  if (!premium) return ''
-  return premiumExpiresAt || makePremiumExpiry(30)
-}
-
-function getPremiumDaysLeft(premium: boolean | undefined, premiumExpiresAt?: string) {
-  if (!premium || !premiumExpiresAt) return null
-
-  const expiresAt = new Date(premiumExpiresAt).getTime()
-  if (Number.isNaN(expiresAt)) return null
-
-  const millisecondsLeft = expiresAt - Date.now()
-  if (millisecondsLeft <= 0) return 0
-
-  return Math.ceil(millisecondsLeft / (1000 * 60 * 60 * 24))
-}
-
-function isPhoneQuery(value: string) {
-  return value.replace(/[^\d]/g, '').length >= 3
-}
-
-function formatNowTime() {
-  return new Date().toLocaleTimeString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function formatChannelAvatarLabel(title: string) {
-  return title
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('')
-}
-
-function makeDraftChannel(channelNumber: number, channelId: number): Channel {
-  const templates = [
-    {
-      title: 'Ночной архив',
-      directLink: 'https://tinychok.app/c/night-archive',
-      description:
-        'Черновик тихого канала для личных заметок, редких анонсов и сохранённых сообщений.',
-      avatarTone: '#8c5738',
-    },
-    {
-      title: 'Тихие релизы',
-      directLink: 'https://tinychok.app/c/quiet-releases',
-      description: 'Канал для аккуратных обновлений продукта без шума, спама и лишних пингов.',
-      avatarTone: '#6eb6ff',
-    },
-    {
-      title: 'Клуб сигналов',
-      directLink: 'https://tinychok.app/c/signal-club',
-      description:
-        'Подборка коротких сигналов, которые удобно публиковать для своей закрытой аудитории.',
-      avatarTone: '#82c9a3',
-    },
-  ] as const
-
-  const template = templates[channelNumber - 1]
-
-  return {
-    id: channelId,
-    title: template?.title ?? `Новый канал ${channelNumber}`,
-    directLink: template?.directLink ?? `https://tinychok.app/c/draft-${channelId}`,
-    description:
-      template?.description ??
-      'Описание канала пока не заполнено. Здесь можно подготовить текст до публикации.',
-    avatarTone: template?.avatarTone ?? channelAvatarTones[(channelNumber - 1) % channelAvatarTones.length],
-    status: 'draft',
-    visibility: 'private',
-  }
-}
-
-function getChannelVisibilityLabel(visibility: Channel['visibility']) {
-  if (visibility === 'public') return 'Публичный'
-  if (visibility === 'closed') return 'Закрытый'
-  return 'Приватный'
-}
-
-function getChannelVisibilityDescription(visibility: Channel['visibility']) {
-  if (visibility === 'public') {
-    return 'Канал можно показывать и распространять публично.'
-  }
-
-  if (visibility === 'closed') {
-    return 'В канал можно попасть только по прямому приглашению от создателя.'
-  }
-
-  return 'Канал доступен только по прямой ссылке.'
-}
-
-function getNextChannelVisibility(visibility: Channel['visibility']) {
-  if (visibility === 'private') return 'public'
-  if (visibility === 'public') return 'closed'
-  return 'private'
-}
-
-function moveUnreadItemsFirst<T extends { id: number; unread: number }>(
-  items: T[],
-  retainedItemId?: number | null,
-) {
-  const unreadItems = items.filter((item) => item.unread > 0 || item.id === retainedItemId)
-  const readItems = items.filter((item) => item.unread <= 0 && item.id !== retainedItemId)
-
-  return [...unreadItems, ...readItems]
-}
-
-function loadAccounts() {
-  if (typeof window === 'undefined') return [] as Account[]
-
-  const raw = window.localStorage.getItem(accountsStorageKey)
-  if (!raw) return []
-
-  try {
-    return (JSON.parse(raw) as Account[]).map((account) => ({
-      ...account,
-      premium: account.premium ?? true,
-      premiumExpiresAt: normalizePremiumExpiry(account.premium ?? true, account.premiumExpiresAt),
-      blockedContactIds: account.blockedContactIds ?? [],
-    }))
-  } catch {
-    return []
-  }
-}
-
-function loadSession() {
-  if (typeof window === 'undefined') return null as Session | null
-
-  const raw = window.localStorage.getItem(sessionStorageKey)
-  if (!raw) return null
-
-  try {
-    const parsed = JSON.parse(raw) as Session
-    return {
-      ...parsed,
-      premium: parsed.premium ?? true,
-      premiumExpiresAt: normalizePremiumExpiry(parsed.premium ?? true, parsed.premiumExpiresAt),
-      blockedContactIds: parsed.blockedContactIds ?? [],
-    }
-  } catch {
-    return null
-  }
-}
 
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
@@ -980,9 +98,9 @@ function App() {
   const [channelsView, setChannelsView] = useState<ChannelsView>('list')
   const [settingsView, setSettingsView] = useState<SettingsView>('profile')
   const [query, setQuery] = useState('')
-  const [messageDraft, setMessageDraft] = useState('')
+  const [chatMessageDrafts, setChatMessageDrafts] = useState<Record<number, string>>({})
   const [groupMessageDrafts, setGroupMessageDrafts] = useState<Record<number, string>>({})
-  const [selectedAttachmentName, setSelectedAttachmentName] = useState('')
+  const [chatAttachmentNames, setChatAttachmentNames] = useState<Record<number, string>>({})
   const [activeFilter, setActiveFilter] = useState('Все')
   const [searchOpen, setSearchOpen] = useState(false)
   const [quietMode, setQuietMode] = useState(false)
@@ -999,11 +117,7 @@ function App() {
   const [premiumGiftChatId, setPremiumGiftChatId] = useState<number | null>(null)
   const [messageActionMessageId, setMessageActionMessageId] = useState<number | null>(null)
   const [forwardingMessageId, setForwardingMessageId] = useState<number | null>(null)
-  const [replyTarget, setReplyTarget] = useState<{
-    id: number
-    text: string
-    author: Message['author']
-  } | null>(null)
+  const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null)
   const [confirmingDeleteHistoryChatId, setConfirmingDeleteHistoryChatId] = useState<number | null>(
     null,
   )
@@ -1168,6 +282,7 @@ function App() {
   const isSettingsView = stageView === 'settings'
   const isPremiumView = stageView === 'premium'
   const isChannelsView = stageView === 'channels'
+  const isRailVisible = !isSettingsView && !isPremiumView && !isChannelsView
   const isChannelsListView = isChannelsView && channelsView === 'list'
   const isChannelCreateView = isChannelsView && channelsView === 'create'
   const isChannelDetailView = isChannelsView && channelsView === 'detail'
@@ -1207,9 +322,9 @@ function App() {
     : groups
   const totalChannelNotifications = subscriptionChannels.reduce((sum, channel) => sum + channel.unread, 0)
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
-  const sessionHasPremium = session?.premium ?? true
+  const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
   const sessionName = session ? formatSessionName(session) : ''
-  const premiumDaysLeft = getPremiumDaysLeft(sessionHasPremium, session?.premiumExpiresAt)
+  const premiumDaysLeft = getPremiumDaysLeft(session?.premium, session?.premiumExpiresAt)
   const authExistingAccount = normalizeIdentifier(identifier)
     ? loadAccounts().find((account) => account.identifier === normalizeIdentifier(identifier)) ?? null
     : null
@@ -1299,18 +414,20 @@ function App() {
   }, [session?.status])
 
   useLayoutEffect(() => {
+    if (!isRailVisible) return
     adjustAccountNameFontSize()
-  }, [adjustAccountNameFontSize])
+  }, [adjustAccountNameFontSize, isRailVisible])
 
   useLayoutEffect(() => {
+    if (!isRailVisible) return
     adjustAccountStatusFontSize()
-  }, [adjustAccountStatusFontSize])
+  }, [adjustAccountStatusFontSize, isRailVisible])
 
   useEffect(() => {
     const hasName = sessionName.trim() !== ''
     const hasStatus = Boolean(session?.status?.trim())
 
-    if (!hasName && !hasStatus) return
+    if (!isRailVisible || (!hasName && !hasStatus)) return
 
     const handleResize = () => {
       adjustAccountNameFontSize()
@@ -1320,7 +437,7 @@ function App() {
     window.addEventListener('resize', handleResize)
 
     return () => window.removeEventListener('resize', handleResize)
-  }, [adjustAccountNameFontSize, adjustAccountStatusFontSize, session?.status, sessionName])
+  }, [adjustAccountNameFontSize, adjustAccountStatusFontSize, isRailVisible, session?.status, sessionName])
 
   function persistSession(nextSession: Session | null) {
     setSession(nextSession)
@@ -1451,9 +568,9 @@ function App() {
     setDisplayName('')
     setSmsCode('')
     setAuthStep('phone')
-    setMessageDraft('')
+    setChatMessageDrafts({})
     setGroupMessageDrafts({})
-    setSelectedAttachmentName('')
+    setChatAttachmentNames({})
     setConfirmingLogout(false)
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
@@ -1486,7 +603,9 @@ function App() {
   }
 
   function sendMessage() {
-    const text = messageDraft.trim()
+    if (!activeChat) return
+
+    const text = (chatMessageDrafts[activeChat.id] ?? '').trim()
     if (!text || !activeChat) return
 
     setChats((currentChats) =>
@@ -1517,9 +636,22 @@ function App() {
       }),
     )
 
-    setMessageDraft('')
-    setSelectedAttachmentName('')
+    setChatMessageDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [activeChat.id]: '',
+    }))
+    setChatAttachmentNames((currentAttachments) => ({
+      ...currentAttachments,
+      [activeChat.id]: '',
+    }))
     setReplyTarget(null)
+  }
+
+  function updateChatDraft(chatId: number, value: string) {
+    setChatMessageDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [chatId]: value,
+    }))
   }
 
   function updateGroupDraft(groupId: number, value: string) {
@@ -1564,6 +696,20 @@ function App() {
 
   function openAttachmentPicker() {
     attachmentInputRef.current?.click()
+  }
+
+  function handleChatAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const attachmentName = event.target.files?.[0]?.name ?? ''
+
+    if (activeChat) {
+      setChatAttachmentNames((currentAttachments) => ({
+        ...currentAttachments,
+        [activeChat.id]: attachmentName,
+      }))
+    }
+
+    // Reset the native file input so selecting the same file again still fires onChange.
+    event.target.value = ''
   }
 
   function closeActiveRoom() {
@@ -1821,6 +967,16 @@ function App() {
 
   function deleteContact(chatId: number) {
     setChats((currentChats) => currentChats.filter((chat) => chat.id !== chatId))
+    setChatMessageDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts }
+      delete nextDrafts[chatId]
+      return nextDrafts
+    })
+    setChatAttachmentNames((currentAttachments) => {
+      const nextAttachments = { ...currentAttachments }
+      delete nextAttachments[chatId]
+      return nextAttachments
+    })
 
     if (session && blockedContactIds.includes(chatId)) {
       syncSession({
@@ -2158,146 +1314,42 @@ function App() {
 
   if (!session) {
     return (
-      <main className="auth-shell">
-        <section className="auth-panel auth-promo">
-          <p className="eyebrow">Тайничок</p>
-          <h1>Тихое общение без лишнего шума</h1>
-          <p className="auth-copy">
-            Тайничок создан для личных разговоров. Здесь по умолчанию включена тишина:
-            без рекламных пушей, без баннеров, без навязчивых рассылок и случайных массовых сообщений.
-          </p>
-          <div className="hero-stats">
-            <div>
-              <strong>Тишина</strong>
-              <span>включена по умолчанию</span>
-            </div>
-            <div>
-              <strong>0 рекламы</strong>
-              <span>никаких баннеров и рассылок</span>
-            </div>
-          </div>
-        </section>
+      <AuthScreen
+        authError={authError}
+        authExistingAccount={authExistingAccount}
+        authStep={authStep}
+        displayName={displayName}
+        displayNameMaxLength={displayNameFieldMaxLength}
+        identifier={identifier}
+        smsCode={smsCode}
+        onDisplayNameChange={(value) =>
+          setDisplayName(sanitizePersonField(value, displayNameFieldMaxLength))
+        }
+        onIdentifierChange={setIdentifier}
+        onSmsCodeChange={(value) => setSmsCode(value.replace(/[^\d]/g, ''))}
+        onSubmit={() => {
+          if (authStep === 'phone') {
+            submitPhoneStep()
+            return
+          }
 
-        <section className="auth-panel auth-card">
-          <div className="auth-card-brand">
-            <p className="eyebrow">Тайничок</p>
-            <h2>Тихое общение без лишнего шума</h2>
-          </div>
+          if (authStep === 'code') {
+            submitCodeStep()
+            return
+          }
 
-          <form
-            className="auth-form"
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (authStep === 'phone') {
-                submitPhoneStep()
-                return
-              }
-
-              if (authStep === 'code') {
-                submitCodeStep()
-                return
-              }
-
-              submitProfileStep()
-            }}
-          >
-            {authStep === 'profile' ? (
-              <label className="auth-field">
-                <span>Имя в Тайничке</span>
-                <input
-                  type="text"
-                  placeholder="Например, Луна"
-                  value={displayName}
-                  maxLength={displayNameFieldMaxLength}
-                  onChange={(event) =>
-                    setDisplayName(
-                      sanitizePersonField(event.target.value, displayNameFieldMaxLength),
-                    )
-                  }
-                />
-              </label>
-            ) : null}
-
-            {authStep === 'phone' ? (
-              <label className="auth-field">
-                <span>Номер телефона</span>
-                <input
-                  type="tel"
-                  placeholder="+79990000000"
-                  value={identifier}
-                  onChange={(event) => setIdentifier(event.target.value)}
-                />
-              </label>
-            ) : null}
-
-            {authStep === 'code' ? (
-              <>
-                {authExistingAccount ? (
-                  <p className="auth-returning-title">
-                    С возвращением, {formatAccountName(authExistingAccount)}
-                  </p>
-                ) : null}
-                <div className="auth-code-note">
-                  <span className="settings-label">Код отправлен на номер</span>
-                  <strong>{identifier}</strong>
-                </div>
-                <label className="auth-field">
-                  <span>Код из SMS</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="Например, 4821"
-                    value={smsCode}
-                    onChange={(event) => setSmsCode(event.target.value.replace(/[^\d]/g, ''))}
-                  />
-                </label>
-              </>
-            ) : null}
-
-            {authError ? <p className="auth-error">{authError}</p> : null}
-
-            <button type="submit" className="send-button auth-submit">
-              {authStep === 'phone'
-                ? 'Получить код'
-                : authStep === 'code'
-                  ? authExistingAccount
-                    ? 'Подтвердить вход'
-                    : 'Подтвердить номер'
-                  : 'Создать тайник'}
-            </button>
-          </form>
-
-          <a className="auth-note-link" href="/privacy-policy.html">
-            Политика в отношении обработки персональных данных
-          </a>
-        </section>
-      </main>
+          submitProfileStep()
+        }}
+      />
     )
   }
 
   if (confirmingLogout) {
     return (
-      <main className="confirm-shell">
-        <section className="confirm-card">
-          <p className="eyebrow">Выход</p>
-          <h2>Вы точно хотите выйти из аккаунта?</h2>
-          <p className="confirm-copy">
-            Сессия закроется на этом устройстве. Чтобы вернуться, нужно будет снова войти по номеру телефона.
-          </p>
-          <div className="confirm-actions">
-            <button
-              type="button"
-              className="send-button confirm-stay"
-              onClick={() => setConfirmingLogout(false)}
-            >
-              Остаться
-            </button>
-            <button type="button" className="soft-button confirm-exit" onClick={logout}>
-              Выйти
-            </button>
-          </div>
-        </section>
-      </main>
+      <ConfirmLogoutScreen
+        onCancel={() => setConfirmingLogout(false)}
+        onConfirm={logout}
+      />
     )
   }
 
@@ -2458,7 +1510,7 @@ function App() {
 
   return (
     <main className={shellClassName}>
-      {!isSettingsView && !isPremiumView && !isChannelsView ? (
+      {isRailVisible ? (
         <aside className="rail">
         <div className="account-header">
             <div className="account-headline">
@@ -3536,351 +2588,89 @@ function App() {
         ) : null}
 
         {isSubscriptionChannelOpen ? (
-          <section className="chat-room channel-room">
-            <header className="room-header">
-              <button type="button" className="soft-button room-mobile-back" onClick={closeActiveRoom}>
-                Назад
-              </button>
-              <div className="room-id">
-                <span className="avatar large" style={{ backgroundColor: activeSubscriptionChannel.accent }}>
-                  {activeSubscriptionChannel.title.slice(0, 1)}
-                </span>
-                <div>
-                  <div className="room-title">
-                    <div className="room-title-name">
-                      <h3>{activeSubscriptionChannel.title}</h3>
-                      <span className="chat-star">
-                        <img src="/icons/news100.svg" alt="Канал" />
-                      </span>
-                    </div>
-                  </div>
-                  <p>{`${activeSubscriptionChannel.handle} · ${activeSubscriptionChannel.draft ? 'Черновики канала' : 'Публикации канала'}`}</p>
-                </div>
-              </div>
-            </header>
-
-            <div className="message-feed" ref={messageFeedRef}>
-              {activeSubscriptionChannel.posts.map((post) => (
-                <button
-                  key={post.id}
-                  type="button"
-                  className={
-                    activeSubscriptionPostId === post.id
-                      ? 'bubble bubble-button channel-post selected'
-                      : 'bubble bubble-button channel-post'
-                  }
-                  onClick={(event) => {
-                    setActiveSubscriptionPostId(post.id)
-                    scheduleActionAnchor(event.currentTarget, 'start', setSubscriptionPostActionAnchor)
-                    setForwardingSubscriptionPostText('')
-                  }}
-                >
-                  <span className="bubble-meta">{activeSubscriptionChannel.draft ? 'Draft-пост' : 'Пост канала'}</span>
-                  <p>{post.text}</p>
-                  <time>{post.time}</time>
-                </button>
-              ))}
-            </div>
-
-            {subscriptionPostActions}
-          </section>
+          <SubscriptionChannelRoom
+            actions={subscriptionPostActions}
+            activePostId={activeSubscriptionPostId}
+            channel={activeSubscriptionChannel}
+            messageFeedRef={messageFeedRef}
+            onBack={closeActiveRoom}
+            onPostSelect={(event, postId) => {
+              setActiveSubscriptionPostId(postId)
+              scheduleActionAnchor(event.currentTarget, 'start', setSubscriptionPostActionAnchor)
+              setForwardingSubscriptionPostText('')
+            }}
+          />
         ) : null}
 
         {isGroupOpen ? (
-          <section className="chat-room">
-            <header className="room-header">
-              <button type="button" className="soft-button room-mobile-back" onClick={closeActiveRoom}>
-                Назад
-              </button>
-              <div className="room-id">
-                <span className="avatar large" style={{ backgroundColor: activeGroup.accent }}>
-                  {activeGroup.title.slice(0, 1)}
-                </span>
-                <div>
-                  <div className="room-title">
-                    <div className="room-title-name">
-                      <h3>{activeGroup.title}</h3>
-                      <span className="chat-star">
-                        <img src="/icons/group100.png" alt="Группа" />
-                      </span>
-                    </div>
-                  </div>
-                  <p>{`${activeGroup.handle} · ${activeGroup.members} участников`}</p>
-                </div>
-              </div>
-            </header>
-
-            <div className="message-feed" ref={messageFeedRef}>
-              {activeGroup.messages.map((message) => (
-                <button
-                  key={message.id}
-                  type="button"
-                  className={
-                    message.author === 'me'
-                      ? activeGroupMessageId === message.id
-                        ? 'bubble bubble-button mine selected'
-                        : 'bubble bubble-button mine'
-                      : activeGroupMessageId === message.id
-                        ? 'bubble bubble-button selected'
-                        : 'bubble bubble-button'
-                  }
-                  onClick={(event) => {
-                    setActiveGroupMessageId(message.id)
-                    scheduleActionAnchor(
-                      event.currentTarget,
-                      message.author === 'me' ? 'end' : 'start',
-                      setGroupMessageActionAnchor,
-                    )
-                    setForwardingGroupMessageText('')
-                  }}
-                >
-                  <span className="bubble-meta">
-                    {message.author === 'me' ? 'Вы' : message.displayAuthor ?? 'Участник группы'}
-                  </span>
-                  <p>{message.text}</p>
-                  <time>{message.time}</time>
-                </button>
-              ))}
-            </div>
-
-            <form
-              className="composer"
-              onSubmit={(event) => {
-                event.preventDefault()
-                sendGroupMessage()
-              }}
-            >
-              <div className="composer-input">
-                <textarea
-                  rows={3}
-                  placeholder="Напиши сообщение в группу..."
-                  value={groupMessageDrafts[activeGroup.id] ?? ''}
-                  onFocus={closeGroupMessageActions}
-                  onChange={(event) => updateGroupDraft(activeGroup.id, event.target.value)}
-                />
-                <button type="submit" className="send-button composer-send">
-                  Отправить
-                </button>
-              </div>
-            </form>
-
-            {groupMessageActions}
-          </section>
+          <GroupRoom
+            actions={groupMessageActions}
+            activeMessageId={activeGroupMessageId}
+            draft={groupMessageDrafts[activeGroup.id] ?? ''}
+            group={activeGroup}
+            messageFeedRef={messageFeedRef}
+            onBack={closeActiveRoom}
+            onComposerFocus={closeGroupMessageActions}
+            onDraftChange={(value) => updateGroupDraft(activeGroup.id, value)}
+            onMessageSelect={(event, message) => {
+              setActiveGroupMessageId(message.id)
+              scheduleActionAnchor(
+                event.currentTarget,
+                message.author === 'me' ? 'end' : 'start',
+                setGroupMessageActionAnchor,
+              )
+              setForwardingGroupMessageText('')
+            }}
+            onSubmit={sendGroupMessage}
+          />
         ) : null}
 
         {isChatOpen ? (
-          <section className={pinnedMessage ? 'chat-room has-pinned-message' : 'chat-room'}>
-            <header className="room-header">
-              <button type="button" className="soft-button room-mobile-back" onClick={closeActiveRoom}>
-                Назад
-              </button>
-              <div className="room-id">
-                <span className="avatar large" style={{ backgroundColor: activeChat.accent }}>
-                  {activeChat.title.slice(0, 1)}
-                </span>
-                <div>
-                  <div className="room-title">
-                    <div className="room-title-name">
-                      <h3>{activeChat.title}</h3>
-                      {activeChat.premium ? (
-                        <span className="premium-crown room-crown" aria-label="Премиум">
-                          <img src="/icons/crown64.png" alt="" />
-                        </span>
-                      ) : null}
-                      {activeChat.online ? <span className="room-online-label">В сети</span> : null}
-                    </div>
-                  </div>
-                  <p>
-                    {formatRoomPresence(activeChat)}
-                  </p>
-                </div>
-              </div>
-              <div className="room-actions">
-                <button
-                  type="button"
-                  className={activeChat.pinned ? 'soft-button active room-star' : 'soft-button room-star'}
-                  onClick={() => togglePinnedChat(activeChat.id)}
-                  aria-label="Избранное"
-                >
-                  <img src="/icons/star100.png" alt="" />
-                </button>
-                <button
-                  type="button"
-                  className="soft-button room-menu-button"
-                  onClick={() => setChatActionsOpen((current) => !current)}
-                  aria-label="Меню контакта"
-                >
-                  ...
-                </button>
-                {chatActionsOpen ? (
-                  <>
-                    <button
-                      type="button"
-                      className="room-menu-scrim"
-                      aria-label="Закрыть меню"
-                      onClick={() => setChatActionsOpen(false)}
-                    />
-                    <div className="room-menu">
-                      <button
-                        type="button"
-                        className="room-menu-item room-menu-item-premium"
-                        onClick={() => {
-                          setPremiumGiftChatId(activeChat.id)
-                          setStageView('premium')
-                          setChatActionsOpen(false)
-                        }}
-                      >
-                        <span>Подарить</span>
-                        <img src="/icons/crown100.png" alt="" />
-                      </button>
-                      <button
-                        type="button"
-                        className="room-menu-item danger"
-                        onClick={() => blockChat(activeChat.id)}
-                      >
-                        Заблокировать
-                      </button>
-                      <button
-                        type="button"
-                        className="room-menu-item danger"
-                        onClick={() => {
-                          setConfirmingDeleteContactChatId(activeChat.id)
-                          setChatActionsOpen(false)
-                        }}
-                      >
-                        Удалить контакт
-                      </button>
-                      <button
-                        type="button"
-                        className="room-menu-item danger"
-                        onClick={() => {
-                          setConfirmingDeleteHistoryChatId(activeChat.id)
-                          setChatActionsOpen(false)
-                        }}
-                      >
-                        Удалить переписку
-                      </button>
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            </header>
-
-            {pinnedMessage ? (
-              <div className="pinned-message">
-                <div className="pinned-message-content">
-                  <img
-                    className="pinned-message-icon"
-                    src="/icons/pin100.png"
-                    alt=""
-                    aria-hidden="true"
-                  />
-                  <p>{pinnedMessage.text}</p>
-                </div>
-                <button
-                  type="button"
-                  className="soft-button pinned-message-close"
-                  onClick={() => unpinMessage(activeChat.id)}
-                >
-                  Снять
-                </button>
-              </div>
-            ) : null}
-
-            <div className="message-feed" ref={messageFeedRef}>
-              {activeChat.messages.map((message) => (
-                <button
-                  key={message.id}
-                  type="button"
-                  className={
-                    message.author === 'me'
-                      ? messageActionMessageId === message.id
-                        ? 'bubble bubble-button mine selected'
-                        : 'bubble bubble-button mine'
-                      : messageActionMessageId === message.id
-                        ? 'bubble bubble-button selected'
-                        : 'bubble bubble-button'
-                  }
-                  onClick={(event) => {
-                    setMessageActionMessageId(message.id)
-                    scheduleActionAnchor(
-                      event.currentTarget,
-                      message.author === 'me' ? 'end' : 'start',
-                      setMessageActionAnchor,
-                    )
-                  }}
-                >
-                  {message.forwarded ? <span className="bubble-meta">Переслано</span> : null}
-                  {message.replyTo ? (
-                    <div className="bubble-reply">
-                      <span>{formatMessageAuthor(message.replyTo.author, activeChat.title)}</span>
-                      <p>{message.replyTo.text}</p>
-                    </div>
-                  ) : null}
-                  <p>{message.text}</p>
-                  <time>{message.time}</time>
-                </button>
-              ))}
-
-              {activeChat.typing && !quietMode ? (
-                <div className="typing">
-                  <span />
-                  <span />
-                  <span />
-                  <p>{activeChat.title} печатает…</p>
-                </div>
-              ) : null}
-            </div>
-
-            <form
-              className="composer"
-              onSubmit={(event) => {
-                event.preventDefault()
-                sendMessage()
+          <>
+            <DirectChatRoom
+              activeChat={activeChat}
+              activeMessageId={messageActionMessageId}
+              attachmentInputRef={attachmentInputRef}
+              attachmentName={chatAttachmentNames[activeChat.id] ?? ''}
+              chatActionsOpen={chatActionsOpen}
+              draft={chatMessageDrafts[activeChat.id] ?? ''}
+              messageFeedRef={messageFeedRef}
+              pinnedMessage={pinnedMessage}
+              quietMode={quietMode}
+              replyTarget={replyTarget}
+              onAttachmentChange={handleChatAttachmentChange}
+              onBack={closeActiveRoom}
+              onBlockChat={() => blockChat(activeChat.id)}
+              onCloseChatActions={() => setChatActionsOpen(false)}
+              onDraftChange={(value) => updateChatDraft(activeChat.id, value)}
+              onMessageSelect={(event, message) => {
+                setMessageActionMessageId(message.id)
+                scheduleActionAnchor(
+                  event.currentTarget,
+                  message.author === 'me' ? 'end' : 'start',
+                  setMessageActionAnchor,
+                )
               }}
-            >
-              <div className="composer-input">
-                {replyTarget ? (
-                  <div className="composer-reply">
-                    <div>
-                      <span className="settings-label">Ответ</span>
-                      <p>{replyTarget.text}</p>
-                    </div>
-                    <button type="button" className="soft-button composer-reply-cancel" onClick={() => setReplyTarget(null)}>
-                      Отмена
-                    </button>
-                  </div>
-                ) : null}
-                <input
-                  ref={attachmentInputRef}
-                  type="file"
-                  className="composer-attachment-input"
-                  onChange={(event) =>
-                    setSelectedAttachmentName(event.target.files?.[0]?.name ?? '')
-                  }
-                />
-                <textarea
-                  rows={3}
-                  placeholder="Напиши сообщение в тайник..."
-                  value={messageDraft}
-                  onChange={(event) => setMessageDraft(event.target.value)}
-                />
-                <div className="composer-tools">
-                  <button
-                    type="button"
-                    className={selectedAttachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}
-                    onClick={openAttachmentPicker}
-                    aria-label="Добавить файл"
-                    title={selectedAttachmentName || 'Добавить файл'}
-                  >
-                    <img src="/icons/attach100.png" alt="" />
-                  </button>
-                </div>
-                <button type="submit" className="send-button composer-send">
-                  Отправить
-                </button>
-              </div>
-            </form>
+              onOpenAttachmentPicker={openAttachmentPicker}
+              onOpenPremiumGift={() => {
+                setPremiumGiftChatId(activeChat.id)
+                setStageView('premium')
+                setChatActionsOpen(false)
+              }}
+              onReplyCancel={() => setReplyTarget(null)}
+              onRequestDeleteContact={() => {
+                setConfirmingDeleteContactChatId(activeChat.id)
+                setChatActionsOpen(false)
+              }}
+              onRequestDeleteHistory={() => {
+                setConfirmingDeleteHistoryChatId(activeChat.id)
+                setChatActionsOpen(false)
+              }}
+              onSubmit={sendMessage}
+              onToggleChatActions={() => setChatActionsOpen((current) => !current)}
+              onToggleFavoriteChat={() => togglePinnedChat(activeChat.id)}
+              onUnpinMessage={() => unpinMessage(activeChat.id)}
+            />
 
             {activeMessage ? (
               <>
@@ -4087,7 +2877,7 @@ function App() {
                 </div>
               </>
             ) : null}
-          </section>
+          </>
         ) : null}
 
         {confirmingDeleteChannelId !== null ? (

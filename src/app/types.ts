@@ -1,0 +1,123 @@
+export type Message = {
+  id: number
+  author: 'me' | 'them'
+  text: string
+  time: string
+  displayAuthor?: string
+  replyTo?: {
+    text: string
+    author: 'me' | 'them'
+  }
+  forwarded?: boolean
+}
+
+export type ReplyTarget = {
+  id: number
+  text: string
+  author: Message['author']
+}
+
+export type Chat = {
+  id: number
+  title: string
+  handle: string
+  phone: string
+  accent: string
+  mood: string
+  status: string
+  online?: boolean
+  lastSeen?: string
+  typing?: boolean
+  unread: number
+  pinned?: boolean
+  premium?: boolean
+  pinnedMessageId?: number
+  messages: Message[]
+}
+
+export type SearchResult = {
+  id: number
+  title: string
+  handle: string
+  phone: string
+  accent: string
+  subtitle: string
+}
+
+export type SubscriptionChannel = {
+  id: number
+  title: string
+  handle: string
+  accent: string
+  preview: string
+  time: string
+  unread: number
+  draft?: boolean
+  visibility: 'private' | 'public' | 'closed'
+  posts: Array<{
+    id: number
+    text: string
+    time: string
+  }>
+}
+
+export type GroupPreview = {
+  id: number
+  title: string
+  handle: string
+  accent: string
+  preview: string
+  time: string
+  unread: number
+  members: number
+  messages: Message[]
+}
+
+export type ActionAnchor = {
+  top: number
+  bottom: number
+  left: number
+  right: number
+  width: number
+  align: 'start' | 'end'
+}
+
+export type Channel = {
+  id: number
+  title: string
+  directLink: string
+  description: string
+  avatarTone: string
+  avatarImage?: string
+  status: 'draft' | 'active'
+  visibility: 'private' | 'public' | 'closed'
+}
+
+export type ChannelsView = 'list' | 'create' | 'detail'
+export type TopListView = 'none' | 'channels' | 'groups'
+export type AuthStep = 'phone' | 'code' | 'profile'
+export type StageView = 'main' | 'settings' | 'premium' | 'channels'
+export type SettingsView = 'profile' | 'management' | 'blocked'
+
+export type Account = {
+  identifier: string
+  displayName: string
+  surname?: string
+  nickname?: string
+  status?: string
+  premium?: boolean
+  premiumExpiresAt?: string
+  blockedContactIds?: number[]
+  createdAt: string
+}
+
+export type Session = {
+  identifier: string
+  displayName: string
+  surname?: string
+  nickname?: string
+  status?: string
+  premium?: boolean
+  premiumExpiresAt?: string
+  blockedContactIds?: number[]
+}
