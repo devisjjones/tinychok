@@ -21,6 +21,8 @@ type Chat = {
   accent: string
   mood: string
   status: string
+  online?: boolean
+  lastSeen?: string
   typing?: boolean
   unread: number
   pinned?: boolean
@@ -39,6 +41,7 @@ type SearchResult = {
 }
 
 type AuthStep = 'phone' | 'code' | 'profile'
+type AuthView = 'form' | 'privacy'
 
 type Account = {
   identifier: string
@@ -78,6 +81,7 @@ const initialChats: Chat[] = [
     accent: '#ff8a5b',
     mood: 'Вайбит',
     status: 'печатает ответ в тайник',
+    online: true,
     typing: true,
     unread: 2,
     pinned: true,
@@ -100,7 +104,8 @@ const initialChats: Chat[] = [
     phone: '+79885551212',
     accent: '#66d9b8',
     mood: 'На месте',
-    status: 'была в сети 8 мин назад',
+    status: 'На месте',
+    lastSeen: 'была в сети 8 мин назад',
     unread: 0,
     messages: [
       {
@@ -125,6 +130,7 @@ const initialChats: Chat[] = [
     accent: '#8aa6ff',
     mood: 'Собирает билд',
     status: 'отправил прототип тем',
+    lastSeen: 'был в сети 12 мин назад',
     unread: 4,
     premium: true,
     messages: [
@@ -149,7 +155,8 @@ const initialChats: Chat[] = [
     phone: '+79261239876',
     accent: '#f29f67',
     mood: 'Слушает',
-    status: 'была в сети 3 мин назад',
+    status: 'Слушает',
+    lastSeen: 'была в сети 3 мин назад',
     unread: 1,
     messages: [
       { id: 1, author: 'them', text: 'Оставим интерфейс тихим и светлым.', time: '17:52' },
@@ -163,6 +170,7 @@ const initialChats: Chat[] = [
     accent: '#6eb6ff',
     mood: 'В дороге',
     status: 'открыл чат с телефона',
+    online: true,
     unread: 0,
     messages: [
       { id: 1, author: 'me', text: 'Проверь, как список ведёт себя на маленькой высоте.', time: '17:31' },
@@ -176,6 +184,7 @@ const initialChats: Chat[] = [
     accent: '#82c9a3',
     mood: 'На связи',
     status: 'отправила голосовое',
+    online: true,
     unread: 3,
     pinned: true,
     premium: true,
@@ -191,6 +200,7 @@ const initialChats: Chat[] = [
     accent: '#d18fff',
     mood: 'Рядом',
     status: 'ждёт ответ',
+    lastSeen: 'был в сети 5 мин назад',
     unread: 0,
     messages: [
       { id: 1, author: 'them', text: 'Проверь скролл и обрезание бейджей сверху.', time: '16:54' },
@@ -204,6 +214,7 @@ const initialChats: Chat[] = [
     accent: '#ff9db1',
     mood: 'Смотрит макет',
     status: 'сохранила тред',
+    online: true,
     unread: 5,
     messages: [
       { id: 1, author: 'them', text: 'Карточки уже почти идеальны, но хочется больше ритма.', time: '16:40' },
@@ -217,6 +228,7 @@ const initialChats: Chat[] = [
     accent: '#ffd166',
     mood: 'Тестирует',
     status: 'был здесь только что',
+    online: true,
     unread: 0,
     messages: [
       { id: 1, author: 'me', text: 'Добавил двадцать контактов, чтобы гонять список.', time: '16:21' },
@@ -230,6 +242,7 @@ const initialChats: Chat[] = [
     accent: '#7dd3fc',
     mood: 'Пишет заметки',
     status: 'набрасывает идеи',
+    online: true,
     typing: true,
     unread: 2,
     messages: [
@@ -398,6 +411,78 @@ const discoveryResults: SearchResult[] = [
 ]
 const accountsStorageKey = 'tinychok.accounts'
 const sessionStorageKey = 'tinychok.session'
+const privacyPolicyPdfPath = '/privacy-policy.pdf'
+const privacyPolicySections = [
+  {
+    title: '1. Общие положения',
+    paragraphs: [
+      'Настоящая Политика конфиденциальности и обработки персональных данных сервиса «Тайничок» подготовлена с учетом требований Федерального закона РФ от 27.07.2006 № 152-ФЗ «О персональных данных», Федерального закона РФ от 27.07.2006 № 149-ФЗ «Об информации, информационных технологиях и о защите информации» и разъяснений Роскомнадзора.',
+      'Политика определяет порядок обработки персональных данных пользователей сервиса, меры по их защите, а также права пользователей как субъектов персональных данных.',
+    ],
+  },
+  {
+    title: '2. Оператор персональных данных',
+    paragraphs: [
+      'Оператором персональных данных является лицо, осуществляющее эксплуатацию сервиса «Тайничок». До публичного запуска коммерческой версии сервиса подлежат заполнению полные реквизиты оператора: наименование или ФИО, адрес, ИНН или ОГРН при наличии, контактный адрес для обращений субъектов персональных данных.',
+    ],
+  },
+  {
+    title: '3. Какие данные могут обрабатываться',
+    paragraphs: [
+      'В рамках работы сервиса могут обрабатываться: номер телефона, имя, фамилия, никнейм, статус профиля, сведения о премиум-подписке, список контактов, переписка, файлы и фотографии, технические данные об использовании сервиса, сведения о времени авторизации, IP-адресе, устройстве и сессии.',
+    ],
+  },
+  {
+    title: '4. Цели обработки персональных данных',
+    paragraphs: [
+      'Персональные данные обрабатываются для регистрации и авторизации пользователя, обеспечения обмена сообщениями и файлами, управления контактами и настройками приватности, поддержки премиум-функций, защиты сервиса от злоупотреблений, исполнения требований законодательства РФ и обработки обращений пользователей.',
+    ],
+  },
+  {
+    title: '5. Правовые основания обработки',
+    paragraphs: [
+      'Оператор обрабатывает персональные данные на основании согласия пользователя, необходимости исполнения пользовательского соглашения и предоставления функциональности сервиса, а также в случаях, когда такая обработка требуется законодательством Российской Федерации.',
+    ],
+  },
+  {
+    title: '6. Хранение и локализация данных',
+    paragraphs: [
+      'Персональные данные пользователей подлежат записи, систематизации, накоплению, хранению, уточнению и извлечению с использованием баз данных, находящихся на территории Российской Федерации, если иное не допускается законодательством РФ.',
+      'Срок хранения данных определяется целями обработки, требованиями законодательства, сроком действия пользовательской учетной записи и необходимостью защиты прав и законных интересов оператора и пользователей.',
+    ],
+  },
+  {
+    title: '7. Передача данных третьим лицам',
+    paragraphs: [
+      'Оператор не раскрывает персональные данные третьим лицам без достаточного правового основания, за исключением случаев, предусмотренных законодательством РФ, исполнения поручений пользователя, а также привлечения подрядчиков и сервисов, обеспечивающих работу платформы, при условии соблюдения ими требований конфиденциальности и безопасности.',
+    ],
+  },
+  {
+    title: '8. Права пользователя',
+    paragraphs: [
+      'Пользователь вправе получать сведения об обработке своих персональных данных, требовать их уточнения, блокирования или удаления, если данные являются неполными, неточными, устаревшими, незаконно полученными или не нужны для заявленной цели обработки, а также вправе отозвать согласие на обработку персональных данных.',
+    ],
+  },
+  {
+    title: '9. Отзыв согласия',
+    paragraphs: [
+      'Отзыв согласия на обработку персональных данных может повлечь невозможность дальнейшего предоставления части или всего функционала сервиса, включая авторизацию, доставку сообщений, хранение файлов и использование премиум-возможностей.',
+      'После отзыва согласия оператор прекращает обработку персональных данных или обеспечивает ее прекращение в пределах и в сроки, установленные законодательством РФ, если сохранение отдельных данных не требуется по закону.',
+    ],
+  },
+  {
+    title: '10. Защита персональных данных',
+    paragraphs: [
+      'Оператор принимает правовые, организационные и технические меры для защиты персональных данных от неправомерного или случайного доступа, уничтожения, изменения, блокирования, копирования, предоставления, распространения и иных неправомерных действий.',
+    ],
+  },
+  {
+    title: '11. Обратная связь',
+    paragraphs: [
+      'Обращения по вопросам обработки персональных данных, реализации прав субъекта персональных данных и отзыва согласия подаются оператору по опубликованным контактным реквизитам. До публичного запуска сервиса эти реквизиты должны быть дополнены и размещены в актуальной редакции политики.',
+    ],
+  },
+] as const
 
 function formatPreview(chat: Chat) {
   const latest = chat.messages.at(-1)
@@ -410,6 +495,23 @@ function formatMessageAuthor(author: Message['author'], chatTitle: string) {
 
 function formatContactStatus(chat: Chat) {
   return chat.status.trim() || '\u00A0'
+}
+
+function formatRoomPresence(chat: Chat) {
+  const parts = []
+  const status = chat.status.trim()
+
+  if (status) {
+    parts.push(status)
+  } else if (chat.online) {
+    parts.push('в сети')
+  }
+
+  if (!chat.online && chat.lastSeen?.trim()) {
+    parts.push(chat.lastSeen.trim())
+  }
+
+  return parts.join(' · ')
 }
 
 function normalizeIdentifier(value: string) {
@@ -427,6 +529,10 @@ function matchesQuery(value: string, query: string) {
 
 function formatSessionName(session: Session) {
   return [session.displayName, session.surname ?? ''].filter(Boolean).join(' ')
+}
+
+function formatAccountName(account: Pick<Account, 'displayName' | 'surname'>) {
+  return [account.displayName, account.surname ?? ''].filter(Boolean).join(' ')
 }
 
 function sanitizePersonField(value: string) {
@@ -534,12 +640,14 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [quietMode, setQuietMode] = useState(false)
   const [authStep, setAuthStep] = useState<AuthStep>('phone')
+  const [authView, setAuthView] = useState<AuthView>('form')
   const [displayName, setDisplayName] = useState('')
   const [identifier, setIdentifier] = useState('')
   const [smsCode, setSmsCode] = useState('')
   const [authError, setAuthError] = useState('')
   const [session, setSession] = useState<Session | null>(() => loadSession())
   const [confirmingLogout, setConfirmingLogout] = useState(false)
+  const [confirmingConsentWithdrawal, setConfirmingConsentWithdrawal] = useState(false)
   const [bottomSection, setBottomSection] = useState<'chats' | 'contacts'>('chats')
   const [chatActionsOpen, setChatActionsOpen] = useState(false)
   const [blockedActionChatId, setBlockedActionChatId] = useState<number | null>(null)
@@ -616,6 +724,9 @@ function App() {
   const totalUnreadCount = availableChats.reduce((sum, chat) => sum + chat.unread, 0)
   const sessionHasPremium = session?.premium ?? true
   const premiumDaysLeft = getPremiumDaysLeft(sessionHasPremium, session?.premiumExpiresAt)
+  const authExistingAccount = normalizeIdentifier(identifier)
+    ? loadAccounts().find((account) => account.identifier === normalizeIdentifier(identifier)) ?? null
+    : null
 
   useEffect(() => {
     if (!isChatOpen || activeChatId === null || !messageFeedRef.current) return
@@ -752,7 +863,9 @@ function App() {
     setDisplayName('')
     setSmsCode('')
     setAuthStep('phone')
+    setAuthView('form')
     setConfirmingLogout(false)
+    setConfirmingConsentWithdrawal(false)
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
     setPremiumGiftChatId(null)
@@ -1057,6 +1170,84 @@ function App() {
   }
 
   if (!session) {
+    if (authView === 'privacy') {
+      return (
+        <main className="policy-shell">
+          <section className="policy-panel">
+            <div className="policy-header">
+              <p className="eyebrow">Политика</p>
+              <h1>Политика конфиденциальности данных</h1>
+              <p className="policy-copy">
+                Политика описывает, какие данные могут обрабатываться в Тайничке, зачем они
+                нужны и как пользователь может реализовать свои права в соответствии с
+                законодательством Российской Федерации.
+              </p>
+            </div>
+
+            <div className="policy-content">
+              {privacyPolicySections.map((section) => (
+                <article key={section.title} className="policy-section">
+                  <h2>{section.title}</h2>
+                  {section.paragraphs.map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
+                </article>
+              ))}
+            </div>
+
+            <div className="policy-footer">
+              <button type="button" className="soft-button" onClick={() => setAuthView('form')}>
+                Назад
+              </button>
+              <div className="policy-actions">
+                <a className="soft-button policy-download" href={privacyPolicyPdfPath} download>
+                  Скачать
+                </a>
+                <button
+                  type="button"
+                  className="ghost-button policy-withdraw"
+                  onClick={() => setConfirmingConsentWithdrawal(true)}
+                >
+                  Отозвать согласие
+                </button>
+              </div>
+            </div>
+
+            {confirmingConsentWithdrawal ? (
+              <div
+                className="policy-modal-backdrop"
+                onClick={() => setConfirmingConsentWithdrawal(false)}
+              >
+                <section
+                  className="confirm-card policy-confirm-card"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <p className="eyebrow">Отзыв согласия</p>
+                  <h2>Отозвать согласие на обработку персональных данных?</h2>
+                  <p className="confirm-copy">
+                    После подтверждения вы выйдете из Тайничка. Для продолжения использования
+                    сервиса потребуется новое согласие.
+                  </p>
+                  <div className="confirm-actions">
+                    <button type="button" className="soft-button confirm-stay" onClick={() => logout()}>
+                      Отозвать согласие
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button confirm-exit"
+                      onClick={() => setConfirmingConsentWithdrawal(false)}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </section>
+              </div>
+            ) : null}
+          </section>
+        </main>
+      )
+    }
+
     return (
       <main className="auth-shell">
         <section className="auth-panel auth-promo">
@@ -1127,6 +1318,11 @@ function App() {
 
             {authStep === 'code' ? (
               <>
+                {authExistingAccount ? (
+                  <p className="auth-returning-title">
+                    С возвращением, {formatAccountName(authExistingAccount)}
+                  </p>
+                ) : null}
                 <div className="auth-code-note">
                   <span className="settings-label">Код отправлен на номер</span>
                   <strong>{identifier}</strong>
@@ -1150,15 +1346,16 @@ function App() {
               {authStep === 'phone'
                 ? 'Получить код'
                 : authStep === 'code'
-                  ? 'Подтвердить номер'
+                  ? authExistingAccount
+                    ? 'Подтвердить вход'
+                    : 'Подтвердить номер'
                   : 'Создать тайник'}
             </button>
           </form>
 
-          <p className="auth-note">
-            Сейчас это demo-flow. Если номер уже есть в Тайничке, после кода откроются чаты.
-            Если номер новый, мы попросим имя и создадим профиль.
-          </p>
+          <button type="button" className="auth-note-link" onClick={() => setAuthView('privacy')}>
+            Политика конфиденциальности
+          </button>
         </section>
       </main>
     )
@@ -1206,19 +1403,23 @@ function App() {
           <div className="account-headline">
             <div className="account-name">
               <h2>{formatSessionName(session)}</h2>
+            </div>
+            <div className="quiet-toggle-stack">
               {sessionHasPremium ? (
-                <span className="premium-crown" aria-label="Премиум">
+                <span className="premium-crown quiet-toggle-crown" aria-label="Премиум">
                   <img src="/icons/crown64.png" alt="" />
                 </span>
               ) : null}
+              <button
+                className={quietMode ? 'ghost-button quiet-toggle active' : 'ghost-button quiet-toggle'}
+                type="button"
+                onClick={() => setQuietMode((current) => !current)}
+                aria-label="Тихо"
+                title="Тихо"
+              >
+                <img src={quietMode ? '/icons/quiet.png' : '/icons/quiet100.png'} alt="" />
+              </button>
             </div>
-            <button
-              className={quietMode ? 'ghost-button active' : 'ghost-button'}
-              type="button"
-              onClick={() => setQuietMode((current) => !current)}
-            >
-              Тихо
-            </button>
           </div>
           {session.status?.trim() ? (
             <div className="account-status-row">
@@ -1297,6 +1498,7 @@ function App() {
                     <span className="chat-topline">
                       <span className="chat-name-row">
                         <strong className="chat-name-text">{chat.title}</strong>
+                        {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                         {chat.premium ? (
                           <span className="premium-crown chat-crown" aria-label="Премиум">
                             <img src="/icons/crown64.png" alt="" />
@@ -1308,7 +1510,7 @@ function App() {
                           </span>
                         ) : null}
                       </span>
-                      <span>{quietMode ? '' : chat.messages.at(-1)?.time}</span>
+                      <span>{chat.messages.at(-1)?.time}</span>
                     </span>
                     <span className="chat-handle">
                       {searchShowsPhone ? chat.phone : chat.handle}
@@ -1329,7 +1531,9 @@ function App() {
                   </span>
                   <span className="chat-copy">
                     <span className="chat-topline">
-                      <strong>{result.title}</strong>
+                      <span className="chat-name-row">
+                        <strong>{result.title}</strong>
+                      </span>
                     </span>
                     <span className="chat-handle">
                       {searchShowsPhone ? result.phone : result.handle}
@@ -1352,12 +1556,13 @@ function App() {
                   {chat.title.slice(0, 1)}
                 </span>
                 <span className="chat-copy">
-                  <span className="chat-topline">
-                    <span className="chat-name-row">
-                      <strong className="chat-name-text">{chat.title}</strong>
-                      {chat.premium ? (
-                        <span className="premium-crown chat-crown" aria-label="Премиум">
-                          <img src="/icons/crown64.png" alt="" />
+                    <span className="chat-topline">
+                      <span className="chat-name-row">
+                        <strong className="chat-name-text">{chat.title}</strong>
+                        {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
+                        {chat.premium ? (
+                          <span className="premium-crown chat-crown" aria-label="Премиум">
+                            <img src="/icons/crown64.png" alt="" />
                         </span>
                       ) : null}
                       {chat.pinned ? (
@@ -1366,24 +1571,20 @@ function App() {
                         </span>
                         ) : null}
                     </span>
-                    {bottomSection === 'contacts' ? null : (
-                      <span>{quietMode ? '' : chat.messages.at(-1)?.time}</span>
-                    )}
+                    {bottomSection === 'contacts' ? null : <span>{chat.messages.at(-1)?.time}</span>}
                   </span>
                   {bottomSection === 'contacts' ? (
                     <span className="chat-preview chat-status-preview">{formatContactStatus(chat)}</span>
-                  ) : !quietMode ? (
-                    chat.typing ? (
-                      <div className="chat-typing" aria-label={`${chat.title} печатает`}>
-                        <span className="typing-dot" />
-                        <span className="typing-dot" />
-                        <span className="typing-dot" />
-                        <span className="chat-typing-label">печатает...</span>
-                      </div>
-                    ) : (
-                      <span className="chat-preview">{formatPreview(chat)}</span>
-                    )
-                  ) : null}
+                  ) : chat.typing && !quietMode ? (
+                    <div className="chat-typing" aria-label={`${chat.title} печатает`}>
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                      <span className="chat-typing-label">печатает...</span>
+                    </div>
+                  ) : (
+                    <span className="chat-preview">{formatPreview(chat)}</span>
+                  )}
                 </span>
                 {bottomSection === 'contacts' || quietMode || chat.unread <= 0 ? null : (
                   <span className="badge">{chat.unread}</span>
@@ -1431,18 +1632,20 @@ function App() {
           >
             <img src="/icons/search100.svg" alt="" />
           </button>
-          <button
-            type="button"
-            className="soft-button icon-button"
-            onClick={() => {
-              setStageView('premium')
-              setConfirmingLogout(false)
-              setPremiumGiftChatId(null)
-            }}
-            aria-label="Премиум"
-          >
-            <img src="/icons/crown100.png" alt="" />
-          </button>
+          {!sessionHasPremium ? (
+            <button
+              type="button"
+              className="soft-button icon-button"
+              onClick={() => {
+                setStageView('premium')
+                setConfirmingLogout(false)
+                setPremiumGiftChatId(null)
+              }}
+              aria-label="Премиум"
+            >
+              <img src="/icons/crown100.png" alt="" />
+            </button>
+          ) : null}
           <button
             type="button"
             className={isSettingsView ? 'soft-button icon-button active' : 'soft-button icon-button'}
@@ -1654,6 +1857,18 @@ function App() {
                 )}
                 <button
                   type="button"
+                  className="soft-button icon-button"
+                  onClick={() => {
+                    setStageView('premium')
+                    setPremiumGiftChatId(null)
+                    setConfirmingLogout(false)
+                  }}
+                  aria-label="Премиум"
+                >
+                  <img src="/icons/crown100.png" alt="" />
+                </button>
+                <button
+                  type="button"
                   className="ghost-button"
                   onClick={() => setConfirmingLogout(true)}
                 >
@@ -1677,7 +1892,7 @@ function App() {
                     <p className="premium-gift-contact">{`Контакту ${premiumGiftChat.title}`}</p>
                   </>
                 ) : (
-                  <h2>Премиум Тайничок</h2>
+                  <h2>{sessionHasPremium ? 'Продли премиум Тайничок' : 'Премиум Тайничок'}</h2>
                 )}
                 <p className="settings-copy">
                   {premiumGiftChat
@@ -1754,7 +1969,7 @@ function App() {
         ) : null}
 
         {isChatOpen ? (
-          <section className="chat-room">
+          <section className={pinnedMessage ? 'chat-room has-pinned-message' : 'chat-room'}>
             <header className="room-header">
               <div className="room-id">
                 <span className="avatar large" style={{ backgroundColor: activeChat.accent }}>
@@ -1769,10 +1984,11 @@ function App() {
                           <img src="/icons/crown64.png" alt="" />
                         </span>
                       ) : null}
+                      {activeChat.online ? <span className="room-online-label">В сети</span> : null}
                     </div>
                   </div>
                   <p>
-                    {quietMode ? `${activeChat.mood} · без уведомлений` : `${activeChat.mood} · ${activeChat.status}`}
+                    {formatRoomPresence(activeChat)}
                   </p>
                 </div>
               </div>
