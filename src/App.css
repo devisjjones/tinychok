@@ -800,6 +800,20 @@
   color: var(--ink);
 }
 
+.premium-feature-crown {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.premium-feature-crown img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(19%) sepia(15%) saturate(1125%) hue-rotate(344deg)
+    brightness(94%) contrast(86%);
+}
+
 .premium-submit {
   width: 100%;
   justify-content: center;
@@ -947,7 +961,7 @@
 .chat-room {
   padding: 20px;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
   min-height: 0;
   height: 100%;
   overflow: hidden;
@@ -1128,6 +1142,52 @@
   margin: 6px 0 0;
 }
 
+.pinned-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  min-height: 0;
+}
+
+.pinned-message > div {
+  min-width: 0;
+}
+
+.pinned-message-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pinned-message-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.pinned-message p {
+  margin: 0;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinned-message-close {
+  min-width: 78px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 .message-feed {
   display: flex;
   flex-direction: column;
@@ -1148,6 +1208,12 @@
   word-break: break-word;
 }
 
+.bubble-button {
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
 .bubble.mine {
   align-self: flex-end;
   border-radius: 24px 24px 8px 24px;
@@ -1158,6 +1224,36 @@
 .bubble p,
 .bubble time {
   margin: 0;
+}
+
+.bubble-meta {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  opacity: 0.74;
+}
+
+.bubble-reply {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(77, 58, 46, 0.08);
+}
+
+.bubble.mine .bubble-reply {
+  background: rgba(255, 248, 242, 0.14);
+}
+
+.bubble-reply span {
+  display: block;
+  font-size: 0.76rem;
+  opacity: 0.84;
+  margin-bottom: 4px;
+}
+
+.bubble-reply p {
+  font-size: 0.9rem;
+  opacity: 0.94;
 }
 
 .bubble time {
@@ -1204,11 +1300,59 @@
   position: relative;
 }
 
+.composer-reply {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(77, 58, 46, 0.08);
+}
+
+.composer-reply p {
+  margin: 4px 0 0;
+  color: var(--ink);
+}
+
+.composer-reply-cancel {
+  min-width: 84px;
+  height: 32px;
+}
+
+.composer-attachment-input {
+  display: none;
+}
+
 .composer textarea {
   resize: none;
   padding: 16px 140px 16px 16px;
   border-radius: 18px;
   min-height: 92px;
+}
+
+.composer-tools {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.composer-tool {
+  min-width: 38px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.composer-tool img {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .send-button {
@@ -1222,6 +1366,67 @@
   position: absolute;
   right: 12px;
   bottom: 12px;
+}
+
+.message-menu {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(320px, calc(100vw - 32px));
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 22px;
+  background: rgba(255, 251, 245, 0.98);
+  border: 1px solid rgba(141, 89, 57, 0.14);
+  box-shadow: 0 24px 60px rgba(64, 35, 18, 0.16);
+  z-index: 6;
+}
+
+.message-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 16px;
+  padding: 14px 16px;
+  text-align: left;
+  background: rgba(77, 58, 46, 0.08);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.message-menu-item.danger {
+  background: rgba(255, 244, 241, 0.94);
+  color: #8f2b1e;
+}
+
+.room-forward {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.room-forward-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(48vh, 360px);
+  overflow: auto;
+}
+
+.room-forward-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  border-radius: 18px;
+  padding: 12px 14px;
+  background: rgba(77, 58, 46, 0.08);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.room-confirm-actions-dual {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 @keyframes pulse {

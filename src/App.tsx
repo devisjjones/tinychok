@@ -6,6 +6,11 @@ type Message = {
   author: 'me' | 'them'
   text: string
   time: string
+  replyTo?: {
+    text: string
+    author: 'me' | 'them'
+  }
+  forwarded?: boolean
 }
 
 type Chat = {
@@ -20,6 +25,7 @@ type Chat = {
   unread: number
   pinned?: boolean
   premium?: boolean
+  pinnedMessageId?: number
   messages: Message[]
 }
 
@@ -398,6 +404,10 @@ function formatPreview(chat: Chat) {
   return latest ? latest.text : 'Пока пусто'
 }
 
+function formatMessageAuthor(author: Message['author'], chatTitle: string) {
+  return author === 'me' ? 'Вы' : chatTitle
+}
+
 function formatContactStatus(chat: Chat) {
   return chat.status.trim() || '\u00A0'
 }
@@ -466,6 +476,13 @@ function isPhoneQuery(value: string) {
   return value.replace(/[^\d]/g, '').length >= 3
 }
 
+function formatNowTime() {
+  return new Date().toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 function loadAccounts() {
   if (typeof window === 'undefined') return [] as Account[]
 
@@ -505,12 +522,14 @@ function loadSession() {
 
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const [chats, setChats] = useState(initialChats)
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
   const [stageView, setStageView] = useState<StageView>('main')
   const [settingsView, setSettingsView] = useState<SettingsView>('profile')
   const [query, setQuery] = useState('')
   const [messageDraft, setMessageDraft] = useState('')
+  const [selectedAttachmentName, setSelectedAttachmentName] = useState('')
   const [activeFilter, setActiveFilter] = useState('Все')
   const [searchOpen, setSearchOpen] = useState(false)
   const [quietMode, setQuietMode] = useState(false)
@@ -525,12 +544,20 @@ function App() {
   const [chatActionsOpen, setChatActionsOpen] = useState(false)
   const [blockedActionChatId, setBlockedActionChatId] = useState<number | null>(null)
   const [premiumGiftChatId, setPremiumGiftChatId] = useState<number | null>(null)
+  const [messageActionMessageId, setMessageActionMessageId] = useState<number | null>(null)
+  const [forwardingMessageId, setForwardingMessageId] = useState<number | null>(null)
+  const [replyTarget, setReplyTarget] = useState<{
+    id: number
+    text: string
+    author: Message['author']
+  } | null>(null)
   const [confirmingDeleteHistoryChatId, setConfirmingDeleteHistoryChatId] = useState<number | null>(
     null,
   )
   const [confirmingDeleteContactChatId, setConfirmingDeleteContactChatId] = useState<number | null>(
     null,
   )
+  const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState<number | null>(null)
 
   const blockedContactIds = session?.blockedContactIds ?? []
   const availableChats = chats.filter((chat) => !blockedContactIds.includes(chat.id))
@@ -567,6 +594,18 @@ function App() {
 
   const activeChat =
     activeChatId === null ? null : availableChats.find((chat) => chat.id === activeChatId) ?? null
+  const pinnedMessage =
+    activeChat?.pinnedMessageId === undefined
+      ? null
+      : activeChat?.messages.find((message) => message.id === activeChat.pinnedMessageId) ?? null
+  const activeMessage =
+    messageActionMessageId === null
+      ? null
+      : activeChat?.messages.find((message) => message.id === messageActionMessageId) ?? null
+  const forwardingMessage =
+    forwardingMessageId === null
+      ? null
+      : activeChat?.messages.find((message) => message.id === forwardingMessageId) ?? null
   const premiumGiftChat =
     premiumGiftChatId === null ? null : chats.find((chat) => chat.id === premiumGiftChatId) ?? null
   const activeChatMessageCount = activeChat?.messages.length ?? 0
@@ -717,8 +756,12 @@ function App() {
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
     setPremiumGiftChatId(null)
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    setReplyTarget(null)
     setConfirmingDeleteHistoryChatId(null)
     setConfirmingDeleteContactChatId(null)
+    setConfirmingDeleteMessageId(null)
   }
 
   function sendMessage() {
@@ -740,10 +783,13 @@ function App() {
               id: Date.now(),
               author: 'me',
               text,
-              time: new Date().toLocaleTimeString('ru-RU', {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
+              time: formatNowTime(),
+              replyTo: replyTarget
+                ? {
+                    text: replyTarget.text,
+                    author: replyTarget.author,
+                  }
+                : undefined,
             },
           ],
         }
@@ -751,6 +797,12 @@ function App() {
     )
 
     setMessageDraft('')
+    setSelectedAttachmentName('')
+    setReplyTarget(null)
+  }
+
+  function openAttachmentPicker() {
+    attachmentInputRef.current?.click()
   }
 
   function openChat(chatId: number) {
@@ -760,8 +812,12 @@ function App() {
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
     setPremiumGiftChatId(null)
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    setReplyTarget(null)
     setConfirmingDeleteHistoryChatId(null)
     setConfirmingDeleteContactChatId(null)
+    setConfirmingDeleteMessageId(null)
     setBottomSection('chats')
     setActiveChatId(chatId)
     setChats((currentChats) =>
@@ -830,6 +886,9 @@ function App() {
       blockedContactIds: [...blockedContactIds, chatId],
     })
     setChatActionsOpen(false)
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    setReplyTarget(null)
     setActiveChatId(null)
     setStageView('main')
   }
@@ -863,6 +922,7 @@ function App() {
               ...chat,
               typing: false,
               unread: 0,
+              pinnedMessageId: undefined,
               messages: [],
             }
           : chat,
@@ -870,8 +930,12 @@ function App() {
     )
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    setReplyTarget(null)
     setConfirmingDeleteHistoryChatId(null)
     setConfirmingDeleteContactChatId(null)
+    setConfirmingDeleteMessageId(null)
   }
 
   function deleteContact(chatId: number) {
@@ -891,6 +955,105 @@ function App() {
 
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    setReplyTarget(null)
+    setConfirmingDeleteMessageId(null)
+  }
+
+  async function copyMessageText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // Ignore clipboard failures in demo mode.
+    }
+
+    setMessageActionMessageId(null)
+  }
+
+  function replyToMessage(message: Message) {
+    setReplyTarget({
+      id: message.id,
+      text: message.text,
+      author: message.author,
+    })
+    setMessageActionMessageId(null)
+  }
+
+  function pinMessage(chatId: number, messageId: number) {
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              pinnedMessageId: messageId,
+            }
+          : chat,
+      ),
+    )
+
+    setMessageActionMessageId(null)
+  }
+
+  function unpinMessage(chatId: number) {
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              pinnedMessageId: undefined,
+            }
+          : chat,
+      ),
+    )
+  }
+
+  function forwardMessageToChat(targetChatId: number, message: Message) {
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id === targetChatId
+          ? {
+              ...chat,
+              unread: chat.id === activeChatId ? 0 : chat.unread,
+              messages: [
+                ...chat.messages,
+                {
+                  id: Date.now() + targetChatId,
+                  author: 'me',
+                  text: message.text,
+                  time: formatNowTime(),
+                  forwarded: true,
+                },
+              ],
+            }
+          : chat,
+      ),
+    )
+
+    setForwardingMessageId(null)
+    setMessageActionMessageId(null)
+  }
+
+  function deleteMessage(chatId: number, messageId: number) {
+    setChats((currentChats) =>
+      currentChats.map((chat) => {
+        if (chat.id !== chatId) return chat
+
+        return {
+          ...chat,
+          pinnedMessageId: chat.pinnedMessageId === messageId ? undefined : chat.pinnedMessageId,
+          messages: chat.messages.filter((message) => message.id !== messageId),
+        }
+      }),
+    )
+
+    if (replyTarget?.id === messageId) {
+      setReplyTarget(null)
+    }
+
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    setConfirmingDeleteMessageId(null)
   }
 
   if (!session) {
@@ -1538,9 +1701,14 @@ function App() {
                   </div>
                   <p className="premium-note">Для спокойного доступа ко всем премиум-возможностям.</p>
                   <ul className="premium-features">
-                    <li>Скидывать картинки</li>
-                    <li>Отправлять голосовые сообщения</li>
-                    <li>Создавать группы</li>
+                    <li>
+                      <span className="premium-feature-crown">
+                        <span>Добавляет к имени</span>
+                        <img src="/icons/crown64.png" alt="" aria-hidden="true" />
+                      </span>
+                    </li>
+                    <li>Увеличивает срок хранения файлов и фотографий</li>
+                    <li>Создание тематических каналов</li>
                   </ul>
                   <button type="button" className="send-button premium-submit">
                     Выбрать месяц
@@ -1554,9 +1722,14 @@ function App() {
                   </div>
                   <p className="premium-note">Выгоднее для тех, кто остаётся в Тайничке надолго.</p>
                   <ul className="premium-features">
-                    <li>Скидывать картинки</li>
-                    <li>Отправлять голосовые сообщения</li>
-                    <li>Создавать группы</li>
+                    <li>
+                      <span className="premium-feature-crown">
+                        <span>Добавляет к имени</span>
+                        <img src="/icons/crown64.png" alt="" aria-hidden="true" />
+                      </span>
+                    </li>
+                    <li>Увеличивает срок хранения файлов и фотографий</li>
+                    <li>Создание тематических каналов</li>
                   </ul>
                   <button type="button" className="send-button premium-submit">
                     Выбрать год
@@ -1674,15 +1847,45 @@ function App() {
               </div>
             </header>
 
+            {pinnedMessage ? (
+              <div className="pinned-message">
+                <div className="pinned-message-content">
+                  <img
+                    className="pinned-message-icon"
+                    src="/icons/pin100.png"
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <p>{pinnedMessage.text}</p>
+                </div>
+                <button
+                  type="button"
+                  className="soft-button pinned-message-close"
+                  onClick={() => unpinMessage(activeChat.id)}
+                >
+                  Снять
+                </button>
+              </div>
+            ) : null}
+
             <div className="message-feed" ref={messageFeedRef}>
               {activeChat.messages.map((message) => (
-                <article
+                <button
                   key={message.id}
-                  className={message.author === 'me' ? 'bubble mine' : 'bubble'}
+                  type="button"
+                  className={message.author === 'me' ? 'bubble bubble-button mine' : 'bubble bubble-button'}
+                  onClick={() => setMessageActionMessageId(message.id)}
                 >
+                  {message.forwarded ? <span className="bubble-meta">Переслано</span> : null}
+                  {message.replyTo ? (
+                    <div className="bubble-reply">
+                      <span>{formatMessageAuthor(message.replyTo.author, activeChat.title)}</span>
+                      <p>{message.replyTo.text}</p>
+                    </div>
+                  ) : null}
                   <p>{message.text}</p>
                   <time>{message.time}</time>
-                </article>
+                </button>
               ))}
 
               {activeChat.typing && !quietMode ? (
@@ -1703,17 +1906,126 @@ function App() {
               }}
             >
               <div className="composer-input">
+                {replyTarget ? (
+                  <div className="composer-reply">
+                    <div>
+                      <span className="settings-label">Ответ</span>
+                      <p>{replyTarget.text}</p>
+                    </div>
+                    <button type="button" className="soft-button composer-reply-cancel" onClick={() => setReplyTarget(null)}>
+                      Отмена
+                    </button>
+                  </div>
+                ) : null}
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  className="composer-attachment-input"
+                  onChange={(event) =>
+                    setSelectedAttachmentName(event.target.files?.[0]?.name ?? '')
+                  }
+                />
                 <textarea
                   rows={3}
                   placeholder="Напиши сообщение в тайник..."
                   value={messageDraft}
                   onChange={(event) => setMessageDraft(event.target.value)}
                 />
+                <div className="composer-tools">
+                  <button
+                    type="button"
+                    className={selectedAttachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}
+                    onClick={openAttachmentPicker}
+                    aria-label="Добавить файл"
+                    title={selectedAttachmentName || 'Добавить файл'}
+                  >
+                    <img src="/icons/attach100.png" alt="" />
+                  </button>
+                </div>
                 <button type="submit" className="send-button composer-send">
                   Отправить
                 </button>
               </div>
             </form>
+
+            {activeMessage ? (
+              <>
+                <button
+                  type="button"
+                  className="room-confirm-scrim"
+                  aria-label="Закрыть меню сообщения"
+                  onClick={() => setMessageActionMessageId(null)}
+                />
+                <div className="message-menu">
+                  <button type="button" className="message-menu-item" onClick={() => replyToMessage(activeMessage)}>
+                    Ответить
+                  </button>
+                  <button
+                    type="button"
+                    className="message-menu-item"
+                    onClick={() => copyMessageText(activeMessage.text)}
+                  >
+                    Копировать текст
+                  </button>
+                  <button
+                    type="button"
+                    className="message-menu-item"
+                    onClick={() => pinMessage(activeChat.id, activeMessage.id)}
+                  >
+                    Закрепить
+                  </button>
+                  <button
+                    type="button"
+                    className="message-menu-item"
+                    onClick={() => {
+                      setForwardingMessageId(activeMessage.id)
+                      setMessageActionMessageId(null)
+                    }}
+                  >
+                    Переслать
+                  </button>
+                  <button
+                    type="button"
+                    className="message-menu-item danger"
+                    onClick={() => {
+                      setConfirmingDeleteMessageId(activeMessage.id)
+                      setMessageActionMessageId(null)
+                    }}
+                  >
+                    Удалить
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {forwardingMessage ? (
+              <>
+                <button
+                  type="button"
+                  className="room-confirm-scrim"
+                  aria-label="Закрыть пересылку"
+                  onClick={() => setForwardingMessageId(null)}
+                />
+                <div className="room-confirm room-forward">
+                  <p className="room-confirm-copy">Кому переслать сообщение?</p>
+                  <div className="room-forward-list">
+                    {availableChats.map((chat) => (
+                      <button
+                        key={chat.id}
+                        type="button"
+                        className="room-forward-item"
+                        onClick={() => forwardMessageToChat(chat.id, forwardingMessage)}
+                      >
+                        <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                          {chat.title.slice(0, 1)}
+                        </span>
+                        <span>{chat.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : null}
 
             {confirmingDeleteHistoryChatId !== null ? (
               <>
@@ -1746,6 +2058,43 @@ function App() {
                       type="button"
                       className="room-confirm-button"
                       onClick={() => setConfirmingDeleteHistoryChatId(null)}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {confirmingDeleteMessageId !== null ? (
+              <>
+                <button
+                  type="button"
+                  className="room-confirm-scrim"
+                  aria-label="Закрыть подтверждение удаления сообщения"
+                  onClick={() => setConfirmingDeleteMessageId(null)}
+                />
+                <div className="room-confirm">
+                  <p className="room-confirm-copy">Удалить это сообщение?</p>
+                  <div className="room-confirm-actions">
+                    <button
+                      type="button"
+                      className="room-confirm-button room-confirm-danger"
+                      onClick={() => deleteMessage(activeChat.id, confirmingDeleteMessageId)}
+                    >
+                      Удалить у меня
+                    </button>
+                    <button
+                      type="button"
+                      className="room-confirm-button room-confirm-danger"
+                      onClick={() => deleteMessage(activeChat.id, confirmingDeleteMessageId)}
+                    >
+                      Удалить у всех
+                    </button>
+                    <button
+                      type="button"
+                      className="room-confirm-button"
+                      onClick={() => setConfirmingDeleteMessageId(null)}
                     >
                       Отмена
                     </button>
