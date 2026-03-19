@@ -1800,6 +1800,7 @@
 }
 
 .message-feed {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1827,8 +1828,9 @@
 
 .bubble-button.selected {
   position: relative;
-  z-index: 6;
+  z-index: 7;
   box-shadow: 0 22px 40px rgba(72, 52, 33, 0.16);
+  outline: 1px solid rgba(141, 89, 57, 0.18);
 }
 
 .bubble.mine {
@@ -1840,6 +1842,10 @@
 
 .channel-post {
   max-width: min(620px, 100%);
+}
+
+.channel-post.selected {
+  background: rgba(255, 255, 255, 0.95);
 }
 
 .bubble p,
@@ -1998,7 +2004,7 @@
   background: rgba(255, 251, 245, 0.98);
   border: 1px solid rgba(141, 89, 57, 0.14);
   box-shadow: 0 24px 60px rgba(64, 35, 18, 0.16);
-  z-index: 6;
+  z-index: 8;
 }
 
 .message-menu-note {

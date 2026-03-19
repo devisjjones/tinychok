@@ -6,6 +6,7 @@ type Message = {
   author: 'me' | 'them'
   text: string
   time: string
+  displayAuthor?: string
   replyTo?: {
     text: string
     author: 'me' | 'them'
@@ -66,13 +67,16 @@ type GroupPreview = {
   time: string
   unread: number
   members: number
+  messages: Message[]
 }
 
 type ActionAnchor = {
   top: number
   bottom: number
   left: number
+  right: number
   width: number
+  align: 'start' | 'end'
 }
 
 type Channel = {
@@ -541,6 +545,28 @@ const initialGroups: GroupPreview[] = [
     time: '21:24',
     unread: 4,
     members: 8,
+    messages: [
+      {
+        id: 1,
+        author: 'them',
+        displayAuthor: 'Мира',
+        text: 'Соберём в этой группе спокойные обсуждения интерфейса и приватных сценариев.',
+        time: '20:48',
+      },
+      {
+        id: 2,
+        author: 'me',
+        text: 'Да, и без лишнего шума. Только короткие сообщения и понятные решения.',
+        time: '21:02',
+      },
+      {
+        id: 3,
+        author: 'them',
+        displayAuthor: 'Лев',
+        text: 'Тогда здесь же проверим, как ведёт себя меню действий у сообщений в групповом потоке.',
+        time: '21:24',
+      },
+    ],
   },
   {
     id: 2,
@@ -551,6 +577,21 @@ const initialGroups: GroupPreview[] = [
     time: '19:16',
     unread: 0,
     members: 5,
+    messages: [
+      {
+        id: 1,
+        author: 'them',
+        displayAuthor: 'Полина',
+        text: 'В эту группу складываем короткие заметки по сборкам, текстам и мелким визуальным багам.',
+        time: '18:40',
+      },
+      {
+        id: 2,
+        author: 'me',
+        text: 'Хорошо. Ещё удобно обсуждать здесь статусы релизов и мелкие правки перед пушем.',
+        time: '19:16',
+      },
+    ],
   },
   {
     id: 3,
@@ -561,6 +602,22 @@ const initialGroups: GroupPreview[] = [
     time: '17:42',
     unread: 2,
     members: 11,
+    messages: [
+      {
+        id: 1,
+        author: 'them',
+        displayAuthor: 'Соня',
+        text: 'Нужно накидать несколько черновых сообщений, чтобы группа ощущалась живой, а не пустой.',
+        time: '17:11',
+      },
+      {
+        id: 2,
+        author: 'them',
+        displayAuthor: 'Никита',
+        text: 'И сразу проверить, что копирование и пересылка из группы работают так же стабильно, как в обычном чате.',
+        time: '17:42',
+      },
+    ],
   },
 ]
 const channelAvatarTones = ['#8c5738', '#6eb6ff', '#ff8a5b', '#82c9a3', '#f29f67', '#d18fff']
@@ -661,14 +718,16 @@ function sanitizeChannelDescription(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, channelDescriptionMaxLength)
 }
 
-function getActionAnchor(element: HTMLElement): ActionAnchor {
+function getActionAnchor(element: HTMLElement, align: 'start' | 'end' = 'start'): ActionAnchor {
   const rect = element.getBoundingClientRect()
 
   return {
     top: rect.top,
     bottom: rect.bottom,
     left: rect.left,
+    right: rect.right,
     width: rect.width,
+    align,
   }
 }
 
@@ -677,10 +736,8 @@ function getAnchoredMenuStyle(anchor: ActionAnchor, menuWidth: number, menuHeigh
     anchor.bottom + 12 + menuHeight <= window.innerHeight - 16
       ? anchor.bottom + 12
       : Math.max(16, anchor.top - menuHeight - 12)
-  const left = Math.min(
-    window.innerWidth - menuWidth - 16,
-    Math.max(16, anchor.left + anchor.width - menuWidth),
-  )
+  const preferredLeft = anchor.align === 'end' ? anchor.right - menuWidth : anchor.left
+  const left = Math.min(window.innerWidth - menuWidth - 16, Math.max(16, preferredLeft))
 
   return {
     top: `${top}px`,
@@ -852,12 +909,13 @@ function App() {
   const [chats, setChats] = useState(initialChats)
   const [channels, setChannels] = useState(initialChannels)
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
+  const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
   const [retainedAllChatId, setRetainedAllChatId] = useState<number | null>(null)
-  const [retainedNewChatId, setRetainedNewChatId] = useState<number | null>(null)
   const [retainedFavoriteChatId, setRetainedFavoriteChatId] = useState<number | null>(null)
   const [retainedSubscriptionChannelId, setRetainedSubscriptionChannelId] = useState<number | null>(
     null,
   )
+  const [retainedGroupId, setRetainedGroupId] = useState<number | null>(null)
   const [activeChannelId, setActiveChannelId] = useState<number | null>(initialChannels[0]?.id ?? null)
   const [stageView, setStageView] = useState<StageView>('main')
   const [channelsView, setChannelsView] = useState<ChannelsView>('list')
@@ -909,14 +967,17 @@ function App() {
   const [topListView, setTopListView] = useState<TopListView>('none')
   const [copyHintText, setCopyHintText] = useState('')
   const [subscriptionChannels, setSubscriptionChannels] = useState(initialSubscribedChannels)
-  const [groups] = useState(initialGroups)
+  const [groups, setGroups] = useState(initialGroups)
   const [activeSubscriptionChannelId, setActiveSubscriptionChannelId] = useState<number | null>(null)
   const [activeSubscriptionPostId, setActiveSubscriptionPostId] = useState<number | null>(null)
+  const [activeGroupMessageId, setActiveGroupMessageId] = useState<number | null>(null)
   const [forwardingSubscriptionPostText, setForwardingSubscriptionPostText] = useState('')
+  const [forwardingGroupMessageText, setForwardingGroupMessageText] = useState('')
   const [messageActionAnchor, setMessageActionAnchor] = useState<ActionAnchor | null>(null)
   const [subscriptionPostActionAnchor, setSubscriptionPostActionAnchor] = useState<ActionAnchor | null>(
     null,
   )
+  const [groupMessageActionAnchor, setGroupMessageActionAnchor] = useState<ActionAnchor | null>(null)
 
   const blockedContactIds = session?.blockedContactIds ?? []
   const availableChats = chats.filter((chat) => !blockedContactIds.includes(chat.id))
@@ -930,15 +991,6 @@ function App() {
     activeChatId === retainedAllChatId
       ? retainedAllChatId
       : null
-  const visibleRetainedNewChatId =
-    activeFilter === 'Новые' &&
-    stageView === 'main' &&
-    bottomSection === 'chats' &&
-    topListView === 'none' &&
-    !searchOpen &&
-    activeChatId === retainedNewChatId
-      ? retainedNewChatId
-      : null
   const visibleRetainedFavoriteChatId =
     activeFilter === '★' &&
     stageView === 'main' &&
@@ -948,12 +1000,18 @@ function App() {
     activeChatId === retainedFavoriteChatId
       ? retainedFavoriteChatId
       : null
+  const visibleRetainedGroupId =
+    topListView === 'groups' &&
+    stageView === 'main' &&
+    !searchOpen &&
+    activeGroupId === retainedGroupId
+      ? retainedGroupId
+      : null
 
   const visibleChats = availableChats.filter((chat) => {
     if (searchOpen) return true
     if (bottomSection === 'contacts') return true
     if (activeFilter === '★') return Boolean(chat.pinned)
-    if (activeFilter === 'Новые') return chat.unread > 0 || chat.id === visibleRetainedNewChatId
 
     return true
   })
@@ -1006,6 +1064,11 @@ function App() {
     activeSubscriptionPostId === null
       ? null
       : activeSubscriptionChannel?.posts.find((post) => post.id === activeSubscriptionPostId) ?? null
+  const activeGroup = activeGroupId === null ? null : groups.find((group) => group.id === activeGroupId) ?? null
+  const activeGroupMessage =
+    activeGroupMessageId === null
+      ? null
+      : activeGroup?.messages.find((message) => message.id === activeGroupMessageId) ?? null
   const transferringChannel =
     transferringChannelId === null
       ? null
@@ -1024,6 +1087,7 @@ function App() {
     )
   })
   const activeChatMessageCount = activeChat?.messages.length ?? 0
+  const activeGroupMessageCount = activeGroup?.messages.length ?? 0
   const isSettingsView = stageView === 'settings'
   const isPremiumView = stageView === 'premium'
   const isChannelsView = stageView === 'channels'
@@ -1031,6 +1095,7 @@ function App() {
   const isChannelCreateView = isChannelsView && channelsView === 'create'
   const isChannelDetailView = isChannelsView && channelsView === 'detail'
   const isChatOpen = stageView === 'main' && activeChat !== null
+  const isGroupOpen = stageView === 'main' && activeGroup !== null
   const isSubscriptionChannelOpen = stageView === 'main' && activeSubscriptionChannel !== null
   const isChannelsTopListOpen = topListView === 'channels'
   const isGroupsTopListOpen = topListView === 'groups'
@@ -1059,7 +1124,9 @@ function App() {
   const orderedSubscriptionChannels = sortByUnreadEnabled
     ? moveUnreadItemsFirst(subscriptionChannels, visibleRetainedSubscriptionChannelId)
     : subscriptionChannels
-  const orderedGroups = sortByUnreadEnabled ? moveUnreadItemsFirst(groups) : groups
+  const orderedGroups = sortByUnreadEnabled
+    ? moveUnreadItemsFirst(groups, visibleRetainedGroupId)
+    : groups
   const totalChannelNotifications = subscriptionChannels.reduce((sum, channel) => sum + channel.unread, 0)
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
   const sessionHasPremium = session?.premium ?? true
@@ -1069,10 +1136,19 @@ function App() {
     : null
 
   useEffect(() => {
-    if ((!isChatOpen && !isSubscriptionChannelOpen) || !messageFeedRef.current) return
+    if ((!isChatOpen && !isSubscriptionChannelOpen && !isGroupOpen) || !messageFeedRef.current) return
 
     messageFeedRef.current.scrollTop = messageFeedRef.current.scrollHeight
-  }, [activeChatId, activeChatMessageCount, activeSubscriptionChannelId, isChatOpen, isSubscriptionChannelOpen])
+  }, [
+    activeChatId,
+    activeChatMessageCount,
+    activeGroupId,
+    activeGroupMessageCount,
+    activeSubscriptionChannelId,
+    isChatOpen,
+    isGroupOpen,
+    isSubscriptionChannelOpen,
+  ])
 
   useEffect(() => {
     if (!isChannelsView || !channelsPanelRef.current) return
@@ -1279,14 +1355,18 @@ function App() {
     setChannelTransferError('')
     setTopListView('none')
     setRetainedAllChatId(null)
-    setRetainedNewChatId(null)
     setRetainedFavoriteChatId(null)
     setRetainedSubscriptionChannelId(null)
+    setRetainedGroupId(null)
     setActiveSubscriptionChannelId(null)
     setActiveSubscriptionPostId(null)
+    setActiveGroupId(null)
+    setActiveGroupMessageId(null)
     setForwardingSubscriptionPostText('')
+    setForwardingGroupMessageText('')
     setMessageActionAnchor(null)
     setSubscriptionPostActionAnchor(null)
+    setGroupMessageActionAnchor(null)
   }
 
   function sendMessage() {
@@ -1341,9 +1421,13 @@ function App() {
 
     setStageView('main')
     setRetainedAllChatId(null)
-    setRetainedNewChatId(null)
     setRetainedFavoriteChatId(null)
+    setRetainedGroupId(null)
     setActiveChatId(null)
+    setActiveGroupId(null)
+    setActiveGroupMessageId(null)
+    setForwardingGroupMessageText('')
+    setGroupMessageActionAnchor(null)
     setRetainedSubscriptionChannelId(shouldRetainSubscriptionChannelInList ? channelId : null)
     setActiveSubscriptionChannelId(channelId)
     setActiveSubscriptionPostId(null)
@@ -1363,13 +1447,43 @@ function App() {
     )
   }
 
+  function openGroup(groupId: number) {
+    const shouldRetainGroupInList =
+      topListView === 'groups' &&
+      groups.some((group) => group.id === groupId && (group.unread > 0 || group.id === retainedGroupId))
+
+    setStageView('main')
+    setRetainedAllChatId(null)
+    setRetainedFavoriteChatId(null)
+    setRetainedSubscriptionChannelId(null)
+    setActiveChatId(null)
+    setActiveSubscriptionChannelId(null)
+    setActiveSubscriptionPostId(null)
+    setForwardingSubscriptionPostText('')
+    setSubscriptionPostActionAnchor(null)
+    setTopListView('groups')
+    setSearchOpen(false)
+    setRetainedGroupId(shouldRetainGroupInList ? groupId : null)
+    setActiveGroupId(groupId)
+    setActiveGroupMessageId(null)
+    setForwardingGroupMessageText('')
+    setGroupMessageActionAnchor(null)
+    setGroups((currentGroups) =>
+      currentGroups.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              unread: 0,
+            }
+          : group,
+      ),
+    )
+  }
+
   function openChat(chatId: number) {
     const shouldRetainChatInAllFilter =
       activeFilter === 'Все' &&
       availableChats.some((chat) => chat.id === chatId && (chat.unread > 0 || chat.id === retainedAllChatId))
-    const shouldRetainChatInNewFilter =
-      activeFilter === 'Новые' &&
-      availableChats.some((chat) => chat.id === chatId && (chat.unread > 0 || chat.id === retainedNewChatId))
     const shouldRetainChatInFavoritesFilter =
       activeFilter === '★' &&
       availableChats.some(
@@ -1396,14 +1510,18 @@ function App() {
     setChannelTransferError('')
     setTopListView('none')
     setRetainedAllChatId(shouldRetainChatInAllFilter ? chatId : null)
-    setRetainedNewChatId(shouldRetainChatInNewFilter ? chatId : null)
     setRetainedFavoriteChatId(shouldRetainChatInFavoritesFilter ? chatId : null)
     setRetainedSubscriptionChannelId(null)
+    setRetainedGroupId(null)
     setActiveSubscriptionChannelId(null)
     setActiveSubscriptionPostId(null)
+    setActiveGroupId(null)
+    setActiveGroupMessageId(null)
     setForwardingSubscriptionPostText('')
+    setForwardingGroupMessageText('')
     setMessageActionAnchor(null)
     setSubscriptionPostActionAnchor(null)
+    setGroupMessageActionAnchor(null)
     setBottomSection('chats')
     setActiveChatId(chatId)
     setChats((currentChats) =>
@@ -1667,15 +1785,18 @@ function App() {
 
   function openChannelsView(nextView: ChannelsView = 'list') {
     setRetainedAllChatId(null)
-    setRetainedNewChatId(null)
     setRetainedFavoriteChatId(null)
     setRetainedSubscriptionChannelId(null)
+    setRetainedGroupId(null)
     setStageView('channels')
     setChannelsView(nextView)
     setTopListView('none')
     setActiveSubscriptionChannelId(null)
     setActiveSubscriptionPostId(null)
+    setActiveGroupId(null)
+    setActiveGroupMessageId(null)
     setForwardingSubscriptionPostText('')
+    setForwardingGroupMessageText('')
     setConfirmingLogout(false)
     setPremiumGiftChatId(null)
     setChatActionsOpen(false)
@@ -1693,6 +1814,7 @@ function App() {
     setChannelTransferError('')
     setMessageActionAnchor(null)
     setSubscriptionPostActionAnchor(null)
+    setGroupMessageActionAnchor(null)
   }
 
   function openChannelsListView() {
@@ -1795,6 +1917,12 @@ function App() {
     setActiveSubscriptionPostId(null)
     setForwardingSubscriptionPostText('')
     setSubscriptionPostActionAnchor(null)
+  }
+
+  function closeGroupMessageActions() {
+    setActiveGroupMessageId(null)
+    setForwardingGroupMessageText('')
+    setGroupMessageActionAnchor(null)
   }
 
   function deleteChannel(channelId: number) {
@@ -2045,33 +2173,39 @@ function App() {
               type="button"
               className={
                 topListView === 'none' &&
-                (filter === 'Все'
-                  ? activeFilter === 'Все' || activeFilter === 'Новые'
-                  : filter === activeFilter)
+                (filter === 'Все' ? activeFilter === 'Все' : filter === activeFilter)
                   ? 'filter active'
                   : 'filter'
               }
               onClick={() => {
                 if (filter === 'Все') {
                   setRetainedAllChatId(null)
-                  setRetainedNewChatId(null)
                   setRetainedFavoriteChatId(null)
                   setRetainedSubscriptionChannelId(null)
-                  setActiveFilter((current) => (current === 'Все' ? 'Новые' : 'Все'))
+                  setRetainedGroupId(null)
+                  setActiveFilter('Все')
                   setSearchOpen(false)
                   setTopListView('none')
                   setActiveSubscriptionChannelId(null)
+                  setActiveGroupId(null)
+                  setActiveGroupMessageId(null)
+                  setForwardingGroupMessageText('')
+                  setGroupMessageActionAnchor(null)
                   return
                 }
 
                 setRetainedAllChatId(null)
-                setRetainedNewChatId(null)
                 setRetainedFavoriteChatId(null)
                 setRetainedSubscriptionChannelId(null)
+                setRetainedGroupId(null)
                 setActiveFilter(filter)
                 setSearchOpen(false)
                 setTopListView('none')
                 setActiveSubscriptionChannelId(null)
+                setActiveGroupId(null)
+                setActiveGroupMessageId(null)
+                setForwardingGroupMessageText('')
+                setGroupMessageActionAnchor(null)
               }}
             >
               {filter === '★' ? (
@@ -2082,7 +2216,7 @@ function App() {
                   ) : null}
                 </>
               ) : (
-                <span>{activeFilter === 'Новые' ? 'Новые' : 'Все'}</span>
+                <span>Все</span>
               )}
               {filter === 'Все' && !quietMode && totalUnreadCount > 0 ? (
                 <span className="filter-badge">{totalUnreadCount}</span>
@@ -2094,13 +2228,17 @@ function App() {
             className={isChannelsTopListOpen ? 'filter active' : 'filter'}
             onClick={() => {
               setRetainedAllChatId(null)
-              setRetainedNewChatId(null)
               setRetainedFavoriteChatId(null)
               setRetainedSubscriptionChannelId(null)
+              setRetainedGroupId(null)
               setTopListView('channels')
               setActiveChatId(null)
               setActiveSubscriptionChannelId(null)
               setActiveSubscriptionPostId(null)
+              setActiveGroupId(null)
+              setActiveGroupMessageId(null)
+              setForwardingGroupMessageText('')
+              setGroupMessageActionAnchor(null)
               setSearchOpen(false)
               setQuery('')
             }}
@@ -2117,13 +2255,17 @@ function App() {
             className={isGroupsTopListOpen ? 'filter active' : 'filter'}
             onClick={() => {
               setRetainedAllChatId(null)
-              setRetainedNewChatId(null)
               setRetainedFavoriteChatId(null)
               setRetainedSubscriptionChannelId(null)
+              setRetainedGroupId(null)
               setTopListView('groups')
               setActiveChatId(null)
               setActiveSubscriptionChannelId(null)
               setActiveSubscriptionPostId(null)
+              setActiveGroupId(null)
+              setActiveGroupMessageId(null)
+              setForwardingGroupMessageText('')
+              setGroupMessageActionAnchor(null)
               setSearchOpen(false)
               setQuery('')
             }}
@@ -2245,7 +2387,12 @@ function App() {
         ) : isGroupsTopListOpen ? (
           <div className="chat-list">
             {orderedGroups.map((group) => (
-              <article key={group.id} className="chat-card">
+              <button
+                key={group.id}
+                type="button"
+                className={group.id === activeGroupId ? 'chat-card active' : 'chat-card'}
+                onClick={() => openGroup(group.id)}
+              >
                 <span className="avatar" style={{ backgroundColor: group.accent }}>
                   {group.title.slice(0, 1)}
                 </span>
@@ -2263,7 +2410,7 @@ function App() {
                   <span className="chat-preview">{group.preview}</span>
                 </span>
                 {!quietMode && group.unread > 0 ? <span className="badge">{group.unread}</span> : null}
-              </article>
+              </button>
             ))}
           </div>
         ) : (
@@ -2331,10 +2478,14 @@ function App() {
               setSearchOpen(false)
               setQuery('')
               setRetainedAllChatId(null)
-              setRetainedNewChatId(null)
               setRetainedFavoriteChatId(null)
               setRetainedSubscriptionChannelId(null)
+              setRetainedGroupId(null)
               setActiveFilter('Все')
+              setActiveGroupId(null)
+              setActiveGroupMessageId(null)
+              setForwardingGroupMessageText('')
+              setGroupMessageActionAnchor(null)
             }}
             aria-label="Чаты"
           >
@@ -2353,10 +2504,14 @@ function App() {
               setSearchOpen(false)
               setQuery('')
               setRetainedAllChatId(null)
-              setRetainedNewChatId(null)
               setRetainedFavoriteChatId(null)
               setRetainedSubscriptionChannelId(null)
+              setRetainedGroupId(null)
               setActiveFilter('Все')
+              setActiveGroupId(null)
+              setActiveGroupMessageId(null)
+              setForwardingGroupMessageText('')
+              setGroupMessageActionAnchor(null)
             }}
             aria-label="Контакты"
           >
@@ -2373,10 +2528,14 @@ function App() {
               setActiveSubscriptionChannelId(null)
               setSearchOpen(true)
               setRetainedAllChatId(null)
-              setRetainedNewChatId(null)
               setRetainedFavoriteChatId(null)
               setRetainedSubscriptionChannelId(null)
+              setRetainedGroupId(null)
               setActiveFilter('Поиск')
+              setActiveGroupId(null)
+              setActiveGroupMessageId(null)
+              setForwardingGroupMessageText('')
+              setGroupMessageActionAnchor(null)
             }}
             aria-label="Поиск"
           >
@@ -2397,12 +2556,16 @@ function App() {
               className="soft-button icon-button"
               onClick={() => {
                 setRetainedAllChatId(null)
-                setRetainedNewChatId(null)
                 setRetainedFavoriteChatId(null)
                 setRetainedSubscriptionChannelId(null)
+                setRetainedGroupId(null)
                 setStageView('premium')
                 setConfirmingLogout(false)
                 setPremiumGiftChatId(null)
+                setActiveGroupId(null)
+                setActiveGroupMessageId(null)
+                setForwardingGroupMessageText('')
+                setGroupMessageActionAnchor(null)
               }}
               aria-label="Премиум"
             >
@@ -2414,12 +2577,16 @@ function App() {
             className={isSettingsView ? 'soft-button icon-button active' : 'soft-button icon-button'}
             onClick={() => {
               setRetainedAllChatId(null)
-              setRetainedNewChatId(null)
               setRetainedFavoriteChatId(null)
               setRetainedSubscriptionChannelId(null)
+              setRetainedGroupId(null)
               setStageView('settings')
               setSettingsView('profile')
               setConfirmingLogout(false)
+              setActiveGroupId(null)
+              setActiveGroupMessageId(null)
+              setForwardingGroupMessageText('')
+              setGroupMessageActionAnchor(null)
             }}
             aria-label="Настройки"
           >
@@ -2437,12 +2604,17 @@ function App() {
               ? 'stage settings-open'
             : isChannelsView
               ? 'stage channels-open'
-            : isChatOpen || isSubscriptionChannelOpen
+            : isChatOpen || isSubscriptionChannelOpen || isGroupOpen
               ? 'stage chat-open'
               : 'stage'
         }
       >
-        {!isSettingsView && !isPremiumView && !isChannelsView && !activeChat && !activeSubscriptionChannel ? (
+        {!isSettingsView &&
+        !isPremiumView &&
+        !isChannelsView &&
+        !activeChat &&
+        !activeSubscriptionChannel &&
+        !activeGroup ? (
           <div className="hero-panel hero-panel-idle">
             <div>
               <p className="eyebrow">Личный канал</p>
@@ -3073,13 +3245,67 @@ function App() {
                   }
                   onClick={(event) => {
                     setActiveSubscriptionPostId(post.id)
-                    setSubscriptionPostActionAnchor(getActionAnchor(event.currentTarget))
+                    setSubscriptionPostActionAnchor(getActionAnchor(event.currentTarget, 'start'))
                     setForwardingSubscriptionPostText('')
                   }}
                 >
                   <span className="bubble-meta">{activeSubscriptionChannel.draft ? 'Draft-пост' : 'Пост канала'}</span>
                   <p>{post.text}</p>
                   <time>{post.time}</time>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {isGroupOpen ? (
+          <section className="chat-room channel-room">
+            <header className="room-header">
+              <div className="room-id">
+                <span className="avatar large" style={{ backgroundColor: activeGroup.accent }}>
+                  {activeGroup.title.slice(0, 1)}
+                </span>
+                <div>
+                  <div className="room-title">
+                    <div className="room-title-name">
+                      <h3>{activeGroup.title}</h3>
+                      <span className="chat-star">
+                        <img src="/icons/group100.png" alt="Группа" />
+                      </span>
+                    </div>
+                  </div>
+                  <p>{`${activeGroup.handle} · ${activeGroup.members} участников`}</p>
+                </div>
+              </div>
+            </header>
+
+            <div className="message-feed" ref={messageFeedRef}>
+              {activeGroup.messages.map((message) => (
+                <button
+                  key={message.id}
+                  type="button"
+                  className={
+                    message.author === 'me'
+                      ? activeGroupMessageId === message.id
+                        ? 'bubble bubble-button mine selected'
+                        : 'bubble bubble-button mine'
+                      : activeGroupMessageId === message.id
+                        ? 'bubble bubble-button selected'
+                        : 'bubble bubble-button'
+                  }
+                  onClick={(event) => {
+                    setActiveGroupMessageId(message.id)
+                    setGroupMessageActionAnchor(
+                      getActionAnchor(event.currentTarget, message.author === 'me' ? 'end' : 'start'),
+                    )
+                    setForwardingGroupMessageText('')
+                  }}
+                >
+                  <span className="bubble-meta">
+                    {message.author === 'me' ? 'Вы' : message.displayAuthor ?? 'Участник группы'}
+                  </span>
+                  <p>{message.text}</p>
+                  <time>{message.time}</time>
                 </button>
               ))}
             </div>
@@ -3218,7 +3444,9 @@ function App() {
                   }
                   onClick={(event) => {
                     setMessageActionMessageId(message.id)
-                    setMessageActionAnchor(getActionAnchor(event.currentTarget))
+                    setMessageActionAnchor(
+                      getActionAnchor(event.currentTarget, message.author === 'me' ? 'end' : 'start'),
+                    )
                   }}
                 >
                   {message.forwarded ? <span className="bubble-meta">Переслано</span> : null}
@@ -3636,94 +3864,166 @@ function App() {
           </>
         ) : null}
 
-            {activeSubscriptionPost ? (
-              <>
-                <button
-                  type="button"
-                  className="room-confirm-scrim"
-                  aria-label="Закрыть действия с постом канала"
-                  onClick={closeSubscriptionPostActions}
-                />
-                {activeSubscriptionChannel?.visibility === 'closed' ? (
-                  <div
-                    className="message-menu message-menu-note"
-                    style={
-                      subscriptionPostActionAnchor
-                        ? getAnchoredMenuStyle(
-                            subscriptionPostActionAnchor,
-                            channelActionMenuWidth,
-                            channelBlockedMenuHeight,
-                          )
-                        : undefined
-                    }
-                  >
-                    <p className="room-confirm-copy">
-                      Канал имеет тип "закрытый", копирование и пересылка сообщений запрещена
-                    </p>
-                  </div>
-                ) : forwardingSubscriptionPostText ? (
-                  <div className="room-confirm room-forward">
-                    <p className="room-confirm-copy">Кому переслать сообщение?</p>
-                    <div className="room-forward-list">
-                      {availableChats.map((chat) => (
-                        <button
-                          key={chat.id}
-                          type="button"
-                          className="room-forward-item"
-                          onClick={() => {
-                            forwardTextToChat(chat.id, forwardingSubscriptionPostText)
-                            closeSubscriptionPostActions()
-                          }}
-                        >
-                          <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                            {chat.title.slice(0, 1)}
-                          </span>
-                          <span>{chat.title}</span>
-                        </button>
-                      ))}
-                    </div>
+        {activeSubscriptionPost ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть действия с постом канала"
+              onClick={closeSubscriptionPostActions}
+            />
+            {activeSubscriptionChannel?.visibility === 'closed' ? (
+              <div
+                className="message-menu message-menu-note"
+                style={
+                  subscriptionPostActionAnchor
+                    ? getAnchoredMenuStyle(
+                        subscriptionPostActionAnchor,
+                        channelActionMenuWidth,
+                        channelBlockedMenuHeight,
+                      )
+                    : undefined
+                }
+              >
+                <p className="room-confirm-copy">
+                  Канал имеет тип "закрытый", копирование и пересылка сообщений запрещена
+                </p>
+              </div>
+            ) : forwardingSubscriptionPostText ? (
+              <div className="room-confirm room-forward">
+                <p className="room-confirm-copy">Кому переслать сообщение?</p>
+                <div className="room-forward-list">
+                  {availableChats.map((chat) => (
                     <button
+                      key={chat.id}
                       type="button"
-                      className="room-confirm-button"
-                      onClick={() => setForwardingSubscriptionPostText('')}
-                    >
-                      Назад
-                    </button>
-                  </div>
-                ) : (
-                  <div
-                    className="message-menu"
-                    style={
-                      subscriptionPostActionAnchor
-                        ? getAnchoredMenuStyle(
-                            subscriptionPostActionAnchor,
-                            channelActionMenuWidth,
-                            channelActionMenuHeight,
-                          )
-                        : undefined
-                    }
-                  >
-                    <button
-                      type="button"
-                      className="message-menu-item"
-                      onClick={() => setForwardingSubscriptionPostText(activeSubscriptionPost.text)}
-                    >
-                      Переслать
-                    </button>
-                    <button
-                      type="button"
-                      className="message-menu-item"
+                      className="room-forward-item"
                       onClick={() => {
-                        copyToClipboard(activeSubscriptionPost.text, 'Сообщение скопировано')
+                        forwardTextToChat(chat.id, forwardingSubscriptionPostText)
                         closeSubscriptionPostActions()
                       }}
                     >
-                      Скопировать
+                      <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                        {chat.title.slice(0, 1)}
+                      </span>
+                      <span>{chat.title}</span>
                     </button>
-                  </div>
-                )}
-              </>
-            ) : null}
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="room-confirm-button"
+                  onClick={() => setForwardingSubscriptionPostText('')}
+                >
+                  Назад
+                </button>
+              </div>
+            ) : (
+              <div
+                className="message-menu"
+                style={
+                  subscriptionPostActionAnchor
+                    ? getAnchoredMenuStyle(
+                        subscriptionPostActionAnchor,
+                        channelActionMenuWidth,
+                        channelActionMenuHeight,
+                      )
+                    : undefined
+                }
+              >
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => setForwardingSubscriptionPostText(activeSubscriptionPost.text)}
+                >
+                  Переслать
+                </button>
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => {
+                    copyToClipboard(activeSubscriptionPost.text, 'Сообщение скопировано')
+                    closeSubscriptionPostActions()
+                  }}
+                >
+                  Скопировать
+                </button>
+              </div>
+            )}
+          </>
+        ) : null}
+
+        {activeGroupMessage ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть действия с сообщением группы"
+              onClick={closeGroupMessageActions}
+            />
+            {forwardingGroupMessageText ? (
+              <div className="room-confirm room-forward">
+                <p className="room-confirm-copy">Кому переслать сообщение?</p>
+                <div className="room-forward-list">
+                  {availableChats.map((chat) => (
+                    <button
+                      key={chat.id}
+                      type="button"
+                      className="room-forward-item"
+                      onClick={() => {
+                        forwardTextToChat(chat.id, forwardingGroupMessageText)
+                        closeGroupMessageActions()
+                      }}
+                    >
+                      <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                        {chat.title.slice(0, 1)}
+                      </span>
+                      <span>{chat.title}</span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="room-confirm-button"
+                  onClick={() => setForwardingGroupMessageText('')}
+                >
+                  Назад
+                </button>
+              </div>
+            ) : (
+              <div
+                className="message-menu"
+                style={
+                  groupMessageActionAnchor
+                    ? getAnchoredMenuStyle(
+                        groupMessageActionAnchor,
+                        channelActionMenuWidth,
+                        channelActionMenuHeight,
+                      )
+                    : undefined
+                }
+              >
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => setForwardingGroupMessageText(activeGroupMessage.text)}
+                >
+                  Переслать
+                </button>
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => {
+                    copyToClipboard(activeGroupMessage.text, 'Сообщение скопировано')
+                    closeGroupMessageActions()
+                  }}
+                >
+                  Скопировать
+                </button>
+              </div>
+            )}
+          </>
+        ) : null}
 
         {editingChannelTitleId !== null ? (
           <>
