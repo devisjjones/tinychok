@@ -98,6 +98,7 @@ export type TopListView = 'none' | 'channels' | 'groups'
 export type AuthStep = 'phone' | 'code' | 'profile'
 export type StageView = 'main' | 'settings' | 'premium' | 'channels'
 export type SettingsView = 'profile' | 'management' | 'blocked'
+export type CookieConsentChoice = 'necessary' | 'analytics'
 
 export type Account = {
   identifier: string

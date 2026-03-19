@@ -1,5 +1,5 @@
-import { accountsStorageKey, sessionStorageKey } from './constants'
-import type { Account, Session } from './types'
+import { accountsStorageKey, cookieConsentStorageKey, sessionStorageKey } from './constants'
+import type { Account, CookieConsentChoice, Session } from './types'
 import { normalizePremiumExpiry } from './utils'
 
 export function loadAccounts() {
@@ -37,4 +37,17 @@ export function loadSession() {
   } catch {
     return null
   }
+}
+
+export function loadCookieConsent() {
+  if (typeof window === 'undefined') return null as CookieConsentChoice | null
+
+  const raw = window.localStorage.getItem(cookieConsentStorageKey)
+  return raw === 'necessary' || raw === 'analytics' ? raw : null
+}
+
+export function saveCookieConsent(choice: CookieConsentChoice) {
+  if (typeof window === 'undefined') return
+
+  window.localStorage.setItem(cookieConsentStorageKey, choice)
 }

@@ -17,3 +17,4 @@ export const quickFilters = ['Все', '★']
 export const channelAvatarTones = ['#8c5738', '#6eb6ff', '#ff8a5b', '#82c9a3', '#f29f67', '#d18fff']
 export const accountsStorageKey = 'tinychok.accounts'
 export const sessionStorageKey = 'tinychok.session'
+export const cookieConsentStorageKey = 'tinychok.cookie-consent'

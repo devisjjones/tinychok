@@ -1,0 +1,120 @@
+html[data-cookie-banner='visible'] .shell,
+html[data-cookie-banner='visible'] .auth-shell,
+html[data-cookie-banner='visible'] .confirm-shell,
+html[data-cookie-banner='visible'] .policy-page {
+  padding-bottom: 208px;
+}
+
+.cookie-banner-wrap {
+  position: fixed;
+  left: 24px;
+  right: 24px;
+  bottom: 24px;
+  z-index: 220;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.cookie-banner {
+  width: min(980px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid rgba(122, 98, 85, 0.14);
+  border-radius: 24px;
+  background: rgba(255, 251, 245, 0.94);
+  box-shadow: 0 24px 60px rgba(64, 35, 18, 0.14);
+  backdrop-filter: blur(18px);
+  pointer-events: auto;
+}
+
+.cookie-banner-body {
+  display: grid;
+  gap: 8px;
+}
+
+.cookie-banner-copy {
+  margin: 0;
+  max-width: 72ch;
+  color: var(--muted);
+  line-height: 1.58;
+}
+
+.cookie-banner-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.cookie-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cookie-banner-button {
+  min-height: 48px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.cookie-banner-button:hover {
+  transform: translateY(-1px);
+}
+
+.cookie-banner-button-secondary {
+  background: rgba(77, 58, 46, 0.08);
+  color: var(--ink);
+}
+
+.cookie-banner-button-primary {
+  background: var(--accent);
+  color: #fff9f3;
+  box-shadow: 0 12px 30px rgba(128, 76, 45, 0.22);
+}
+
+.cookie-banner-actions .cookie-banner-button {
+  min-height: 48px;
+}
+
+@media (max-width: 720px) {
+  html[data-cookie-banner='visible'] .shell,
+  html[data-cookie-banner='visible'] .auth-shell,
+  html[data-cookie-banner='visible'] .confirm-shell,
+  html[data-cookie-banner='visible'] .policy-page {
+    padding-bottom: 268px;
+  }
+
+  .cookie-banner-wrap {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .cookie-banner {
+    padding: 16px;
+    border-radius: 22px;
+  }
+
+  .cookie-banner-actions {
+    display: grid;
+  }
+
+  .cookie-banner-actions .cookie-banner-button {
+    width: 100%;
+    justify-content: center;
+  }
+}

@@ -73,6 +73,8 @@ import { ConfirmLogoutScreen } from './screens/ConfirmLogoutScreen'
 import { DirectChatRoom } from './rooms/DirectChatRoom'
 import { GroupRoom } from './rooms/GroupRoom'
 import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
+import { CookieConsentBanner } from './components/CookieConsentBanner'
+import { useCookieConsent } from './app/useCookieConsent'
 import './App.css'
 
 function App() {
@@ -152,6 +154,7 @@ function App() {
     null,
   )
   const [groupMessageActionAnchor, setGroupMessageActionAnchor] = useState<ActionAnchor | null>(null)
+  const { cookieConsent, updateCookieConsent } = useCookieConsent()
 
   const blockedContactIds = session?.blockedContactIds ?? []
   const availableChats = chats.filter((chat) => !blockedContactIds.includes(chat.id))
@@ -325,9 +328,20 @@ function App() {
   const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
   const sessionName = session ? formatSessionName(session) : ''
   const premiumDaysLeft = getPremiumDaysLeft(session?.premium, session?.premiumExpiresAt)
+  const cookieConsentStatus =
+    cookieConsent === 'analytics'
+      ? 'Вы приняли аналитические cookie'
+      : cookieConsent === 'necessary'
+      ? 'Вы приняли только необходимые cookie'
+      : 'Выбор ещё не сохранён'
+  const nextCookieConsentChoice = cookieConsent === 'analytics' ? 'necessary' : 'analytics'
+  const cookieConsentToggleLabel = cookieConsent === null ? 'Сохранить выбор' : 'Изменить выбор'
   const authExistingAccount = normalizeIdentifier(identifier)
     ? loadAccounts().find((account) => account.identifier === normalizeIdentifier(identifier)) ?? null
     : null
+  const cookieConsentBanner = (
+    <CookieConsentBanner consent={cookieConsent} onChoice={updateCookieConsent} />
+  )
 
   useEffect(() => {
     if ((!isChatOpen && !isSubscriptionChannelOpen && !isGroupOpen) || !messageFeedRef.current) return
@@ -1314,42 +1328,48 @@ function App() {
 
   if (!session) {
     return (
-      <AuthScreen
-        authError={authError}
-        authExistingAccount={authExistingAccount}
-        authStep={authStep}
-        displayName={displayName}
-        displayNameMaxLength={displayNameFieldMaxLength}
-        identifier={identifier}
-        smsCode={smsCode}
-        onDisplayNameChange={(value) =>
-          setDisplayName(sanitizePersonField(value, displayNameFieldMaxLength))
-        }
-        onIdentifierChange={setIdentifier}
-        onSmsCodeChange={(value) => setSmsCode(value.replace(/[^\d]/g, ''))}
-        onSubmit={() => {
-          if (authStep === 'phone') {
-            submitPhoneStep()
-            return
+      <>
+        <AuthScreen
+          authError={authError}
+          authExistingAccount={authExistingAccount}
+          authStep={authStep}
+          displayName={displayName}
+          displayNameMaxLength={displayNameFieldMaxLength}
+          identifier={identifier}
+          smsCode={smsCode}
+          onDisplayNameChange={(value) =>
+            setDisplayName(sanitizePersonField(value, displayNameFieldMaxLength))
           }
+          onIdentifierChange={setIdentifier}
+          onSmsCodeChange={(value) => setSmsCode(value.replace(/[^\d]/g, ''))}
+          onSubmit={() => {
+            if (authStep === 'phone') {
+              submitPhoneStep()
+              return
+            }
 
-          if (authStep === 'code') {
-            submitCodeStep()
-            return
-          }
+            if (authStep === 'code') {
+              submitCodeStep()
+              return
+            }
 
-          submitProfileStep()
-        }}
-      />
+            submitProfileStep()
+          }}
+        />
+        {cookieConsentBanner}
+      </>
     )
   }
 
   if (confirmingLogout) {
     return (
-      <ConfirmLogoutScreen
-        onCancel={() => setConfirmingLogout(false)}
-        onConfirm={logout}
-      />
+      <>
+        <ConfirmLogoutScreen
+          onCancel={() => setConfirmingLogout(false)}
+          onConfirm={logout}
+        />
+        {cookieConsentBanner}
+      </>
     )
   }
 
@@ -1509,7 +1529,8 @@ function App() {
   ) : null
 
   return (
-    <main className={shellClassName}>
+    <>
+      <main className={shellClassName}>
       {isRailVisible ? (
         <aside className="rail">
         <div className="account-header">
@@ -2089,6 +2110,26 @@ function App() {
                   >
                     Политика в отношении обработки персональных данных
                   </a>
+                  <article className="settings-item settings-consent-card">
+                    <span className="settings-label">Cookie и аналитика</span>
+                    <strong className="settings-consent-status">{cookieConsentStatus}</strong>
+                    <p className="settings-text">
+                      Необходимые cookie нужны для входа, защиты сессии и сохранения настроек.
+                      Аналитические cookie помогают улучшать Tinychok и включаются только после
+                      вашего выбора. Подробнее в{' '}
+                      <a className="settings-inline-link" href="/privacy-policy.html">
+                        Политике обработки персональных данных
+                      </a>
+                      .
+                    </p>
+                    <button
+                      type="button"
+                      className="soft-button settings-consent-toggle"
+                      onClick={() => updateCookieConsent(nextCookieConsentChoice)}
+                    >
+                      {cookieConsentToggleLabel}
+                    </button>
+                  </article>
                   <button type="button" className="settings-action-card danger">
                     Удалить аккаунт
                   </button>
@@ -2299,15 +2340,7 @@ function App() {
                 <p className="settings-copy">Каналы, которыми вы управляете сейчас.</p>
               </div>
 
-              <div className="settings-stack">
-                <button
-                  type="button"
-                  className="send-button channels-create-button"
-                  onClick={openChannelCreateView}
-                >
-                  Создать канал
-                </button>
-
+              <div className="channels-manager-content">
                 {channels.length > 0 ? (
                   <div className="channels-list">
                     {channels.map((channel) => (
@@ -2343,9 +2376,16 @@ function App() {
                 )}
               </div>
 
-              <div className="settings-actions">
+              <div className="settings-actions channels-manager-actions">
                 <button type="button" className="soft-button" onClick={() => setStageView('main')}>
                   Назад
+                </button>
+                <button
+                  type="button"
+                  className="send-button channels-create-button"
+                  onClick={openChannelCreateView}
+                >
+                  Создать канал
                 </button>
               </div>
             </div>
@@ -3060,7 +3100,9 @@ function App() {
         />
         {copyHintText ? <div className="copy-hint">{copyHintText}</div> : null}
       </section>
-    </main>
+      </main>
+      {cookieConsentBanner}
+    </>
   )
 }
 
