@@ -57,6 +57,9 @@
 - на VM установлен `PostgreSQL 16.13`
 - PostgreSQL service находится в состоянии `active`
 - локальная база `tinychok` и пользователь `tinychok_app` созданы
+- вход в базу под `tinychok_app` подтверждён
+- на VM установлен `Node.js v24.14.0`
+- на VM установлен `npm 11.9.0`
 
 ## Интерпретация
 
@@ -94,3 +97,10 @@
 - для staging пока не создаём `Managed PostgreSQL` по стандартной конфигурации;
 - следующий практический путь для staging: `Compute Cloud VM + self-managed PostgreSQL`;
 - production target при этом остаётся `Managed PostgreSQL`.
+
+## Что ещё не сделано на staging VM
+
+- не настроен `GitHub deploy key` для чтения репозитория с сервера;
+- код проекта ещё не клонирован на VM;
+- staging `.env` для Tinychok ещё не создан;
+- backend-приложение Tinychok ещё не запускалось на VM.

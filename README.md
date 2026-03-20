@@ -4,6 +4,7 @@
 
 Production-архитектура под `Yandex Cloud` для `10k+` пользователей описана отдельно в [docs/yandex-production-architecture.md](/Users/devisjones/Documents/New%20project/tinychok/docs/yandex-production-architecture.md).
 Постоянный чек-лист того, что нужно от владельца проекта для production, лежит в [docs/founder-checklist.md](/Users/devisjones/Documents/New%20project/tinychok/docs/founder-checklist.md).
+Короткая точка продолжения для новой ветки или нового треда лежит в [docs/next-branch-handoff.md](/Users/devisjones/Documents/New%20project/tinychok/docs/next-branch-handoff.md).
 
 Сейчас в проекте уже есть:
 

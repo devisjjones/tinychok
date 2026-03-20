@@ -84,6 +84,7 @@
 - `OBJECT_STORAGE_ACCESS_KEY`
 - `OBJECT_STORAGE_SECRET_KEY`
 - service account id и key id можно присылать, `secret key` присылать не нужно
+- `POSTGRES_PASSWORD` staging-базы у тебя уже сохранён локально, в чат его присылать не нужно
 
 ## Что понадобится позже
 
@@ -99,6 +100,10 @@
 - способ доставки кода на staging VM:
   - `git clone/pull` из удалённого репозитория
 - для staging выбираем `GitHub deploy key` с read-only доступом
+- staging `.env` на VM
+- способ запуска staging backend:
+  - временно `node` / `npm run start:server`
+  - позже `systemd`
 
 ## Как тестировать до live
 
@@ -121,12 +126,11 @@
 
 ## Текущие открытые вопросы
 
-- После bucket идём в `IAM/service account + static access keys` для staging media.
-- Выбираем стратегию staging БД:
-  - дешёвый online staging на `Compute Cloud VM + self-managed PostgreSQL`
-  - или полноценный, но дорогой `Managed PostgreSQL`
-- Production target остаётся: `Managed PostgreSQL`.
-- Следующий практический шаг: SSH-вход на `tinychok-staging-1`, базовая hardening-настройка и установка PostgreSQL.
+- GitHub deploy key для staging VM ещё не настроен.
+- Репозиторий ещё не склонирован на `tinychok-staging-1`.
+- staging `.env` ещё не создан на VM.
+- backend Tinychok ещё не запускался на staging VM.
+- Production target по БД остаётся: `Managed PostgreSQL`.
 
 ## Зафиксированные решения по бюджету
 
