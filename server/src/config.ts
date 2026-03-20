@@ -41,12 +41,21 @@ function readMediaBackend(value: string | undefined): MediaBackend {
   return value === 'object-storage' ? 'object-storage' : 'local'
 }
 
+function readStringList(value: string | undefined) {
+  if (!value) return [] as string[]
+
+  return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))]
+}
+
 export const runtimeConfig = {
   environment: readEnvironment(process.env.TINYCHOK_APP_ENV ?? process.env.NODE_ENV),
   publicUrls: {
     apiBaseUrl: normalizeBaseUrl(process.env.PUBLIC_API_URL),
     appBaseUrl: normalizeBaseUrl(process.env.PUBLIC_APP_URL),
     mediaBaseUrl: normalizeBaseUrl(process.env.PUBLIC_MEDIA_BASE_URL),
+  },
+  auth: {
+    allowedTestPhones: readStringList(process.env.TINYCHOK_ALLOWED_TEST_PHONES),
   },
   server: {
     host: process.env.HOST ?? '127.0.0.1',

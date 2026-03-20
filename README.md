@@ -6,6 +6,7 @@ Production-архитектура под `Yandex Cloud` для `10k+` польз
 Постоянный чек-лист того, что нужно от владельца проекта для production, лежит в [docs/founder-checklist.md](/Users/devisjones/Documents/New%20project/tinychok/docs/founder-checklist.md).
 Короткая точка продолжения для новой ветки или нового треда лежит в [docs/next-branch-handoff.md](/Users/devisjones/Documents/New%20project/tinychok/docs/next-branch-handoff.md).
 Текущее состояние staging rollout зафиксировано в [docs/staging-rollout-status.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-rollout-status.md).
+Короткий runbook по защите staging для тестеров лежит в [docs/staging-access-guard.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-access-guard.md).
 
 Сейчас в проекте уже есть:
 
@@ -51,6 +52,7 @@ npm run start:server
 
 - `TINYCHOK_STORE_MODE=file|postgres` для выбора текущего backend store;
 - `TINYCHOK_MEDIA_BACKEND=local|object-storage` для выбора media backend;
+- `TINYCHOK_ALLOWED_TEST_PHONES=+79990000001,+79990000002` для закрытия staging по списку тестовых номеров;
 - `VITE_API_BASE_URL` и `VITE_WS_BASE_URL` для раздельных frontend/backend доменов;
 - `PUBLIC_API_URL` и `PUBLIC_MEDIA_BASE_URL` для корректных media URL в snapshot и upload response;
 - `POSTGRES_*` и `OBJECT_STORAGE_*` как текущий deploy-конфиг backend.
@@ -72,6 +74,7 @@ npm run start:server
 - `POST /api/auth/request-code` запрашивает demo-код
 - `POST /api/auth/verify-code` проверяет код и решает: вход или переход к созданию профиля
 - `POST /api/auth/register` создаёт новый аккаунт и seed state
+- auth flow можно ограничить только списком тестовых номеров через `TINYCHOK_ALLOWED_TEST_PHONES`
 - `GET /api/bootstrap` отдаёт серверный snapshot аккаунта
 - `PUT /api/snapshot` сохраняет актуальное состояние приложения
 - `POST /api/dialogs/:dialogId/messages` отправляет direct message через сервер и умеет доставлять его второму аккаунту, если у контакта есть зарегистрированный Tinychok-профиль

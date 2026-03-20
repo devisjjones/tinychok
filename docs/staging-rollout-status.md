@@ -61,4 +61,9 @@
 
 ## Следующий шаг
 
-Следующий практический шаг уже не про базовый staging rollout, а про дальнейшую продуктовую или production-подготовку.
+Следующий практический шаг уже не про базовый staging rollout, а про закрытие доступа к staging:
+
+- пароль на `https://staging.tinychok.ru` через `nginx basic auth`
+- allowlist тестовых номеров через `TINYCHOK_ALLOWED_TEST_PHONES`
+
+Короткий runbook лежит в [docs/staging-access-guard.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-access-guard.md).

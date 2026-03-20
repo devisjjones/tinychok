@@ -145,6 +145,8 @@ const DEMO_AUTH_CODE = '1111'
 export const DEFAULT_DATA_FILE = resolve(process.cwd(), 'server/data/dev-db.json')
 const FALLBACK_CHAT_ACCENT = '#8c5738'
 const CHAT_ACCENT_PALETTE = Array.from(new Set(initialChats.map((chat) => chat.accent)))
+const RESTRICTED_TEST_PHONE_MESSAGE =
+  'Этот номер пока не добавлен в список тестеров. Попросите владельца проекта добавить его в staging allowlist.'
 
 function cloneDiscoveryResults() {
   return structuredClone(discoveryResults)
@@ -188,6 +190,17 @@ function createSeedState() {
 function getSeedChatByPhone(phone: string) {
   const normalizedPhone = normalizeIdentifier(phone)
   return initialChats.find((chat) => normalizeIdentifier(chat.phone) === normalizedPhone) ?? null
+}
+
+function isAllowedTestPhone(identifier: string) {
+  if (runtimeConfig.auth.allowedTestPhones.length === 0) {
+    return true
+  }
+
+  const normalizedIdentifier = normalizeIdentifier(identifier)
+  return runtimeConfig.auth.allowedTestPhones.some(
+    (phone) => normalizeIdentifier(phone) === normalizedIdentifier,
+  )
 }
 
 function sanitizeMessageText(value: string) {
@@ -634,6 +647,10 @@ export class TinychokStore {
       throw new Error('Проверь номер телефона.')
     }
 
+    if (!isAllowedTestPhone(normalizedIdentifier)) {
+      throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
+    }
+
     const expiresAt = new Date(Date.now() + AUTH_CODE_TTL_MS).toISOString()
     const existingAccount = this.findAccount(normalizedIdentifier)
 
@@ -662,6 +679,10 @@ export class TinychokStore {
 
   async verifyCode(identifier: string, code: string): Promise<VerifyCodeResponse> {
     const normalizedIdentifier = normalizeIdentifier(identifier)
+    if (!isAllowedTestPhone(normalizedIdentifier)) {
+      throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
+    }
+
     this.assertValidChallenge(normalizedIdentifier, code)
 
     const existingAccount = this.findAccount(normalizedIdentifier)
@@ -684,6 +705,10 @@ export class TinychokStore {
 
   async registerAccount(payload: RegisterBody): Promise<AppSnapshot> {
     const normalizedIdentifier = normalizeIdentifier(payload.identifier)
+    if (!isAllowedTestPhone(normalizedIdentifier)) {
+      throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
+    }
+
     this.assertValidChallenge(normalizedIdentifier, payload.code)
 
     if (this.findAccount(normalizedIdentifier)) {
