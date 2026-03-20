@@ -5,6 +5,7 @@
 Production-архитектура под `Yandex Cloud` для `10k+` пользователей описана отдельно в [docs/yandex-production-architecture.md](/Users/devisjones/Documents/New%20project/tinychok/docs/yandex-production-architecture.md).
 Постоянный чек-лист того, что нужно от владельца проекта для production, лежит в [docs/founder-checklist.md](/Users/devisjones/Documents/New%20project/tinychok/docs/founder-checklist.md).
 Короткая точка продолжения для новой ветки или нового треда лежит в [docs/next-branch-handoff.md](/Users/devisjones/Documents/New%20project/tinychok/docs/next-branch-handoff.md).
+Текущее состояние staging rollout зафиксировано в [docs/staging-rollout-status.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-rollout-status.md).
 
 Сейчас в проекте уже есть:
 
@@ -14,6 +15,8 @@ Production-архитектура под `Yandex Cloud` для `10k+` польз
 - авторизация по телефону с demo-кодом `1111`
 - серверный bootstrap, realtime snapshot fanout и mutation API для горячих сценариев
 - файловое dev-хранилище в `server/data/dev-db.json`
+
+По состоянию на `2026-03-21` staging API уже поднят онлайн на [https://api.staging.tinychok.ru/healthz](https://api.staging.tinychok.ru/healthz) и [https://api.staging.tinychok.ru/readyz](https://api.staging.tinychok.ru/readyz). Следующий deploy-шаг: staging frontend на `staging.tinychok.ru`.
 
 ## Локальный запуск
 

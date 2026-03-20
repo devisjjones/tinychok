@@ -4,15 +4,15 @@
 
 ## Git state
 
-- текущая рабочая ветка: `codex/group-composer`
-- последний подтверждённый push: `1eba28c`
-- commit message: `Document staging handoff state`
-- remote branch синхронизирован с локальной веткой
+- текущая рабочая ветка для staging deploy: `codex/staging-deploy`
+- последний подтверждённый push до этого handoff refresh: `f1bc8c1`
+- commit message: `Align staging deploy docs with VM setup`
+- продолжать дальше нужно от актуального `HEAD` ветки `codex/staging-deploy`
 
 Если продолжать в новой ветке, безопасная точка старта:
 
-- branch from: `1eba28c`
-- recommended new branch name: `codex/staging-deploy`
+- branch from: текущий `HEAD` ветки `codex/staging-deploy`
+- recommended new branch name: `codex/staging-frontend`
 
 ## Что уже сделано в коде
 
@@ -46,6 +46,26 @@
 - вход в базу под `tinychok_app` уже подтверждён
 - `Node.js v24.14.0`
 - `npm 11.9.0`
+- `nginx`
+- `certbot`
+
+## Что уже реально поднято
+
+- на VM настроен `GitHub deploy key`
+- `ssh -T git@github.com` на staging VM проходит успешно
+- репозиторий склонирован в `/home/devis/tinychok`
+- staging `.env` создан на VM
+- backend переведён в `systemd`
+- системный сервис: `tinychok-staging.service`
+- `tinychok-staging.service` находится в состоянии `active`
+- `nginx` проксирует `api.staging.tinychok.ru` на `127.0.0.1:8787`
+- выпущен `Let's Encrypt` сертификат для `api.staging.tinychok.ru`
+- подтверждены ответы:
+  - `https://api.staging.tinychok.ru/healthz`
+  - `https://api.staging.tinychok.ru/readyz`
+- staging DNS уже создан в `Reg.ru`:
+  - `api.staging.tinychok.ru -> 158.160.197.255`
+  - `staging.tinychok.ru -> 158.160.197.255`
 
 ## Какие секреты уже существуют, но не должны храниться в репозитории
 
@@ -57,25 +77,27 @@
 
 ## Следующий правильный шаг
 
-Настроить `GitHub deploy key` на staging VM, чтобы сервер мог сам тянуть код без архивов.
+Выложить staging frontend на `staging.tinychok.ru`.
 
-Порядок:
+Практический порядок:
 
-1. На VM сгенерировать отдельный deploy key:
-   - `~/.ssh/tinychok_github_deploy`
-2. Добавить public key в GitHub репозиторий как `Deploy key`
-   - read-only
-   - без `Allow write access`
-3. Проверить `ssh -T git@github.com`
-4. Клонировать репозиторий на VM
-   - `git clone git@github.com:devisjjones/tinychok.git`
-5. Переключиться на ветку продолжения
-   - `git switch codex/staging-deploy`
-6. Создать staging `.env` из `.env.staging.example`
-7. Запустить `npm ci`
-8. Запустить `npm run build`
-9. Запустить backend на staging VM
-   - `npm run start:server`
+1. Решить, где отдаём frontend:
+   - на этой же VM через `nginx`
+   - или как статическую выдачу вне VM
+2. Собрать frontend со staging-конфигом:
+   - `VITE_API_BASE_URL=https://api.staging.tinychok.ru`
+   - `VITE_WS_BASE_URL=wss://api.staging.tinychok.ru`
+3. Подключить выдачу `staging.tinychok.ru`
+4. Выпустить HTTPS для `staging.tinychok.ru`
+5. Проверить загрузку UI, auth и websocket через staging API
+
+## Полезные команды на staging VM
+
+- `sudo systemctl status tinychok-staging --no-pager`
+- `sudo journalctl -u tinychok-staging -n 50 --no-pager`
+- `sudo systemctl status nginx --no-pager`
+- `curl -s https://api.staging.tinychok.ru/healthz`
+- `curl -s https://api.staging.tinychok.ru/readyz`
 
 ## Что нужно будет подставить в staging env
 
@@ -106,7 +128,8 @@
 
 ## Что не надо делать
 
-- не создавать staging `Managed PostgreSQL` по дефолтной managed-форме
+- не трогать рабочий `tinychok-staging.service`, если задача не про backend deploy
+- не коммитить `.env` и не писать секреты в чат
+- не полагаться на локальный resolver `127.0.0.53` на VM как на единственный DNS-check
 - не делать bucket публичным
-- не хранить ключи и пароли в repo
-- не использовать архивы как основной deploy-путь, если deploy key можно настроить нормально
+- не создавать staging `Managed PostgreSQL` по дефолтной managed-форме

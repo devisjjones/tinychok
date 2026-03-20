@@ -8,7 +8,9 @@
 ## Домены и DNS
 
 - Зарегистрировать основной домен проекта.
-- Подготовить staging-поддомены для тестового онлайна.
+- staging-поддомены для тестового онлайна уже созданы в DNS:
+  - `staging.tinychok.ru -> 158.160.197.255`
+  - `api.staging.tinychok.ru -> 158.160.197.255`
 - Определить production-домены:
   - `tinychok.ru` как основной frontend-домен
   - `api.tinychok.ru` для backend API и WebSocket
@@ -31,6 +33,13 @@
 - В staging уже создана VM `tinychok-staging-1` (`158.160.197.255`).
 - В staging уже подтверждён рабочий доступ к VM через `Cloud Shell`.
 - В staging уже установлен `PostgreSQL 16.13`, база `tinychok` и пользователь `tinychok_app`.
+- В staging уже настроен `GitHub deploy key` для чтения репозитория с VM.
+- В staging уже склонирован репозиторий в `/home/devis/tinychok`.
+- В staging уже создан `.env` для backend.
+- В staging backend уже переведён в `systemd` (`tinychok-staging.service`).
+- В staging уже поднят `nginx` reverse proxy для `api.staging.tinychok.ru`.
+- Для `api.staging.tinychok.ru` уже выпущен `Let's Encrypt` сертификат.
+- `https://api.staging.tinychok.ru/healthz` и `/readyz` уже отвечают с `status: ok`.
 - Подготовить сервисные роли и доступы для:
   - Kubernetes
   - PostgreSQL
@@ -99,13 +108,11 @@
 - support/ops email
 - список тестовых пользователей для закрытой альфы
 - список устройств и браузеров для ручной проверки
-- способ доставки кода на staging VM:
-  - `git clone/pull` из удалённого репозитория
-- для staging выбираем `GitHub deploy key` с read-only доступом
-- staging `.env` на VM
-- способ запуска staging backend:
-  - временно `npm ci && npm run build && npm run start:server`
-  - позже `systemd`
+- staging frontend deploy на `staging.tinychok.ru`
+- HTTPS для `staging.tinychok.ru`
+- решение, где отдавать staging frontend:
+  - на этой же VM через `nginx`
+  - или как статическую выдачу отдельно от VM
 
 ## Как тестировать до live
 
@@ -128,10 +135,10 @@
 
 ## Текущие открытые вопросы
 
-- GitHub deploy key для staging VM ещё не настроен.
-- Репозиторий ещё не склонирован на `tinychok-staging-1`.
-- staging `.env` ещё не создан на VM.
-- backend Tinychok ещё не запускался на staging VM.
+- frontend для `staging.tinychok.ru` ещё не выложен.
+- HTTPS для `staging.tinychok.ru` ещё не настроен.
+- Нужно выбрать финальный способ выдачи staging frontend.
+- На `tinychok.ru` в `Reg.ru` корень `@` и `www` пока смотрят на `95.163.244.138`, production DNS-схема ещё не финализирована.
 - Production target по БД остаётся: `Managed PostgreSQL`.
 
 ## Зафиксированные решения по бюджету

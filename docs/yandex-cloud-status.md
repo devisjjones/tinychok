@@ -61,6 +61,26 @@
 - на VM установлен `Node.js v24.14.0`
 - на VM установлен `npm 11.9.0`
 
+По состоянию на `2026-03-21` также подтверждено:
+
+- на staging VM настроен `GitHub deploy key`
+- `ssh -T git@github.com` на VM проходит успешно
+- репозиторий склонирован в `/home/devis/tinychok`
+- серверная ветка staging на VM: `codex/staging-deploy`
+- staging `.env` на VM создан
+- backend переведён в `systemd`
+- системный сервис `tinychok-staging.service` включён в автозапуск
+- `tinychok-staging.service` находится в состоянии `active (running)`
+- `nginx` установлен и работает
+- для `api.staging.tinychok.ru` настроен reverse proxy на `127.0.0.1:8787`
+- для `api.staging.tinychok.ru` выпущен `Let's Encrypt` сертификат
+- публичный endpoint `https://api.staging.tinychok.ru/healthz` отвечает `{"status":"ok"}`
+- публичный endpoint `https://api.staging.tinychok.ru/readyz` отвечает `status: ok`
+- в `Reg.ru` созданы DNS-записи:
+  - `api.staging.tinychok.ru -> 158.160.197.255`
+  - `staging.tinychok.ru -> 158.160.197.255`
+- внешние резолверы `1.1.1.1` и `8.8.8.8` уже видят эти staging-записи
+
 ## Интерпретация
 
 - это уже не пустой аккаунт Yandex Cloud;
@@ -100,7 +120,6 @@
 
 ## Что ещё не сделано на staging VM
 
-- не настроен `GitHub deploy key` для чтения репозитория с сервера;
-- код проекта ещё не клонирован на VM;
-- staging `.env` для Tinychok ещё не создан;
-- backend-приложение Tinychok ещё не запускалось на VM.
+- frontend для `staging.tinychok.ru` ещё не выложен;
+- отдельный HTTPS для `staging.tinychok.ru` ещё не настраивался;
+- локальный resolver `127.0.0.53` на VM может продолжать кэшировать старый `NXDOMAIN`, поэтому для свежих DNS-проверок надёжнее спрашивать внешний resolver.
