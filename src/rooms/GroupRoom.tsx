@@ -1,29 +1,38 @@
-import type { FormEvent, MouseEvent, ReactNode, RefObject } from 'react'
+import type { ChangeEvent, FormEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import type { GroupPreview, Message } from '../app/types'
+import { BubbleMessageContent } from '../components/BubbleMessageContent'
 
 type GroupRoomProps = {
   actions: ReactNode
   activeMessageId: number | null
+  attachmentInputRef: RefObject<HTMLInputElement | null>
+  attachmentName: string
   draft: string
   group: GroupPreview
   messageFeedRef: RefObject<HTMLDivElement | null>
+  onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
   onBack: () => void
   onComposerFocus: () => void
   onDraftChange: (value: string) => void
   onMessageSelect: (event: MouseEvent<HTMLButtonElement>, message: Message) => void
+  onOpenAttachmentPicker: () => void
   onSubmit: () => void
 }
 
 export function GroupRoom({
   actions,
   activeMessageId,
+  attachmentInputRef,
+  attachmentName,
   draft,
   group,
   messageFeedRef,
+  onAttachmentChange,
   onBack,
   onComposerFocus,
   onDraftChange,
   onMessageSelect,
+  onOpenAttachmentPicker,
   onSubmit,
 }: GroupRoomProps) {
   return (
@@ -69,7 +78,7 @@ export function GroupRoom({
             <span className="bubble-meta">
               {message.author === 'me' ? 'Вы' : message.displayAuthor ?? 'Участник группы'}
             </span>
-            <p>{message.text}</p>
+            <BubbleMessageContent message={message} />
             <time>{message.time}</time>
           </button>
         ))}
@@ -83,6 +92,12 @@ export function GroupRoom({
         }}
       >
         <div className="composer-input">
+          <input
+            ref={attachmentInputRef}
+            type="file"
+            className="composer-attachment-input"
+            onChange={onAttachmentChange}
+          />
           <textarea
             rows={3}
             placeholder="Напиши сообщение в группу..."
@@ -90,6 +105,17 @@ export function GroupRoom({
             onFocus={onComposerFocus}
             onChange={(event) => onDraftChange(event.target.value)}
           />
+          <div className="composer-tools">
+            <button
+              type="button"
+              className={attachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}
+              onClick={onOpenAttachmentPicker}
+              aria-label="Добавить файл"
+              title={attachmentName || 'Добавить файл'}
+            >
+              <img src="/icons/attach100.png" alt="" />
+            </button>
+          </div>
           <button type="submit" className="send-button composer-send">
             Отправить
           </button>

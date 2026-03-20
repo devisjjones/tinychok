@@ -28,6 +28,29 @@ import {
   initialSubscribedChannels,
 } from './app/mockData'
 import { loadAccounts, loadSession } from './app/storage'
+import {
+  createManagedChannel as createManagedChannelRequest,
+  deleteDialog as deleteDialogRequest,
+  deleteDialogHistory as deleteDialogHistoryRequest,
+  deleteDialogMessage as deleteDialogMessageRequest,
+  deleteManagedChannel as deleteManagedChannelRequest,
+  fetchBootstrap,
+  markDialogRead as markDialogReadRequest,
+  markGroupRead as markGroupReadRequest,
+  markSubscriptionChannelRead as markSubscriptionChannelReadRequest,
+  openRealtimeConnection,
+  registerAccount,
+  requestAuthCode,
+  saveSnapshot,
+  setDialogFavorite as setDialogFavoriteRequest,
+  setDialogPinnedMessage as setDialogPinnedMessageRequest,
+  sendDirectMessage as sendDirectMessageRequest,
+  sendGroupMessage as sendGroupMessageRequest,
+  updateManagedChannel as updateManagedChannelRequest,
+  updateSession as updateSessionRequest,
+  uploadMediaFile,
+  verifyAuthCode,
+} from './app/backend'
 import type {
   Account,
   ActionAnchor,
@@ -43,6 +66,7 @@ import type {
 } from './app/types'
 import { scheduleActionAnchor, useAnchoredMenu } from './app/useAnchoredMenu'
 import {
+  formatMessagePreview,
   formatChannelAvatarLabel,
   formatContactStatus,
   formatGroupPreview,
@@ -50,6 +74,8 @@ import {
   formatNowTime,
   formatPreview,
   formatSessionName,
+  formatSubscriptionChannelPreview,
+  formatSubscriptionChannelTime,
   getChannelVisibilityDescription,
   getChannelVisibilityLabel,
   getNextChannelVisibility,
@@ -57,7 +83,6 @@ import {
   hasActivePremium,
   isPhoneQuery,
   makeDraftChannel,
-  makePremiumExpiry,
   matchesQuery,
   moveUnreadItemsFirst,
   normalizeIdentifier,
@@ -75,16 +100,51 @@ import { GroupRoom } from './rooms/GroupRoom'
 import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { useCookieConsent } from './app/useCookieConsent'
+import type { AppSnapshot, UpdateManagedChannelBody, UpdateSessionBody } from './shared/backend'
 import './App.css'
+
+type PendingAttachmentDraft = {
+  file?: File
+  fileName: string
+  mediaUrl?: string
+  mimeType: string
+  size: number
+}
 
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
   const accountNameRef = useRef<HTMLHeadingElement | null>(null)
   const accountStatusRef = useRef<HTMLParagraphElement | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
+  const groupAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const channelsPanelRef = useRef<HTMLDivElement | null>(null)
   const channelAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const channelAvatarObjectUrlsRef = useRef(new Set<string>())
+  const localMessageAttachmentObjectUrlsRef = useRef(new Set<string>())
+  const backendSyncTimeoutRef = useRef<number | null>(null)
+  const skipNextBackendSyncRef = useRef(false)
+  // These refs keep the debounced write-path transparent: text fields update locally first,
+  // then the latest snapshot/patch is flushed through dedicated backend mutations.
+  const latestSnapshotRef = useRef<AppSnapshot | null>(null)
+  const previousSnapshotSlicesRef = useRef<{
+    channels: Channel[]
+    chats: typeof initialChats
+    groups: typeof initialGroups
+    session: Session | null
+    subscriptionChannels: typeof initialSubscribedChannels
+  }>({
+    channels: initialChannels,
+    chats: initialChats,
+    groups: initialGroups,
+    session: loadSession(),
+    subscriptionChannels: initialSubscribedChannels,
+  })
+  const sessionMutationTimeoutRef = useRef<number | null>(null)
+  const pendingSessionPatchRef = useRef<UpdateSessionBody>({})
+  const suppressSessionSnapshotSyncRef = useRef(false)
+  const channelMutationTimeoutsRef = useRef(new Map<number, number>())
+  const pendingChannelPatchesRef = useRef(new Map<number, UpdateManagedChannelBody>())
+  const suppressChannelSnapshotSyncRef = useRef(false)
   const [chats, setChats] = useState(initialChats)
   const [channels, setChannels] = useState(initialChannels)
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
@@ -102,7 +162,8 @@ function App() {
   const [query, setQuery] = useState('')
   const [chatMessageDrafts, setChatMessageDrafts] = useState<Record<number, string>>({})
   const [groupMessageDrafts, setGroupMessageDrafts] = useState<Record<number, string>>({})
-  const [chatAttachmentNames, setChatAttachmentNames] = useState<Record<number, string>>({})
+  const [chatAttachmentDrafts, setChatAttachmentDrafts] = useState<Record<number, PendingAttachmentDraft | undefined>>({})
+  const [groupAttachmentDrafts, setGroupAttachmentDrafts] = useState<Record<number, PendingAttachmentDraft | undefined>>({})
   const [activeFilter, setActiveFilter] = useState('Все')
   const [searchOpen, setSearchOpen] = useState(false)
   const [quietMode, setQuietMode] = useState(false)
@@ -111,7 +172,9 @@ function App() {
   const [identifier, setIdentifier] = useState('')
   const [smsCode, setSmsCode] = useState('')
   const [authError, setAuthError] = useState('')
+  const [authExistingAccount, setAuthExistingAccount] = useState<Pick<Account, 'displayName' | 'surname'> | null>(null)
   const [session, setSession] = useState<Session | null>(() => loadSession())
+  const [backendReady, setBackendReady] = useState(false)
   const [confirmingLogout, setConfirmingLogout] = useState(false)
   const [bottomSection, setBottomSection] = useState<'chats' | 'contacts'>('chats')
   const [chatActionsOpen, setChatActionsOpen] = useState(false)
@@ -336,9 +399,6 @@ function App() {
       : 'Выбор ещё не сохранён'
   const nextCookieConsentChoice = cookieConsent === 'analytics' ? 'necessary' : 'analytics'
   const cookieConsentToggleLabel = cookieConsent === null ? 'Сохранить выбор' : 'Изменить выбор'
-  const authExistingAccount = normalizeIdentifier(identifier)
-    ? loadAccounts().find((account) => account.identifier === normalizeIdentifier(identifier)) ?? null
-    : null
   const cookieConsentBanner = (
     <CookieConsentBanner consent={cookieConsent} onChoice={updateCookieConsent} />
   )
@@ -366,10 +426,13 @@ function App() {
 
   useEffect(() => {
     const avatarObjectUrls = channelAvatarObjectUrlsRef.current
+    const localAttachmentObjectUrls = localMessageAttachmentObjectUrlsRef.current
 
     return () => {
       avatarObjectUrls.forEach((url) => URL.revokeObjectURL(url))
       avatarObjectUrls.clear()
+      localAttachmentObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+      localAttachmentObjectUrls.clear()
     }
   }, [])
 
@@ -453,7 +516,7 @@ function App() {
     return () => window.removeEventListener('resize', handleResize)
   }, [adjustAccountNameFontSize, adjustAccountStatusFontSize, isRailVisible, session?.status, sessionName])
 
-  function persistSession(nextSession: Session | null) {
+  const persistSession = useCallback((nextSession: Session | null) => {
     setSession(nextSession)
 
     if (typeof window === 'undefined') return
@@ -463,33 +526,318 @@ function App() {
     } else {
       window.localStorage.removeItem(sessionStorageKey)
     }
-  }
+  }, [])
 
-  function syncSession(nextSession: Session) {
+  const syncSession = useCallback((nextSession: Session) => {
     persistSession(nextSession)
 
-    const nextAccounts = loadAccounts().map((account) =>
-      account.identifier === nextSession.identifier
-        ? {
-            ...account,
+    const currentAccounts = loadAccounts()
+    const hasExistingAccount = currentAccounts.some(
+      (account) => account.identifier === nextSession.identifier,
+    )
+    const nextAccounts = hasExistingAccount
+      ? currentAccounts.map((account) =>
+          account.identifier === nextSession.identifier
+            ? {
+                ...account,
+                displayName: nextSession.displayName,
+                surname: nextSession.surname ?? '',
+                nickname: nextSession.nickname ?? '',
+                status: nextSession.status ?? '',
+                premium: nextSession.premium ?? true,
+                premiumExpiresAt: normalizePremiumExpiry(
+                  nextSession.premium ?? true,
+                  nextSession.premiumExpiresAt,
+                ),
+                blockedContactIds: nextSession.blockedContactIds ?? [],
+              }
+            : account,
+        )
+      : [
+          ...currentAccounts,
+          {
+            blockedContactIds: nextSession.blockedContactIds ?? [],
+            createdAt: new Date().toISOString(),
             displayName: nextSession.displayName,
-            surname: nextSession.surname ?? '',
+            identifier: nextSession.identifier,
             nickname: nextSession.nickname ?? '',
-            status: nextSession.status ?? '',
             premium: nextSession.premium ?? true,
             premiumExpiresAt: normalizePremiumExpiry(
               nextSession.premium ?? true,
               nextSession.premiumExpiresAt,
             ),
-            blockedContactIds: nextSession.blockedContactIds ?? [],
-          }
-        : account,
-    )
+            status: nextSession.status ?? '',
+            surname: nextSession.surname ?? '',
+          },
+        ]
 
     window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
-  }
+  }, [persistSession])
 
-  function submitPhoneStep() {
+  const applySnapshot = useCallback((snapshot: AppSnapshot) => {
+    skipNextBackendSyncRef.current = true
+    setChats(snapshot.chats)
+    setChannels(snapshot.channels)
+    setGroups(snapshot.groups)
+    setSubscriptionChannels(snapshot.subscriptionChannels)
+    setActiveChatId((currentChatId) =>
+      currentChatId !== null && snapshot.chats.some((chat) => chat.id === currentChatId)
+        ? currentChatId
+        : null,
+    )
+    setActiveGroupId((currentGroupId) =>
+      currentGroupId !== null && snapshot.groups.some((group) => group.id === currentGroupId)
+        ? currentGroupId
+        : null,
+    )
+    setActiveSubscriptionChannelId((currentChannelId) =>
+      currentChannelId !== null &&
+      snapshot.subscriptionChannels.some((channel) => channel.id === currentChannelId)
+        ? currentChannelId
+        : null,
+    )
+    setActiveChannelId((currentChannelId) =>
+      currentChannelId !== null && snapshot.channels.some((channel) => channel.id === currentChannelId)
+        ? currentChannelId
+        : snapshot.channels[0]?.id ?? null,
+    )
+    syncSession(snapshot.session)
+  }, [syncSession])
+
+  useEffect(() => {
+    if (!session) {
+      latestSnapshotRef.current = null
+      return
+    }
+
+    latestSnapshotRef.current = {
+      channels,
+      chats,
+      discoveryResults,
+      groups,
+      session,
+      subscriptionChannels,
+    }
+  }, [channels, chats, groups, session, subscriptionChannels])
+
+  const fallbackSaveCurrentSnapshot = useCallback(async (reason: string) => {
+    const snapshot = latestSnapshotRef.current
+    const sessionToken = snapshot?.session.sessionToken
+
+    if (!snapshot || !sessionToken) return
+
+    try {
+      const nextSnapshot = await saveSnapshot(sessionToken, snapshot)
+      applySnapshot(nextSnapshot)
+    } catch (error) {
+      console.error(`Failed to fallback snapshot sync after ${reason}`, error)
+    }
+  }, [applySnapshot])
+
+  const scheduleSessionMutation = useCallback((patch: UpdateSessionBody) => {
+    // Profile inputs are edited character-by-character, so they use a dedicated debounce path
+    // instead of pushing a full snapshot on every keystroke.
+    if (!backendReady || !session?.sessionToken) return
+
+    suppressSessionSnapshotSyncRef.current = true
+    pendingSessionPatchRef.current = {
+      ...pendingSessionPatchRef.current,
+      ...patch,
+    }
+
+    if (sessionMutationTimeoutRef.current !== null) {
+      window.clearTimeout(sessionMutationTimeoutRef.current)
+    }
+
+    sessionMutationTimeoutRef.current = window.setTimeout(() => {
+      const nextPatch = pendingSessionPatchRef.current
+      const sessionToken = latestSnapshotRef.current?.session.sessionToken
+
+      pendingSessionPatchRef.current = {}
+      sessionMutationTimeoutRef.current = null
+      suppressSessionSnapshotSyncRef.current = false
+
+      if (!sessionToken || Object.keys(nextPatch).length === 0) return
+
+      void (async () => {
+        try {
+          const response = await updateSessionRequest(sessionToken, nextPatch)
+          applySnapshot(response.snapshot)
+        } catch (error) {
+          console.error('Failed to sync session mutation', error)
+          await fallbackSaveCurrentSnapshot('session mutation')
+        }
+      })()
+    }, 320)
+  }, [applySnapshot, backendReady, fallbackSaveCurrentSnapshot, session?.sessionToken])
+
+  const scheduleManagedChannelMutation = useCallback(
+    (channelId: number, patch: UpdateManagedChannelBody) => {
+      // Channel detail fields follow the same pattern as profile fields: local form state first,
+      // then one compact server mutation after the user pauses typing.
+      if (!backendReady || !session?.sessionToken) return
+
+      suppressChannelSnapshotSyncRef.current = true
+      pendingChannelPatchesRef.current.set(channelId, {
+        ...(pendingChannelPatchesRef.current.get(channelId) ?? {}),
+        ...patch,
+      })
+
+      const activeTimeout = channelMutationTimeoutsRef.current.get(channelId)
+      if (activeTimeout !== undefined) {
+        window.clearTimeout(activeTimeout)
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        const nextPatch = pendingChannelPatchesRef.current.get(channelId)
+        const sessionToken = latestSnapshotRef.current?.session.sessionToken
+
+        pendingChannelPatchesRef.current.delete(channelId)
+        channelMutationTimeoutsRef.current.delete(channelId)
+        suppressChannelSnapshotSyncRef.current = false
+
+        if (!sessionToken || !nextPatch || Object.keys(nextPatch).length === 0) return
+
+        void (async () => {
+          try {
+            const response = await updateManagedChannelRequest(sessionToken, channelId, nextPatch)
+            applySnapshot(response.snapshot)
+          } catch (error) {
+            console.error('Failed to sync managed channel mutation', error)
+            await fallbackSaveCurrentSnapshot('channel mutation')
+          }
+        })()
+      }, 320)
+
+      channelMutationTimeoutsRef.current.set(channelId, timeoutId)
+    },
+    [applySnapshot, backendReady, fallbackSaveCurrentSnapshot, session?.sessionToken],
+  )
+
+  useEffect(() => {
+    if (session?.sessionToken) return
+
+    if (sessionMutationTimeoutRef.current !== null) {
+      window.clearTimeout(sessionMutationTimeoutRef.current)
+      sessionMutationTimeoutRef.current = null
+    }
+
+    channelMutationTimeoutsRef.current.forEach((timeoutId) => {
+      window.clearTimeout(timeoutId)
+    })
+    channelMutationTimeoutsRef.current.clear()
+    pendingSessionPatchRef.current = {}
+    pendingChannelPatchesRef.current.clear()
+    suppressSessionSnapshotSyncRef.current = false
+    suppressChannelSnapshotSyncRef.current = false
+  }, [session?.sessionToken])
+
+  useEffect(() => {
+    if (!session?.sessionToken) return
+
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const snapshot = await fetchBootstrap(session.sessionToken!)
+        if (cancelled) return
+        applySnapshot(snapshot)
+        setBackendReady(true)
+      } catch (error) {
+        if (cancelled) return
+        console.error('Failed to bootstrap Tinychok backend', error)
+        setBackendReady(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [applySnapshot, session?.sessionToken])
+
+  useEffect(() => {
+    if (!backendReady || !session?.sessionToken) return
+
+    const socket = openRealtimeConnection(session.sessionToken, (event) => {
+      applySnapshot(event.snapshot)
+    })
+
+    return () => {
+      socket.close()
+    }
+  }, [applySnapshot, backendReady, session?.sessionToken])
+
+  useEffect(() => {
+    const previousSlices = previousSnapshotSlicesRef.current
+    const chatsChanged = previousSlices.chats !== chats
+    const groupsChanged = previousSlices.groups !== groups
+    const sessionChanged = previousSlices.session !== session
+    const channelsChanged = previousSlices.channels !== channels
+    const subscriptionChannelsChanged =
+      previousSlices.subscriptionChannels !== subscriptionChannels
+
+    previousSnapshotSlicesRef.current = {
+      channels,
+      chats,
+      groups,
+      session,
+      subscriptionChannels,
+    }
+
+    if (!backendReady || !session?.sessionToken) return
+
+    if (skipNextBackendSyncRef.current) {
+      skipNextBackendSyncRef.current = false
+      return
+    }
+
+    const onlySessionAndChannelChanged =
+      !chatsChanged &&
+      !groupsChanged &&
+      !subscriptionChannelsChanged &&
+      (sessionChanged || channelsChanged)
+
+    if (onlySessionAndChannelChanged) {
+      // If the change is already traveling through dedicated session/channel mutations,
+      // we skip the legacy full snapshot save to avoid duplicate writes.
+      const sessionHandledByDedicatedMutation =
+        !sessionChanged || suppressSessionSnapshotSyncRef.current
+      const channelsHandledByDedicatedMutation =
+        !channelsChanged || suppressChannelSnapshotSyncRef.current
+
+      if (sessionHandledByDedicatedMutation && channelsHandledByDedicatedMutation) {
+        return
+      }
+    }
+
+    if (backendSyncTimeoutRef.current !== null) {
+      window.clearTimeout(backendSyncTimeoutRef.current)
+    }
+
+    const snapshot: AppSnapshot = {
+      channels,
+      chats,
+      discoveryResults,
+      groups,
+      session,
+      subscriptionChannels,
+    }
+
+    backendSyncTimeoutRef.current = window.setTimeout(() => {
+      void saveSnapshot(session.sessionToken!, snapshot).catch((error) => {
+        console.error('Failed to sync Tinychok snapshot', error)
+      })
+    }, 300)
+
+    return () => {
+      if (backendSyncTimeoutRef.current !== null) {
+        window.clearTimeout(backendSyncTimeoutRef.current)
+        backendSyncTimeoutRef.current = null
+      }
+    }
+  }, [backendReady, channels, chats, groups, session, subscriptionChannels])
+
+  async function submitPhoneStep() {
     const normalized = normalizeIdentifier(identifier)
 
     if (!normalized) {
@@ -502,45 +850,48 @@ function App() {
       return
     }
 
-    setIdentifier(normalized)
-    setAuthError('')
-    setAuthStep('code')
+    try {
+      const response = await requestAuthCode({ identifier: normalized })
+      setIdentifier(normalized)
+      setAuthExistingAccount(response.existingAccount)
+      setAuthError('')
+      setAuthStep('code')
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Не удалось запросить код.')
+    }
   }
 
-  function submitCodeStep() {
+  async function submitCodeStep() {
     const normalized = normalizeIdentifier(identifier)
     const trimmedCode = smsCode.trim()
-    const accounts = loadAccounts()
-    const existingAccount = accounts.find((account) => account.identifier === normalized)
 
     if (trimmedCode.length < 4) {
       setAuthError('Введи код из SMS.')
       return
     }
 
-    if (existingAccount) {
-      persistSession({
-        identifier: existingAccount.identifier,
-        displayName: existingAccount.displayName,
-        surname: existingAccount.surname ?? '',
-        nickname: existingAccount.nickname ?? '',
-        status: existingAccount.status ?? '',
-        premium: existingAccount.premium ?? true,
-        premiumExpiresAt: normalizePremiumExpiry(
-          existingAccount.premium ?? true,
-          existingAccount.premiumExpiresAt,
-        ),
-        blockedContactIds: existingAccount.blockedContactIds ?? [],
+    try {
+      const response = await verifyAuthCode({
+        code: trimmedCode,
+        identifier: normalized,
       })
-      setAuthError('')
-      return
-    }
 
-    setAuthError('')
-    setAuthStep('profile')
+      if (response.status === 'authenticated') {
+        applySnapshot(response.snapshot)
+        setBackendReady(true)
+        setAuthError('')
+        return
+      }
+
+      setAuthExistingAccount(null)
+      setAuthError('')
+      setAuthStep('profile')
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Не удалось подтвердить код.')
+    }
   }
 
-  function submitProfileStep() {
+  async function submitProfileStep() {
     const normalized = normalizeIdentifier(identifier)
     const trimmedName = sanitizePersonField(displayName, displayNameFieldMaxLength)
 
@@ -549,42 +900,32 @@ function App() {
       return
     }
 
-    const accounts = loadAccounts()
-    const nextAccount: Account = {
-      identifier: normalized,
-      displayName: trimmedName,
-      surname: '',
-      nickname: '',
-      status: '',
-      premium: true,
-      premiumExpiresAt: makePremiumExpiry(30),
-      blockedContactIds: [],
-      createdAt: new Date().toISOString(),
+    try {
+      const response = await registerAccount({
+        code: smsCode.trim(),
+        displayName: trimmedName,
+        identifier: normalized,
+      })
+      applySnapshot(response.snapshot)
+      setBackendReady(true)
+      setAuthError('')
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Не удалось завершить регистрацию.')
     }
-
-    window.localStorage.setItem(accountsStorageKey, JSON.stringify([...accounts, nextAccount]))
-    persistSession({
-      identifier: nextAccount.identifier,
-      displayName: nextAccount.displayName,
-      surname: nextAccount.surname,
-      nickname: nextAccount.nickname,
-      status: nextAccount.status,
-      premium: nextAccount.premium,
-      premiumExpiresAt: nextAccount.premiumExpiresAt,
-      blockedContactIds: nextAccount.blockedContactIds,
-    })
-    setAuthError('')
   }
 
   function logout() {
     persistSession(null)
+    setBackendReady(false)
     setIdentifier('')
     setDisplayName('')
     setSmsCode('')
     setAuthStep('phone')
+    setAuthExistingAccount(null)
     setChatMessageDrafts({})
     setGroupMessageDrafts({})
-    setChatAttachmentNames({})
+    setChatAttachmentDrafts({})
+    setGroupAttachmentDrafts({})
     setConfirmingLogout(false)
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
@@ -616,48 +957,386 @@ function App() {
     setGroupMessageActionAnchor(null)
   }
 
-  function sendMessage() {
-    if (!activeChat) return
+  function clearChatComposer(chatId: number) {
+    setChatMessageDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [chatId]: '',
+    }))
+    setChatAttachmentDrafts((currentAttachments) => ({
+      ...currentAttachments,
+      [chatId]: undefined,
+    }))
+  }
 
-    const text = (chatMessageDrafts[activeChat.id] ?? '').trim()
-    if (!text || !activeChat) return
+  function clearGroupComposer(groupId: number) {
+    setGroupMessageDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [groupId]: '',
+    }))
+    setGroupAttachmentDrafts((currentAttachments) => ({
+      ...currentAttachments,
+      [groupId]: undefined,
+    }))
+  }
 
+  function applyLocalDialogRead(chatId: number) {
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              unread: 0,
+            }
+          : chat,
+      ),
+    )
+  }
+
+  function applyLocalGroupRead(groupId: number) {
+    setGroups((currentGroups) =>
+      currentGroups.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              unread: 0,
+            }
+          : group,
+      ),
+    )
+  }
+
+  function applyLocalSubscriptionChannelRead(channelId: number) {
+    setSubscriptionChannels((currentChannels) =>
+      currentChannels.map((channel) =>
+        channel.id === channelId
+          ? {
+              ...channel,
+              unread: 0,
+            }
+          : channel,
+      ),
+    )
+  }
+
+  function applyLocalDirectMessage(
+    chatId: number,
+    text: string,
+    options?: {
+      attachment?: Message['attachment']
+      forwarded?: boolean
+      markAsRead?: boolean
+      replyTo?: Message['replyTo']
+    },
+  ) {
     setChats((currentChats) =>
       currentChats.map((chat) => {
-        if (chat.id !== activeChat.id) return chat
+        if (chat.id !== chatId) return chat
 
         return {
           ...chat,
           typing: false,
-          unread: 0,
+          unread: options?.markAsRead === false ? chat.unread : 0,
           status: 'только что был(а) здесь',
           messages: [
             ...chat.messages,
             {
-              id: Date.now(),
+              attachment: options?.attachment,
               author: 'me',
+              forwarded: options?.forwarded,
+              id: Date.now(),
+              replyTo: options?.replyTo,
               text,
               time: formatNowTime(),
-              replyTo: replyTarget
-                ? {
-                    text: replyTarget.text,
-                    author: replyTarget.author,
-                  }
-                : undefined,
             },
           ],
         }
       }),
     )
+  }
 
-    setChatMessageDrafts((currentDrafts) => ({
-      ...currentDrafts,
-      [activeChat.id]: '',
-    }))
-    setChatAttachmentNames((currentAttachments) => ({
-      ...currentAttachments,
-      [activeChat.id]: '',
-    }))
+  function applyLocalTogglePinnedChat(chatId: number) {
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              pinned: !chat.pinned,
+            }
+          : chat,
+      ),
+    )
+  }
+
+  function applyLocalGroupMessage(
+    groupId: number,
+    text: string,
+    options?: {
+      attachment?: Message['attachment']
+    },
+  ) {
+    const time = formatNowTime()
+
+    setGroups((currentGroups) =>
+      currentGroups.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              preview:
+                text || (options?.attachment ? `Файл: ${options.attachment.fileName}` : group.preview),
+              time,
+              unread: 0,
+              messages: [
+                ...group.messages,
+                {
+                  attachment: options?.attachment,
+                  id: Date.now() + group.id,
+                  author: 'me',
+                  text,
+                  time,
+                },
+              ],
+            }
+          : group,
+      ),
+    )
+  }
+
+  function applyLocalDeleteChatHistory(chatId: number) {
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              messages: [],
+              pinnedMessageId: undefined,
+              typing: false,
+              unread: 0,
+            }
+          : chat,
+      ),
+    )
+  }
+
+  function clearDeletedChatLocalState(chatId: number) {
+    setChatMessageDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts }
+      delete nextDrafts[chatId]
+      return nextDrafts
+    })
+    setChatAttachmentDrafts((currentAttachments) => {
+      const nextAttachments = { ...currentAttachments }
+      delete nextAttachments[chatId]
+      return nextAttachments
+    })
+  }
+
+  function buildMessageAttachmentFromDraft(attachmentDraft?: PendingAttachmentDraft) {
+    if (!attachmentDraft) return undefined
+
+    if (attachmentDraft.mediaUrl) {
+      return {
+        fileName: attachmentDraft.fileName,
+        mediaUrl: attachmentDraft.mediaUrl,
+        mimeType: attachmentDraft.mimeType,
+        size: attachmentDraft.size,
+      } satisfies NonNullable<Message['attachment']>
+    }
+
+    if (!attachmentDraft.file) return undefined
+
+    const localMediaUrl = URL.createObjectURL(attachmentDraft.file)
+    localMessageAttachmentObjectUrlsRef.current.add(localMediaUrl)
+
+    return {
+      fileName: attachmentDraft.fileName,
+      mediaUrl: localMediaUrl,
+      mimeType: attachmentDraft.mimeType,
+      size: attachmentDraft.size,
+    } satisfies NonNullable<Message['attachment']>
+  }
+
+  async function createPendingAttachmentDraft(file: File) {
+    // Chat and group composers share the same upload contract, so one helper keeps
+    // the draft -> upload -> final message attachment path explicit in one place.
+    if (backendReady && session?.sessionToken) {
+      try {
+        const uploadedMedia = await uploadMediaFile(session.sessionToken, file, 'attachment')
+        return {
+          fileName: uploadedMedia.fileName,
+          mediaUrl: uploadedMedia.mediaUrl,
+          mimeType: uploadedMedia.mimeType,
+          size: uploadedMedia.size,
+        } satisfies PendingAttachmentDraft
+      } catch (error) {
+        console.error('Failed to upload attachment draft', error)
+      }
+    }
+
+    return {
+      file,
+      fileName: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      size: file.size,
+    } satisfies PendingAttachmentDraft
+  }
+
+  function applyLocalDeleteContact(chatId: number) {
+    setChats((currentChats) => currentChats.filter((chat) => chat.id !== chatId))
+    clearDeletedChatLocalState(chatId)
+  }
+
+  function applyLocalSetPinnedMessage(chatId: number, messageId?: number) {
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              pinnedMessageId: messageId,
+            }
+          : chat,
+      ),
+    )
+  }
+
+  function applyLocalDeleteMessage(chatId: number, messageId: number) {
+    setChats((currentChats) =>
+      currentChats.map((chat) => {
+        if (chat.id !== chatId) return chat
+
+        return {
+          ...chat,
+          messages: chat.messages.filter((message) => message.id !== messageId),
+          pinnedMessageId: chat.pinnedMessageId === messageId ? undefined : chat.pinnedMessageId,
+        }
+      }),
+    )
+  }
+
+  function applyLocalDeleteChannel(channelId: number) {
+    setChannels((currentChannels) => currentChannels.filter((channel) => channel.id !== channelId))
+  }
+
+  function replaceLocalChannelAvatar(channelId: number, nextAvatarImage: string) {
+    setChannels((currentChannels) =>
+      currentChannels.map((channel) => {
+        if (channel.id !== channelId) return channel
+
+        if (
+          channel.avatarImage?.startsWith('blob:') &&
+          channel.avatarImage !== nextAvatarImage
+        ) {
+          URL.revokeObjectURL(channel.avatarImage)
+          channelAvatarObjectUrlsRef.current.delete(channel.avatarImage)
+        }
+
+        return {
+          ...channel,
+          avatarImage: nextAvatarImage,
+        }
+      }),
+    )
+  }
+
+  async function mutateBlockedContacts(nextBlockedContactIds: number[]) {
+    if (!session) return
+
+    if (backendReady && session.sessionToken) {
+      try {
+        const response = await updateSessionRequest(session.sessionToken, {
+          blockedContactIds: nextBlockedContactIds,
+        })
+        applySnapshot(response.snapshot)
+        return
+      } catch (error) {
+        console.error('Failed to update blocked contacts', error)
+      }
+    }
+
+    syncSession({
+      ...session,
+      blockedContactIds: nextBlockedContactIds,
+    })
+  }
+
+  async function syncDialogRead(dialogId: number) {
+    if (!backendReady || !session?.sessionToken) {
+      applyLocalDialogRead(dialogId)
+      return
+    }
+
+    try {
+      const response = await markDialogReadRequest(session.sessionToken, dialogId)
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to mark dialog as read', error)
+      applyLocalDialogRead(dialogId)
+    }
+  }
+
+  async function syncGroupRead(groupId: number) {
+    if (!backendReady || !session?.sessionToken) {
+      applyLocalGroupRead(groupId)
+      return
+    }
+
+    try {
+      const response = await markGroupReadRequest(session.sessionToken, groupId)
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to mark group as read', error)
+      applyLocalGroupRead(groupId)
+    }
+  }
+
+  async function syncSubscriptionChannelRead(channelId: number) {
+    if (!backendReady || !session?.sessionToken) {
+      applyLocalSubscriptionChannelRead(channelId)
+      return
+    }
+
+    try {
+      const response = await markSubscriptionChannelReadRequest(session.sessionToken, channelId)
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to mark subscription channel as read', error)
+      applyLocalSubscriptionChannelRead(channelId)
+    }
+  }
+
+  async function sendMessage() {
+    if (!activeChat) return
+
+    const chatId = activeChat.id
+    const text = (chatMessageDrafts[chatId] ?? '').trim()
+    const attachmentDraft = chatAttachmentDrafts[chatId]
+    const replyTo = replyTarget
+      ? {
+          author: replyTarget.author,
+          text: replyTarget.text,
+        }
+      : undefined
+    const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
+
+    if (!text && !attachment) return
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await sendDirectMessageRequest(session.sessionToken, chatId, {
+          attachment,
+          markAsRead: true,
+          replyTo,
+          text,
+        })
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to send direct message', error)
+        applyLocalDirectMessage(chatId, text, { attachment, replyTo })
+      }
+    } else {
+      applyLocalDirectMessage(chatId, text, { attachment, replyTo })
+    }
+
+    clearChatComposer(chatId)
     setReplyTarget(null)
   }
 
@@ -675,36 +1354,30 @@ function App() {
     }))
   }
 
-  function sendGroupMessage() {
+  async function sendGroupMessage() {
     if (!activeGroup) return
 
-    const text = (groupMessageDrafts[activeGroup.id] ?? '').trim()
-    if (!text) return
+    const groupId = activeGroup.id
+    const text = (groupMessageDrafts[groupId] ?? '').trim()
+    const attachment = buildMessageAttachmentFromDraft(groupAttachmentDrafts[groupId])
+    if (!text && !attachment) return
 
-    setGroups((currentGroups) =>
-      currentGroups.map((group) =>
-        group.id === activeGroup.id
-          ? {
-              ...group,
-              unread: 0,
-              messages: [
-                ...group.messages,
-                {
-                  id: Date.now() + group.id,
-                  author: 'me',
-                  text,
-                  time: formatNowTime(),
-                },
-              ],
-            }
-          : group,
-      ),
-    )
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await sendGroupMessageRequest(session.sessionToken, groupId, {
+          attachment,
+          text,
+        })
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to send group message', error)
+        applyLocalGroupMessage(groupId, text, { attachment })
+      }
+    } else {
+      applyLocalGroupMessage(groupId, text, { attachment })
+    }
 
-    setGroupMessageDrafts((currentDrafts) => ({
-      ...currentDrafts,
-      [activeGroup.id]: '',
-    }))
+    clearGroupComposer(groupId)
     closeGroupMessageActions()
   }
 
@@ -712,17 +1385,42 @@ function App() {
     attachmentInputRef.current?.click()
   }
 
-  function handleChatAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
-    const attachmentName = event.target.files?.[0]?.name ?? ''
+  async function handleChatAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
 
-    if (activeChat) {
-      setChatAttachmentNames((currentAttachments) => ({
-        ...currentAttachments,
-        [activeChat.id]: attachmentName,
-      }))
+    if (!file || !activeChat) {
+      event.target.value = ''
+      return
     }
 
+    const nextAttachmentDraft = await createPendingAttachmentDraft(file)
+    setChatAttachmentDrafts((currentAttachments) => ({
+      ...currentAttachments,
+      [activeChat.id]: nextAttachmentDraft,
+    }))
+
     // Reset the native file input so selecting the same file again still fires onChange.
+    event.target.value = ''
+  }
+
+  function openGroupAttachmentPicker() {
+    groupAttachmentInputRef.current?.click()
+  }
+
+  async function handleGroupAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+
+    if (!file || !activeGroup) {
+      event.target.value = ''
+      return
+    }
+
+    const nextAttachmentDraft = await createPendingAttachmentDraft(file)
+    setGroupAttachmentDrafts((currentAttachments) => ({
+      ...currentAttachments,
+      [activeGroup.id]: nextAttachmentDraft,
+    }))
+
     event.target.value = ''
   }
 
@@ -771,16 +1469,7 @@ function App() {
     setSubscriptionPostActionAnchor(null)
     setTopListView('channels')
     setSearchOpen(false)
-    setSubscriptionChannels((currentChannels) =>
-      currentChannels.map((channel) =>
-        channel.id === channelId
-          ? {
-              ...channel,
-              unread: 0,
-            }
-          : channel,
-      ),
-    )
+    void syncSubscriptionChannelRead(channelId)
   }
 
   function openGroup(groupId: number) {
@@ -804,16 +1493,7 @@ function App() {
     setActiveGroupMessageId(null)
     setForwardingGroupMessageText('')
     setGroupMessageActionAnchor(null)
-    setGroups((currentGroups) =>
-      currentGroups.map((group) =>
-        group.id === groupId
-          ? {
-              ...group,
-              unread: 0,
-            }
-          : group,
-      ),
-    )
+    void syncGroupRead(groupId)
   }
 
   function openChat(chatId: number) {
@@ -860,29 +1540,26 @@ function App() {
     setGroupMessageActionAnchor(null)
     setBottomSection('chats')
     setActiveChatId(chatId)
-    setChats((currentChats) =>
-      currentChats.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              unread: 0,
-            }
-          : chat,
-      ),
-    )
+    void syncDialogRead(chatId)
   }
 
-  function togglePinnedChat(chatId: number) {
-    setChats((currentChats) =>
-      currentChats.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              pinned: !chat.pinned,
-            }
-          : chat,
-      ),
-    )
+  async function togglePinnedChat(chatId: number) {
+    const currentChat = chats.find((chat) => chat.id === chatId)
+    if (!currentChat) return
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await setDialogFavoriteRequest(session.sessionToken, chatId, {
+          pinned: !currentChat.pinned,
+        })
+        applySnapshot(response.snapshot)
+        return
+      } catch (error) {
+        console.error('Failed to toggle pinned chat', error)
+      }
+    }
+
+    applyLocalTogglePinnedChat(chatId)
   }
 
   function updateSessionProfile(patch: Partial<Session>) {
@@ -916,15 +1593,18 @@ function App() {
     }
 
     syncSession(nextSession)
+    scheduleSessionMutation({
+      displayName: nextDisplayName,
+      nickname: nextNickname,
+      status: nextStatus,
+      surname: nextSurname,
+    })
   }
 
   function blockChat(chatId: number) {
     if (!session || blockedContactIds.includes(chatId)) return
 
-    syncSession({
-      ...session,
-      blockedContactIds: [...blockedContactIds, chatId],
-    })
+    void mutateBlockedContacts([...blockedContactIds, chatId])
     setChatActionsOpen(false)
     setMessageActionMessageId(null)
     setForwardingMessageId(null)
@@ -934,40 +1614,29 @@ function App() {
   }
 
   function blockThenDeleteChat(chatId: number) {
-    if (session && !blockedContactIds.includes(chatId)) {
-      syncSession({
-        ...session,
-        blockedContactIds: [...blockedContactIds, chatId],
-      })
-    }
-
-    deleteContact(chatId)
+    void deleteContact(chatId)
   }
 
   function unblockChat(chatId: number) {
     if (!session) return
 
-    syncSession({
-      ...session,
-      blockedContactIds: blockedContactIds.filter((id) => id !== chatId),
-    })
+    void mutateBlockedContacts(blockedContactIds.filter((id) => id !== chatId))
     setBlockedActionChatId(null)
   }
 
-  function deleteChatHistory(chatId: number) {
-    setChats((currentChats) =>
-      currentChats.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              typing: false,
-              unread: 0,
-              pinnedMessageId: undefined,
-              messages: [],
-            }
-          : chat,
-      ),
-    )
+  async function deleteChatHistory(chatId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await deleteDialogHistoryRequest(session.sessionToken, chatId)
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to delete chat history', error)
+        applyLocalDeleteChatHistory(chatId)
+      }
+    } else {
+      applyLocalDeleteChatHistory(chatId)
+    }
+
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
     setMessageActionMessageId(null)
@@ -979,25 +1648,34 @@ function App() {
     setMessageActionAnchor(null)
   }
 
-  function deleteContact(chatId: number) {
-    setChats((currentChats) => currentChats.filter((chat) => chat.id !== chatId))
-    setChatMessageDrafts((currentDrafts) => {
-      const nextDrafts = { ...currentDrafts }
-      delete nextDrafts[chatId]
-      return nextDrafts
-    })
-    setChatAttachmentNames((currentAttachments) => {
-      const nextAttachments = { ...currentAttachments }
-      delete nextAttachments[chatId]
-      return nextAttachments
-    })
+  async function deleteContact(chatId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await deleteDialogRequest(session.sessionToken, chatId)
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to delete contact', error)
+        applyLocalDeleteContact(chatId)
 
-    if (session && blockedContactIds.includes(chatId)) {
-      syncSession({
-        ...session,
-        blockedContactIds: blockedContactIds.filter((id) => id !== chatId),
-      })
+        if (session && blockedContactIds.includes(chatId)) {
+          syncSession({
+            ...session,
+            blockedContactIds: blockedContactIds.filter((id) => id !== chatId),
+          })
+        }
+      }
+    } else {
+      applyLocalDeleteContact(chatId)
+
+      if (session && blockedContactIds.includes(chatId)) {
+        syncSession({
+          ...session,
+          blockedContactIds: blockedContactIds.filter((id) => id !== chatId),
+        })
+      }
     }
+
+    clearDeletedChatLocalState(chatId)
 
     if (activeChatId === chatId) {
       setActiveChatId(null)
@@ -1012,9 +1690,9 @@ function App() {
     setConfirmingDeleteMessageId(null)
   }
 
-  async function copyMessageText(text: string) {
+  async function copyMessageText(message: Pick<Message, 'attachment' | 'text'>) {
     try {
-      await navigator.clipboard.writeText(text)
+      await navigator.clipboard.writeText(formatMessagePreview(message))
       setCopyHintText('Сообщение скопировано')
     } catch {
       // Ignore clipboard failures in demo mode.
@@ -1035,81 +1713,88 @@ function App() {
   function replyToMessage(message: Message) {
     setReplyTarget({
       id: message.id,
-      text: message.text,
+      text: formatMessagePreview(message),
       author: message.author,
     })
     setMessageActionMessageId(null)
   }
 
-  function pinMessage(chatId: number, messageId: number) {
-    setChats((currentChats) =>
-      currentChats.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              pinnedMessageId: messageId,
-            }
-          : chat,
-      ),
-    )
+  async function pinMessage(chatId: number, messageId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await setDialogPinnedMessageRequest(session.sessionToken, chatId, {
+          messageId,
+        })
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to pin message', error)
+        applyLocalSetPinnedMessage(chatId, messageId)
+      }
+    } else {
+      applyLocalSetPinnedMessage(chatId, messageId)
+    }
 
     setMessageActionMessageId(null)
   }
 
-  function unpinMessage(chatId: number) {
-    setChats((currentChats) =>
-      currentChats.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              pinnedMessageId: undefined,
-            }
-          : chat,
-      ),
-    )
+  async function unpinMessage(chatId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await setDialogPinnedMessageRequest(session.sessionToken, chatId, {
+          messageId: null,
+        })
+        applySnapshot(response.snapshot)
+        return
+      } catch (error) {
+        console.error('Failed to unpin message', error)
+      }
+    }
+
+    applyLocalSetPinnedMessage(chatId)
   }
 
   function forwardMessageToChat(targetChatId: number, message: Message) {
-    forwardTextToChat(targetChatId, message.text)
+    void forwardTextToChat(targetChatId, formatMessagePreview(message))
     setForwardingMessageId(null)
     setMessageActionMessageId(null)
   }
 
-  function forwardTextToChat(targetChatId: number, text: string) {
-    setChats((currentChats) =>
-      currentChats.map((chat) =>
-        chat.id === targetChatId
-          ? {
-              ...chat,
-              unread: chat.id === activeChatId ? 0 : chat.unread,
-              messages: [
-                ...chat.messages,
-                {
-                  id: Date.now() + targetChatId,
-                  author: 'me',
-                  text,
-                  time: formatNowTime(),
-                  forwarded: true,
-                },
-              ],
-            }
-          : chat,
-      ),
-    )
+  async function forwardTextToChat(targetChatId: number, text: string) {
+    const trimmedText = text.trim()
+    if (!trimmedText) return
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await sendDirectMessageRequest(session.sessionToken, targetChatId, {
+          forwarded: true,
+          markAsRead: targetChatId === activeChatId,
+          text: trimmedText,
+        })
+        applySnapshot(response.snapshot)
+        return
+      } catch (error) {
+        console.error('Failed to forward text to chat', error)
+      }
+    }
+
+    applyLocalDirectMessage(targetChatId, trimmedText, {
+      forwarded: true,
+      markAsRead: targetChatId === activeChatId,
+    })
   }
 
-  function deleteMessage(chatId: number, messageId: number) {
-    setChats((currentChats) =>
-      currentChats.map((chat) => {
-        if (chat.id !== chatId) return chat
-
-        return {
-          ...chat,
-          pinnedMessageId: chat.pinnedMessageId === messageId ? undefined : chat.pinnedMessageId,
-          messages: chat.messages.filter((message) => message.id !== messageId),
-        }
-      }),
-    )
+  async function deleteMessage(chatId: number, messageId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await deleteDialogMessageRequest(session.sessionToken, chatId, messageId)
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to delete message', error)
+        applyLocalDeleteMessage(chatId, messageId)
+      }
+    } else {
+      applyLocalDeleteMessage(chatId, messageId)
+    }
 
     if (replyTarget?.id === messageId) {
       setReplyTarget(null)
@@ -1189,6 +1874,40 @@ function App() {
           : channel,
       ),
     )
+
+    const serverPatch: UpdateManagedChannelBody = {}
+
+    if (patch.title !== undefined) {
+      serverPatch.title = patch.title
+    }
+
+    if (patch.directLink !== undefined) {
+      serverPatch.directLink = patch.directLink
+    }
+
+    if (patch.description !== undefined) {
+      serverPatch.description = patch.description
+    }
+
+    if (patch.visibility !== undefined) {
+      serverPatch.visibility = patch.visibility
+    }
+
+    if (patch.avatarTone !== undefined) {
+      serverPatch.avatarTone = patch.avatarTone
+    }
+
+    if (patch.avatarImage !== undefined) {
+      serverPatch.avatarImage = patch.avatarImage
+    }
+
+    if (patch.status !== undefined) {
+      serverPatch.status = patch.status
+    }
+
+    if (Object.keys(serverPatch).length > 0) {
+      scheduleManagedChannelMutation(channelId, serverPatch)
+    }
   }
 
   function openChannelAvatarPicker(channelId: number) {
@@ -1196,7 +1915,7 @@ function App() {
     channelAvatarInputRef.current?.click()
   }
 
-  function handleChannelAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleChannelAvatarChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     const targetChannelId = uploadingChannelAvatarId
 
@@ -1205,30 +1924,52 @@ function App() {
       return
     }
 
+    // When backend is available, we prefer a stable server URL over blob URLs.
+    // That keeps the avatar portable across refreshes and is the same seam we will
+    // later swap to Yandex Object Storage.
+    if (backendReady && session?.sessionToken) {
+      try {
+        const uploadedMedia = await uploadMediaFile(
+          session.sessionToken,
+          file,
+          'channel-avatar',
+        )
+        updateChannel(targetChannelId, { avatarImage: uploadedMedia.mediaUrl })
+        setUploadingChannelAvatarId(null)
+        event.target.value = ''
+        return
+      } catch (error) {
+        console.error('Failed to upload channel avatar', error)
+      }
+    }
+
     const nextAvatarImage = URL.createObjectURL(file)
     channelAvatarObjectUrlsRef.current.add(nextAvatarImage)
-
-    setChannels((currentChannels) =>
-      currentChannels.map((channel) => {
-        if (channel.id !== targetChannelId) return channel
-
-        if (channel.avatarImage?.startsWith('blob:')) {
-          URL.revokeObjectURL(channel.avatarImage)
-          channelAvatarObjectUrlsRef.current.delete(channel.avatarImage)
-        }
-
-        return {
-          ...channel,
-          avatarImage: nextAvatarImage,
-        }
-      }),
-    )
+    replaceLocalChannelAvatar(targetChannelId, nextAvatarImage)
 
     setUploadingChannelAvatarId(null)
     event.target.value = ''
   }
 
-  function createChannel() {
+  async function createChannel() {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await createManagedChannelRequest(session.sessionToken, {
+          avatarTone: creatingChannelAvatarTone,
+          description: creatingChannelDescription,
+          directLink: creatingChannelDirectLink,
+          title: creatingChannelTitle,
+          visibility: 'private',
+        })
+        applySnapshot(response.snapshot)
+        setActiveChannelId(response.channelId)
+        openChannelsView('detail')
+        return
+      } catch (error) {
+        console.error('Failed to create managed channel', error)
+      }
+    }
+
     const nextId = channels.reduce((maxId, channel) => Math.max(maxId, channel.id), 0) + 1
     const title =
       sanitizeChannelTitle(creatingChannelTitle) || `Новый канал ${channels.length + 1}`
@@ -1237,12 +1978,12 @@ function App() {
       sanitizeChannelDescription(creatingChannelDescription) ||
       'Описание канала пока не заполнено. Здесь можно подготовить текст до публикации.'
     const nextChannel: Channel = {
-      id: nextId,
-      title,
-      directLink,
-      description,
       avatarTone: creatingChannelAvatarTone,
+      description,
+      directLink,
+      id: nextId,
       status: 'draft',
+      title,
       visibility: 'private',
     }
 
@@ -1271,8 +2012,19 @@ function App() {
     setGroupMessageActionAnchor(null)
   }
 
-  function deleteChannel(channelId: number) {
-    setChannels((currentChannels) => currentChannels.filter((channel) => channel.id !== channelId))
+  async function deleteChannel(channelId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await deleteManagedChannelRequest(session.sessionToken, channelId)
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to delete channel', error)
+        applyLocalDeleteChannel(channelId)
+      }
+    } else {
+      applyLocalDeleteChannel(channelId)
+    }
+
     setConfirmingDeleteChannelId(null)
     setChannelsView('list')
     if (transferringChannelId === channelId) {
@@ -1319,11 +2071,7 @@ function App() {
       return
     }
 
-    setChannels((currentChannels) =>
-      currentChannels.filter((channel) => channel.id !== transferringChannelId),
-    )
-    setChannelsView('list')
-    closeChannelTransfer()
+    void deleteChannel(transferringChannelId)
   }
 
   if (!session) {
@@ -1340,20 +2088,23 @@ function App() {
           onDisplayNameChange={(value) =>
             setDisplayName(sanitizePersonField(value, displayNameFieldMaxLength))
           }
-          onIdentifierChange={setIdentifier}
+          onIdentifierChange={(value) => {
+            setIdentifier(value)
+            setAuthExistingAccount(null)
+          }}
           onSmsCodeChange={(value) => setSmsCode(value.replace(/[^\d]/g, ''))}
           onSubmit={() => {
             if (authStep === 'phone') {
-              submitPhoneStep()
+              void submitPhoneStep()
               return
             }
 
             if (authStep === 'code') {
-              submitCodeStep()
+              void submitCodeStep()
               return
             }
 
-            submitProfileStep()
+            void submitProfileStep()
           }}
         />
         {cookieConsentBanner}
@@ -1416,7 +2167,7 @@ function App() {
                 type="button"
                 className="room-forward-item"
                 onClick={() => {
-                  forwardTextToChat(chat.id, forwardingSubscriptionPostText)
+                  void forwardTextToChat(chat.id, forwardingSubscriptionPostText)
                   closeSubscriptionPostActions()
                 }}
               >
@@ -1444,7 +2195,7 @@ function App() {
           <button
             type="button"
             className="message-menu-item"
-            onClick={() => setForwardingSubscriptionPostText(activeSubscriptionPost.text)}
+            onClick={() => setForwardingSubscriptionPostText(formatMessagePreview(activeSubscriptionPost))}
           >
             Переслать
           </button>
@@ -1452,7 +2203,7 @@ function App() {
             type="button"
             className="message-menu-item"
             onClick={() => {
-              copyToClipboard(activeSubscriptionPost.text, 'Сообщение скопировано')
+              copyToClipboard(formatMessagePreview(activeSubscriptionPost), 'Сообщение скопировано')
               closeSubscriptionPostActions()
             }}
           >
@@ -1481,7 +2232,7 @@ function App() {
                 type="button"
                 className="room-forward-item"
                 onClick={() => {
-                  forwardTextToChat(chat.id, forwardingGroupMessageText)
+                  void forwardTextToChat(chat.id, forwardingGroupMessageText)
                   closeGroupMessageActions()
                 }}
               >
@@ -1509,7 +2260,7 @@ function App() {
           <button
             type="button"
             className="message-menu-item"
-            onClick={() => setForwardingGroupMessageText(activeGroupMessage.text)}
+            onClick={() => setForwardingGroupMessageText(formatMessagePreview(activeGroupMessage))}
           >
             Переслать
           </button>
@@ -1517,7 +2268,7 @@ function App() {
             type="button"
             className="message-menu-item"
             onClick={() => {
-              copyToClipboard(activeGroupMessage.text, 'Сообщение скопировано')
+              copyToClipboard(formatMessagePreview(activeGroupMessage), 'Сообщение скопировано')
               closeGroupMessageActions()
             }}
           >
@@ -1771,10 +2522,10 @@ function App() {
                         <img src="/icons/news100.svg" alt="Канал" />
                       </span>
                     </span>
-                    <span>{channel.time}</span>
+                    <span>{formatSubscriptionChannelTime(channel)}</span>
                   </span>
                   <span className="chat-handle">{channel.handle}</span>
-                  <span className="chat-preview">{channel.preview}</span>
+                  <span className="chat-preview">{formatSubscriptionChannelPreview(channel)}</span>
                 </span>
                 {!quietMode && channel.unread > 0 ? <span className="badge">{channel.unread}</span> : null}
               </button>
@@ -2166,7 +2917,9 @@ function App() {
                       <button
                         type="button"
                         className="settings-action-card danger"
-                        onClick={() => deleteChatHistory(blockedActionChatId)}
+                        onClick={() => {
+                          void deleteChatHistory(blockedActionChatId)
+                        }}
                       >
                         Удалить переписку
                       </button>
@@ -2470,7 +3223,13 @@ function App() {
                 <button type="button" className="soft-button" onClick={openChannelsListView}>
                   Назад
                 </button>
-                <button type="button" className="send-button" onClick={createChannel}>
+                <button
+                  type="button"
+                  className="send-button"
+                  onClick={() => {
+                    void createChannel()
+                  }}
+                >
                   Создать канал
                 </button>
               </div>
@@ -2646,9 +3405,12 @@ function App() {
           <GroupRoom
             actions={groupMessageActions}
             activeMessageId={activeGroupMessageId}
+            attachmentInputRef={groupAttachmentInputRef}
+            attachmentName={groupAttachmentDrafts[activeGroup.id]?.fileName ?? ''}
             draft={groupMessageDrafts[activeGroup.id] ?? ''}
             group={activeGroup}
             messageFeedRef={messageFeedRef}
+            onAttachmentChange={handleGroupAttachmentChange}
             onBack={closeActiveRoom}
             onComposerFocus={closeGroupMessageActions}
             onDraftChange={(value) => updateGroupDraft(activeGroup.id, value)}
@@ -2661,7 +3423,10 @@ function App() {
               )
               setForwardingGroupMessageText('')
             }}
-            onSubmit={sendGroupMessage}
+            onOpenAttachmentPicker={openGroupAttachmentPicker}
+            onSubmit={() => {
+              void sendGroupMessage()
+            }}
           />
         ) : null}
 
@@ -2671,7 +3436,7 @@ function App() {
               activeChat={activeChat}
               activeMessageId={messageActionMessageId}
               attachmentInputRef={attachmentInputRef}
-              attachmentName={chatAttachmentNames[activeChat.id] ?? ''}
+              attachmentName={chatAttachmentDrafts[activeChat.id]?.fileName ?? ''}
               chatActionsOpen={chatActionsOpen}
               draft={chatMessageDrafts[activeChat.id] ?? ''}
               messageFeedRef={messageFeedRef}
@@ -2706,10 +3471,16 @@ function App() {
                 setConfirmingDeleteHistoryChatId(activeChat.id)
                 setChatActionsOpen(false)
               }}
-              onSubmit={sendMessage}
+              onSubmit={() => {
+                void sendMessage()
+              }}
               onToggleChatActions={() => setChatActionsOpen((current) => !current)}
-              onToggleFavoriteChat={() => togglePinnedChat(activeChat.id)}
-              onUnpinMessage={() => unpinMessage(activeChat.id)}
+              onToggleFavoriteChat={() => {
+                void togglePinnedChat(activeChat.id)
+              }}
+              onUnpinMessage={() => {
+                void unpinMessage(activeChat.id)
+              }}
             />
 
             {activeMessage ? (
@@ -2735,14 +3506,16 @@ function App() {
                     <button
                       type="button"
                       className="message-menu-item"
-                      onClick={() => copyMessageText(activeMessage.text)}
+                      onClick={() => copyMessageText(activeMessage)}
                     >
-                      Копировать текст
+                      Скопировать
                     </button>
                     <button
                       type="button"
                       className="message-menu-item"
-                      onClick={() => pinMessage(activeChat.id, activeMessage.id)}
+                      onClick={() => {
+                        void pinMessage(activeChat.id, activeMessage.id)
+                      }}
                     >
                       Закрепить
                     </button>
@@ -2817,14 +3590,18 @@ function App() {
                     <button
                       type="button"
                       className="room-confirm-button room-confirm-danger"
-                      onClick={() => deleteChatHistory(confirmingDeleteHistoryChatId)}
+                      onClick={() => {
+                        void deleteChatHistory(confirmingDeleteHistoryChatId)
+                      }}
                     >
                       Удалить у меня
                     </button>
                     <button
                       type="button"
                       className="room-confirm-button room-confirm-danger"
-                      onClick={() => deleteChatHistory(confirmingDeleteHistoryChatId)}
+                      onClick={() => {
+                        void deleteChatHistory(confirmingDeleteHistoryChatId)
+                      }}
                     >
                       Удалить у всех
                     </button>
@@ -2854,14 +3631,18 @@ function App() {
                     <button
                       type="button"
                       className="room-confirm-button room-confirm-danger"
-                      onClick={() => deleteMessage(activeChat.id, confirmingDeleteMessageId)}
+                      onClick={() => {
+                        void deleteMessage(activeChat.id, confirmingDeleteMessageId)
+                      }}
                     >
                       Удалить у меня
                     </button>
                     <button
                       type="button"
                       className="room-confirm-button room-confirm-danger"
-                      onClick={() => deleteMessage(activeChat.id, confirmingDeleteMessageId)}
+                      onClick={() => {
+                        void deleteMessage(activeChat.id, confirmingDeleteMessageId)
+                      }}
                     >
                       Удалить у всех
                     </button>
@@ -2902,7 +3683,9 @@ function App() {
                     <button
                       type="button"
                       className="room-confirm-button room-confirm-danger"
-                      onClick={() => deleteContact(confirmingDeleteContactChatId)}
+                      onClick={() => {
+                        void deleteContact(confirmingDeleteContactChatId)
+                      }}
                     >
                       Да, удалить
                     </button>
@@ -2938,7 +3721,9 @@ function App() {
                 <button
                   type="button"
                   className="room-confirm-button room-confirm-danger"
-                  onClick={() => deleteChannel(confirmingDeleteChannelId)}
+                  onClick={() => {
+                    void deleteChannel(confirmingDeleteChannelId)
+                  }}
                 >
                   Удалить канал
                 </button>

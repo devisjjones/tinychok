@@ -5,21 +5,48 @@ import {
   nicknameFieldMaxLength,
   statusFieldMaxLength,
 } from './constants'
-import type { Account, Channel, Chat, GroupPreview, Message, Session } from './types'
+import type { Account, Channel, Chat, GroupPreview, Message, Session, SubscriptionChannel } from './types'
+
+export function formatMessagePreview(message: Pick<Message, 'text' | 'attachment'>) {
+  const text = message.text.trim()
+  if (text) return text
+  if (message.attachment) return `Файл: ${message.attachment.fileName}`
+  return 'Пока пусто'
+}
+
+export function formatAttachmentSize(size: number) {
+  if (size < 1024) return `${size} Б`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} КБ`
+  return `${(size / (1024 * 1024)).toFixed(1)} МБ`
+}
+
+export function isImageMimeType(mimeType: string) {
+  return mimeType.startsWith('image/')
+}
 
 export function formatPreview(chat: Chat) {
   const latest = chat.messages.at(-1)
-  return latest ? latest.text : 'Пока пусто'
+  return latest ? formatMessagePreview(latest) : 'Пока пусто'
 }
 
 export function formatGroupPreview(group: GroupPreview) {
   const latest = group.messages.at(-1)
-  return latest ? latest.text : group.preview
+  return latest ? formatMessagePreview(latest) : group.preview
 }
 
 export function formatGroupTime(group: GroupPreview) {
   const latest = group.messages.at(-1)
   return latest ? latest.time : group.time
+}
+
+export function formatSubscriptionChannelPreview(channel: SubscriptionChannel) {
+  const latest = channel.posts.at(-1)
+  return latest ? formatMessagePreview(latest) : channel.preview
+}
+
+export function formatSubscriptionChannelTime(channel: SubscriptionChannel) {
+  const latest = channel.posts.at(-1)
+  return latest ? latest.time : channel.time
 }
 
 export function formatMessageAuthor(author: Message['author'], chatTitle: string) {

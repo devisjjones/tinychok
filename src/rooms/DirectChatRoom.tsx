@@ -5,7 +5,11 @@ import type {
   RefObject,
 } from 'react'
 import type { Chat, Message, ReplyTarget } from '../app/types'
-import { formatMessageAuthor, formatRoomPresence } from '../app/utils'
+import {
+  formatMessagePreview,
+  formatRoomPresence,
+} from '../app/utils'
+import { BubbleMessageContent } from '../components/BubbleMessageContent'
 
 type DirectChatRoomProps = {
   activeChat: Chat
@@ -18,7 +22,7 @@ type DirectChatRoomProps = {
   pinnedMessage: Message | null
   quietMode: boolean
   replyTarget: ReplyTarget | null
-  onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void
+  onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
   onBack: () => void
   onBlockChat: () => void
   onCloseChatActions: () => void
@@ -148,7 +152,7 @@ export function DirectChatRoom({
         <div className="pinned-message">
           <div className="pinned-message-content">
             <img className="pinned-message-icon" src="/icons/pin100.png" alt="" aria-hidden="true" />
-            <p>{pinnedMessage.text}</p>
+            <p>{formatMessagePreview(pinnedMessage)}</p>
           </div>
           <button type="button" className="soft-button pinned-message-close" onClick={onUnpinMessage}>
             Снять
@@ -173,13 +177,7 @@ export function DirectChatRoom({
             onClick={(event) => onMessageSelect(event, message)}
           >
             {message.forwarded ? <span className="bubble-meta">Переслано</span> : null}
-            {message.replyTo ? (
-              <div className="bubble-reply">
-                <span>{formatMessageAuthor(message.replyTo.author, activeChat.title)}</span>
-                <p>{message.replyTo.text}</p>
-              </div>
-            ) : null}
-            <p>{message.text}</p>
+            <BubbleMessageContent message={message} replyChatTitle={activeChat.title} />
             <time>{message.time}</time>
           </button>
         ))}

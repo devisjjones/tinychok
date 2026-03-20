@@ -1,9 +1,24 @@
+export type MessageAttachment = {
+  fileName: string
+  mediaUrl: string
+  mimeType: string
+  size: number
+}
+
+export type ChannelPost = {
+  id: number
+  text: string
+  time: string
+  attachment?: MessageAttachment
+}
+
 export type Message = {
   id: number
   author: 'me' | 'them'
   text: string
   time: string
   displayAuthor?: string
+  attachment?: MessageAttachment
   replyTo?: {
     text: string
     author: 'me' | 'them'
@@ -54,11 +69,7 @@ export type SubscriptionChannel = {
   unread: number
   draft?: boolean
   visibility: 'private' | 'public' | 'closed'
-  posts: Array<{
-    id: number
-    text: string
-    time: string
-  }>
+  posts: ChannelPost[]
 }
 
 export type GroupPreview = {
@@ -121,4 +132,5 @@ export type Session = {
   premium?: boolean
   premiumExpiresAt?: string
   blockedContactIds?: number[]
+  sessionToken?: string
 }

@@ -9,8 +9,13 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-server
 dist-ssr
 *.local
+*.tsbuildinfo
+server/data
+server/uploads
+tinychok-staging-*.tar.gz
 
 # Editor directories and files
 .vscode/*

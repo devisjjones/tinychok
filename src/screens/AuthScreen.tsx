@@ -3,7 +3,7 @@ import { formatAccountName } from '../app/utils'
 
 type AuthScreenProps = {
   authError: string
-  authExistingAccount: Account | null
+  authExistingAccount: Pick<Account, 'displayName' | 'surname'> | null
   authStep: AuthStep
   displayName: string
   displayNameMaxLength: number

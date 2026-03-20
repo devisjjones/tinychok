@@ -1,5 +1,6 @@
 import type { MouseEvent, ReactNode, RefObject } from 'react'
 import type { SubscriptionChannel } from '../app/types'
+import { BubbleMessageContent } from '../components/BubbleMessageContent'
 
 type SubscriptionChannelRoomProps = {
   actions: ReactNode
@@ -55,7 +56,7 @@ export function SubscriptionChannelRoom({
             onClick={(event) => onPostSelect(event, post.id)}
           >
             <span className="bubble-meta">{channel.draft ? 'Draft-пост' : 'Пост канала'}</span>
-            <p>{post.text}</p>
+            <BubbleMessageContent message={post} />
             <time>{post.time}</time>
           </button>
         ))}
