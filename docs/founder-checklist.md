@@ -66,23 +66,25 @@
 - `PUBLIC_APP_URL`
 - `PUBLIC_API_URL`
 - `PUBLIC_MEDIA_BASE_URL`
-- `STAGING_APP_URL`
-- `STAGING_API_URL`
-- `STAGING_MEDIA_BASE_URL`
+- `VITE_API_BASE_URL`
+- `VITE_WS_BASE_URL`
 - `POSTGRES_URL` или набор:
   - `POSTGRES_HOST`
   - `POSTGRES_PORT`
   - `POSTGRES_DB`
   - `POSTGRES_USER`
   - `POSTGRES_PASSWORD`
-- `VALKEY_HOST`
-- `VALKEY_PORT`
-- `VALKEY_PASSWORD`
 - `OBJECT_STORAGE_BUCKET`
 - `OBJECT_STORAGE_REGION`
 - `OBJECT_STORAGE_ENDPOINT`
 - `OBJECT_STORAGE_ACCESS_KEY`
 - `OBJECT_STORAGE_SECRET_KEY`
+- для текущего staging на VM уже зафиксированы:
+  - `POSTGRES_HOST=127.0.0.1`
+  - `POSTGRES_PORT=5432`
+  - `POSTGRES_DB=tinychok`
+  - `POSTGRES_USER=tinychok_app`
+  - `POSTGRES_SSL=false`
 - service account id и key id можно присылать, `secret key` присылать не нужно
 - `POSTGRES_PASSWORD` staging-базы у тебя уже сохранён локально, в чат его присылать не нужно
 
@@ -102,7 +104,7 @@
 - для staging выбираем `GitHub deploy key` с read-only доступом
 - staging `.env` на VM
 - способ запуска staging backend:
-  - временно `node` / `npm run start:server`
+  - временно `npm ci && npm run build && npm run start:server`
   - позже `systemd`
 
 ## Как тестировать до live

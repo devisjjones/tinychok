@@ -42,6 +42,7 @@ npm run start:server
 
 Пример production-переменных под Яндекс Облако лежит в [.env.production.example](/Users/devisjones/Documents/New%20project/tinychok/.env.production.example).
 Пример staging-переменных лежит в [.env.staging.example](/Users/devisjones/Documents/New%20project/tinychok/.env.staging.example).
+Текущий staging-пример уже синхронизирован с реальным staging-контуром на VM: локальный `PostgreSQL` на `127.0.0.1:5432`, `POSTGRES_SSL=false`.
 
 Сейчас особенно важны:
 
@@ -49,7 +50,9 @@ npm run start:server
 - `TINYCHOK_MEDIA_BACKEND=local|object-storage` для выбора media backend;
 - `VITE_API_BASE_URL` и `VITE_WS_BASE_URL` для раздельных frontend/backend доменов;
 - `PUBLIC_API_URL` и `PUBLIC_MEDIA_BASE_URL` для корректных media URL в snapshot и upload response;
-- `POSTGRES_*`, `VALKEY_*`, `OBJECT_STORAGE_*` как target-конфиг следующего migration-шага.
+- `POSTGRES_*` и `OBJECT_STORAGE_*` как текущий deploy-конфиг backend.
+
+`Valkey` остаётся частью целевой production-архитектуры, но текущий backend и runtime env его ещё не используют.
 
 Сейчас backend поддерживает два режима state storage:
 

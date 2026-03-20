@@ -5,13 +5,13 @@
 ## Git state
 
 - текущая рабочая ветка: `codex/group-composer`
-- последний подтверждённый push: `1af488b`
-- commit message: `Add backend foundation and staging cloud setup`
+- последний подтверждённый push: `1eba28c`
+- commit message: `Document staging handoff state`
 - remote branch синхронизирован с локальной веткой
 
 Если продолжать в новой ветке, безопасная точка старта:
 
-- branch from: `1af488b`
+- branch from: `1eba28c`
 - recommended new branch name: `codex/staging-deploy`
 
 ## Что уже сделано в коде
@@ -68,10 +68,14 @@
    - без `Allow write access`
 3. Проверить `ssh -T git@github.com`
 4. Клонировать репозиторий на VM
+   - `git clone git@github.com:devisjjones/tinychok.git`
 5. Переключиться на ветку продолжения
-6. Создать staging `.env`
-7. Запустить `npm install`
-8. Запустить backend на staging VM
+   - `git switch codex/staging-deploy`
+6. Создать staging `.env` из `.env.staging.example`
+7. Запустить `npm ci`
+8. Запустить `npm run build`
+9. Запустить backend на staging VM
+   - `npm run start:server`
 
 ## Что нужно будет подставить в staging env
 
@@ -82,19 +86,23 @@
 - `PORT=8787`
 - `PUBLIC_APP_URL=https://staging.tinychok.ru`
 - `PUBLIC_API_URL=https://api.staging.tinychok.ru`
+- `PUBLIC_MEDIA_BASE_URL=`
 - `VITE_API_BASE_URL=https://api.staging.tinychok.ru`
 - `VITE_WS_BASE_URL=wss://api.staging.tinychok.ru`
+- `POSTGRES_URL=`
 - `POSTGRES_HOST=127.0.0.1`
 - `POSTGRES_PORT=5432`
 - `POSTGRES_DB=tinychok`
 - `POSTGRES_USER=tinychok_app`
 - `POSTGRES_PASSWORD=<stored-secret>`
 - `POSTGRES_SSL=false`
+- `POSTGRES_BOOTSTRAP_FROM_FILE=true`
 - `OBJECT_STORAGE_ENDPOINT=https://storage.yandexcloud.net`
 - `OBJECT_STORAGE_BUCKET=tinychok-media-staging`
 - `OBJECT_STORAGE_REGION=ru-central1`
 - `OBJECT_STORAGE_ACCESS_KEY=<stored-secret>`
 - `OBJECT_STORAGE_SECRET_KEY=<stored-secret>`
+- `OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS=300`
 
 ## Что не надо делать
 
