@@ -9,6 +9,9 @@ import type {
   AppSnapshot,
   CreateGroupBody,
   CreateManagedChannelBody,
+  DiscoverySearchResponse,
+  OpenDirectDialogBody,
+  OpenDirectDialogResponse,
   RegisterBody,
   RequestCodeBody,
   SaveSnapshotBody,
@@ -65,6 +68,10 @@ function getUploadKind(request: FastifyRequest) {
   }
 
   throw new Error('Некорректный тип загрузки.')
+}
+
+function getSearchQuery(request: FastifyRequest) {
+  return ((request.query as Record<string, string | undefined> | undefined)?.q ?? '').trim()
 }
 
 function getRequestedMediaKey(request: FastifyRequest) {
@@ -189,6 +196,20 @@ app.get('/api/bootstrap', async (request, reply) => {
   return snapshot
 })
 
+app.get('/api/discovery', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const results = store.searchAccounts(token, getSearchQuery(request))
+    return { results } satisfies DiscoverySearchResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.put('/api/snapshot', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -205,6 +226,24 @@ app.put('/api/snapshot', async (request, reply) => {
     }
 
     return nextSnapshot
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/dialogs', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const body = parseJsonPayload<OpenDirectDialogBody>(request.body)
+    const result = await store.openDirectDialog(token, body)
+    return {
+      dialogId: result.dialogId,
+      snapshot: result.snapshot,
+    } satisfies OpenDirectDialogResponse
   } catch (error) {
     return sendError(reply, error)
   }

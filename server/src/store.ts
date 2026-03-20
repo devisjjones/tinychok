@@ -15,6 +15,7 @@ import type {
   Chat,
   GroupPreview,
   Message,
+  SearchResult,
   Session,
   SubscriptionChannel,
 } from '../../src/app/types'
@@ -34,6 +35,7 @@ import type {
   AppSnapshot,
   CreateGroupBody,
   CreateManagedChannelBody,
+  OpenDirectDialogBody,
   RegisterBody,
   RequestCodeResponse,
   SetDialogFavoriteBody,
@@ -131,6 +133,10 @@ type CreateChannelResult = MutationResult & {
 
 type CreateGroupResult = MutationResult & {
   groupId: number
+}
+
+type OpenDirectDialogResult = MutationResult & {
+  dialogId: number
 }
 
 const AUTH_CODE_TTL_MS = 5 * 60 * 1000
@@ -236,6 +242,11 @@ function pickAccentForIdentifier(identifier: string) {
     .reduce((sum, digit) => sum + Number(digit), 0)
 
   return CHAT_ACCENT_PALETTE[indexSeed % CHAT_ACCENT_PALETTE.length] ?? FALLBACK_CHAT_ACCENT
+}
+
+function buildSearchSubtitle(account: Account) {
+  const status = account.status?.trim()
+  return status || 'зарегистрирован в Tinychok'
 }
 
 function invertMessageAuthor(author: Message['author']) {
@@ -705,6 +716,68 @@ export class TinychokStore {
       .map((session) => session.token)
   }
 
+  searchAccounts(token: string, query: string) {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const trimmedQuery = query.trim()
+    if (!trimmedQuery) {
+      return [] as SearchResult[]
+    }
+
+    const normalizedIdentifierQuery = normalizeIdentifier(trimmedQuery)
+    const normalizedDigitsQuery = trimmedQuery.replace(/[^\d]/g, '')
+    const normalizedQuery = trimmedQuery.toLowerCase()
+    const existingDialogPhones = new Set(
+      this.database.dialogs
+        .filter((dialog) => dialog.ownerIdentifier === account.identifier)
+        .map((dialog) => normalizeIdentifier(dialog.phone)),
+    )
+
+    return this.database.accounts
+      .filter((candidate) => candidate.identifier !== account.identifier)
+      .filter((candidate) => {
+        const candidateDigits = candidate.identifier.replace(/[^\d]/g, '')
+        const displayName = formatAccountName(candidate).toLowerCase()
+        const handle = buildAccountHandle(candidate).toLowerCase()
+
+        return (
+          (normalizedDigitsQuery !== '' && candidateDigits.includes(normalizedDigitsQuery)) ||
+          displayName.includes(normalizedQuery) ||
+          handle.includes(normalizedQuery)
+        )
+      })
+      .filter((candidate) => !existingDialogPhones.has(candidate.identifier))
+      .sort((left, right) => {
+        const leftExactPhone = normalizedIdentifierQuery !== '' && left.identifier === normalizedIdentifierQuery
+        const rightExactPhone = normalizedIdentifierQuery !== '' && right.identifier === normalizedIdentifierQuery
+        if (leftExactPhone !== rightExactPhone) {
+          return leftExactPhone ? -1 : 1
+        }
+
+        const leftHandle = buildAccountHandle(left).toLowerCase()
+        const rightHandle = buildAccountHandle(right).toLowerCase()
+        const leftExactHandle = leftHandle === normalizedQuery
+        const rightExactHandle = rightHandle === normalizedQuery
+        if (leftExactHandle !== rightExactHandle) {
+          return leftExactHandle ? -1 : 1
+        }
+
+        return formatAccountName(left).localeCompare(formatAccountName(right), 'ru')
+      })
+      .slice(0, 20)
+      .map((candidate, index) => ({
+        accent: pickAccentForIdentifier(candidate.identifier),
+        handle: buildAccountHandle(candidate),
+        id: index + 1,
+        phone: candidate.identifier,
+        subtitle: buildSearchSubtitle(candidate),
+        title: formatAccountName(candidate) || candidate.identifier,
+      }))
+  }
+
   async saveSnapshot(token: string, snapshot: AppSnapshot) {
     const account = this.findAccountByToken(token)
     if (!account) {
@@ -769,6 +842,36 @@ export class TinychokStore {
 
     return {
       broadcastIdentifiers: [...new Set(broadcastIdentifiers)],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async openDirectDialog(token: string, payload: OpenDirectDialogBody): Promise<OpenDirectDialogResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedIdentifier = normalizeIdentifier(payload.identifier)
+    if (!normalizedIdentifier) {
+      throw new Error('Нужно указать номер контакта.')
+    }
+
+    if (normalizedIdentifier === account.identifier) {
+      throw new Error('Нельзя открыть чат с самим собой.')
+    }
+
+    const contactAccount = this.findAccount(normalizedIdentifier)
+    if (!contactAccount) {
+      throw new Error('Аккаунт не найден.')
+    }
+
+    const dialog = this.ensureDialogForContact(account.identifier, contactAccount)
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      dialogId: dialog.id,
       snapshot: this.buildSnapshot(account, token),
     }
   }

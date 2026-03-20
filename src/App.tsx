@@ -21,7 +21,7 @@ import {
   surnameFieldMaxLength,
 } from './app/constants'
 import {
-  discoveryResults,
+  discoveryResults as initialDiscoveryResults,
   initialChannels,
   initialChats,
   initialGroups,
@@ -38,10 +38,12 @@ import {
   markDialogRead as markDialogReadRequest,
   markGroupRead as markGroupReadRequest,
   markSubscriptionChannelRead as markSubscriptionChannelReadRequest,
+  openDirectDialog as openDirectDialogRequest,
   openRealtimeConnection,
   registerAccount,
   requestAuthCode,
   saveSnapshot,
+  searchDiscoveryResults as searchDiscoveryResultsRequest,
   setDialogFavorite as setDialogFavoriteRequest,
   setDialogPinnedMessage as setDialogPinnedMessageRequest,
   sendDirectMessage as sendDirectMessageRequest,
@@ -59,6 +61,7 @@ import type {
   ChannelsView,
   Message,
   ReplyTarget,
+  SearchResult,
   Session,
   SettingsView,
   StageView,
@@ -205,6 +208,11 @@ function App() {
   const [editingChannelTitleValue, setEditingChannelTitleValue] = useState('')
   const [topListView, setTopListView] = useState<TopListView>('none')
   const [copyHintText, setCopyHintText] = useState('')
+  const [discoveryResults, setDiscoveryResults] = useState(initialDiscoveryResults)
+  const [liveSearchState, setLiveSearchState] = useState<{
+    query: string
+    results: SearchResult[]
+  } | null>(null)
   const [subscriptionChannels, setSubscriptionChannels] = useState(initialSubscribedChannels)
   const [groups, setGroups] = useState(initialGroups)
   const [activeSubscriptionChannelId, setActiveSubscriptionChannelId] = useState<number | null>(null)
@@ -266,7 +274,20 @@ function App() {
     )
   })
 
-  const searchResults = discoveryResults.filter((result) => {
+  const trimmedSearchQuery = query.trim()
+  const liveSearchResults =
+    searchOpen &&
+    topListView === 'none' &&
+    trimmedSearchQuery !== '' &&
+    liveSearchState?.query === trimmedSearchQuery
+      ? liveSearchState.results
+      : null
+  const searchResultSource = liveSearchResults ?? discoveryResults
+  const searchResults = searchResultSource
+    .filter((result) => !availableChats.some(
+      (chat) => normalizeIdentifier(chat.phone) === normalizeIdentifier(result.phone),
+    ))
+    .filter((result) => {
     if (query.trim() === '') return true
 
     return (
@@ -274,7 +295,7 @@ function App() {
       matchesQuery(result.handle, query) ||
       matchesQuery(result.phone, query)
     )
-  })
+    })
 
   const activeChat =
     activeChatId === null ? null : availableChats.find((chat) => chat.id === activeChatId) ?? null
@@ -578,6 +599,7 @@ function App() {
     skipNextBackendSyncRef.current = true
     setChats(snapshot.chats)
     setChannels(snapshot.channels)
+    setDiscoveryResults(snapshot.discoveryResults)
     setGroups(snapshot.groups)
     setSubscriptionChannels(snapshot.subscriptionChannels)
     setActiveChatId((currentChatId) =>
@@ -618,7 +640,7 @@ function App() {
       session,
       subscriptionChannels,
     }
-  }, [channels, chats, groups, session, subscriptionChannels])
+  }, [channels, chats, discoveryResults, groups, session, subscriptionChannels])
 
   const fallbackSaveCurrentSnapshot = useCallback(async (reason: string) => {
     const snapshot = latestSnapshotRef.current
@@ -756,6 +778,43 @@ function App() {
   }, [applySnapshot, session?.sessionToken])
 
   useEffect(() => {
+    if (!searchOpen || topListView !== 'none') {
+      return
+    }
+
+    const trimmedQuery = query.trim()
+    if (!trimmedQuery || !backendReady || !session?.sessionToken) {
+      return
+    }
+
+    let cancelled = false
+    const timeoutId = window.setTimeout(() => {
+      void searchDiscoveryResultsRequest(session.sessionToken!, trimmedQuery)
+        .then((results) => {
+          if (!cancelled) {
+            setLiveSearchState({
+              query: trimmedQuery,
+              results,
+            })
+          }
+        })
+        .catch((error) => {
+          if (cancelled) return
+          console.error('Failed to search discovery accounts', error)
+          setLiveSearchState({
+            query: trimmedQuery,
+            results: [],
+          })
+        })
+    }, 180)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [backendReady, query, searchOpen, session?.sessionToken, topListView])
+
+  useEffect(() => {
     if (!backendReady || !session?.sessionToken) return
 
     const socket = openRealtimeConnection(session.sessionToken, (event) => {
@@ -835,7 +894,7 @@ function App() {
         backendSyncTimeoutRef.current = null
       }
     }
-  }, [backendReady, channels, chats, groups, session, subscriptionChannels])
+  }, [backendReady, channels, chats, discoveryResults, groups, session, subscriptionChannels])
 
   async function submitPhoneStep() {
     const normalized = normalizeIdentifier(identifier)
@@ -1541,6 +1600,56 @@ function App() {
     setBottomSection('chats')
     setActiveChatId(chatId)
     void syncDialogRead(chatId)
+  }
+
+  function createLocalDialogFromSearchResult(result: SearchResult) {
+    const normalizedPhone = normalizeIdentifier(result.phone)
+    const existingChat = chats.find((chat) => normalizeIdentifier(chat.phone) === normalizedPhone)
+    if (existingChat) {
+      return existingChat.id
+    }
+
+    const nextChatId = chats.reduce((maxId, chat) => Math.max(maxId, chat.id), 0) + 1
+    setChats((currentChats) => [
+      ...currentChats,
+      {
+        accent: result.accent,
+        handle: result.handle,
+        id: nextChatId,
+        messages: [],
+        mood: result.subtitle,
+        phone: normalizedPhone || result.phone,
+        status: result.subtitle,
+        title: result.title,
+        unread: 0,
+      },
+    ])
+
+    return nextChatId
+  }
+
+  async function openSearchResult(result: SearchResult) {
+    const normalizedPhone = normalizeIdentifier(result.phone)
+    const existingChat = chats.find((chat) => normalizeIdentifier(chat.phone) === normalizedPhone)
+    if (existingChat) {
+      openChat(existingChat.id)
+      return
+    }
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await openDirectDialogRequest(session.sessionToken, {
+          identifier: normalizedPhone || result.phone,
+        })
+        applySnapshot(response.snapshot)
+        openChat(response.dialogId)
+        return
+      } catch (error) {
+        console.error('Failed to open direct dialog from search result', error)
+      }
+    }
+
+    openChat(createLocalDialogFromSearchResult(result))
   }
 
   async function togglePinnedChat(chatId: number) {
@@ -2484,7 +2593,12 @@ function App() {
             <section className="search-group">
               <p className="search-group-title">Результаты поиска</p>
               {searchResults.map((result) => (
-                <article key={result.id} className="chat-card search-card">
+                <button
+                  key={`${result.phone}:${result.handle}`}
+                  type="button"
+                  className="chat-card search-card"
+                  onClick={() => void openSearchResult(result)}
+                >
                   <span className="avatar" style={{ backgroundColor: result.accent }}>
                     {result.title.slice(0, 1)}
                   </span>
@@ -2498,8 +2612,16 @@ function App() {
                       {searchShowsPhone ? result.phone : result.handle}
                     </span>
                   </span>
-                </article>
+                </button>
               ))}
+              {query.trim() !== '' && myContactsResults.length === 0 && searchResults.length === 0 ? (
+                <article className="chat-card search-card">
+                  <span className="chat-copy">
+                    <strong>Ничего не найдено</strong>
+                    <span className="chat-handle">Попробуйте номер или @handle зарегистрированного аккаунта</span>
+                  </span>
+                </article>
+              ) : null}
             </section>
           </div>
         ) : isChannelsTopListOpen ? (

@@ -4,7 +4,10 @@ import type {
   CreateGroupResponse,
   CreateManagedChannelBody,
   CreateManagedChannelResponse,
+  DiscoverySearchResponse,
   MutationResponse,
+  OpenDirectDialogBody,
+  OpenDirectDialogResponse,
   RegisterResponse,
   RequestCodeResponse,
   RealtimeEvent,
@@ -19,6 +22,7 @@ import type {
   VerifyCodeResponse,
 } from '../shared/backend'
 import type { RegisterBody, RequestCodeBody, SaveSnapshotBody, VerifyCodeBody } from '../shared/backend'
+import type { SearchResult } from './types'
 
 function normalizeBaseUrl(value: string | undefined) {
   const trimmed = value?.trim()
@@ -178,6 +182,20 @@ export async function fetchBootstrap(sessionToken: string) {
   return normalizeSnapshot(payload)
 }
 
+export async function searchDiscoveryResults(sessionToken: string, query: string) {
+  const requestUrl = new URL(makeHttpUrl('/api/discovery'), window.location.origin)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  const payload = await readJsonResponse<DiscoverySearchResponse>(response)
+  return payload.results as SearchResult[]
+}
+
 export async function saveSnapshot(sessionToken: string, snapshot: AppSnapshot) {
   const response = await fetch(makeHttpUrl('/api/snapshot'), {
     body: JSON.stringify({ snapshot } satisfies SaveSnapshotBody),
@@ -232,6 +250,21 @@ export async function sendDirectMessage(
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
+}
+
+export async function openDirectDialog(
+  sessionToken: string,
+  body: OpenDirectDialogBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/dialogs'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<OpenDirectDialogResponse>(response)
+  return {
+    ...payload,
+    snapshot: normalizeSnapshot(payload.snapshot),
+  }
 }
 
 export async function setDialogFavorite(

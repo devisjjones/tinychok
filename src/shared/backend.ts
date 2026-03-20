@@ -25,6 +25,10 @@ export type RequestCodeBody = {
   identifier: string
 }
 
+export type DiscoverySearchResponse = {
+  results: SearchResult[]
+}
+
 export type RequestCodeResponse = {
   delivery: 'sms'
   expiresAt: string
@@ -60,8 +64,16 @@ export type SaveSnapshotBody = {
   snapshot: AppSnapshot
 }
 
+export type OpenDirectDialogBody = {
+  identifier: string
+}
+
 export type MutationResponse = {
   snapshot: AppSnapshot
+}
+
+export type OpenDirectDialogResponse = MutationResponse & {
+  dialogId: number
 }
 
 export type UploadMediaKind = 'attachment' | 'channel-avatar'
