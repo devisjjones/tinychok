@@ -5,8 +5,8 @@
 ## Git state
 
 - текущая рабочая ветка для staging deploy: `codex/staging-deploy`
-- последний подтверждённый push до этого handoff refresh: `f1bc8c1`
-- commit message: `Align staging deploy docs with VM setup`
+- последний подтверждённый push: `1e12345`
+- commit message: `Document live staging API rollout`
 - продолжать дальше нужно от актуального `HEAD` ветки `codex/staging-deploy`
 
 Если продолжать в новой ветке, безопасная точка старта:
