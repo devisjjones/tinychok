@@ -46,6 +46,7 @@ import type {
   UpdateSessionBody,
   VerifyCodeResponse,
 } from '../../src/shared/backend'
+import { runtimeConfig } from './config'
 
 type PersistedDialog = Omit<Chat, 'messages'> & {
   ownerIdentifier: string
@@ -167,12 +168,26 @@ function createDefaultDatabase(): Database {
 type PersistDatabaseFn = (database: Database) => Promise<void>
 
 function createSeedState() {
+  if (runtimeConfig.environment !== 'development') {
+    return {
+      channels: [] as Channel[],
+      chats: [] as Chat[],
+      groups: [] as GroupPreview[],
+      subscriptionChannels: [] as SubscriptionChannel[],
+    }
+  }
+
   return {
     channels: structuredClone(initialChannels),
     chats: structuredClone(initialChats),
     groups: structuredClone(initialGroups),
     subscriptionChannels: structuredClone(initialSubscribedChannels),
   }
+}
+
+function getSeedChatByPhone(phone: string) {
+  const normalizedPhone = normalizeIdentifier(phone)
+  return initialChats.find((chat) => normalizeIdentifier(chat.phone) === normalizedPhone) ?? null
 }
 
 function sanitizeMessageText(value: string) {
@@ -911,6 +926,7 @@ export class TinychokStore {
         : null
 
     if (recipientAccount) {
+      this.clearSeededDialogHistoryIfNeeded(dialog)
       this.syncDialogContactProfile(dialog, recipientAccount)
     }
 
@@ -1533,6 +1549,7 @@ export class TinychokStore {
     for (const dialog of this.database.dialogs) {
       if (normalizeIdentifier(dialog.phone) !== account.identifier) continue
 
+      this.clearSeededDialogHistoryIfNeeded(dialog)
       this.syncDialogContactProfile(dialog, account)
       affectedOwners.add(dialog.ownerIdentifier)
     }
@@ -1561,6 +1578,7 @@ export class TinychokStore {
     )
 
     if (existingDialog) {
+      this.clearSeededDialogHistoryIfNeeded(existingDialog)
       this.syncDialogContactProfile(existingDialog, contactAccount)
       return existingDialog
     }
@@ -1585,6 +1603,47 @@ export class TinychokStore {
     this.syncDialogContactProfile(nextDialog, contactAccount)
     this.database.dialogs.push(nextDialog)
     return nextDialog
+  }
+
+  private clearSeededDialogHistoryIfNeeded(dialog: PersistedDialog) {
+    const seedChat = getSeedChatByPhone(dialog.phone)
+    if (!seedChat) return
+
+    const dialogMessages = this.database.dialogMessages
+      .filter(
+        (message) =>
+          message.ownerIdentifier === dialog.ownerIdentifier && message.dialogId === dialog.id,
+      )
+      .sort((left, right) => left.id - right.id)
+
+    if (dialogMessages.length !== seedChat.messages.length) return
+
+    const matchesSeedHistory = dialogMessages.every((message, index) => {
+      const seedMessage = seedChat.messages[index]
+      return (
+        seedMessage !== undefined &&
+        message.author === seedMessage.author &&
+        message.text === seedMessage.text &&
+        message.time === seedMessage.time &&
+        message.attachment === undefined &&
+        message.replyTo === undefined &&
+        message.forwarded === undefined
+      )
+    })
+
+    if (!matchesSeedHistory) return
+
+    this.database.dialogMessages = this.database.dialogMessages.filter(
+      (message) =>
+        !(
+          message.ownerIdentifier === dialog.ownerIdentifier &&
+          message.dialogId === dialog.id
+        ),
+    )
+    dialog.unread = 0
+    dialog.pinned = false
+    dialog.pinnedMessageId = undefined
+    dialog.typing = false
   }
 
   private replaceOwnerState(
