@@ -34,25 +34,31 @@
   - `tinychok-staging.service`
   - `nginx` site `tinychok-staging-api`
 
-## Что ещё не сделано
+## Update: staging frontend live
 
-- frontend для `staging.tinychok.ru` ещё не выложен
-- HTTPS для `staging.tinychok.ru` ещё не настраивался
-- не выбрана финальная схема staging frontend:
-  - статика на этой же VM через `nginx`
-  - или отдельная статическая выдача через `Object Storage`
+По состоянию на `2026-03-21` staging frontend уже выложен на `https://staging.tinychok.ru`.
 
-## Следующий правильный шаг
+Подтверждено:
 
-Собрать и выложить staging frontend на `staging.tinychok.ru` с backend-конфигом:
+- frontend собран со staging-конфигом:
+  - `VITE_API_BASE_URL=https://api.staging.tinychok.ru`
+  - `VITE_WS_BASE_URL=wss://api.staging.tinychok.ru`
+- статика отдаётся с staging VM `tinychok-staging-1` через `nginx`
+- для `staging.tinychok.ru` выпущен `Let's Encrypt` сертификат
+- `https://staging.tinychok.ru` открывается публично
+- `https://staging.tinychok.ru/privacy-policy.html` отдаётся корректно
+- auth flow через staging API проходит успешно
+- browser requests идут на `https://api.staging.tinychok.ru`
+- websocket подключается к `wss://api.staging.tinychok.ru/ws` и получает `101 Switching Protocols`
 
-- `VITE_API_BASE_URL=https://api.staging.tinychok.ru`
-- `VITE_WS_BASE_URL=wss://api.staging.tinychok.ru`
+Короткий frontend-only runbook этого deploy шага лежит в [docs/staging-frontend-rollout.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-frontend-rollout.md).
 
-После этого:
+## Что теперь закрыто
 
-1. отдать статику по `staging.tinychok.ru`
-2. включить HTTPS для `staging.tinychok.ru`
-3. проверить открытие приложения и websocket-подключение через staging API
+- staging frontend deploy
+- HTTPS для `staging.tinychok.ru`
+- browser smoke-check UI + API + websocket
 
-Короткий frontend-only runbook для этого шага лежит в [docs/staging-frontend-rollout.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-frontend-rollout.md).
+## Следующий шаг
+
+Следующий практический шаг уже не про базовый staging rollout, а про дальнейшую продуктовую или production-подготовку.
