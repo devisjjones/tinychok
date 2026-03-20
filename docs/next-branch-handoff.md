@@ -91,6 +91,8 @@
 4. Выпустить HTTPS для `staging.tinychok.ru`
 5. Проверить загрузку UI, auth и websocket через staging API
 
+Короткий frontend-only runbook для этого шага лежит в [docs/staging-frontend-rollout.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-frontend-rollout.md).
+
 ## Полезные команды на staging VM
 
 - `sudo systemctl status tinychok-staging --no-pager`

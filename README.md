@@ -125,4 +125,7 @@ SQL-схема под PostgreSQL уже подготовлена в [server/sql/
 
 ```bash
 npm run build
+npm run build:frontend:staging
 ```
+
+Для отдельной выкладки staging frontend использовать `npm run build:frontend:staging`. Эта команда собирает только клиентский `dist/` и сразу вшивает `https://api.staging.tinychok.ru` и `wss://api.staging.tinychok.ru`. Короткий VM+`nginx` rollout лежит в [docs/staging-frontend-rollout.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-frontend-rollout.md).

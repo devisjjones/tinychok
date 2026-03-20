@@ -54,3 +54,5 @@
 1. отдать статику по `staging.tinychok.ru`
 2. включить HTTPS для `staging.tinychok.ru`
 3. проверить открытие приложения и websocket-подключение через staging API
+
+Короткий frontend-only runbook для этого шага лежит в [docs/staging-frontend-rollout.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-frontend-rollout.md).
