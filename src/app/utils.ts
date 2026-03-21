@@ -175,7 +175,7 @@ export function sanitizePersonField(value: string, maxLength: number) {
 }
 
 export function normalizeNickname(value: string) {
-  return value.replace(/[^A-Za-z0-9_]/g, '').slice(0, nicknameFieldMaxLength)
+  return value.replace(/[^A-Za-zА-Яа-яЁё0-9_]/g, '').slice(0, nicknameFieldMaxLength)
 }
 
 export function sanitizeStatusField(value: string) {

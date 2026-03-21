@@ -11,6 +11,9 @@
 
 .shell-settings {
   grid-template-columns: minmax(0, 1fr);
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-items: start;
 }
 
 .shell-premium {
@@ -586,6 +589,10 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
+}
+
+.account-avatar {
+  flex: 0 0 auto;
 }
 
 .quiet-toggle-stack {
@@ -1253,6 +1260,121 @@
   justify-self: start;
 }
 
+.channel-avatar-picker-popover {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(255, 251, 245, 0.98);
+  border: 1px solid rgba(141, 89, 57, 0.12);
+  box-shadow: 0 24px 60px rgba(64, 35, 18, 0.2);
+  display: grid;
+  gap: 16px;
+  transform: translate(-50%, -50%);
+  z-index: 13;
+}
+
+.channel-avatar-picker-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.channel-avatar-picker-copy .settings-text,
+.channel-avatar-device-card .settings-text {
+  margin: 0;
+}
+
+.channel-avatar-picker-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(141, 89, 57, 0.08);
+}
+
+.channel-avatar-picker-preview {
+  flex: 0 0 auto;
+}
+
+.channel-avatar-picker-preview-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.channel-avatar-picker-preview-copy strong {
+  color: var(--ink);
+}
+
+.channel-avatar-picker-preview-copy span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.channel-avatar-picker-toggle-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.channel-avatar-picker-toggle {
+  width: 100%;
+  justify-content: center;
+}
+
+.channel-avatar-picker-toggle.active {
+  background: rgba(140, 87, 56, 0.18);
+  border-color: rgba(140, 87, 56, 0.3);
+}
+
+.channel-avatar-stock-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.channel-avatar-stock-option {
+  border: 1px solid rgba(141, 89, 57, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ink);
+  padding: 12px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.channel-avatar-stock-option:hover,
+.channel-avatar-stock-option.active {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px rgba(72, 52, 33, 0.08);
+  border-color: rgba(140, 87, 56, 0.28);
+}
+
+.channel-avatar-stock-preview {
+  width: 56px;
+  height: 56px;
+  border-radius: 20px;
+}
+
+.channel-avatar-device-card {
+  gap: 12px;
+}
+
+.channel-avatar-picker-actions {
+  justify-content: space-between;
+}
+
 .channel-link-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1407,6 +1529,14 @@
   margin-left: auto;
 }
 
+.channels-create-actions {
+  width: 100%;
+}
+
+.channels-create-submit {
+  margin-left: auto;
+}
+
 .settings-panel {
   width: min(430px, 100%);
   max-width: 100%;
@@ -1425,6 +1555,42 @@
   display: grid;
   gap: 10px;
   min-width: 0;
+}
+
+.settings-heading-profile {
+  gap: 12px;
+}
+
+.settings-profile-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  min-width: 0;
+}
+
+.settings-profile-avatar-stack {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  flex: 0 0 auto;
+}
+
+.settings-profile-avatar-button {
+  width: 68px;
+  min-width: 68px;
+  max-width: 68px;
+  padding: 0;
+  height: 34px;
+  justify-content: center;
+  line-height: 1;
+  white-space: nowrap;
+  font-size: 0.74rem;
+}
+
+.settings-profile-copy {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
 }
 
 .settings-heading h2 {
@@ -1500,8 +1666,28 @@
 }
 
 .premium-card-annual {
+  position: relative;
   background: rgba(255, 248, 240, 0.9);
   border-color: rgba(141, 89, 57, 0.18);
+}
+
+.premium-card-header {
+  display: flex;
+  align-items: baseline;
+}
+
+.premium-annual-badge {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(140, 87, 56, 0.14);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .premium-price {
@@ -1914,6 +2100,15 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.room-confirm-actions-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.room-confirm-note {
+  margin: -8px 0 0;
+  line-height: 1.5;
 }
 
 .room-confirm-button {
@@ -2832,11 +3027,26 @@
   .channels-heading,
   .channels-heading-main,
   .channel-avatar-settings,
+  .settings-profile-header,
   .channels-actions,
   .channel-privacy-row {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .channel-avatar-picker-popover {
+    width: min(420px, calc(100vw - 24px));
+    padding: 18px;
+  }
+
+  .channel-avatar-picker-preview-card {
+    align-items: flex-start;
+  }
+
+  .channel-avatar-picker-toggle-row,
+  .channel-avatar-stock-grid {
+    grid-template-columns: 1fr;
   }
 
   .channels-manager-panel,

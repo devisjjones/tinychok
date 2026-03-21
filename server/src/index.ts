@@ -63,7 +63,7 @@ function getNumericRouteParam(request: FastifyRequest, key: string) {
 function getUploadKind(request: FastifyRequest) {
   const rawKind = (request.query as Record<string, string | undefined> | undefined)?.kind
 
-  if (rawKind === 'attachment' || rawKind === 'channel-avatar') {
+  if (rawKind === 'attachment' || rawKind === 'channel-avatar' || rawKind === 'profile-avatar') {
     return rawKind
   }
 

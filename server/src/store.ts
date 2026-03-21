@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { displayNameFieldMaxLength, surnameFieldMaxLength } from '../../src/app/constants'
+import {
+  displayNameFieldMaxLength,
+  managedChannelsPerUserLimit,
+  surnameFieldMaxLength,
+} from '../../src/app/constants'
 import {
   discoveryResults,
   initialChannels,
@@ -50,6 +54,7 @@ import type {
   VerifyCodeResponse,
 } from '../../src/shared/backend'
 import { runtimeConfig } from './config'
+import { deleteStoredMediaByUrl } from './media'
 
 type PersistedDialog = Omit<Chat, 'messages'> & {
   ownerIdentifier: string
@@ -614,6 +619,7 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
 
   for (const legacyAccount of value.accounts ?? []) {
     nextDatabase.accounts.push({
+      avatarImage: legacyAccount.avatarImage?.trim() || undefined,
       blockedContactIds: legacyAccount.blockedContactIds ?? [],
       createdAt: legacyAccount.createdAt,
       displayName: legacyAccount.displayName,
@@ -804,6 +810,7 @@ export class TinychokStore {
     }
 
     const nextAccount: Account = {
+      avatarImage: undefined,
       blockedContactIds: [],
       createdAt: new Date().toISOString(),
       displayName,
@@ -907,10 +914,13 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
+    const previousAvatarImage = account.avatarImage
+
     account.displayName = sanitizePersonField(snapshot.session.displayName, displayNameFieldMaxLength)
     account.surname = sanitizePersonField(snapshot.session.surname ?? '', surnameFieldMaxLength)
     account.nickname = normalizeNickname(snapshot.session.nickname ?? '')
     account.status = sanitizeStatusField(snapshot.session.status ?? '')
+    account.avatarImage = snapshot.session.avatarImage?.trim() || undefined
     account.blockedContactIds = [...(snapshot.session.blockedContactIds ?? [])]
     account.premium = snapshot.session.premium ?? true
     account.premiumExpiresAt = snapshot.session.premiumExpiresAt ?? account.premiumExpiresAt
@@ -923,6 +933,15 @@ export class TinychokStore {
     })
 
     await this.persist()
+
+    if (previousAvatarImage && previousAvatarImage !== account.avatarImage) {
+      try {
+        await deleteStoredMediaByUrl(previousAvatarImage, 'profile-avatar')
+      } catch (error) {
+        console.error('Failed to delete replaced profile avatar', error)
+      }
+    }
+
     return this.buildSnapshot(account, token)
   }
 
@@ -931,6 +950,8 @@ export class TinychokStore {
     if (!account) {
       throw new Error('Сессия не найдена.')
     }
+
+    const previousAvatarImage = account.avatarImage
 
     if (payload.displayName !== undefined) {
       const nextDisplayName = sanitizePersonField(payload.displayName, displayNameFieldMaxLength)
@@ -952,6 +973,10 @@ export class TinychokStore {
       account.status = sanitizeStatusField(payload.status)
     }
 
+    if (payload.avatarImage !== undefined) {
+      account.avatarImage = payload.avatarImage.trim() || undefined
+    }
+
     if (payload.blockedContactIds !== undefined) {
       account.blockedContactIds = [...new Set(
         payload.blockedContactIds.filter((id) => Number.isInteger(id) && id > 0),
@@ -962,6 +987,14 @@ export class TinychokStore {
     broadcastIdentifiers.push(account.identifier)
 
     await this.persist()
+
+    if (previousAvatarImage && previousAvatarImage !== account.avatarImage) {
+      try {
+        await deleteStoredMediaByUrl(previousAvatarImage, 'profile-avatar')
+      } catch (error) {
+        console.error('Failed to delete replaced profile avatar', error)
+      }
+    }
 
     return {
       broadcastIdentifiers: [...new Set(broadcastIdentifiers)],
@@ -1484,10 +1517,17 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const channelId = this.getNextOwnedId(this.database.managedChannels, account.identifier)
-    const channelNumber = this.database.managedChannels.filter(
+    const ownedChannelCount = this.database.managedChannels.filter(
       (channel) => channel.ownerIdentifier === account.identifier,
-    ).length + 1
+    ).length
+    if (ownedChannelCount >= managedChannelsPerUserLimit) {
+      throw new Error(
+        `Один пользователь может управлять только ${managedChannelsPerUserLimit} каналами.`,
+      )
+    }
+
+    const channelId = this.getNextOwnedId(this.database.managedChannels, account.identifier)
+    const channelNumber = ownedChannelCount + 1
     const title = sanitizeChannelTitle(payload.title) || `Новый канал ${channelNumber}`
     const directLink = ensureUniqueChannelDirectLink(
       sanitizeChannelDirectLink(payload.directLink) || buildChannelDirectLinkFromTitle(title),
@@ -1503,6 +1543,7 @@ export class TinychokStore {
         : 'private'
 
     this.database.managedChannels.push({
+      avatarImage: payload.avatarImage?.trim() || undefined,
       avatarTone: payload.avatarTone.trim() || pickAccentForIdentifier(`${account.identifier}${channelId}`),
       description,
       directLink,
@@ -1536,6 +1577,8 @@ export class TinychokStore {
     if (!channel) {
       throw new Error('Канал не найден.')
     }
+
+    const previousAvatarImage = channel.avatarImage
 
     if (payload.title !== undefined) {
       const nextTitle = sanitizeChannelTitle(payload.title)
@@ -1581,6 +1624,17 @@ export class TinychokStore {
 
     await this.persist()
 
+    if (
+      previousAvatarImage &&
+      previousAvatarImage !== channel.avatarImage
+    ) {
+      try {
+        await deleteStoredMediaByUrl(previousAvatarImage, 'channel-avatar')
+      } catch (error) {
+        console.error('Failed to delete replaced channel avatar', error)
+      }
+    }
+
     return {
       broadcastIdentifiers: [account.identifier],
       snapshot: this.buildSnapshot(account, token),
@@ -1593,18 +1647,29 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const hasChannel = this.database.managedChannels.some(
+    const channelToDelete = this.database.managedChannels.find(
       (channel) => channel.ownerIdentifier === account.identifier && channel.id === channelId,
     )
-    if (!hasChannel) {
+
+    if (!channelToDelete) {
       throw new Error('Канал не найден.')
     }
+
+    const removedAvatarImage = channelToDelete.avatarImage
 
     this.database.managedChannels = this.database.managedChannels.filter(
       (channel) => !(channel.ownerIdentifier === account.identifier && channel.id === channelId),
     )
 
     await this.persist()
+
+    if (removedAvatarImage) {
+      try {
+        await deleteStoredMediaByUrl(removedAvatarImage, 'channel-avatar')
+      } catch (error) {
+        console.error('Failed to delete removed channel avatar', error)
+      }
+    }
 
     return {
       broadcastIdentifiers: [account.identifier],
@@ -1681,6 +1746,7 @@ export class TinychokStore {
       discoveryResults: cloneDiscoveryResults(),
       groups: materializeGroups(this.database, account.identifier),
       session: {
+        avatarImage: account.avatarImage,
         blockedContactIds: [...(account.blockedContactIds ?? [])],
         displayName: account.displayName,
         identifier: account.identifier,

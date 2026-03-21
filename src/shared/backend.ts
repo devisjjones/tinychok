@@ -76,7 +76,7 @@ export type OpenDirectDialogResponse = MutationResponse & {
   dialogId: number
 }
 
-export type UploadMediaKind = 'attachment' | 'channel-avatar'
+export type UploadMediaKind = 'attachment' | 'channel-avatar' | 'profile-avatar'
 
 export type UploadMediaResponse = {
   fileName: string
@@ -88,7 +88,7 @@ export type UploadMediaResponse = {
 }
 
 export type UpdateSessionBody = Partial<
-  Pick<Session, 'displayName' | 'surname' | 'nickname' | 'status' | 'blockedContactIds'>
+  Pick<Session, 'displayName' | 'surname' | 'nickname' | 'status' | 'blockedContactIds' | 'avatarImage'>
 >
 
 export type SendDirectMessageBody = {
@@ -118,6 +118,7 @@ export type SendGroupMessageBody = {
 }
 
 export type CreateManagedChannelBody = {
+  avatarImage?: string
   avatarTone: string
   description: string
   directLink: string

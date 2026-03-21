@@ -9,9 +9,15 @@ export const accountStatusMinFontSize = 10.5
 export const channelTitleMaxLength = 30
 export const channelDirectLinkMaxLength = 30
 export const channelDescriptionMaxLength = 160
+export const managedChannelsPerUserLimit = 5
 export const channelActionMenuWidth = 280
 export const channelActionMenuHeight = 132
 export const channelBlockedMenuHeight = 146
+export const channelAvatarUploadMaxSizeBytes = 1 * 1024 * 1024
+export const channelAvatarUploadAcceptedMimeTypes = [
+  'image/jpeg',
+  'image/png',
+] as const
 export const chatActionMenuWidth = 320
 export const chatActionMenuHeight = 290
 export const quickFilters = ['Все', '★']

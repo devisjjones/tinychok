@@ -7,6 +7,8 @@ import {
   accountsStorageKey,
   channelActionMenuHeight,
   channelActionMenuWidth,
+  channelAvatarUploadAcceptedMimeTypes,
+  channelAvatarUploadMaxSizeBytes,
   channelAvatarTones,
   channelBlockedMenuHeight,
   channelDirectLinkMaxLength,
@@ -15,6 +17,7 @@ import {
   chatActionMenuHeight,
   chatActionMenuWidth,
   displayNameFieldMaxLength,
+  managedChannelsPerUserLimit,
   nicknameFieldMaxLength,
   quickFilters,
   sessionStorageKey,
@@ -368,15 +371,68 @@ function buildPreviewSubscriptionChannelFromManagedChannel(channel: Channel): Su
   }
 }
 
+type ChannelAvatarPickerTarget =
+  | { scope: 'create' }
+  | { scope: 'existing'; channelId: number }
+
+type ChannelAvatarDraft = {
+  kind: 'stock' | 'upload' | 'uploaded'
+  label: string
+  previewUrl: string
+  file?: File
+}
+
+type StockAvatarOption = {
+  id: string
+  imagePath: string
+  label: string
+}
+
+function formatStockAvatarLabel(filePath: string) {
+  const fileName = filePath.split('/').pop() ?? filePath
+
+  return fileName
+    .replace(/\.[^.]+$/u, '')
+    .replace(/[_-]+/gu, ' ')
+    .trim()
+    .replace(/\b\p{L}/gu, (char) => char.toUpperCase())
+}
+
+function buildStockAvatarOptions(modules: Record<string, string>) {
+  return Object.entries(modules)
+    .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath, 'ru'))
+    .map(([filePath, imagePath]) => ({
+      id: filePath,
+      imagePath,
+      label: formatStockAvatarLabel(filePath),
+    })) satisfies StockAvatarOption[]
+}
+
+const channelAvatarStockOptions = buildStockAvatarOptions(
+  import.meta.glob('./assets/stock-avatars/channels/*.{png,jpg,jpeg}', {
+    eager: true,
+    import: 'default',
+  }) as Record<string, string>,
+)
+
+const profileAvatarStockOptions = buildStockAvatarOptions(
+  import.meta.glob('./assets/stock-avatars/users/*.{png,jpg,jpeg}', {
+    eager: true,
+    import: 'default',
+  }) as Record<string, string>,
+)
+
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
   const channelTitleInputRef = useRef<HTMLInputElement | null>(null)
   const accountNameRef = useRef<HTMLHeadingElement | null>(null)
+  const settingsProfileNameRef = useRef<HTMLHeadingElement | null>(null)
   const accountStatusRef = useRef<HTMLParagraphElement | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const groupAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const channelsPanelRef = useRef<HTMLDivElement | null>(null)
   const channelAvatarInputRef = useRef<HTMLInputElement | null>(null)
+  const profileAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const channelAvatarObjectUrlsRef = useRef(new Set<string>())
   const localMessageAttachmentObjectUrlsRef = useRef(new Set<string>())
   const pendingDirectMessagesRef = useRef<PendingDirectMessage[]>([])
@@ -454,6 +510,7 @@ function App() {
   const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState<number | null>(null)
   const [confirmingDeleteGroupMessageId, setConfirmingDeleteGroupMessageId] = useState<number | null>(null)
   const [confirmingDeleteChannelId, setConfirmingDeleteChannelId] = useState<number | null>(null)
+  const [managedChannelLimitErrorOpen, setManagedChannelLimitErrorOpen] = useState(false)
   const [transferringChannelId, setTransferringChannelId] = useState<number | null>(null)
   const [channelTransferTargetChatId, setChannelTransferTargetChatId] = useState<number | null>(null)
   const [channelTransferCode, setChannelTransferCode] = useState('')
@@ -464,7 +521,21 @@ function App() {
   const [creatingChannelDirectLinkDirty, setCreatingChannelDirectLinkDirty] = useState(false)
   const [creatingChannelDescription, setCreatingChannelDescription] = useState('')
   const [creatingChannelAvatarTone, setCreatingChannelAvatarTone] = useState(channelAvatarTones[0])
-  const [uploadingChannelAvatarId, setUploadingChannelAvatarId] = useState<number | null>(null)
+  const [creatingChannelAvatarDraft, setCreatingChannelAvatarDraft] = useState<ChannelAvatarDraft | null>(
+    null,
+  )
+  const [profileAvatarPickerOpen, setProfileAvatarPickerOpen] = useState(false)
+  const [profileAvatarPickerDraft, setProfileAvatarPickerDraft] = useState<ChannelAvatarDraft | null>(null)
+  const [profileAvatarPickerError, setProfileAvatarPickerError] = useState('')
+  const [profileAvatarPickerBusy, setProfileAvatarPickerBusy] = useState(false)
+  const [profileAvatarPickerMode, setProfileAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
+  const [channelAvatarPickerTarget, setChannelAvatarPickerTarget] = useState<ChannelAvatarPickerTarget | null>(
+    null,
+  )
+  const [channelAvatarPickerDraft, setChannelAvatarPickerDraft] = useState<ChannelAvatarDraft | null>(null)
+  const [channelAvatarPickerError, setChannelAvatarPickerError] = useState('')
+  const [channelAvatarPickerBusy, setChannelAvatarPickerBusy] = useState(false)
+  const [channelAvatarPickerMode, setChannelAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
   const [editingChannelTitleId, setEditingChannelTitleId] = useState<number | null>(null)
   const [editingChannelTitleValue, setEditingChannelTitleValue] = useState('')
   const [channelManagementOpenId, setChannelManagementOpenId] = useState<number | null>(null)
@@ -727,7 +798,11 @@ function App() {
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
   const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
   const sessionName = session ? formatSessionName(session) : ''
+  const sessionAvatarLabel = session?.displayName.trim().slice(0, 1).toUpperCase() || 'Я'
   const premiumDaysLeft = getPremiumDaysLeft(session?.premium, session?.premiumExpiresAt)
+  const premiumMonthlyPrice = 199
+  const premiumAnnualPrice = 1390
+  const premiumAnnualSavingsPercent = Math.round((1 - premiumAnnualPrice / (premiumMonthlyPrice * 12)) * 100)
   const cookieConsentStatus =
     cookieConsent === 'analytics'
       ? 'Вы приняли аналитические cookie'
@@ -936,10 +1011,43 @@ function App() {
     }
   }, [session?.status])
 
+  const adjustSettingsProfileNameFontSize = useCallback(() => {
+    const nameNode = settingsProfileNameRef.current
+
+    if (!nameNode) return
+
+    if (!sessionName.trim()) {
+      nameNode.style.removeProperty('font-size')
+      return
+    }
+
+    let nextFontSize = accountNameMaxFontSize
+    nameNode.style.fontSize = `${nextFontSize}px`
+
+    const computedStyle = window.getComputedStyle(nameNode)
+    const lineHeight = Number.parseFloat(computedStyle.lineHeight) || nextFontSize * 0.98
+    const maxHeight = lineHeight * 3 + 1
+
+    while (nameNode.scrollHeight > maxHeight && nextFontSize > accountNameMinFontSize) {
+      nextFontSize -= 0.5
+      nameNode.style.fontSize = `${nextFontSize}px`
+    }
+  }, [sessionName])
+
   useLayoutEffect(() => {
     if (!isRailVisible) return
     adjustAccountNameFontSize()
   }, [adjustAccountNameFontSize, isRailVisible])
+
+  useLayoutEffect(() => {
+    if (!isSettingsView || settingsView !== 'profile') return
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      adjustSettingsProfileNameFontSize()
+    })
+
+    return () => window.cancelAnimationFrame(animationFrameId)
+  }, [adjustSettingsProfileNameFontSize, isSettingsView, settingsView])
 
   useLayoutEffect(() => {
     if (!isRailVisible) return
@@ -986,6 +1094,7 @@ function App() {
           account.identifier === nextSession.identifier
             ? {
                 ...account,
+                avatarImage: nextSession.avatarImage,
                 displayName: nextSession.displayName,
                 surname: nextSession.surname ?? '',
                 nickname: nextSession.nickname ?? '',
@@ -1002,6 +1111,7 @@ function App() {
       : [
           ...currentAccounts,
           {
+            avatarImage: nextSession.avatarImage,
             blockedContactIds: nextSession.blockedContactIds ?? [],
             createdAt: new Date().toISOString(),
             displayName: nextSession.displayName,
@@ -1975,25 +2085,142 @@ function App() {
     setChannels((currentChannels) => currentChannels.filter((channel) => channel.id !== channelId))
   }
 
-  function replaceLocalChannelAvatar(channelId: number, nextAvatarImage: string) {
-    setChannels((currentChannels) =>
-      currentChannels.map((channel) => {
-        if (channel.id !== channelId) return channel
+  function releaseChannelAvatarDraft(draft: ChannelAvatarDraft | null) {
+    if (!draft?.previewUrl.startsWith('blob:')) return
 
-        if (
-          channel.avatarImage?.startsWith('blob:') &&
-          channel.avatarImage !== nextAvatarImage
-        ) {
-          URL.revokeObjectURL(channel.avatarImage)
-          channelAvatarObjectUrlsRef.current.delete(channel.avatarImage)
-        }
+    URL.revokeObjectURL(draft.previewUrl)
+    channelAvatarObjectUrlsRef.current.delete(draft.previewUrl)
+  }
 
-        return {
-          ...channel,
-          avatarImage: nextAvatarImage,
-        }
-      }),
+  function getCurrentChannelAvatarPreview() {
+    if (!channelAvatarPickerTarget) return null
+
+    if (channelAvatarPickerDraft) {
+      return channelAvatarPickerDraft.previewUrl
+    }
+
+    if (channelAvatarPickerTarget.scope === 'create') {
+      return creatingChannelAvatarDraft?.previewUrl ?? null
+    }
+
+    return channels.find((channel) => channel.id === channelAvatarPickerTarget.channelId)?.avatarImage ?? null
+  }
+
+  function getCurrentChannelAvatarTone() {
+    if (!channelAvatarPickerTarget) return creatingChannelAvatarTone
+
+    if (channelAvatarPickerTarget.scope === 'create') {
+      return creatingChannelAvatarTone
+    }
+
+    return (
+      channels.find((channel) => channel.id === channelAvatarPickerTarget.channelId)?.avatarTone ??
+      creatingChannelAvatarTone
     )
+  }
+
+  function closeChannelAvatarPicker(options?: { preserveCurrentDraft?: boolean }) {
+    if (!options?.preserveCurrentDraft) {
+      const shouldPreserveSavedCreateDraft =
+        channelAvatarPickerTarget?.scope === 'create' &&
+        channelAvatarPickerDraft !== null &&
+        channelAvatarPickerDraft === creatingChannelAvatarDraft
+
+      if (!shouldPreserveSavedCreateDraft) {
+        releaseChannelAvatarDraft(channelAvatarPickerDraft)
+      }
+    }
+
+    setChannelAvatarPickerTarget(null)
+    setChannelAvatarPickerDraft(null)
+    setChannelAvatarPickerError('')
+    setChannelAvatarPickerBusy(false)
+    setChannelAvatarPickerMode('none')
+
+    if (channelAvatarInputRef.current) {
+      channelAvatarInputRef.current.value = ''
+    }
+  }
+
+  function openChannelAvatarPicker(target: ChannelAvatarPickerTarget) {
+    setChannelAvatarPickerTarget(target)
+    setChannelAvatarPickerError('')
+    setChannelAvatarPickerBusy(false)
+
+    if (target.scope === 'create') {
+      setChannelAvatarPickerDraft(creatingChannelAvatarDraft)
+      setChannelAvatarPickerMode('none')
+      return
+    }
+
+    setChannelAvatarPickerDraft(null)
+    setChannelAvatarPickerMode('none')
+  }
+
+  function buildStockAvatarDraft(option: StockAvatarOption): ChannelAvatarDraft {
+    return {
+      kind: 'stock',
+      label: option.label,
+      previewUrl: option.imagePath,
+    }
+  }
+
+  function selectStockChannelAvatar(option: StockAvatarOption) {
+    const nextDraft = buildStockAvatarDraft(option)
+
+    setChannelAvatarPickerMode('stock')
+    setChannelAvatarPickerError('')
+    setChannelAvatarPickerDraft((currentDraft) => {
+      const shouldPreserveSavedCreateDraft =
+        channelAvatarPickerTarget?.scope === 'create' &&
+        currentDraft !== null &&
+        currentDraft === creatingChannelAvatarDraft
+
+      if (!shouldPreserveSavedCreateDraft) {
+        releaseChannelAvatarDraft(currentDraft)
+      }
+
+      return nextDraft
+    })
+  }
+
+  function getCurrentProfileAvatarPreview() {
+    return profileAvatarPickerDraft?.previewUrl ?? session?.avatarImage ?? null
+  }
+
+  function closeProfileAvatarPicker(options?: { preserveCurrentDraft?: boolean }) {
+    if (!options?.preserveCurrentDraft) {
+      releaseChannelAvatarDraft(profileAvatarPickerDraft)
+    }
+
+    setProfileAvatarPickerOpen(false)
+    setProfileAvatarPickerDraft(null)
+    setProfileAvatarPickerError('')
+    setProfileAvatarPickerBusy(false)
+    setProfileAvatarPickerMode('none')
+
+    if (profileAvatarInputRef.current) {
+      profileAvatarInputRef.current.value = ''
+    }
+  }
+
+  function openProfileAvatarPicker() {
+    setProfileAvatarPickerOpen(true)
+    setProfileAvatarPickerDraft(null)
+    setProfileAvatarPickerError('')
+    setProfileAvatarPickerBusy(false)
+    setProfileAvatarPickerMode('none')
+  }
+
+  function selectStockProfileAvatar(option: StockAvatarOption) {
+    const nextDraft = buildStockAvatarDraft(option)
+
+    setProfileAvatarPickerMode('stock')
+    setProfileAvatarPickerError('')
+    setProfileAvatarPickerDraft((currentDraft) => {
+      releaseChannelAvatarDraft(currentDraft)
+      return nextDraft
+    })
   }
 
   async function mutateBlockedContacts(nextBlockedContactIds: number[]) {
@@ -2700,11 +2927,14 @@ function App() {
         : session.nickname ?? ''
     const nextStatus =
       patch.status !== undefined ? sanitizeStatusField(patch.status) : session.status ?? ''
+    const nextAvatarImage =
+      patch.avatarImage !== undefined ? patch.avatarImage?.trim() || undefined : session.avatarImage
 
     if (nextDisplayName === '') return
 
     const nextSession: Session = {
       ...session,
+      avatarImage: nextAvatarImage,
       displayName: nextDisplayName,
       surname: nextSurname,
       nickname: nextNickname,
@@ -2719,6 +2949,7 @@ function App() {
       nickname: nextNickname,
       status: nextStatus,
       surname: nextSurname,
+      ...(patch.avatarImage !== undefined ? { avatarImage: nextAvatarImage } : {}),
     })
   }
 
@@ -3050,12 +3281,14 @@ function App() {
   }
 
   function prepareChannelDraft(channelNumber: number, channelId: number) {
+    releaseChannelAvatarDraft(creatingChannelAvatarDraft)
     const nextDraft = makeDraftChannel(channelNumber, channelId)
     setCreatingChannelTitle(nextDraft.title)
     setCreatingChannelDirectLink(buildUniqueChannelDirectLinkFromTitle(nextDraft.title))
     setCreatingChannelDirectLinkDirty(false)
     setCreatingChannelDescription(nextDraft.description)
     setCreatingChannelAvatarTone(nextDraft.avatarTone)
+    setCreatingChannelAvatarDraft(null)
   }
 
   function openChannelsView(nextView: ChannelsView = 'list') {
@@ -3100,7 +3333,17 @@ function App() {
     openChannelsView('list')
   }
 
+  function openManagedChannelLimitError() {
+    setChannelManagementOpenId(null)
+    setManagedChannelLimitErrorOpen(true)
+  }
+
   function openChannelCreateView() {
+    if (channels.length >= managedChannelsPerUserLimit) {
+      openManagedChannelLimitError()
+      return
+    }
+
     const nextId = channels.reduce((maxId, channel) => Math.max(maxId, channel.id), 0) + 1
     prepareChannelDraft(channels.length + 1, nextId)
     openChannelsView('create')
@@ -3194,10 +3437,21 @@ function App() {
     setChannels((currentChannels) =>
       currentChannels.map((channel) =>
         channel.id === channelId
-          ? {
-              ...channel,
-              ...normalizedPatch,
-            }
+          ? (() => {
+              if (
+                normalizedPatch.avatarImage !== undefined &&
+                channel.avatarImage?.startsWith('blob:') &&
+                channel.avatarImage !== normalizedPatch.avatarImage
+              ) {
+                URL.revokeObjectURL(channel.avatarImage)
+                channelAvatarObjectUrlsRef.current.delete(channel.avatarImage)
+              }
+
+              return {
+                ...channel,
+                ...normalizedPatch,
+              }
+            })()
           : channel,
       ),
     )
@@ -3241,51 +3495,221 @@ function App() {
     }
   }
 
-  function openChannelAvatarPicker(channelId: number) {
-    setUploadingChannelAvatarId(channelId)
+  function triggerChannelAvatarUpload() {
+    setChannelAvatarPickerMode('device')
+    setChannelAvatarPickerError('')
     channelAvatarInputRef.current?.click()
   }
 
-  async function handleChannelAvatarChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    const targetChannelId = uploadingChannelAvatarId
+  function triggerProfileAvatarUpload() {
+    setProfileAvatarPickerMode('device')
+    setProfileAvatarPickerError('')
+    profileAvatarInputRef.current?.click()
+  }
 
-    if (!file || targetChannelId === null) {
+  function handleProfileAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+
+    if (!file) {
       event.target.value = ''
       return
     }
 
-    // When backend is available, we prefer a stable server URL over blob URLs.
-    // That keeps the avatar portable across refreshes and is the same seam we will
-    // later swap to Yandex Object Storage.
-    if (backendReady && session?.sessionToken) {
-      try {
-        const uploadedMedia = await uploadMediaFile(
-          session.sessionToken,
-          file,
-          'channel-avatar',
-        )
-        updateChannel(targetChannelId, { avatarImage: uploadedMedia.mediaUrl })
-        setUploadingChannelAvatarId(null)
-        event.target.value = ''
-        return
-      } catch (error) {
-        console.error('Failed to upload channel avatar', error)
-      }
+    if (!channelAvatarUploadAcceptedMimeTypes.includes(file.type as (typeof channelAvatarUploadAcceptedMimeTypes)[number])) {
+      setProfileAvatarPickerError('Поддерживаются только JPG и PNG.')
+      event.target.value = ''
+      return
+    }
+
+    if (file.size > channelAvatarUploadMaxSizeBytes) {
+      setProfileAvatarPickerError('Файл слишком большой. Максимальный размер аватарки 1 МБ.')
+      event.target.value = ''
+      return
     }
 
     const nextAvatarImage = URL.createObjectURL(file)
     channelAvatarObjectUrlsRef.current.add(nextAvatarImage)
-    replaceLocalChannelAvatar(targetChannelId, nextAvatarImage)
+    setProfileAvatarPickerError('')
+    setProfileAvatarPickerMode('device')
+    setProfileAvatarPickerDraft((currentDraft) => {
+      releaseChannelAvatarDraft(currentDraft)
+      return {
+        file,
+        kind: 'upload',
+        label: file.name,
+        previewUrl: nextAvatarImage,
+      }
+    })
 
-    setUploadingChannelAvatarId(null)
     event.target.value = ''
   }
 
+  async function applyProfileAvatarSelection() {
+    if (!session || !profileAvatarPickerDraft) return
+
+    setProfileAvatarPickerBusy(true)
+    setProfileAvatarPickerError('')
+
+    try {
+      let nextAvatarImage = profileAvatarPickerDraft.previewUrl
+      let preserveCurrentDraft = profileAvatarPickerDraft.kind === 'upload'
+
+      if (profileAvatarPickerDraft.kind === 'upload') {
+        if (!profileAvatarPickerDraft.file) {
+          throw new Error('Сначала выберите изображение для загрузки.')
+        }
+
+        if (backendReady && session.sessionToken) {
+          const uploadedMedia = await uploadMediaFile(
+            session.sessionToken,
+            profileAvatarPickerDraft.file,
+            'profile-avatar',
+          )
+          nextAvatarImage = uploadedMedia.mediaUrl
+          preserveCurrentDraft = false
+          releaseChannelAvatarDraft(profileAvatarPickerDraft)
+        }
+      }
+
+      if (backendReady && session.sessionToken) {
+        try {
+          const response = await updateSessionRequest(session.sessionToken, { avatarImage: nextAvatarImage })
+          applySnapshot(response.snapshot)
+        } catch (error) {
+          console.error('Failed to sync profile avatar mutation', error)
+          syncSession({
+            ...session,
+            avatarImage: nextAvatarImage,
+          })
+        }
+      } else {
+        syncSession({
+          ...session,
+          avatarImage: nextAvatarImage,
+        })
+      }
+
+      closeProfileAvatarPicker({ preserveCurrentDraft })
+    } catch (error) {
+      console.error('Failed to apply profile avatar selection', error)
+      setProfileAvatarPickerError(
+        error instanceof Error ? error.message : 'Не удалось применить аватарку профиля.',
+      )
+      setProfileAvatarPickerBusy(false)
+    }
+  }
+
+  function handleChannelAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      event.target.value = ''
+      return
+    }
+
+    if (!channelAvatarUploadAcceptedMimeTypes.includes(file.type as (typeof channelAvatarUploadAcceptedMimeTypes)[number])) {
+      setChannelAvatarPickerError('Поддерживаются только JPG и PNG.')
+      event.target.value = ''
+      return
+    }
+
+    if (file.size > channelAvatarUploadMaxSizeBytes) {
+      setChannelAvatarPickerError('Файл слишком большой. Максимальный размер аватарки 1 МБ.')
+      event.target.value = ''
+      return
+    }
+
+    const nextAvatarImage = URL.createObjectURL(file)
+    channelAvatarObjectUrlsRef.current.add(nextAvatarImage)
+    setChannelAvatarPickerError('')
+    setChannelAvatarPickerMode('device')
+    setChannelAvatarPickerDraft((currentDraft) => {
+      const shouldPreserveSavedCreateDraft =
+        channelAvatarPickerTarget?.scope === 'create' &&
+        currentDraft !== null &&
+        currentDraft === creatingChannelAvatarDraft
+
+      if (!shouldPreserveSavedCreateDraft) {
+        releaseChannelAvatarDraft(currentDraft)
+      }
+
+      return {
+        file,
+        kind: 'upload',
+        label: file.name,
+        previewUrl: nextAvatarImage,
+      }
+    })
+
+    event.target.value = ''
+  }
+
+  async function applyChannelAvatarSelection() {
+    if (!channelAvatarPickerTarget || !channelAvatarPickerDraft) return
+
+    setChannelAvatarPickerBusy(true)
+    setChannelAvatarPickerError('')
+
+    try {
+      let nextDraft = channelAvatarPickerDraft
+
+      if (channelAvatarPickerDraft.kind === 'upload') {
+        if (!channelAvatarPickerDraft.file) {
+          throw new Error('Сначала выберите изображение для загрузки.')
+        }
+
+        if (backendReady && session?.sessionToken) {
+          const uploadedMedia = await uploadMediaFile(
+            session.sessionToken,
+            channelAvatarPickerDraft.file,
+            'channel-avatar',
+          )
+
+          releaseChannelAvatarDraft(channelAvatarPickerDraft)
+          nextDraft = {
+            kind: 'uploaded',
+            label: channelAvatarPickerDraft.label,
+            previewUrl: uploadedMedia.mediaUrl,
+          }
+        } else {
+          nextDraft = {
+            kind: 'uploaded',
+            label: channelAvatarPickerDraft.label,
+            previewUrl: channelAvatarPickerDraft.previewUrl,
+          }
+        }
+      }
+
+      if (channelAvatarPickerTarget.scope === 'create') {
+        if (creatingChannelAvatarDraft && creatingChannelAvatarDraft !== channelAvatarPickerDraft) {
+          releaseChannelAvatarDraft(creatingChannelAvatarDraft)
+        }
+
+        setCreatingChannelAvatarDraft(nextDraft)
+      } else {
+        updateChannel(channelAvatarPickerTarget.channelId, { avatarImage: nextDraft.previewUrl })
+      }
+
+      closeChannelAvatarPicker({ preserveCurrentDraft: true })
+    } catch (error) {
+      console.error('Failed to apply channel avatar selection', error)
+      setChannelAvatarPickerError(
+        error instanceof Error ? error.message : 'Не удалось применить аватарку канала.',
+      )
+      setChannelAvatarPickerBusy(false)
+    }
+  }
+
   async function createChannel() {
+    if (channels.length >= managedChannelsPerUserLimit) {
+      openManagedChannelLimitError()
+      return
+    }
+
     if (backendReady && session?.sessionToken) {
       try {
         const response = await createManagedChannelRequest(session.sessionToken, {
+          avatarImage: creatingChannelAvatarDraft?.previewUrl,
           avatarTone: creatingChannelAvatarTone,
           description: creatingChannelDescription,
           directLink: ensureUniqueChannelDirectLink(
@@ -3298,12 +3722,26 @@ function App() {
           visibility: 'private',
         })
         applySnapshot(response.snapshot)
+        setCreatingChannelAvatarDraft(null)
         setActiveChannelId(response.channelId)
         openChannelsView('detail')
         return
       } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === `Один пользователь может управлять только ${managedChannelsPerUserLimit} каналами.`
+        ) {
+          openManagedChannelLimitError()
+          return
+        }
+
         console.error('Failed to create managed channel', error)
       }
+    }
+
+    if (channels.length >= managedChannelsPerUserLimit) {
+      openManagedChannelLimitError()
+      return
     }
 
     const nextId = channels.reduce((maxId, channel) => Math.max(maxId, channel.id), 0) + 1
@@ -3318,6 +3756,7 @@ function App() {
       sanitizeChannelDescription(creatingChannelDescription) ||
       'Описание канала пока не заполнено. Здесь можно подготовить текст до публикации.'
     const nextChannel: Channel = {
+      avatarImage: creatingChannelAvatarDraft?.previewUrl,
       avatarTone: creatingChannelAvatarTone,
       description,
       directLink,
@@ -3328,6 +3767,7 @@ function App() {
     }
 
     setChannels((currentChannels) => [...currentChannels, nextChannel])
+    setCreatingChannelAvatarDraft(null)
     setActiveChannelId(nextId)
     openChannelsView('detail')
   }
@@ -3819,6 +4259,13 @@ function App() {
         <div className="account-header">
             <div className="account-headline">
               <div className="account-name">
+                <span className="channel-avatar channel-avatar-large account-avatar" style={{ backgroundColor: '#8c5738' }}>
+                  {session?.avatarImage ? (
+                    <img src={session.avatarImage} alt="" className="channel-avatar-image" />
+                  ) : (
+                    sessionAvatarLabel
+                  )}
+                </span>
               <h2 ref={accountNameRef}>{sessionName}</h2>
             </div>
             <div className="quiet-toggle-stack">
@@ -4394,10 +4841,40 @@ function App() {
         {isSettingsView ? (
           <section className="settings-view">
             <div className="settings-panel">
-              <div className="settings-heading">
-                <p className="eyebrow">Настройки</p>
-                <h2>{formatSessionName(session)}</h2>
-                <p className="settings-identity">{session.identifier}</p>
+              <div className={`settings-heading${settingsView === 'profile' ? ' settings-heading-profile' : ''}`}>
+                {settingsView === 'profile' ? (
+                  <>
+                    <p className="eyebrow">Настройки</p>
+                    <div className="settings-profile-header">
+                      <div className="settings-profile-avatar-stack">
+                        <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: '#8c5738' }}>
+                          {session.avatarImage ? (
+                            <img src={session.avatarImage} alt="" className="channel-avatar-image" />
+                          ) : (
+                            sessionAvatarLabel
+                          )}
+                        </span>
+                        <button
+                          type="button"
+                          className="soft-button settings-profile-avatar-button"
+                          onClick={openProfileAvatarPicker}
+                        >
+                          Сменить
+                        </button>
+                      </div>
+                      <div className="settings-profile-copy">
+                        <h2 ref={settingsProfileNameRef}>{formatSessionName(session)}</h2>
+                        <p className="settings-identity">{session.identifier}</p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="eyebrow">Настройки</p>
+                    <h2>{formatSessionName(session)}</h2>
+                    <p className="settings-identity">{session.identifier}</p>
+                  </>
+                )}
               </div>
 
               {settingsView === 'profile' ? (
@@ -4674,9 +5151,12 @@ function App() {
                 </article>
 
                 <article className="premium-card premium-card-annual">
-                  <div className="premium-price">
-                    <strong>1390р</strong>
-                    <span>/ год</span>
+                  <span className="premium-annual-badge">{`Выгода ${premiumAnnualSavingsPercent}%`}</span>
+                  <div className="premium-card-header">
+                    <div className="premium-price">
+                      <strong>{`${premiumAnnualPrice}р`}</strong>
+                      <span>/ год</span>
+                    </div>
                   </div>
                   <p className="premium-note">Выгоднее для тех, кто остаётся в Тайничке надолго.</p>
                   <ul className="premium-features">
@@ -4823,21 +5303,20 @@ function App() {
                   <span className="settings-label">Аватарка канала</span>
                   <div className="channel-avatar-settings">
                     <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: creatingChannelAvatarTone }}>
-                      {formatChannelAvatarLabel(creatingChannelTitle || 'Новый канал')}
+                      {creatingChannelAvatarDraft?.previewUrl ? (
+                        <img src={creatingChannelAvatarDraft.previewUrl} alt="" className="channel-avatar-image" />
+                      ) : (
+                        formatChannelAvatarLabel(creatingChannelTitle || 'Новый канал')
+                      )}
                     </span>
                     <div className="channel-avatar-copy">
                       <p className="settings-text">
-                        Сейчас используется аккуратная заглушка. Можно переключить вариант аватарки до загрузки настоящего изображения.
+                        Можно выбрать готовое изображение Tinychok или загрузить аватарку с устройства.
                       </p>
                       <button
                         type="button"
                         className="soft-button"
-                        onClick={() => {
-                          const currentToneIndex = channelAvatarTones.indexOf(creatingChannelAvatarTone)
-                          const nextToneIndex =
-                            currentToneIndex === -1 ? 0 : (currentToneIndex + 1) % channelAvatarTones.length
-                          setCreatingChannelAvatarTone(channelAvatarTones[nextToneIndex])
-                        }}
+                        onClick={() => openChannelAvatarPicker({ scope: 'create' })}
                       >
                         Сменить аватарку
                       </button>
@@ -4860,13 +5339,13 @@ function App() {
                 </article>
               </div>
 
-              <div className="settings-actions">
+              <div className="settings-actions channels-create-actions">
                 <button type="button" className="soft-button" onClick={openChannelsListView}>
                   Назад
                 </button>
                 <button
                   type="button"
-                  className="send-button"
+                  className="send-button channels-create-submit"
                   onClick={() => {
                     void createChannel()
                   }}
@@ -4899,7 +5378,7 @@ function App() {
                         <button
                           type="button"
                           className="soft-button channel-avatar-change"
-                          onClick={() => openChannelAvatarPicker(activeChannel.id)}
+                          onClick={() => openChannelAvatarPicker({ channelId: activeChannel.id, scope: 'existing' })}
                         >
                           Сменить
                         </button>
@@ -5460,6 +5939,32 @@ function App() {
           </>
         ) : null}
 
+        {managedChannelLimitErrorOpen ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть ошибку лимита каналов"
+              onClick={() => setManagedChannelLimitErrorOpen(false)}
+            />
+            <div className="room-confirm room-confirm-compact">
+              <p className="room-confirm-copy">Нельзя создать ещё один канал.</p>
+              <p className="settings-text room-confirm-note">
+                {`Один пользователь может управлять только ${managedChannelsPerUserLimit} каналами. Удалите один из текущих каналов, чтобы создать новый.`}
+              </p>
+              <div className="room-confirm-actions room-confirm-actions-single">
+                <button
+                  type="button"
+                  className="room-confirm-button"
+                  onClick={() => setManagedChannelLimitErrorOpen(false)}
+                >
+                  Понятно
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
+
         {transferringChannel ? (
           <>
             <button
@@ -5556,6 +6061,278 @@ function App() {
           </>
         ) : null}
 
+        {profileAvatarPickerOpen ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть выбор аватарки профиля"
+              onClick={() => closeProfileAvatarPicker()}
+            />
+            <div className="channel-avatar-picker-popover">
+              <div className="channel-avatar-picker-copy">
+                <p className="settings-label">Аватарка профиля</p>
+                <p className="settings-text">
+                  Поддерживаются JPG и PNG до 1 МБ. Лучше всего работает квадратное изображение.
+                </p>
+              </div>
+
+              <div className="channel-avatar-picker-preview-card">
+                <span
+                  className="channel-avatar channel-avatar-large channel-avatar-picker-preview"
+                  style={{ backgroundColor: '#8c5738' }}
+                >
+                  {getCurrentProfileAvatarPreview() ? (
+                    <img src={getCurrentProfileAvatarPreview()!} alt="" className="channel-avatar-image" />
+                  ) : (
+                    sessionAvatarLabel
+                  )}
+                </span>
+                <div className="channel-avatar-picker-preview-copy">
+                  <strong>Превью</strong>
+                  <span>Так будет выглядеть ваша аватарка.</span>
+                  {profileAvatarPickerDraft?.label ? <span>{profileAvatarPickerDraft.label}</span> : null}
+                </div>
+              </div>
+
+              <div className="channel-avatar-picker-toggle-row">
+                <button
+                  type="button"
+                  className={`soft-button channel-avatar-picker-toggle${profileAvatarPickerMode === 'stock' ? ' active' : ''}`}
+                  onClick={() => {
+                    setProfileAvatarPickerMode('stock')
+                    setProfileAvatarPickerError('')
+                  }}
+                >
+                  Выбрать аватар
+                </button>
+                <button
+                  type="button"
+                  className={`soft-button channel-avatar-picker-toggle${profileAvatarPickerMode === 'device' ? ' active' : ''}`}
+                  onClick={triggerProfileAvatarUpload}
+                >
+                  Загрузить с устройства
+                </button>
+              </div>
+
+              {profileAvatarPickerMode === 'stock' ? (
+                profileAvatarStockOptions.length > 0 ? (
+                <div className="channel-avatar-stock-grid">
+                  {profileAvatarStockOptions.map((option) => {
+                    const optionPreviewUrl = option.imagePath
+                    const isSelected = profileAvatarPickerDraft?.previewUrl === optionPreviewUrl
+
+                    return (
+                      <button
+                        key={`profile-${option.id}`}
+                        type="button"
+                        className={`channel-avatar-stock-option${isSelected ? ' active' : ''}`}
+                        onClick={() => selectStockProfileAvatar(option)}
+                      >
+                        <span
+                          className="channel-avatar channel-avatar-stock-preview"
+                          style={{ backgroundColor: '#8c5738' }}
+                        >
+                          <img src={optionPreviewUrl} alt="" className="channel-avatar-image" />
+                        </span>
+                        <span>{option.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                ) : (
+                  <article className="settings-item channel-avatar-device-card">
+                    <p className="settings-text">
+                      В папке `src/assets/stock-avatars/users` пока нет стоковых аватарок.
+                    </p>
+                  </article>
+                )
+              ) : profileAvatarPickerMode === 'device' ? (
+                <article className="settings-item channel-avatar-device-card">
+                  <p className="settings-text">
+                    Выберите файл с устройства. Если нужно, можно сразу открыть диалог ещё раз и заменить изображение.
+                  </p>
+                  <button
+                    type="button"
+                    className="soft-button"
+                    onClick={triggerProfileAvatarUpload}
+                  >
+                    {profileAvatarPickerDraft?.kind === 'upload' || profileAvatarPickerDraft?.kind === 'uploaded'
+                      ? 'Выбрать другой файл'
+                      : 'Выбрать файл'}
+                  </button>
+                </article>
+              ) : (
+                <article className="settings-item channel-avatar-device-card">
+                  <p className="settings-text">
+                    Выберите, откуда взять аватарку: из готового набора или с устройства.
+                  </p>
+                </article>
+              )}
+
+              {profileAvatarPickerError ? <p className="auth-error">{profileAvatarPickerError}</p> : null}
+
+              <div className="channel-title-popover-actions channel-avatar-picker-actions">
+                <button
+                  type="button"
+                  className="soft-button"
+                  onClick={() => closeProfileAvatarPicker()}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  className="send-button"
+                  onClick={() => {
+                    void applyProfileAvatarSelection()
+                  }}
+                  disabled={!profileAvatarPickerDraft || profileAvatarPickerBusy}
+                >
+                  {profileAvatarPickerBusy ? 'Сохраняем...' : 'Применить'}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {channelAvatarPickerTarget ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть выбор аватарки канала"
+              onClick={() => closeChannelAvatarPicker()}
+            />
+            <div className="channel-avatar-picker-popover">
+              <div className="channel-avatar-picker-copy">
+                <p className="settings-label">Аватарка канала</p>
+                <p className="settings-text">
+                  Поддерживаются JPG и PNG до 1 МБ. Лучше всего работает квадратное изображение.
+                </p>
+              </div>
+
+              <div className="channel-avatar-picker-preview-card">
+                <span
+                  className="channel-avatar channel-avatar-large channel-avatar-picker-preview"
+                  style={{ backgroundColor: getCurrentChannelAvatarTone() }}
+                >
+                  {getCurrentChannelAvatarPreview() ? (
+                    <img src={getCurrentChannelAvatarPreview()!} alt="" className="channel-avatar-image" />
+                  ) : (
+                    formatChannelAvatarLabel(
+                      channelAvatarPickerTarget.scope === 'create'
+                        ? creatingChannelTitle || 'Новый канал'
+                        : channels.find((channel) => channel.id === channelAvatarPickerTarget.channelId)?.title ?? 'Канал',
+                    )
+                  )}
+                </span>
+                <div className="channel-avatar-picker-preview-copy">
+                  <strong>Превью</strong>
+                  <span>Так аватарка будет выглядеть в интерфейсе Tinychok.</span>
+                  {channelAvatarPickerDraft?.label ? <span>{channelAvatarPickerDraft.label}</span> : null}
+                </div>
+              </div>
+
+              <div className="channel-avatar-picker-toggle-row">
+                <button
+                  type="button"
+                  className={`soft-button channel-avatar-picker-toggle${channelAvatarPickerMode === 'stock' ? ' active' : ''}`}
+                  onClick={() => {
+                    setChannelAvatarPickerMode('stock')
+                    setChannelAvatarPickerError('')
+                  }}
+                >
+                  Выбрать аватар
+                </button>
+                <button
+                  type="button"
+                  className={`soft-button channel-avatar-picker-toggle${channelAvatarPickerMode === 'device' ? ' active' : ''}`}
+                  onClick={triggerChannelAvatarUpload}
+                >
+                  Загрузить с устройства
+                </button>
+              </div>
+
+              {channelAvatarPickerMode === 'stock' ? (
+                channelAvatarStockOptions.length > 0 ? (
+                <div className="channel-avatar-stock-grid">
+                  {channelAvatarStockOptions.map((option) => {
+                    const optionPreviewUrl = option.imagePath
+                    const isSelected = channelAvatarPickerDraft?.previewUrl === optionPreviewUrl
+
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={`channel-avatar-stock-option${isSelected ? ' active' : ''}`}
+                        onClick={() => selectStockChannelAvatar(option)}
+                      >
+                        <span
+                          className="channel-avatar channel-avatar-stock-preview"
+                          style={{ backgroundColor: getCurrentChannelAvatarTone() }}
+                        >
+                          <img src={optionPreviewUrl} alt="" className="channel-avatar-image" />
+                        </span>
+                        <span>{option.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                ) : (
+                  <article className="settings-item channel-avatar-device-card">
+                    <p className="settings-text">
+                      В папке `src/assets/stock-avatars/channels` пока нет стоковых аватарок.
+                    </p>
+                  </article>
+                )
+              ) : channelAvatarPickerMode === 'device' ? (
+                <article className="settings-item channel-avatar-device-card">
+                  <p className="settings-text">
+                    Выберите файл с устройства. Если нужно, можно сразу открыть диалог ещё раз и заменить изображение.
+                  </p>
+                  <button
+                    type="button"
+                    className="soft-button"
+                    onClick={triggerChannelAvatarUpload}
+                  >
+                    {channelAvatarPickerDraft?.kind === 'upload' || channelAvatarPickerDraft?.kind === 'uploaded'
+                      ? 'Выбрать другой файл'
+                      : 'Выбрать файл'}
+                  </button>
+                </article>
+              ) : (
+                <article className="settings-item channel-avatar-device-card">
+                  <p className="settings-text">
+                    Выберите, откуда взять аватарку: из готового набора или с устройства.
+                  </p>
+                </article>
+              )}
+
+              {channelAvatarPickerError ? <p className="auth-error">{channelAvatarPickerError}</p> : null}
+
+              <div className="channel-title-popover-actions channel-avatar-picker-actions">
+                <button
+                  type="button"
+                  className="soft-button"
+                  onClick={() => closeChannelAvatarPicker()}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  className="send-button"
+                  onClick={() => {
+                    void applyChannelAvatarSelection()
+                  }}
+                  disabled={!channelAvatarPickerDraft || channelAvatarPickerBusy}
+                >
+                  {channelAvatarPickerBusy ? 'Сохраняем...' : 'Применить'}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
+
         {editingChannelTitleId !== null ? (
           <>
             <button
@@ -5599,9 +6376,16 @@ function App() {
         ) : null}
 
         <input
+          ref={profileAvatarInputRef}
+          type="file"
+          accept={channelAvatarUploadAcceptedMimeTypes.join(',')}
+          className="composer-attachment-input"
+          onChange={handleProfileAvatarChange}
+        />
+        <input
           ref={channelAvatarInputRef}
           type="file"
-          accept="image/*"
+          accept={channelAvatarUploadAcceptedMimeTypes.join(',')}
           className="composer-attachment-input"
           onChange={handleChannelAvatarChange}
         />

@@ -1,19 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, unlink } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { UploadMediaKind, UploadMediaResponse } from '../../src/shared/backend'
 import { makePublicUrl, runtimeConfig } from './config'
 
 const MIME_EXTENSION_MAP: Record<string, string> = {
   'application/pdf': '.pdf',
-  'image/gif': '.gif',
   'image/jpeg': '.jpg',
   'image/png': '.png',
-  'image/webp': '.webp',
 }
 
 const MEDIA_KIND_CONFIG: Record<
@@ -27,9 +25,14 @@ const MEDIA_KIND_CONFIG: Record<
   // Avatars and attachments already live in separate prefixes, so switching from
   // local disk to Object Storage does not change the key layout.
   'channel-avatar': {
-    allowedMimeTypes: new Set(['image/gif', 'image/jpeg', 'image/png', 'image/webp']),
+    allowedMimeTypes: new Set(['image/jpeg', 'image/png']),
     directory: 'channel-avatars',
-    maxSizeBytes: 5 * 1024 * 1024,
+    maxSizeBytes: 1 * 1024 * 1024,
+  },
+  'profile-avatar': {
+    allowedMimeTypes: new Set(['image/jpeg', 'image/png']),
+    directory: 'profile-avatars',
+    maxSizeBytes: 1 * 1024 * 1024,
   },
   attachment: {
     directory: 'attachments',
@@ -58,6 +61,35 @@ function buildStableMediaUrl(storageKey: string) {
     `/uploads/${storageKey}`,
     runtimeConfig.publicUrls.mediaBaseUrl ?? runtimeConfig.publicUrls.apiBaseUrl,
   )
+}
+
+function extractStorageKeyFromMediaUrl(mediaUrl: string, kind: UploadMediaKind) {
+  const trimmed = mediaUrl.trim()
+  if (!trimmed) return null
+
+  let normalizedPath = trimmed
+
+  if (/^https?:\/\//u.test(trimmed)) {
+    try {
+      normalizedPath = new URL(trimmed).pathname
+    } catch {
+      return null
+    }
+  }
+
+  normalizedPath = normalizedPath.replace(/^\/+/u, '')
+  const uploadsPrefix = 'uploads/'
+
+  if (normalizedPath.startsWith(uploadsPrefix)) {
+    normalizedPath = normalizedPath.slice(uploadsPrefix.length)
+  }
+
+  if (normalizedPath.includes('..')) {
+    return null
+  }
+
+  const kindPrefix = `${MEDIA_KIND_CONFIG[kind].directory}/`
+  return normalizedPath.startsWith(kindPrefix) ? normalizedPath : null
 }
 
 function assertObjectStorageConfigured() {
@@ -166,6 +198,45 @@ export async function storeMediaFile(options: {
   return runtimeConfig.storage.mediaBackend === 'object-storage'
     ? storeMediaFileInObjectStorage(options)
     : storeMediaFileLocally(options)
+}
+
+export async function deleteStoredMediaByUrl(mediaUrl: string, kind: UploadMediaKind) {
+  const storageKey = extractStorageKeyFromMediaUrl(mediaUrl, kind)
+  if (!storageKey) return false
+
+  if (runtimeConfig.storage.mediaBackend === 'object-storage') {
+    try {
+      await getObjectStorageClient().send(
+        new DeleteObjectCommand({
+          Bucket: runtimeConfig.storage.objectStorage.bucket!,
+          Key: storageKey,
+        }),
+      )
+      return true
+    } catch (error) {
+      if (error instanceof Error && error.name === 'NoSuchKey') {
+        return false
+      }
+
+      throw error
+    }
+  }
+
+  try {
+    await unlink(join(runtimeConfig.storage.localMediaRoot, storageKey))
+    return true
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    ) {
+      return false
+    }
+
+    throw error
+  }
 }
 
 export function getMediaBackend() {

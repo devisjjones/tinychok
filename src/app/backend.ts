@@ -67,6 +67,12 @@ function resolveMediaUrl(mediaUrl: string) {
 function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
   return {
     ...snapshot,
+    session: {
+      ...snapshot.session,
+      avatarImage: snapshot.session.avatarImage
+        ? resolveMediaUrl(snapshot.session.avatarImage)
+        : snapshot.session.avatarImage,
+    },
     channels: snapshot.channels.map((channel) => ({
       ...channel,
       avatarImage: channel.avatarImage ? resolveMediaUrl(channel.avatarImage) : channel.avatarImage,

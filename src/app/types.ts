@@ -144,6 +144,7 @@ export type Account = {
   surname?: string
   nickname?: string
   status?: string
+  avatarImage?: string
   premium?: boolean
   premiumExpiresAt?: string
   blockedContactIds?: number[]
@@ -156,6 +157,7 @@ export type Session = {
   surname?: string
   nickname?: string
   status?: string
+  avatarImage?: string
   premium?: boolean
   premiumExpiresAt?: string
   blockedContactIds?: number[]
