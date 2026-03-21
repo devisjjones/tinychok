@@ -8,6 +8,7 @@ type SubscriptionChannelRoomProps = {
   channel: SubscriptionChannel
   messageFeedRef: RefObject<HTMLDivElement | null>
   onBack: () => void
+  onOpenChannelActions?: (event: MouseEvent<HTMLButtonElement>) => void
   onPostSelect: (event: MouseEvent<HTMLButtonElement>, postId: number) => void
   subscriptionAction?: {
     label: string
@@ -21,6 +22,7 @@ export function SubscriptionChannelRoom({
   channel,
   messageFeedRef,
   onBack,
+  onOpenChannelActions,
   onPostSelect,
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
@@ -47,6 +49,11 @@ export function SubscriptionChannelRoom({
               <div className="room-title">
                 <div className="room-title-name">
                   <h3>{channel.title}</h3>
+                  {channel.muted ? (
+                    <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                      <img src="/icons/bell-100.png" alt="" />
+                    </span>
+                  ) : null}
                   <span className="chat-star">
                     <img src="/icons/news100.svg" alt="Канал" />
                   </span>
@@ -55,6 +62,19 @@ export function SubscriptionChannelRoom({
               <p>{`${channel.handle} · ${channel.draft ? 'Черновики канала' : 'Публикации канала'}`}</p>
             </div>
           </div>
+          {onOpenChannelActions ? (
+            <button
+              type="button"
+              className="soft-button icon-button room-group-actions-toggle"
+              onClick={onOpenChannelActions}
+              aria-label="Действия канала"
+              title="Действия канала"
+            >
+              <span className="room-group-actions-dots" aria-hidden="true">
+                ...
+              </span>
+            </button>
+          ) : null}
         </header>
 
         <div className="message-feed" ref={messageFeedRef}>

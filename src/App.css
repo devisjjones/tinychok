@@ -1960,6 +1960,12 @@
   gap: 8px;
 }
 
+.group-muted-indicator img {
+  width: 14px;
+  height: 14px;
+  opacity: 0.82;
+}
+
 .room-online-label {
   color: #57c785;
   font-size: 0.92rem;
@@ -2368,6 +2374,10 @@
   text-underline-offset: 3px;
 }
 
+.bubble-forwarded-source-group {
+  cursor: default;
+}
+
 .bubble.mine .bubble-forwarded-source {
   background: rgba(255, 248, 242, 0.16);
 }
@@ -2693,9 +2703,26 @@
   cursor: pointer;
 }
 
+.message-menu-item.disabled {
+  background: rgba(77, 58, 46, 0.04);
+  color: rgba(77, 58, 46, 0.52);
+}
+
 .message-menu-item.danger {
   background: rgba(255, 244, 241, 0.94);
   color: #8f2b1e;
+}
+
+.room-group-actions-toggle {
+  align-self: flex-start;
+}
+
+.room-group-actions-dots {
+  display: block;
+  font-size: 1.2rem;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  transform: translateY(-1px);
 }
 
 .room-forward {

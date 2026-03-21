@@ -5,9 +5,12 @@ import type {
   CreateManagedChannelBody,
   CreateManagedChannelResponse,
   DiscoverySearchResponse,
+  InviteGroupMemberBody,
   MutationResponse,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
+  ReportContactBody,
+  ReportSubscriptionChannelBody,
   RegisterResponse,
   RequestCodeResponse,
   RealtimeEvent,
@@ -15,7 +18,10 @@ import type {
   SetDialogPinnedMessageBody,
   SendDirectMessageBody,
   SendGroupMessageBody,
+  UpdateDialogBody,
+  UpdateGroupBody,
   UpdateManagedChannelBody,
+  UpdateSubscriptionChannelBody,
   UpdateSessionBody,
   UploadMediaKind,
   UploadMediaResponse,
@@ -286,6 +292,32 @@ export async function setDialogFavorite(
   return normalizeMutationResponse(payload)
 }
 
+export async function reportContact(
+  sessionToken: string,
+  dialogId: number,
+  body: ReportContactBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/dialogs/${dialogId}/report`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function updateDialog(
+  sessionToken: string,
+  dialogId: number,
+  body: UpdateDialogBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/dialogs/${dialogId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function setDialogPinnedMessage(
   sessionToken: string,
   dialogId: number,
@@ -383,6 +415,41 @@ export async function markSubscriptionChannelRead(sessionToken: string, channelI
   return normalizeMutationResponse(payload)
 }
 
+export async function updateSubscriptionChannel(
+  sessionToken: string,
+  channelId: number,
+  body: UpdateSubscriptionChannelBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function leaveSubscriptionChannel(sessionToken: string, channelId: number) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}`),
+    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function reportSubscriptionChannel(
+  sessionToken: string,
+  channelId: number,
+  body: ReportSubscriptionChannelBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/report`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function createManagedChannel(
   sessionToken: string,
   body: CreateManagedChannelBody,
@@ -424,6 +491,41 @@ export async function createGroup(sessionToken: string, body: CreateGroupBody) {
     ...payload,
     snapshot: normalizeSnapshot(payload.snapshot),
   }
+}
+
+export async function updateGroup(
+  sessionToken: string,
+  groupId: number,
+  body: UpdateGroupBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function inviteGroupMember(
+  sessionToken: string,
+  groupId: number,
+  body: InviteGroupMemberBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/invite`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function leaveGroup(sessionToken: string, groupId: number) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/membership`),
+    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
 }
 
 export function openRealtimeConnection(

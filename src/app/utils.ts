@@ -8,10 +8,13 @@ import {
 } from './constants'
 import type { Account, Channel, Chat, GroupPreview, Message, Session, SubscriptionChannel } from './types'
 
-export function formatMessagePreview(message: Pick<Message, 'text' | 'attachment'>) {
+export function formatMessagePreview(
+  message: Pick<Message, 'attachment' | 'sourceGroup' | 'text'>,
+) {
   const text = message.text.trim()
   if (text) return text
   if (message.attachment) return `Файл: ${message.attachment.fileName}`
+  if (message.sourceGroup) return `Приглашение в группу: ${message.sourceGroup.title}`
   return 'Пока пусто'
 }
 

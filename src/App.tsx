@@ -5,6 +5,7 @@ import {
   accountStatusMaxFontSize,
   accountStatusMinFontSize,
   accountsStorageKey,
+  defaultGroupMemberLimit,
   channelActionMenuHeight,
   channelActionMenuWidth,
   channelAvatarUploadAcceptedMimeTypes,
@@ -17,8 +18,11 @@ import {
   chatActionMenuHeight,
   chatActionMenuWidth,
   displayNameFieldMaxLength,
+  groupActionMenuHeight,
+  groupActionMenuWidth,
   managedChannelsPerUserLimit,
   nicknameFieldMaxLength,
+  premiumGroupMemberLimit,
   quickFilters,
   sessionStorageKey,
   statusFieldMaxLength,
@@ -40,11 +44,16 @@ import {
   deleteGroupMessage as deleteGroupMessageRequest,
   deleteManagedChannel as deleteManagedChannelRequest,
   fetchBootstrap,
+  inviteGroupMember as inviteGroupMemberRequest,
+  leaveGroup as leaveGroupRequest,
+  leaveSubscriptionChannel as leaveSubscriptionChannelRequest,
   markDialogRead as markDialogReadRequest,
   markGroupRead as markGroupReadRequest,
   markSubscriptionChannelRead as markSubscriptionChannelReadRequest,
   openDirectDialog as openDirectDialogRequest,
   openRealtimeConnection,
+  reportContact as reportContactRequest,
+  reportSubscriptionChannel as reportSubscriptionChannelRequest,
   registerAccount,
   requestAuthCode,
   saveSnapshot,
@@ -53,7 +62,10 @@ import {
   setDialogPinnedMessage as setDialogPinnedMessageRequest,
   sendDirectMessage as sendDirectMessageRequest,
   sendGroupMessage as sendGroupMessageRequest,
+  updateDialog as updateDialogRequest,
+  updateGroup as updateGroupRequest,
   updateManagedChannel as updateManagedChannelRequest,
+  updateSubscriptionChannel as updateSubscriptionChannelRequest,
   updateSession as updateSessionRequest,
   uploadMediaFile,
   verifyAuthCode,
@@ -119,7 +131,12 @@ import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { SelectedBubbleOverlay } from './components/SelectedBubbleOverlay'
 import { useCookieConsent } from './app/useCookieConsent'
-import type { AppSnapshot, UpdateManagedChannelBody, UpdateSessionBody } from './shared/backend'
+import type {
+  AppSnapshot,
+  ComplaintReason,
+  UpdateManagedChannelBody,
+  UpdateSessionBody,
+} from './shared/backend'
 import './App.css'
 
 type PendingAttachmentDraft = {
@@ -137,6 +154,15 @@ const deliveryIndicatorIconPaths = [
   '/icons/warning-48.png',
   '/icons/double-tick-50.png',
 ]
+
+const contactComplaintReasonOptions: Array<{ label: string; value: ComplaintReason }> = [
+  { label: 'Спам', value: 'spam' },
+  { label: 'Обман', value: 'fraud' },
+  { label: 'Очень неприятно', value: 'very_unpleasant' },
+]
+
+const blockedAuthNoticeMessage =
+  'На ваш аккаунт поступило много жалоб, поэтому вход временно заблокирован. Если произошла ошибка, напишите в поддержку и укажите email: devisjjones@gmail.com'
 
 type PendingDirectMessage = {
   attachment?: Message['attachment']
@@ -290,6 +316,7 @@ function buildGroupParticipantFromChat(chat: Chat, participantId?: number): Grou
   return {
     accent: chat.accent,
     id: participantId ?? chat.id,
+    identifier: chat.phone,
     online: chat.online,
     premium: chat.premium,
     status: formatContactStatus(chat),
@@ -301,6 +328,7 @@ function buildFallbackGroupParticipant(title: string, participantId: number): Gr
   return {
     accent: '#cfb4a0',
     id: participantId,
+    identifier: undefined,
     online: false,
     premium: false,
     status: 'Участник группы',
@@ -491,6 +519,7 @@ function App() {
   const [smsCode, setSmsCode] = useState('')
   const [authError, setAuthError] = useState('')
   const [authExistingAccount, setAuthExistingAccount] = useState<Pick<Account, 'displayName' | 'surname'> | null>(null)
+  const [authBlockedNoticeOpen, setAuthBlockedNoticeOpen] = useState(false)
   const [session, setSession] = useState<Session | null>(() => loadSession())
   const [backendReady, setBackendReady] = useState(false)
   const [confirmingLogout, setConfirmingLogout] = useState(false)
@@ -507,8 +536,13 @@ function App() {
   const [confirmingDeleteContactChatId, setConfirmingDeleteContactChatId] = useState<number | null>(
     null,
   )
+  const [reportingChatId, setReportingChatId] = useState<number | null>(null)
+  const [reportContactBusy, setReportContactBusy] = useState(false)
+  const [reportContactError, setReportContactError] = useState('')
+  const [reportContactSuccessOpen, setReportContactSuccessOpen] = useState(false)
   const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState<number | null>(null)
   const [confirmingDeleteGroupMessageId, setConfirmingDeleteGroupMessageId] = useState<number | null>(null)
+  const [confirmingLeaveGroupId, setConfirmingLeaveGroupId] = useState<number | null>(null)
   const [confirmingDeleteChannelId, setConfirmingDeleteChannelId] = useState<number | null>(null)
   const [managedChannelLimitErrorOpen, setManagedChannelLimitErrorOpen] = useState(false)
   const [transferringChannelId, setTransferringChannelId] = useState<number | null>(null)
@@ -551,8 +585,23 @@ function App() {
   const [activeSubscriptionChannelId, setActiveSubscriptionChannelId] = useState<number | null>(null)
   const [previewSubscriptionChannel, setPreviewSubscriptionChannel] = useState<SubscriptionChannel | null>(null)
   const [activeSubscriptionPostId, setActiveSubscriptionPostId] = useState<number | null>(null)
+  const [channelActionsAnchor, setChannelActionsAnchor] = useState<ActionAnchor | null>(null)
+  const [channelShareOpen, setChannelShareOpen] = useState(false)
+  const [channelShareBusy, setChannelShareBusy] = useState(false)
+  const [channelShareError, setChannelShareError] = useState('')
+  const [channelReportOpen, setChannelReportOpen] = useState(false)
+  const [channelReportBusy, setChannelReportBusy] = useState(false)
+  const [channelReportError, setChannelReportError] = useState('')
+  const [channelReportSuccessOpen, setChannelReportSuccessOpen] = useState(false)
+  const [confirmingLeaveSubscriptionChannelId, setConfirmingLeaveSubscriptionChannelId] = useState<number | null>(null)
   const [activeGroupMessageId, setActiveGroupMessageId] = useState<number | null>(null)
   const [groupParticipantsOpen, setGroupParticipantsOpen] = useState(false)
+  const [groupActionsAnchor, setGroupActionsAnchor] = useState<ActionAnchor | null>(null)
+  const [groupInviteOpen, setGroupInviteOpen] = useState(false)
+  const [groupInviteBusy, setGroupInviteBusy] = useState(false)
+  const [groupInviteError, setGroupInviteError] = useState('')
+  const [groupInviteLimitNoticeOpen, setGroupInviteLimitNoticeOpen] = useState(false)
+  const [groupReportNoticeOpen, setGroupReportNoticeOpen] = useState(false)
   const [forwardingSubscriptionPostText, setForwardingSubscriptionPostText] = useState('')
   const [forwardingGroupMessageText, setForwardingGroupMessageText] = useState('')
   const [pendingDirectMessages, setPendingDirectMessages] = useState<PendingDirectMessage[]>([])
@@ -575,6 +624,33 @@ function App() {
       preloadedImages.length = 0
     }
   }, [])
+
+  useEffect(() => {
+    if (activeGroupId !== null) return
+
+    setGroupParticipantsOpen(false)
+    setGroupActionsAnchor(null)
+    setGroupInviteOpen(false)
+    setGroupInviteBusy(false)
+    setGroupInviteError('')
+    setGroupInviteLimitNoticeOpen(false)
+    setGroupReportNoticeOpen(false)
+    setConfirmingLeaveGroupId(null)
+  }, [activeGroupId])
+
+  useEffect(() => {
+    if (activeSubscriptionChannelId !== null || previewSubscriptionChannel !== null) return
+
+    setChannelActionsAnchor(null)
+    setChannelShareOpen(false)
+    setChannelShareBusy(false)
+    setChannelShareError('')
+    setChannelReportOpen(false)
+    setChannelReportBusy(false)
+    setChannelReportError('')
+    setChannelReportSuccessOpen(false)
+    setConfirmingLeaveSubscriptionChannelId(null)
+  }, [activeSubscriptionChannelId, previewSubscriptionChannel])
 
   const blockedContactIds = session?.blockedContactIds ?? []
   const availableChats = sortChatsByRecentActivity(
@@ -652,6 +728,8 @@ function App() {
 
   const activeChat =
     activeChatId === null ? null : availableChats.find((chat) => chat.id === activeChatId) ?? null
+  const reportingChat =
+    reportingChatId === null ? null : chats.find((chat) => chat.id === reportingChatId) ?? null
   const pinnedMessage =
     activeChat?.pinnedMessageId === undefined
       ? null
@@ -675,6 +753,7 @@ function App() {
       ? null
       : subscriptionChannels.find((channel) => channel.id === activeSubscriptionChannelId) ?? null
   const currentSubscriptionChannel = previewSubscriptionChannel ?? activeSubscriptionChannel
+  const actionableSubscriptionChannel = previewSubscriptionChannel ? null : activeSubscriptionChannel
   const activeSubscriptionPost =
     activeSubscriptionPostId === null
       ? null
@@ -691,6 +770,43 @@ function App() {
     activeGroupMessageId === null
       ? null
       : activeGroup?.messages.find((message) => message.id === activeGroupMessageId) ?? null
+  const isActiveGroupCreator =
+    activeGroup !== null &&
+    session !== null &&
+    normalizeIdentifier(activeGroup.creatorIdentifier ?? session.identifier) === session.identifier
+  const activeGroupCreatorParticipant =
+    activeGroup?.participants.find(
+      (participant) =>
+        normalizeIdentifier(participant.identifier ?? '') ===
+        normalizeIdentifier(activeGroup.creatorIdentifier ?? ''),
+    ) ?? null
+  const activeGroupCreatorChat =
+    activeGroup?.creatorIdentifier
+      ? chats.find(
+          (chat) =>
+            normalizeIdentifier(chat.phone) === normalizeIdentifier(activeGroup.creatorIdentifier ?? ''),
+        ) ?? null
+      : null
+  const activeGroupOwnerHasPremium =
+    isActiveGroupCreator
+      ? hasActivePremium(session?.premium, session?.premiumExpiresAt)
+      : Boolean(activeGroupCreatorChat?.premium ?? activeGroupCreatorParticipant?.premium)
+  const activeGroupMemberLimit = activeGroupOwnerHasPremium
+    ? premiumGroupMemberLimit
+    : defaultGroupMemberLimit
+  const activeGroupAtMemberLimit =
+    activeGroup !== null && activeGroup.participants.length >= activeGroupMemberLimit
+  const inviteableGroupChats = activeGroup
+    ? availableChats.filter((chat) => {
+        const normalizedPhone = normalizeIdentifier(chat.phone)
+
+        return !activeGroup.participants.some(
+          (participant) =>
+            normalizeIdentifier(participant.identifier ?? '') === normalizedPhone ||
+            participant.title === chat.title,
+        )
+      })
+    : []
   function resolveGroupParticipant(
     group: typeof activeGroup,
     message: Message | null,
@@ -715,10 +831,20 @@ function App() {
     channelActionMenuWidth,
     subscriptionMenuFallbackHeight,
   )
+  const { menuRef: channelActionsMenuRef, style: channelActionsMenuStyle } = useAnchoredMenu(
+    channelActionsAnchor,
+    channelActionMenuWidth,
+    channelActionMenuHeight,
+  )
   const { menuRef: groupMessageMenuRef, style: groupMessageMenuStyle } = useAnchoredMenu(
     groupMessageActionAnchor,
     channelActionMenuWidth,
     channelActionMenuHeight,
+  )
+  const { menuRef: groupActionsMenuRef, style: groupActionsMenuStyle } = useAnchoredMenu(
+    groupActionsAnchor,
+    groupActionMenuWidth,
+    groupActionMenuHeight,
   )
 
   useEffect(() => {
@@ -1588,7 +1714,15 @@ function App() {
       setAuthError('')
       setAuthStep('profile')
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Не удалось подтвердить код.')
+      const nextMessage = error instanceof Error ? error.message : 'Не удалось подтвердить код.'
+
+      if (nextMessage === blockedAuthNoticeMessage) {
+        setAuthBlockedNoticeOpen(true)
+        setAuthError('')
+        return
+      }
+
+      setAuthError(nextMessage)
     }
   }
 
@@ -1817,6 +1951,7 @@ function App() {
       markAsRead?: boolean
       replyTo?: Message['replyTo']
       sourceChannel?: Message['sourceChannel']
+      sourceGroup?: Message['sourceGroup']
       time?: string
     },
   ) {
@@ -1842,6 +1977,7 @@ function App() {
               id: options?.localId ?? Date.now(),
               replyTo: options?.replyTo,
               sourceChannel: options?.sourceChannel,
+              sourceGroup: options?.sourceGroup,
               text,
               createdAt,
               time,
@@ -2474,13 +2610,33 @@ function App() {
     setActiveSubscriptionChannelId(null)
     setPreviewSubscriptionChannel(null)
     setActiveSubscriptionPostId(null)
+    setChannelActionsAnchor(null)
+    setChannelShareOpen(false)
+    setChannelShareBusy(false)
+    setChannelShareError('')
+    setChannelReportOpen(false)
+    setChannelReportBusy(false)
+    setChannelReportError('')
+    setChannelReportSuccessOpen(false)
+    setConfirmingLeaveSubscriptionChannelId(null)
     setActiveGroupId(null)
     setActiveGroupMessageId(null)
     setGroupParticipantsOpen(false)
+    setGroupActionsAnchor(null)
+    setGroupInviteOpen(false)
+    setGroupInviteBusy(false)
+    setGroupInviteError('')
+    setGroupInviteLimitNoticeOpen(false)
+    setGroupReportNoticeOpen(false)
+    setConfirmingLeaveGroupId(null)
     setMessageActionMessageId(null)
     setForwardingMessageId(null)
     setReplyTarget(null)
     setChatActionsOpen(false)
+    setReportingChatId(null)
+    setReportContactBusy(false)
+    setReportContactError('')
+    setReportContactSuccessOpen(false)
     setConfirmingDeleteHistoryChatId(null)
     setConfirmingDeleteContactChatId(null)
     setConfirmingDeleteMessageId(null)
@@ -2632,6 +2788,15 @@ function App() {
     setPreviewSubscriptionChannel(null)
     setActiveSubscriptionChannelId(channelId)
     setActiveSubscriptionPostId(null)
+    setChannelActionsAnchor(null)
+    setChannelShareOpen(false)
+    setChannelShareBusy(false)
+    setChannelShareError('')
+    setChannelReportOpen(false)
+    setChannelReportBusy(false)
+    setChannelReportError('')
+    setChannelReportSuccessOpen(false)
+    setConfirmingLeaveSubscriptionChannelId(null)
     setForwardingSubscriptionPostText('')
     setSubscriptionPostActionAnchor(null)
     setTopListView('channels')
@@ -2788,9 +2953,169 @@ function App() {
     setRetainedGroupId(shouldRetainGroupInList ? groupId : null)
     setActiveGroupId(groupId)
     setActiveGroupMessageId(null)
+    setGroupInviteOpen(false)
+    setGroupInviteBusy(false)
+    setGroupInviteError('')
+    setGroupInviteLimitNoticeOpen(false)
+    setGroupReportNoticeOpen(false)
+    setConfirmingLeaveGroupId(null)
     setForwardingGroupMessageText('')
+    setGroupActionsAnchor(null)
     setGroupMessageActionAnchor(null)
     void syncGroupRead(groupId)
+  }
+
+  function closeGroupActions() {
+    setGroupActionsAnchor(null)
+  }
+
+  function closeGroupInvite() {
+    setGroupInviteOpen(false)
+    setGroupInviteBusy(false)
+    setGroupInviteError('')
+  }
+
+  function openGroupInviteLimitNotice() {
+    closeGroupActions()
+    setGroupInviteOpen(false)
+    setGroupInviteBusy(false)
+    setGroupInviteError('')
+    setGroupInviteLimitNoticeOpen(true)
+  }
+
+  async function toggleGroupMuted(groupId: number, muted: boolean) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await updateGroupRequest(session.sessionToken, groupId, { muted })
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to update group mute state', error)
+        setGroups((currentGroups) =>
+          currentGroups.map((group) => (group.id === groupId ? { ...group, muted } : group)),
+        )
+      }
+    } else {
+      setGroups((currentGroups) =>
+        currentGroups.map((group) => (group.id === groupId ? { ...group, muted } : group)),
+      )
+    }
+
+    closeGroupActions()
+  }
+
+  function openGroupInvitePopup() {
+    if (!activeGroup) return
+
+    if (activeGroupAtMemberLimit) {
+      openGroupInviteLimitNotice()
+      return
+    }
+
+    closeGroupActions()
+    setGroupInviteError('')
+    setGroupInviteOpen(true)
+  }
+
+  async function inviteChatToActiveGroup(chatId: number) {
+    if (!activeGroup) return
+
+    if (activeGroupAtMemberLimit) {
+      openGroupInviteLimitNotice()
+      return
+    }
+
+    setGroupInviteBusy(true)
+    setGroupInviteError('')
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await inviteGroupMemberRequest(session.sessionToken, activeGroup.id, {
+          dialogId: chatId,
+        })
+        applySnapshot(response.snapshot)
+        closeGroupInvite()
+        return
+      } catch (error) {
+        console.error('Failed to invite member to group', error)
+        const nextMessage =
+          error instanceof Error
+            ? error.message
+            : 'Не удалось пригласить пользователя в группу.'
+
+        if (
+          nextMessage.includes('Максимальный размер одной группы') ||
+          nextMessage.includes('максимум 200 человек')
+        ) {
+          openGroupInviteLimitNotice()
+          return
+        }
+
+        setGroupInviteError(nextMessage)
+        setGroupInviteBusy(false)
+        return
+      }
+    }
+
+    const invitedChat = availableChats.find((chat) => chat.id === chatId)
+    if (!invitedChat) {
+      setGroupInviteError('Контакт не найден.')
+      setGroupInviteBusy(false)
+      return
+    }
+
+    setGroups((currentGroups) =>
+      currentGroups.map((group) =>
+        group.id === activeGroup.id
+          ? {
+              ...group,
+              members: group.members + 1,
+              participants: [
+                ...group.participants,
+                buildGroupParticipantFromChat(invitedChat, invitedChat.id),
+              ],
+            }
+          : group,
+      ),
+    )
+    applyLocalDirectMessage(invitedChat.id, '', {
+      markAsRead: invitedChat.id === activeChatId,
+      sourceGroup: {
+        accent: activeGroup.accent,
+        creatorIdentifier: activeGroup.creatorIdentifier,
+        handle: activeGroup.handle,
+        sharedId: activeGroup.sharedId,
+        title: activeGroup.title,
+      },
+    })
+    closeGroupInvite()
+  }
+
+  async function leaveCurrentGroup(groupId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await leaveGroupRequest(session.sessionToken, groupId)
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to leave group', error)
+        setGroups((currentGroups) => currentGroups.filter((group) => group.id !== groupId))
+      }
+    } else {
+      setGroups((currentGroups) => currentGroups.filter((group) => group.id !== groupId))
+    }
+
+    setConfirmingLeaveGroupId(null)
+    closeGroupInvite()
+    closeGroupActions()
+
+    if (activeGroupId === groupId) {
+      closeActiveRoom()
+      setStageView('main')
+    }
+  }
+
+  function reportCurrentGroup() {
+    closeGroupActions()
+    setGroupReportNoticeOpen(true)
   }
 
   function openChat(chatId: number) {
@@ -2958,6 +3283,10 @@ function App() {
 
     void mutateBlockedContacts([...blockedContactIds, chatId])
     setChatActionsOpen(false)
+    setReportingChatId(null)
+    setReportContactBusy(false)
+    setReportContactError('')
+    setReportContactSuccessOpen(false)
     setMessageActionMessageId(null)
     setForwardingMessageId(null)
     setReplyTarget(null)
@@ -2976,6 +3305,215 @@ function App() {
     setBlockedActionChatId(null)
   }
 
+  function closeReportContactDialog() {
+    setReportingChatId(null)
+    setReportContactBusy(false)
+    setReportContactError('')
+  }
+
+  async function submitContactReport(chatId: number, reason: ComplaintReason) {
+    setReportContactBusy(true)
+    setReportContactError('')
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await reportContactRequest(session.sessionToken, chatId, { reason })
+        applySnapshot(response.snapshot)
+        closeReportContactDialog()
+        setReportContactSuccessOpen(true)
+        return
+      } catch (error) {
+        console.error('Failed to report contact', error)
+        setReportContactError(
+          error instanceof Error ? error.message : 'Не удалось отправить жалобу.',
+        )
+        setReportContactBusy(false)
+        return
+      }
+    }
+
+    closeReportContactDialog()
+    setReportContactSuccessOpen(true)
+  }
+
+  async function toggleChatMuted(chatId: number, muted: boolean) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await updateDialogRequest(session.sessionToken, chatId, { muted })
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to update chat mute state', error)
+        setChats((currentChats) =>
+          currentChats.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  muted,
+                  unread: muted ? 0 : chat.unread,
+                }
+              : chat,
+          ),
+        )
+      }
+    } else {
+      setChats((currentChats) =>
+        currentChats.map((chat) =>
+          chat.id === chatId
+            ? {
+                ...chat,
+                muted,
+                unread: muted ? 0 : chat.unread,
+              }
+            : chat,
+        ),
+      )
+    }
+
+    setChatActionsOpen(false)
+  }
+
+  function closeChannelActions() {
+    setChannelActionsAnchor(null)
+  }
+
+  function closeChannelShareDialog() {
+    setChannelShareOpen(false)
+    setChannelShareBusy(false)
+    setChannelShareError('')
+  }
+
+  function closeChannelReportDialog() {
+    setChannelReportOpen(false)
+    setChannelReportBusy(false)
+    setChannelReportError('')
+  }
+
+  async function toggleSubscriptionChannelMuted(channelId: number, muted: boolean) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await updateSubscriptionChannelRequest(session.sessionToken, channelId, {
+          muted,
+        })
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to update channel mute state', error)
+        setSubscriptionChannels((currentChannels) =>
+          currentChannels.map((channel) =>
+            channel.id === channelId
+              ? {
+                  ...channel,
+                  muted,
+                  unread: muted ? 0 : channel.unread,
+                }
+              : channel,
+          ),
+        )
+      }
+    } else {
+      setSubscriptionChannels((currentChannels) =>
+        currentChannels.map((channel) =>
+          channel.id === channelId
+            ? {
+                ...channel,
+                muted,
+                unread: muted ? 0 : channel.unread,
+              }
+            : channel,
+        ),
+      )
+    }
+
+    closeChannelActions()
+  }
+
+  async function shareCurrentChannelToChat(chatId: number) {
+    if (!currentSubscriptionChannel) return
+
+    const sharedText = sanitizeChannelDirectLink(currentSubscriptionChannel.handle) || currentSubscriptionChannel.handle
+    if (!sharedText) return
+
+    setChannelShareBusy(true)
+    setChannelShareError('')
+
+    try {
+      if (backendReady && session?.sessionToken) {
+        const response = await sendDirectMessageRequest(session.sessionToken, chatId, {
+          markAsRead: chatId === activeChatId,
+          text: sharedText,
+        })
+        applySnapshot(response.snapshot)
+      } else {
+        applyLocalDirectMessage(chatId, sharedText, {
+          markAsRead: chatId === activeChatId,
+        })
+      }
+
+      closeChannelShareDialog()
+      closeChannelActions()
+    } catch (error) {
+      console.error('Failed to share channel with contact', error)
+      setChannelShareError(
+        error instanceof Error ? error.message : 'Не удалось отправить ссылку на канал.',
+      )
+      setChannelShareBusy(false)
+    }
+  }
+
+  async function leaveCurrentSubscriptionChannel(channelId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await leaveSubscriptionChannelRequest(session.sessionToken, channelId)
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to leave subscription channel', error)
+        setSubscriptionChannels((currentChannels) =>
+          currentChannels.filter((channel) => channel.id !== channelId),
+        )
+      }
+    } else {
+      setSubscriptionChannels((currentChannels) =>
+        currentChannels.filter((channel) => channel.id !== channelId),
+      )
+    }
+
+    setConfirmingLeaveSubscriptionChannelId(null)
+    closeChannelShareDialog()
+    closeChannelReportDialog()
+    closeChannelActions()
+
+    if (activeSubscriptionChannelId === channelId) {
+      closeActiveRoom()
+      setStageView('main')
+    }
+  }
+
+  async function submitSubscriptionChannelReport(channelId: number, reason: ComplaintReason) {
+    setChannelReportBusy(true)
+    setChannelReportError('')
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await reportSubscriptionChannelRequest(session.sessionToken, channelId, {
+          reason,
+        })
+        applySnapshot(response.snapshot)
+        closeChannelReportDialog()
+        setChannelReportSuccessOpen(true)
+        return
+      } catch (error) {
+        console.error('Failed to report subscription channel', error)
+        setChannelReportError(
+          error instanceof Error ? error.message : 'Не удалось отправить жалобу на канал.',
+        )
+        setChannelReportBusy(false)
+        return
+      }
+    }
+
+    closeChannelReportDialog()
+    setChannelReportSuccessOpen(true)
+  }
+
   async function deleteChatHistory(chatId: number) {
     if (backendReady && session?.sessionToken) {
       try {
@@ -2991,6 +3529,10 @@ function App() {
 
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
+    setReportingChatId(null)
+    setReportContactBusy(false)
+    setReportContactError('')
+    setReportContactSuccessOpen(false)
     setMessageActionMessageId(null)
     setForwardingMessageId(null)
     setReplyTarget(null)
@@ -3873,8 +4415,12 @@ function App() {
           onIdentifierChange={(value) => {
             setIdentifier(value)
             setAuthExistingAccount(null)
+            setAuthBlockedNoticeOpen(false)
           }}
-          onSmsCodeChange={(value) => setSmsCode(value.replace(/[^\d]/g, ''))}
+          onSmsCodeChange={(value) => {
+            setSmsCode(value.replace(/[^\d]/g, ''))
+            setAuthBlockedNoticeOpen(false)
+          }}
           onSubmit={() => {
             if (authStep === 'phone') {
               void submitPhoneStep()
@@ -3889,6 +4435,32 @@ function App() {
             void submitProfileStep()
           }}
         />
+        {authBlockedNoticeOpen ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть предупреждение о блокировке"
+              onClick={() => setAuthBlockedNoticeOpen(false)}
+            />
+            <div className="room-confirm room-confirm-compact auth-blocked-popup">
+              <p className="room-confirm-copy">Вход временно заблокирован.</p>
+              <p className="settings-text room-confirm-note">
+                На ваш аккаунт поступило много жалоб. Если произошла ошибка, напишите в поддержку
+                и укажите email: devisjjones@gmail.com
+              </p>
+              <div className="room-confirm-actions room-confirm-actions-single">
+                <button
+                  type="button"
+                  className="room-confirm-button"
+                  onClick={() => setAuthBlockedNoticeOpen(false)}
+                >
+                  Понятно
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
         {cookieConsentBanner}
       </>
     )
@@ -4055,6 +4627,222 @@ function App() {
     </>
   ) : null
 
+  const channelRoomActions = actionableSubscriptionChannel ? (
+    <>
+      {channelActionsAnchor ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim message-menu-scrim"
+            aria-label="Закрыть действия канала"
+            onClick={closeChannelActions}
+          />
+          <div
+            ref={channelActionsMenuRef}
+            className="message-menu"
+            style={channelActionsMenuStyle}
+          >
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => {
+                void toggleSubscriptionChannelMuted(
+                  actionableSubscriptionChannel.id,
+                  !Boolean(actionableSubscriptionChannel.muted),
+                )
+              }}
+            >
+              {actionableSubscriptionChannel.muted ? 'Включить уведомления' : 'Заглушить'}
+            </button>
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => setConfirmingLeaveSubscriptionChannelId(actionableSubscriptionChannel.id)}
+            >
+              Покинуть
+            </button>
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => {
+                setChannelShareOpen(true)
+                setChannelShareBusy(false)
+                setChannelShareError('')
+                setChannelReportOpen(false)
+                setChannelReportError('')
+              }}
+            >
+              Поделиться
+            </button>
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => {
+                setChannelReportOpen(true)
+                setChannelReportBusy(false)
+                setChannelReportError('')
+                setChannelShareOpen(false)
+                setChannelShareError('')
+              }}
+            >
+              Пожаловаться
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {channelShareOpen ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть отправку ссылки на канал"
+            onClick={closeChannelShareDialog}
+          />
+          <div className="room-confirm room-forward room-transfer-list">
+            <p className="room-confirm-copy">{`Кому отправить ссылку на канал ${actionableSubscriptionChannel.title}?`}</p>
+            <div className="room-forward-list">
+              {availableChats.length > 0 ? (
+                availableChats.map((chat) => (
+                  <button
+                    key={`channel-share-${chat.id}`}
+                    type="button"
+                    className="room-forward-item"
+                    onClick={() => {
+                      void shareCurrentChannelToChat(chat.id)
+                    }}
+                    disabled={channelShareBusy}
+                  >
+                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                      {chat.title.slice(0, 1)}
+                    </span>
+                    <span>{chat.title}</span>
+                  </button>
+                ))
+              ) : (
+                <article className="settings-item room-transfer-empty">
+                  <p className="settings-text">Контакты не найдены.</p>
+                </article>
+              )}
+            </div>
+            {channelShareError ? <p className="auth-error">{channelShareError}</p> : null}
+            <div className="room-confirm-actions room-confirm-actions-single">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={closeChannelShareDialog}
+                disabled={channelShareBusy}
+              >
+                {channelShareBusy ? 'Отправляем...' : 'Закрыть'}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {channelReportOpen ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть жалобу на канал"
+            onClick={closeChannelReportDialog}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">{`На что пожаловаться в канале ${actionableSubscriptionChannel.title}?`}</p>
+            <div className="room-forward-list room-report-reason-list">
+              {contactComplaintReasonOptions.map((option) => (
+                <button
+                  key={`channel-report-${option.value}`}
+                  type="button"
+                  className="room-forward-item room-report-reason-item"
+                  onClick={() => {
+                    void submitSubscriptionChannelReport(actionableSubscriptionChannel.id, option.value)
+                  }}
+                  disabled={channelReportBusy}
+                >
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+            {channelReportError ? <p className="auth-error">{channelReportError}</p> : null}
+            <div className="room-confirm-actions room-confirm-actions-single">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={closeChannelReportDialog}
+                disabled={channelReportBusy}
+              >
+                {channelReportBusy ? 'Отправляем...' : 'Отмена'}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {channelReportSuccessOpen ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть подтверждение жалобы на канал"
+            onClick={() => setChannelReportSuccessOpen(false)}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">Жалоба на канал отправлена.</p>
+            <p className="settings-text room-confirm-note">
+              Жалоба сохранена. Решение по каналу администрация принимает вручную.
+            </p>
+            <div className="room-confirm-actions room-confirm-actions-single">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setChannelReportSuccessOpen(false)}
+              >
+                Понятно
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {confirmingLeaveSubscriptionChannelId === actionableSubscriptionChannel.id ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть подтверждение выхода из канала"
+            onClick={() => setConfirmingLeaveSubscriptionChannelId(null)}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">{`Покинуть канал ${actionableSubscriptionChannel.title}?`}</p>
+            <p className="settings-text room-confirm-note">
+              Вы отпишетесь от канала и он исчезнет из вашего списка.
+            </p>
+            <div className="room-confirm-actions room-confirm-actions-dual">
+              <button
+                type="button"
+                className="room-confirm-button room-confirm-danger"
+                onClick={() => {
+                  void leaveCurrentSubscriptionChannel(actionableSubscriptionChannel.id)
+                }}
+              >
+                Покинуть канал
+              </button>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setConfirmingLeaveSubscriptionChannelId(null)}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </>
+  ) : null
+
   const groupMessageActions = activeGroupMessage ? (
     <>
       <button
@@ -4169,6 +4957,202 @@ function App() {
             </>
           )}
         </div>
+      ) : null}
+    </>
+  ) : null
+
+  const groupRoomActions = activeGroup ? (
+    <>
+      {groupActionsAnchor ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim message-menu-scrim"
+            aria-label="Закрыть действия группы"
+            onClick={closeGroupActions}
+          />
+          <div
+            ref={groupActionsMenuRef}
+            className="message-menu"
+            style={groupActionsMenuStyle}
+          >
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => setConfirmingLeaveGroupId(activeGroup.id)}
+            >
+              {isActiveGroupCreator ? 'Удалить и покинуть группу' : 'Покинуть группу'}
+            </button>
+            {!isActiveGroupCreator ? (
+              <button type="button" className="message-menu-item" onClick={reportCurrentGroup}>
+                Пожаловаться
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => {
+                void toggleGroupMuted(activeGroup.id, !Boolean(activeGroup.muted))
+              }}
+            >
+              {activeGroup.muted ? 'Включить уведомления' : 'Заглушить'}
+            </button>
+            <button
+              type="button"
+              className={`message-menu-item${activeGroupAtMemberLimit ? ' disabled' : ''}`}
+              onClick={openGroupInvitePopup}
+            >
+              Пригласить в группу
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {groupInviteOpen ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть приглашение в группу"
+            onClick={closeGroupInvite}
+          />
+          <div className="room-confirm room-forward room-transfer-list">
+            <p className="room-confirm-copy">{`Кого пригласить в группу ${activeGroup.title}?`}</p>
+            <div className="room-forward-list">
+              {inviteableGroupChats.length > 0 ? (
+                inviteableGroupChats.map((chat) => (
+                  <button
+                    key={`group-invite-${chat.id}`}
+                    type="button"
+                    className="room-forward-item"
+                    onClick={() => {
+                      void inviteChatToActiveGroup(chat.id)
+                    }}
+                    disabled={groupInviteBusy}
+                  >
+                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                      {chat.title.slice(0, 1)}
+                    </span>
+                    <span>{chat.title}</span>
+                  </button>
+                ))
+              ) : (
+                <article className="settings-item room-transfer-empty">
+                  <p className="settings-text">Все доступные контакты уже состоят в этой группе.</p>
+                </article>
+              )}
+            </div>
+            {groupInviteError ? <p className="auth-error">{groupInviteError}</p> : null}
+            <div className="room-confirm-actions room-confirm-actions-dual">
+              <button type="button" className="room-confirm-button" onClick={closeGroupInvite}>
+                Назад
+              </button>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={closeGroupInvite}
+                disabled={groupInviteBusy}
+              >
+                {groupInviteBusy ? 'Приглашаем...' : 'Закрыть'}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {groupInviteLimitNoticeOpen ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть ограничение приглашения в группу"
+            onClick={() => setGroupInviteLimitNoticeOpen(false)}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">Нельзя пригласить ещё одного участника.</p>
+            <p className="settings-text room-confirm-note">
+              {activeGroupOwnerHasPremium
+                ? `Даже с премиумом владельца в одной группе может быть максимум ${premiumGroupMemberLimit} человек.`
+                : `Максимальный размер одной группы — ${defaultGroupMemberLimit} человек. Чтобы приглашать в группу больше людей, необходимо активировать премиум владельцу группы.`}
+            </p>
+            <div className="room-confirm-actions room-confirm-actions-single">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setGroupInviteLimitNoticeOpen(false)}
+              >
+                Понятно
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {groupReportNoticeOpen ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть жалобу на группу"
+            onClick={() => setGroupReportNoticeOpen(false)}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">Жалоба отправлена.</p>
+            <p className="settings-text room-confirm-note">
+              Мы получили сигнал и проверим эту группу.
+            </p>
+            <div className="room-confirm-actions room-confirm-actions-single">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setGroupReportNoticeOpen(false)}
+              >
+                Понятно
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {confirmingLeaveGroupId === activeGroup.id ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть подтверждение выхода из группы"
+            onClick={() => setConfirmingLeaveGroupId(null)}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">
+              {isActiveGroupCreator
+                ? `Удалить и покинуть группу ${activeGroup.title}?`
+                : `Покинуть группу ${activeGroup.title}?`}
+            </p>
+            <p className="settings-text room-confirm-note">
+              {isActiveGroupCreator
+                ? 'Группа исчезнет у всех участников.'
+                : 'Вы выйдете из группы, а остальные участники останутся в ней.'}
+            </p>
+            <div className="room-confirm-actions room-confirm-actions-dual">
+              <button
+                type="button"
+                className="room-confirm-button room-confirm-danger"
+                onClick={() => {
+                  void leaveCurrentGroup(activeGroup.id)
+                }}
+              >
+                {isActiveGroupCreator ? 'Удалить группу' : 'Покинуть группу'}
+              </button>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setConfirmingLeaveGroupId(null)}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </>
       ) : null}
     </>
   ) : null
@@ -4455,6 +5439,11 @@ function App() {
                     <span className="chat-topline">
                       <span className="chat-name-row">
                         <strong className="chat-name-text">{chat.title}</strong>
+                        {chat.muted ? (
+                          <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                            <img src="/icons/bell-100.png" alt="" />
+                          </span>
+                        ) : null}
                         {chat.premium ? (
                           <span className="premium-crown chat-crown" aria-label="Премиум">
                             <img src="/icons/crown64.png" alt="" />
@@ -4538,6 +5527,11 @@ function App() {
                   <span className="chat-topline">
                     <span className="chat-name-row">
                       <strong className="chat-name-text">{channel.title}</strong>
+                      {channel.muted ? (
+                        <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                          <img src="/icons/bell-100.png" alt="" />
+                        </span>
+                      ) : null}
                       <span className="chat-star">
                         <img src="/icons/news100.svg" alt="Канал" />
                       </span>
@@ -4586,6 +5580,11 @@ function App() {
                       <span className="chat-topline">
                         <span className="chat-name-row">
                           <strong className="chat-name-text">{group.title}</strong>
+                          {group.muted ? (
+                            <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                              <img src="/icons/bell-100.png" alt="" />
+                            </span>
+                          ) : null}
                           <span className="chat-star">
                             <img src="/icons/group100.png" alt="Группа" />
                           </span>
@@ -4637,6 +5636,11 @@ function App() {
                     <span className="chat-topline">
                       <span className="chat-name-row">
                         <strong className="chat-name-text">{chat.title}</strong>
+                        {chat.muted ? (
+                          <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                            <img src="/icons/bell-100.png" alt="" />
+                          </span>
+                        ) : null}
                         {chat.premium ? (
                           <span className="premium-crown chat-crown" aria-label="Премиум">
                             <img src="/icons/crown64.png" alt="" />
@@ -5144,6 +6148,7 @@ function App() {
                     </li>
                     <li>Увеличивает срок хранения файлов и фотографий</li>
                     <li>Создание тематических каналов</li>
+                    <li>Группы до 200 человек</li>
                   </ul>
                   <button type="button" className="send-button premium-submit">
                     Выбрать месяц
@@ -5168,6 +6173,7 @@ function App() {
                     </li>
                     <li>Увеличивает срок хранения файлов и фотографий</li>
                     <li>Создание тематических каналов</li>
+                    <li>Группы до 200 человек</li>
                   </ul>
                   <button type="button" className="send-button premium-submit">
                     Выбрать год
@@ -5541,11 +6547,31 @@ function App() {
 
         {isSubscriptionChannelOpen ? (
           <SubscriptionChannelRoom
-            actions={subscriptionPostActions}
+            actions={
+              <>
+                {channelRoomActions}
+                {subscriptionPostActions}
+              </>
+            }
             activePostId={forwardingSubscriptionPostText ? null : activeSubscriptionPostId}
             channel={currentSubscriptionChannel!}
             messageFeedRef={messageFeedRef}
             onBack={closeActiveRoom}
+            onOpenChannelActions={
+              actionableSubscriptionChannel
+                ? (event) => {
+                    scheduleActionAnchor(event.currentTarget, 'end', setChannelActionsAnchor)
+                    setActiveSubscriptionPostId(null)
+                    setForwardingSubscriptionPostText('')
+                    setSubscriptionPostActionAnchor(null)
+                    setChannelShareOpen(false)
+                    setChannelShareError('')
+                    setChannelReportOpen(false)
+                    setChannelReportError('')
+                    setConfirmingLeaveSubscriptionChannelId(null)
+                  }
+                : undefined
+            }
             onPostSelect={(event, postId) => {
               setActiveSubscriptionPostId(postId)
               scheduleActionAnchor(event.currentTarget, 'start', setSubscriptionPostActionAnchor)
@@ -5564,7 +6590,12 @@ function App() {
 
         {isGroupOpen ? (
           <GroupRoom
-            actions={groupMessageActions}
+            actions={
+              <>
+                {groupRoomActions}
+                {groupMessageActions}
+              </>
+            }
             activeMessageId={forwardingGroupMessageText ? null : activeGroupMessageId}
             attachmentInputRef={groupAttachmentInputRef}
             attachmentName={groupAttachmentDrafts[activeGroup.id]?.fileName ?? ''}
@@ -5573,8 +6604,22 @@ function App() {
             group={activeGroup}
             messageFeedRef={messageFeedRef}
             onAttachmentChange={handleGroupAttachmentChange}
+            onOpenGroupActions={(event) => {
+              scheduleActionAnchor(event.currentTarget, 'end', setGroupActionsAnchor)
+              setActiveGroupMessageId(null)
+              setForwardingGroupMessageText('')
+              setGroupMessageActionAnchor(null)
+              setGroupInviteOpen(false)
+              setGroupInviteError('')
+              setGroupInviteLimitNoticeOpen(false)
+              setGroupReportNoticeOpen(false)
+              setConfirmingLeaveGroupId(null)
+            }}
             onBack={closeActiveRoom}
-            onComposerFocus={closeGroupMessageActions}
+            onComposerFocus={() => {
+              closeGroupMessageActions()
+              closeGroupActions()
+            }}
             onDraftChange={(value) => updateGroupDraft(activeGroup.id, value)}
             onMessageSelect={(event, message) => {
               setActiveGroupMessageId(message.id)
@@ -5632,6 +6677,15 @@ function App() {
                 setChatActionsOpen(false)
               }}
               onReplyCancel={() => setReplyTarget(null)}
+              onRequestReportContact={() => {
+                setReportingChatId(activeChat.id)
+                setReportContactBusy(false)
+                setReportContactError('')
+                setChatActionsOpen(false)
+              }}
+              onToggleChatMuted={() => {
+                void toggleChatMuted(activeChat.id, !Boolean(activeChat.muted))
+              }}
               onRequestDeleteContact={() => {
                 setConfirmingDeleteContactChatId(activeChat.id)
                 setChatActionsOpen(false)
@@ -5769,6 +6823,72 @@ function App() {
                         <span>{chat.title}</span>
                       </button>
                     ))}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {reportingChat ? (
+              <>
+                <button
+                  type="button"
+                  className="room-confirm-scrim"
+                  aria-label="Закрыть жалобу на контакт"
+                  onClick={closeReportContactDialog}
+                />
+                <div className="room-confirm room-confirm-compact">
+                  <p className="room-confirm-copy">{`На что пожаловаться у контакта ${reportingChat.title}?`}</p>
+                  <div className="room-forward-list room-report-reason-list">
+                    {contactComplaintReasonOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className="room-forward-item room-report-reason-item"
+                        onClick={() => {
+                          void submitContactReport(reportingChat.id, option.value)
+                        }}
+                        disabled={reportContactBusy}
+                      >
+                        <span>{option.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {reportContactError ? <p className="auth-error">{reportContactError}</p> : null}
+                  <div className="room-confirm-actions room-confirm-actions-single">
+                    <button
+                      type="button"
+                      className="room-confirm-button"
+                      onClick={closeReportContactDialog}
+                      disabled={reportContactBusy}
+                    >
+                      {reportContactBusy ? 'Отправляем...' : 'Отмена'}
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {reportContactSuccessOpen ? (
+              <>
+                <button
+                  type="button"
+                  className="room-confirm-scrim"
+                  aria-label="Закрыть подтверждение жалобы"
+                  onClick={() => setReportContactSuccessOpen(false)}
+                />
+                <div className="room-confirm room-confirm-compact">
+                  <p className="room-confirm-copy">Жалоба отправлена.</p>
+                  <p className="settings-text room-confirm-note">
+                    Мы сохранили причину жалобы и учтём её при модерации этого контакта.
+                  </p>
+                  <div className="room-confirm-actions room-confirm-actions-single">
+                    <button
+                      type="button"
+                      className="room-confirm-button"
+                      onClick={() => setReportContactSuccessOpen(false)}
+                    >
+                      Понятно
+                    </button>
                   </div>
                 </div>
               </>

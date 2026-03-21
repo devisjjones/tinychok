@@ -68,6 +68,8 @@ export type OpenDirectDialogBody = {
   identifier: string
 }
 
+export type ComplaintReason = 'spam' | 'fraud' | 'very_unpleasant'
+
 export type MutationResponse = {
   snapshot: AppSnapshot
 }
@@ -98,11 +100,18 @@ export type SendDirectMessageBody = {
   markAsRead?: boolean
   replyTo?: Message['replyTo']
   sourceChannel?: Message['sourceChannel']
+  sourceGroup?: Message['sourceGroup']
   text: string
 }
 
 export type SetDialogFavoriteBody = {
   pinned: boolean
+}
+
+export type UpdateDialogBody = Partial<Pick<Chat, 'muted'>>
+
+export type ReportContactBody = {
+  reason: ComplaintReason
 }
 
 export type SetDialogPinnedMessageBody = {
@@ -115,6 +124,18 @@ export type SendGroupMessageBody = {
   forwardedAuthorName?: string
   sourceChannel?: Message['sourceChannel']
   text: string
+}
+
+export type UpdateGroupBody = Partial<Pick<GroupPreview, 'muted'>>
+
+export type InviteGroupMemberBody = {
+  dialogId: number
+}
+
+export type UpdateSubscriptionChannelBody = Partial<Pick<SubscriptionChannel, 'muted'>>
+
+export type ReportSubscriptionChannelBody = {
+  reason: ComplaintReason
 }
 
 export type CreateManagedChannelBody = {

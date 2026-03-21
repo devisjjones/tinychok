@@ -10,8 +10,11 @@ import type {
   CreateGroupBody,
   CreateManagedChannelBody,
   DiscoverySearchResponse,
+  InviteGroupMemberBody,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
+  ReportContactBody,
+  ReportSubscriptionChannelBody,
   RegisterBody,
   RequestCodeBody,
   SaveSnapshotBody,
@@ -19,7 +22,10 @@ import type {
   SetDialogPinnedMessageBody,
   SendDirectMessageBody,
   SendGroupMessageBody,
+  UpdateDialogBody,
+  UpdateGroupBody,
   UpdateManagedChannelBody,
+  UpdateSubscriptionChannelBody,
   UpdateSessionBody,
   VerifyCodeBody,
 } from '../../src/shared/backend'
@@ -249,6 +255,40 @@ app.post('/api/dialogs', async (request, reply) => {
   }
 })
 
+app.post('/api/dialogs/:dialogId/report', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const dialogId = getNumericRouteParam(request, 'dialogId')
+    const body = parseJsonPayload<ReportContactBody>(request.body)
+    const result = await store.reportContact(token, dialogId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.put('/api/dialogs/:dialogId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const dialogId = getNumericRouteParam(request, 'dialogId')
+    const body = parseJsonPayload<UpdateDialogBody>(request.body)
+    const result = await store.updateDialog(token, dialogId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.post('/api/media', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -473,6 +513,56 @@ app.post('/api/groups/:groupId/read', async (request, reply) => {
   }
 })
 
+app.put('/api/groups/:groupId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const body = parseJsonPayload<UpdateGroupBody>(request.body)
+    const result = await store.updateGroup(token, groupId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/groups/:groupId/invite', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const body = parseJsonPayload<InviteGroupMemberBody>(request.body)
+    const result = await store.inviteGroupMember(token, groupId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.delete('/api/groups/:groupId/membership', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const result = await store.leaveGroup(token, groupId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.delete('/api/groups/:groupId/messages/:messageId', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -551,6 +641,56 @@ app.post('/api/subscription-channels/:channelId/read', async (request, reply) =>
   try {
     const channelId = getNumericRouteParam(request, 'channelId')
     const result = await store.markSubscriptionChannelRead(token, channelId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.put('/api/subscription-channels/:channelId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const body = parseJsonPayload<UpdateSubscriptionChannelBody>(request.body)
+    const result = await store.updateSubscriptionChannel(token, channelId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.delete('/api/subscription-channels/:channelId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const result = await store.deleteSubscriptionChannel(token, channelId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/subscription-channels/:channelId/report', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const body = parseJsonPayload<ReportSubscriptionChannelBody>(request.body)
+    const result = await store.reportSubscriptionChannel(token, channelId, body)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {

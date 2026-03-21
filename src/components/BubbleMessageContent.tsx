@@ -3,7 +3,7 @@ import type { ChannelMessageSource, Message } from '../app/types'
 import { formatAttachmentSize, formatMessageAuthor, isImageMimeType } from '../app/utils'
 
 type BubbleMessageContentProps = {
-  message: Pick<Message, 'attachment' | 'replyTo' | 'text'>
+  message: Pick<Message, 'attachment' | 'replyTo' | 'sourceGroup' | 'text'>
   linkedChannel?: ChannelMessageSource | null
   onOpenLinkedChannel?: () => void
   replyChatTitle?: string
@@ -101,6 +101,21 @@ export function BubbleMessageContent({
       ) : null}
       {linkedChannel ? (
         <ForwardedChannelHeader sourceChannel={linkedChannel} onClick={onOpenLinkedChannel} />
+      ) : message.sourceGroup ? (
+        <div className="bubble-forwarded-source bubble-forwarded-source-group">
+          <span
+            className="avatar bubble-forwarded-source-avatar"
+            style={{ backgroundColor: message.sourceGroup.accent ?? '#8c5738' }}
+          >
+            {message.sourceGroup.title.slice(0, 1)}
+          </span>
+          <span className="bubble-forwarded-source-copy">
+            <span className="bubble-forwarded-source-title">{message.sourceGroup.title}</span>
+            <span className="chat-star bubble-forwarded-source-icon" aria-hidden="true">
+              <img src="/icons/group100.png" alt="" />
+            </span>
+          </span>
+        </div>
       ) : message.text.trim() ? (
         <p>{message.text}</p>
       ) : null}

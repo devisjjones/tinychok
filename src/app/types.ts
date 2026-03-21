@@ -22,8 +22,17 @@ export type ChannelMessageSource = {
   visibility?: SubscriptionChannel['visibility']
 }
 
+export type GroupMessageSource = {
+  accent?: string
+  creatorIdentifier?: string
+  handle?: string
+  sharedId?: string
+  title: string
+}
+
 export type GroupParticipant = {
   id: number
+  identifier?: string
   title: string
   accent: string
   online?: boolean
@@ -49,6 +58,7 @@ export type Message = {
   forwardedAuthorName?: string
   groupParticipantId?: number
   sourceChannel?: ChannelMessageSource
+  sourceGroup?: GroupMessageSource
 }
 
 export type ReplyTarget = {
@@ -69,6 +79,7 @@ export type Chat = {
   lastSeen?: string
   typing?: boolean
   unread: number
+  muted?: boolean
   pinned?: boolean
   premium?: boolean
   pinnedMessageId?: number
@@ -93,6 +104,7 @@ export type SubscriptionChannel = {
   preview: string
   time: string
   unread: number
+  muted?: boolean
   draft?: boolean
   visibility: 'private' | 'public' | 'closed'
   posts: ChannelPost[]
@@ -103,7 +115,10 @@ export type GroupPreview = {
   title: string
   handle: string
   accent: string
+  creatorIdentifier?: string
+  muted?: boolean
   preview: string
+  sharedId?: string
   time: string
   unread: number
   members: number

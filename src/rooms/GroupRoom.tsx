@@ -14,6 +14,7 @@ type GroupRoomProps = {
   group: GroupPreview
   messageFeedRef: RefObject<HTMLDivElement | null>
   onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
+  onOpenGroupActions: (event: MouseEvent<HTMLButtonElement>) => void
   onBack: () => void
   onComposerFocus: () => void
   onDraftChange: (value: string) => void
@@ -36,6 +37,7 @@ export function GroupRoom({
   group,
   messageFeedRef,
   onAttachmentChange,
+  onOpenGroupActions,
   onBack,
   onComposerFocus,
   onDraftChange,
@@ -99,14 +101,19 @@ export function GroupRoom({
               {group.title.slice(0, 1)}
             </span>
             <div>
-              <div className="room-title">
-                <div className="room-title-name">
-                  <h3>{group.title}</h3>
-                  <span className="chat-star">
-                    <img src="/icons/group100.png" alt="Группа" />
-                  </span>
+                <div className="room-title">
+                  <div className="room-title-name">
+                    <h3>{group.title}</h3>
+                    {group.muted ? (
+                      <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                        <img src="/icons/bell-100.png" alt="" />
+                      </span>
+                    ) : null}
+                    <span className="chat-star">
+                      <img src="/icons/group100.png" alt="Группа" />
+                    </span>
+                  </div>
                 </div>
-              </div>
               <button
                 type="button"
                 className="room-members-link"
@@ -116,6 +123,17 @@ export function GroupRoom({
               </button>
             </div>
           </div>
+          <button
+            type="button"
+            className="soft-button icon-button room-group-actions-toggle"
+            onClick={onOpenGroupActions}
+            aria-label="Действия группы"
+            title="Действия группы"
+          >
+            <span className="room-group-actions-dots" aria-hidden="true">
+              ...
+            </span>
+          </button>
         </header>
 
         <div className="message-feed" ref={messageFeedRef}>

@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
+  defaultGroupMemberLimit,
   displayNameFieldMaxLength,
   managedChannelsPerUserLimit,
+  premiumGroupMemberLimit,
   surnameFieldMaxLength,
 } from '../../src/app/constants'
 import {
@@ -17,6 +19,7 @@ import type {
   Account,
   Channel,
   Chat,
+  GroupParticipant,
   GroupPreview,
   Message,
   SearchResult,
@@ -40,16 +43,23 @@ import {
 } from '../../src/app/utils'
 import type {
   AppSnapshot,
+  ComplaintReason,
   CreateGroupBody,
   CreateManagedChannelBody,
+  InviteGroupMemberBody,
   OpenDirectDialogBody,
+  ReportContactBody,
+  ReportSubscriptionChannelBody,
   RegisterBody,
   RequestCodeResponse,
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
   SendDirectMessageBody,
   SendGroupMessageBody,
+  UpdateDialogBody,
+  UpdateGroupBody,
   UpdateManagedChannelBody,
+  UpdateSubscriptionChannelBody,
   UpdateSessionBody,
   VerifyCodeResponse,
 } from '../../src/shared/backend'
@@ -101,6 +111,20 @@ type AuthChallenge = {
   identifier: string
 }
 
+type ContactReportRecord = {
+  createdAt: string
+  reason: ComplaintReason
+  reporterIdentifier: string
+  targetIdentifier: string
+}
+
+type SubscriptionChannelReportRecord = {
+  createdAt: string
+  reason: ComplaintReason
+  reporterIdentifier: string
+  targetHandle: string
+}
+
 type LegacyAccountState = {
   channels: Channel[]
   chats: Chat[]
@@ -115,12 +139,14 @@ type LegacyPersistedAccount = Account & {
 export type Database = {
   accounts: Account[]
   authChallenges: AuthChallenge[]
+  contactReports: ContactReportRecord[]
   dialogs: PersistedDialog[]
   dialogMessages: PersistedDialogMessage[]
   groupMessages: PersistedGroupMessage[]
   groups: PersistedGroup[]
   managedChannels: PersistedManagedChannel[]
   sessions: SessionRecord[]
+  subscriptionChannelReports: SubscriptionChannelReportRecord[]
   subscriptionChannels: PersistedSubscriptionChannel[]
   subscriptionPosts: PersistedSubscriptionPost[]
 }
@@ -153,6 +179,9 @@ const DEMO_AUTH_CODE = '1111'
 export const DEFAULT_DATA_FILE = resolve(process.cwd(), 'server/data/dev-db.json')
 const FALLBACK_CHAT_ACCENT = '#8c5738'
 const CHAT_ACCENT_PALETTE = Array.from(new Set(initialChats.map((chat) => chat.accent)))
+const CONTACT_REPORT_BLOCK_THRESHOLD = 10
+const CONTACT_REPORT_BLOCK_MESSAGE =
+  'На ваш аккаунт поступило много жалоб, поэтому вход временно заблокирован. Если произошла ошибка, напишите в поддержку и укажите email: devisjjones@gmail.com'
 const RESTRICTED_TEST_PHONE_MESSAGE =
   'Этот номер пока не добавлен в список тестеров. Попросите владельца проекта добавить его в staging allowlist.'
 
@@ -164,12 +193,14 @@ function createDefaultDatabase(): Database {
   return {
     accounts: [],
     authChallenges: [],
+    contactReports: [],
     dialogs: [],
     dialogMessages: [],
     groupMessages: [],
     groups: [],
     managedChannels: [],
     sessions: [],
+    subscriptionChannelReports: [],
     subscriptionChannels: [],
     subscriptionPosts: [],
   }
@@ -284,8 +315,33 @@ function sanitizeSourceChannel(
   }
 }
 
+function sanitizeSourceGroup(
+  sourceGroup?: Message['sourceGroup'],
+): Message['sourceGroup'] | undefined {
+  const title = sanitizeGroupTitle(sourceGroup?.title ?? '')
+  if (!title) return undefined
+
+  return {
+    accent: sourceGroup?.accent?.trim() || undefined,
+    creatorIdentifier: sourceGroup?.creatorIdentifier
+      ? normalizeIdentifier(sourceGroup.creatorIdentifier) || undefined
+      : undefined,
+    handle: sourceGroup?.handle ? sanitizeGroupHandle(sourceGroup.handle, 1) : undefined,
+    sharedId: sourceGroup?.sharedId?.trim() || undefined,
+    title,
+  }
+}
+
 function sanitizeForwardedAuthorName(value?: string) {
   return sanitizePersonField(value ?? '', displayNameFieldMaxLength)
+}
+
+function sanitizeComplaintReason(value: ComplaintReason | undefined) {
+  if (value === 'spam' || value === 'fraud' || value === 'very_unpleasant') {
+    return value
+  }
+
+  throw new Error('Некорректная причина жалобы.')
 }
 
 function buildAccountHandle(account: Account) {
@@ -317,6 +373,29 @@ function invertMessageAuthor(author: Message['author']) {
   return author === 'me' ? 'them' : 'me'
 }
 
+function getGroupMemberLimit(account?: Pick<Account, 'premium' | 'premiumExpiresAt'> | null) {
+  return hasActivePremium(account?.premium, account?.premiumExpiresAt)
+    ? premiumGroupMemberLimit
+    : defaultGroupMemberLimit
+}
+
+function getStableParticipantId(identifier: string) {
+  const normalizedIdentifier = normalizeIdentifier(identifier)
+  const digitsOnly = normalizedIdentifier.replace(/[^\d]/g, '')
+
+  if (digitsOnly) {
+    return Number.parseInt(digitsOnly.slice(-9), 10)
+  }
+
+  let hash = 0
+
+  for (let index = 0; index < normalizedIdentifier.length; index += 1) {
+    hash = (hash * 31 + normalizedIdentifier.charCodeAt(index)) | 0
+  }
+
+  return Math.max(1, Math.abs(hash))
+}
+
 function toPersistedDialog(ownerIdentifier: string, chat: Chat): PersistedDialog {
   return {
     accent: chat.accent,
@@ -327,6 +406,7 @@ function toPersistedDialog(ownerIdentifier: string, chat: Chat): PersistedDialog
     online: chat.online,
     ownerIdentifier,
     phone: chat.phone,
+    muted: chat.muted ?? false,
     pinned: chat.pinned,
     pinnedMessageId: chat.pinnedMessageId,
     premium: chat.premium,
@@ -352,12 +432,15 @@ function toPersistedDialogMessage(
 function toPersistedGroup(ownerIdentifier: string, group: GroupPreview): PersistedGroup {
   return {
     accent: group.accent,
+    creatorIdentifier: group.creatorIdentifier?.trim() || ownerIdentifier,
     handle: group.handle,
     id: group.id,
     members: group.members,
+    muted: group.muted ?? false,
     ownerIdentifier,
     participants: group.participants,
     preview: group.preview,
+    sharedId: group.sharedId?.trim() || `${ownerIdentifier}:${group.id}`,
     time: group.time,
     title: group.title,
     unread: group.unread,
@@ -395,6 +478,7 @@ function toPersistedSubscriptionChannel(
     draft: channel.draft,
     handle: channel.handle,
     id: channel.id,
+    muted: channel.muted ?? false,
     ownerIdentifier,
     preview: channel.preview,
     readers: channel.readers ?? 0,
@@ -424,6 +508,7 @@ function materializeDialog(dialog: PersistedDialog): Omit<PersistedDialog, 'owne
     id: dialog.id,
     lastSeen: dialog.lastSeen,
     mood: dialog.mood,
+    muted: Boolean(dialog.muted),
     online: dialog.online,
     phone: dialog.phone,
     pinned: dialog.pinned,
@@ -451,6 +536,7 @@ function materializeDialogMessage(
     readAt: message.readAt,
     replyTo: message.replyTo,
     sourceChannel: message.sourceChannel,
+    sourceGroup: message.sourceGroup,
     text: message.text,
     time: message.time,
   }
@@ -462,11 +548,14 @@ function materializeGroup(group: PersistedGroup): Omit<PersistedGroup, 'ownerIde
 
   return {
     accent: group.accent,
+    creatorIdentifier: group.creatorIdentifier ?? group.ownerIdentifier,
     handle: group.handle,
     id: group.id,
     members: group.members,
+    muted: Boolean(group.muted),
     participants: group.participants ?? fallbackParticipants,
     preview: group.preview,
+    sharedId: group.sharedId ?? `${group.ownerIdentifier}:${group.id}`,
     time: group.time,
     title: group.title,
     unread: group.unread,
@@ -489,6 +578,7 @@ function materializeGroupMessage(
     readAt: message.readAt,
     replyTo: message.replyTo,
     sourceChannel: message.sourceChannel,
+    sourceGroup: message.sourceGroup,
     text: message.text,
     time: message.time,
   }
@@ -504,6 +594,7 @@ function getMessageReadReceiptKey(
     | 'forwardedAuthorName'
     | 'replyTo'
     | 'sourceChannel'
+    | 'sourceGroup'
     | 'text'
     | 'time'
   >,
@@ -523,6 +614,7 @@ function getMessageReadReceiptKey(
     replyAuthor: message.replyTo?.author ?? '',
     replyText: message.replyTo?.text ?? '',
     sourceChannelTitle: message.sourceChannel?.title ?? '',
+    sourceGroupTitle: message.sourceGroup?.title ?? '',
     text: message.text,
     time: message.time,
   })
@@ -551,6 +643,7 @@ function materializeSubscriptionChannel(
     draft: channel.draft,
     handle: channel.handle,
     id: channel.id,
+    muted: Boolean(channel.muted),
     preview: channel.preview,
     readers: channel.readers ?? 0,
     time: channel.time,
@@ -615,7 +708,9 @@ function isLegacyDatabase(
 function migrateLegacyDatabase(value: LegacyDatabase): Database {
   const nextDatabase = createDefaultDatabase()
   nextDatabase.authChallenges = value.authChallenges ?? []
+  nextDatabase.contactReports = []
   nextDatabase.sessions = value.sessions ?? []
+  nextDatabase.subscriptionChannelReports = []
 
   for (const legacyAccount of value.accounts ?? []) {
     nextDatabase.accounts.push({
@@ -773,6 +868,10 @@ export class TinychokStore {
     }
 
     this.assertValidChallenge(normalizedIdentifier, code)
+
+    if (this.isIdentifierBlockedByReports(normalizedIdentifier)) {
+      throw new Error(CONTACT_REPORT_BLOCK_MESSAGE)
+    }
 
     const existingAccount = this.findAccount(normalizedIdentifier)
     if (!existingAccount) {
@@ -1049,7 +1148,9 @@ export class TinychokStore {
 
     const text = sanitizeMessageText(payload.text)
     const attachment = sanitizeMessageAttachment(payload.attachment)
-    if (!text && !attachment) {
+    const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
+    const sourceGroup = sanitizeSourceGroup(payload.sourceGroup)
+    if (!text && !attachment && !sourceChannel && !sourceGroup) {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
 
@@ -1060,7 +1161,6 @@ export class TinychokStore {
         }
       : undefined
     const forwardedAuthorName = sanitizeForwardedAuthorName(payload.forwardedAuthorName)
-    const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
     const createdAt = new Date().toISOString()
     const deliveryId = randomUUID()
     const time = formatNowTime()
@@ -1085,6 +1185,7 @@ export class TinychokStore {
       ownerIdentifier: account.identifier,
       replyTo: senderReplyTo,
       sourceChannel,
+      sourceGroup,
       text,
       createdAt,
       deliveryId,
@@ -1118,6 +1219,7 @@ export class TinychokStore {
         ownerIdentifier: recipientAccount.identifier,
         replyTo: recipientReplyTo,
         sourceChannel,
+        sourceGroup,
         text,
         createdAt,
         deliveryId,
@@ -1125,7 +1227,7 @@ export class TinychokStore {
       })
 
       recipientDialog.typing = false
-      recipientDialog.unread += 1
+      recipientDialog.unread = recipientDialog.muted ? 0 : recipientDialog.unread + 1
       this.syncDialogContactProfile(recipientDialog, account)
       broadcastIdentifiers.push(recipientAccount.identifier)
     }
@@ -1154,6 +1256,83 @@ export class TinychokStore {
     }
 
     dialog.pinned = payload.pinned
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async reportContact(
+    token: string,
+    dialogId: number,
+    payload: ReportContactBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const dialog = this.findDialog(account.identifier, dialogId)
+    if (!dialog) {
+      throw new Error('Диалог не найден.')
+    }
+
+    const targetIdentifier = normalizeIdentifier(dialog.phone)
+    if (!targetIdentifier || targetIdentifier === account.identifier) {
+      throw new Error('Некорректный контакт для жалобы.')
+    }
+
+    const reason = sanitizeComplaintReason(payload.reason)
+    const existingReport = this.database.contactReports.find(
+      (report) =>
+        report.reporterIdentifier === account.identifier &&
+        report.targetIdentifier === targetIdentifier,
+    )
+
+    if (existingReport) {
+      existingReport.createdAt = new Date().toISOString()
+      existingReport.reason = reason
+    } else {
+      this.database.contactReports.push({
+        createdAt: new Date().toISOString(),
+        reason,
+        reporterIdentifier: account.identifier,
+        targetIdentifier,
+      })
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async updateDialog(
+    token: string,
+    dialogId: number,
+    payload: UpdateDialogBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const dialog = this.findDialog(account.identifier, dialogId)
+    if (!dialog) {
+      throw new Error('Диалог не найден.')
+    }
+
+    if (payload.muted !== undefined) {
+      dialog.muted = Boolean(payload.muted)
+      if (dialog.muted) {
+        dialog.unread = 0
+      }
+    }
+
     await this.persist()
 
     return {
@@ -1322,30 +1501,46 @@ export class TinychokStore {
     }
 
     const createdAt = new Date().toISOString()
+    const deliveryId = randomUUID()
     const time = formatNowTime()
+    const sharedId = this.getSharedGroupId(group)
+    const senderParticipant = group.participants.find(
+      (participant) => normalizeIdentifier(participant.identifier ?? '') === account.identifier,
+    ) ?? this.buildGroupParticipant(account)
+    const groupCopies = this.listGroupCopies(sharedId)
 
-    this.database.groupMessages.push({
-      attachment,
-      author: 'me',
-      createdAt,
-      forwarded: payload.forwarded,
-      forwardedAuthorName,
-      groupId,
-      id: this.getNextGroupMessageId(account.identifier, groupId),
-      ownerIdentifier: account.identifier,
-      sourceChannel,
-      text,
-      time,
-    })
+    for (const groupCopy of groupCopies) {
+      this.database.groupMessages.push({
+        attachment,
+        author: groupCopy.ownerIdentifier === account.identifier ? 'me' : 'them',
+        createdAt,
+        deliveryId,
+        displayAuthor:
+          groupCopy.ownerIdentifier === account.identifier ? undefined : senderParticipant.title,
+        forwarded: payload.forwarded,
+        forwardedAuthorName,
+        groupId: groupCopy.id,
+        groupParticipantId:
+          groupCopy.ownerIdentifier === account.identifier ? undefined : senderParticipant.id,
+        id: this.getNextGroupMessageId(groupCopy.ownerIdentifier, groupCopy.id),
+        ownerIdentifier: groupCopy.ownerIdentifier,
+        sourceChannel,
+        text,
+        time,
+      })
 
-    group.preview = text || (attachment ? `Файл: ${attachment.fileName}` : group.preview)
-    group.time = time
-    group.unread = 0
+      groupCopy.preview = text || (attachment ? `Файл: ${attachment.fileName}` : groupCopy.preview)
+      groupCopy.time = time
+      groupCopy.unread =
+        groupCopy.ownerIdentifier === account.identifier || groupCopy.muted
+          ? 0
+          : groupCopy.unread + 1
+    }
 
     await this.persist()
 
     return {
-      broadcastIdentifiers: [account.identifier],
+      broadcastIdentifiers: [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -1380,19 +1575,226 @@ export class TinychokStore {
       throw new Error('Можно удалять только свои сообщения.')
     }
 
-    this.database.groupMessages = this.database.groupMessages.filter(
-      (candidate) =>
-        !(
-          candidate.ownerIdentifier === account.identifier &&
-          candidate.groupId === groupId &&
-          candidate.id === messageId
-        ),
-    )
+    const sharedId = this.getSharedGroupId(group)
+    const groupCopies = this.listGroupCopies(sharedId)
+    const groupCopyIds = new Set(groupCopies.map((groupCopy) => `${groupCopy.ownerIdentifier}:${groupCopy.id}`))
+    const messageReceiptKey = getMessageReadReceiptKey(message)
+
+    this.database.groupMessages = this.database.groupMessages.filter((candidate) => {
+      if (!groupCopyIds.has(`${candidate.ownerIdentifier}:${candidate.groupId}`)) {
+        return true
+      }
+
+      if (message.deliveryId?.trim()) {
+        return candidate.deliveryId !== message.deliveryId
+      }
+
+      return getMessageReadReceiptKey(candidate) !== messageReceiptKey
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async updateGroup(
+    token: string,
+    groupId: number,
+    payload: UpdateGroupBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const group = this.findGroup(account.identifier, groupId)
+    if (!group) {
+      throw new Error('Группа не найдена.')
+    }
+
+    if (payload.muted !== undefined) {
+      group.muted = Boolean(payload.muted)
+    }
 
     await this.persist()
 
     return {
       broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async inviteGroupMember(
+    token: string,
+    groupId: number,
+    payload: InviteGroupMemberBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const group = this.findGroup(account.identifier, groupId)
+    if (!group) {
+      throw new Error('Группа не найдена.')
+    }
+
+    const dialog = this.findDialog(account.identifier, payload.dialogId)
+    if (!dialog) {
+      throw new Error('Контакт не найден.')
+    }
+
+    const recipientIdentifier = normalizeIdentifier(dialog.phone)
+    if (!recipientIdentifier || recipientIdentifier === account.identifier) {
+      throw new Error('Нельзя пригласить этого пользователя в группу.')
+    }
+
+    const recipientAccount = this.findAccount(recipientIdentifier)
+    if (!recipientAccount) {
+      throw new Error('Аккаунт контакта не найден.')
+    }
+
+    const recipientTitle = formatAccountName(recipientAccount) || recipientAccount.identifier
+    const alreadyParticipant = group.participants.some(
+      (participant) =>
+        normalizeIdentifier(participant.identifier ?? '') === recipientIdentifier ||
+        participant.title === recipientTitle,
+    )
+    if (alreadyParticipant) {
+      throw new Error('Этот контакт уже состоит в группе.')
+    }
+
+    const creatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? group.ownerIdentifier)
+    const creatorAccount = this.findAccount(creatorIdentifier) ?? account
+    const memberLimit = getGroupMemberLimit(creatorAccount)
+    const currentMemberCount = group.participants.length
+
+    if (currentMemberCount >= memberLimit) {
+      throw new Error(
+        memberLimit === premiumGroupMemberLimit
+          ? `Даже с премиумом владельца в группе может быть максимум ${premiumGroupMemberLimit} человек.`
+          : `Максимальный размер одной группы — ${defaultGroupMemberLimit} человек. Чтобы приглашать больше людей, необходимо активировать премиум владельцу группы.`,
+      )
+    }
+
+    const nextParticipants = group.participants
+      .map((participant) => this.cloneGroupParticipant(participant))
+      .concat(this.buildGroupParticipant(recipientAccount))
+    const sharedId = this.getSharedGroupId(group)
+    const existingGroupCopies = this.listGroupCopies(sharedId)
+
+    this.ensureGroupCopyForOwner(group, recipientAccount.identifier, nextParticipants)
+    this.syncGroupCopiesParticipants(sharedId, nextParticipants)
+
+    const senderDialog = this.ensureDialogForContact(account.identifier, recipientAccount)
+    const recipientDialog = this.ensureDialogForContact(recipientAccount.identifier, account)
+    const createdAt = new Date().toISOString()
+    const deliveryId = randomUUID()
+    const time = formatNowTime()
+    const sourceGroup = this.buildGroupInviteSource(group)
+
+    this.database.dialogMessages.push({
+      author: 'me',
+      createdAt,
+      deliveryId,
+      dialogId: senderDialog.id,
+      id: this.getNextDialogMessageId(account.identifier, senderDialog.id),
+      ownerIdentifier: account.identifier,
+      sourceGroup,
+      text: '',
+      time,
+    })
+
+    this.database.dialogMessages.push({
+      author: 'them',
+      createdAt,
+      deliveryId,
+      dialogId: recipientDialog.id,
+      id: this.getNextDialogMessageId(recipientAccount.identifier, recipientDialog.id),
+      ownerIdentifier: recipientAccount.identifier,
+      sourceGroup,
+      text: '',
+      time,
+    })
+
+    senderDialog.typing = false
+    senderDialog.unread = 0
+    senderDialog.status = 'только что был(а) здесь'
+    recipientDialog.typing = false
+    recipientDialog.unread += 1
+    this.syncDialogContactProfile(recipientDialog, account)
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...new Set(
+        existingGroupCopies
+          .map((groupCopy) => groupCopy.ownerIdentifier)
+          .concat(account.identifier, recipientAccount.identifier),
+      )],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async leaveGroup(token: string, groupId: number): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const group = this.findGroup(account.identifier, groupId)
+    if (!group) {
+      throw new Error('Группа не найдена.')
+    }
+
+    const sharedId = this.getSharedGroupId(group)
+    const creatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? group.ownerIdentifier)
+    const groupCopies = this.listGroupCopies(sharedId)
+
+    if (creatorIdentifier === account.identifier) {
+      const groupCopyKeys = new Set(groupCopies.map((groupCopy) => `${groupCopy.ownerIdentifier}:${groupCopy.id}`))
+      this.database.groups = this.database.groups.filter(
+        (candidate) => this.getSharedGroupId(candidate) !== sharedId,
+      )
+      this.database.groupMessages = this.database.groupMessages.filter(
+        (candidate) => !groupCopyKeys.has(`${candidate.ownerIdentifier}:${candidate.groupId}`),
+      )
+
+      await this.persist()
+
+      return {
+        broadcastIdentifiers: [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    const nextParticipants = group.participants.filter(
+      (participant) => normalizeIdentifier(participant.identifier ?? '') !== account.identifier,
+    )
+    const currentGroupCopyKeys = new Set(groupCopies.map((groupCopy) => `${groupCopy.ownerIdentifier}:${groupCopy.id}`))
+
+    this.database.groups = this.database.groups.filter(
+      (candidate) =>
+        !(
+          candidate.ownerIdentifier === account.identifier &&
+          this.getSharedGroupId(candidate) === sharedId
+        ),
+    )
+    this.database.groupMessages = this.database.groupMessages.filter(
+      (candidate) => !(candidate.ownerIdentifier === account.identifier && currentGroupCopyKeys.has(`${candidate.ownerIdentifier}:${candidate.groupId}`)),
+    )
+    this.syncGroupCopiesParticipants(sharedId, nextParticipants)
+
+    const remainingCopies = this.listGroupCopies(sharedId)
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...new Set(
+        remainingCopies.map((groupCopy) => groupCopy.ownerIdentifier).concat(account.identifier),
+      )],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -1500,6 +1902,109 @@ export class TinychokStore {
     }
 
     channel.unread = 0
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async updateSubscriptionChannel(
+    token: string,
+    channelId: number,
+    payload: UpdateSubscriptionChannelBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const channel = this.findSubscriptionChannel(account.identifier, channelId)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+
+    if (payload.muted !== undefined) {
+      channel.muted = Boolean(payload.muted)
+      if (channel.muted) {
+        channel.unread = 0
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async deleteSubscriptionChannel(
+    token: string,
+    channelId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const hasChannel = this.database.subscriptionChannels.some(
+      (channel) => channel.ownerIdentifier === account.identifier && channel.id === channelId,
+    )
+    if (!hasChannel) {
+      throw new Error('Канал не найден.')
+    }
+
+    this.database.subscriptionChannels = this.database.subscriptionChannels.filter(
+      (channel) => !(channel.ownerIdentifier === account.identifier && channel.id === channelId),
+    )
+    this.database.subscriptionPosts = this.database.subscriptionPosts.filter(
+      (post) => !(post.ownerIdentifier === account.identifier && post.channelId === channelId),
+    )
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async reportSubscriptionChannel(
+    token: string,
+    channelId: number,
+    payload: ReportSubscriptionChannelBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const channel = this.findSubscriptionChannel(account.identifier, channelId)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+
+    const reason = sanitizeComplaintReason(payload.reason)
+    const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
+    const existingReport = this.database.subscriptionChannelReports.find(
+      (report) =>
+        report.reporterIdentifier === account.identifier && report.targetHandle === normalizedHandle,
+    )
+
+    if (existingReport) {
+      existingReport.createdAt = new Date().toISOString()
+      existingReport.reason = reason
+    } else {
+      this.database.subscriptionChannelReports.push({
+        createdAt: new Date().toISOString(),
+        reason,
+        reporterIdentifier: account.identifier,
+        targetHandle: normalizedHandle,
+      })
+    }
+
     await this.persist()
 
     return {
@@ -1688,26 +2193,22 @@ export class TinychokStore {
       (group) => group.ownerIdentifier === account.identifier,
     ).length + 1
     const title = sanitizeGroupTitle(payload.title) || `Новая группа ${groupNumber}`
+    const creatorParticipant = this.buildGroupParticipant(account)
+    const sharedId = randomUUID()
 
     this.database.groups.push({
       accent: payload.accent?.trim() || pickAccentForIdentifier(`${account.identifier}${groupId}`),
+      creatorIdentifier: account.identifier,
       handle: payload.handle?.trim()
         ? sanitizeGroupHandle(payload.handle, groupId)
         : buildGroupHandle(title, groupId),
       id: groupId,
       members: 1,
+      muted: false,
       ownerIdentifier: account.identifier,
-      participants: [
-        {
-          accent: pickAccentForIdentifier(account.identifier),
-          id: groupId * 10_000 + 1,
-          online: this.hasActiveSession(account.identifier),
-          premium: hasActivePremium(account.premium, account.premiumExpiresAt),
-          status: account.status?.trim() || (this.hasActiveSession(account.identifier) ? 'в сети' : 'был(а) недавно в сети'),
-          title: account.displayName,
-        },
-      ],
+      participants: [creatorParticipant],
       preview: 'Новая группа готова. Можно начинать обсуждение.',
+      sharedId,
       time: formatNowTime(),
       title,
       unread: 0,
@@ -1781,6 +2282,17 @@ export class TinychokStore {
     return this.database.accounts.find((account) => account.identifier === identifier) ?? null
   }
 
+  private getContactReportCount(identifier: string) {
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    return this.database.contactReports.filter(
+      (report) => report.targetIdentifier === normalizedIdentifier,
+    ).length
+  }
+
+  private isIdentifierBlockedByReports(identifier: string) {
+    return this.getContactReportCount(identifier) > CONTACT_REPORT_BLOCK_THRESHOLD
+  }
+
   private findAccountByToken(token: string) {
     const identifier = this.getIdentifierByToken(token)
     return identifier ? this.findAccount(identifier) : null
@@ -1836,6 +2348,93 @@ export class TinychokStore {
         (group) => group.ownerIdentifier === ownerIdentifier && group.id === groupId,
       ) ?? null
     )
+  }
+
+  private getSharedGroupId(group: Pick<PersistedGroup, 'id' | 'ownerIdentifier' | 'sharedId'>) {
+    return group.sharedId?.trim() || `${group.ownerIdentifier}:${group.id}`
+  }
+
+  private listGroupCopies(sharedId: string) {
+    return this.database.groups.filter((group) => this.getSharedGroupId(group) === sharedId)
+  }
+
+  private buildGroupParticipant(account: Account): GroupParticipant {
+    const online = this.hasActiveSession(account.identifier)
+
+    return {
+      accent: pickAccentForIdentifier(account.identifier),
+      id: getStableParticipantId(account.identifier),
+      identifier: account.identifier,
+      online,
+      premium: hasActivePremium(account.premium, account.premiumExpiresAt),
+      status: account.status?.trim() || (online ? 'в сети' : 'был(а) недавно в сети'),
+      title: formatAccountName(account) || account.identifier,
+    }
+  }
+
+  private cloneGroupParticipant(participant: GroupParticipant): GroupParticipant {
+    return { ...participant }
+  }
+
+  private syncGroupCopiesParticipants(sharedId: string, participants: GroupParticipant[]) {
+    for (const group of this.listGroupCopies(sharedId)) {
+      group.members = participants.length
+      group.participants = participants.map((participant) => this.cloneGroupParticipant(participant))
+    }
+  }
+
+  private ensureGroupCopyForOwner(
+    sourceGroup: PersistedGroup,
+    ownerIdentifier: string,
+    participants: GroupParticipant[],
+  ) {
+    const sharedId = this.getSharedGroupId(sourceGroup)
+    const existingGroup = this.database.groups.find(
+      (group) =>
+        group.ownerIdentifier === ownerIdentifier && this.getSharedGroupId(group) === sharedId,
+    )
+
+    if (existingGroup) {
+      existingGroup.accent = sourceGroup.accent
+      existingGroup.creatorIdentifier = sourceGroup.creatorIdentifier ?? sourceGroup.ownerIdentifier
+      existingGroup.handle = sourceGroup.handle
+      existingGroup.members = participants.length
+      existingGroup.participants = participants.map((participant) => this.cloneGroupParticipant(participant))
+      existingGroup.preview = sourceGroup.preview
+      existingGroup.sharedId = sharedId
+      existingGroup.time = sourceGroup.time
+      existingGroup.title = sourceGroup.title
+      return existingGroup
+    }
+
+    const nextGroup: PersistedGroup = {
+      accent: sourceGroup.accent,
+      creatorIdentifier: sourceGroup.creatorIdentifier ?? sourceGroup.ownerIdentifier,
+      handle: sourceGroup.handle,
+      id: this.getNextOwnedId(this.database.groups, ownerIdentifier),
+      members: participants.length,
+      muted: false,
+      ownerIdentifier,
+      participants: participants.map((participant) => this.cloneGroupParticipant(participant)),
+      preview: sourceGroup.preview,
+      sharedId,
+      time: sourceGroup.time,
+      title: sourceGroup.title,
+      unread: 0,
+    }
+
+    this.database.groups.push(nextGroup)
+    return nextGroup
+  }
+
+  private buildGroupInviteSource(group: PersistedGroup): NonNullable<Message['sourceGroup']> {
+    return {
+      accent: group.accent,
+      creatorIdentifier: group.creatorIdentifier ?? group.ownerIdentifier,
+      handle: group.handle,
+      sharedId: this.getSharedGroupId(group),
+      title: group.title,
+    }
   }
 
   private findSubscriptionChannel(ownerIdentifier: string, channelId: number) {
@@ -1900,6 +2499,7 @@ export class TinychokStore {
       id: this.getNextOwnedId(this.database.dialogs, ownerIdentifier),
       lastSeen: undefined,
       mood: contactAccount.status?.trim() || 'На связи',
+      muted: false,
       online: this.hasActiveSession(contactAccount.identifier),
       ownerIdentifier,
       phone: contactAccount.identifier,
@@ -2017,12 +2617,14 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
       ...normalized,
       accounts: normalized.accounts ?? [],
       authChallenges: normalized.authChallenges ?? [],
+      contactReports: normalized.contactReports ?? [],
       dialogs: normalized.dialogs ?? [],
       dialogMessages: normalized.dialogMessages ?? [],
       groupMessages: normalized.groupMessages ?? [],
       groups: normalized.groups ?? [],
       managedChannels: normalized.managedChannels ?? [],
       sessions: normalized.sessions ?? [],
+      subscriptionChannelReports: normalized.subscriptionChannelReports ?? [],
       subscriptionChannels: normalized.subscriptionChannels ?? [],
       subscriptionPosts: normalized.subscriptionPosts ?? [],
     } satisfies Database,

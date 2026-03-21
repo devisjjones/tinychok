@@ -38,6 +38,8 @@ type DirectChatRoomProps = {
   onReplyCancel: () => void
   onRequestDeleteContact: () => void
   onRequestDeleteHistory: () => void
+  onRequestReportContact: () => void
+  onToggleChatMuted: () => void
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   onSubmit: () => void | Promise<void>
   onToggleChatActions: () => void
@@ -70,6 +72,8 @@ export function DirectChatRoom({
   onReplyCancel,
   onRequestDeleteContact,
   onRequestDeleteHistory,
+  onRequestReportContact,
+  onToggleChatMuted,
   resolveLinkedChannelFromMessage,
   onSubmit,
   onToggleChatActions,
@@ -114,6 +118,11 @@ export function DirectChatRoom({
             <div className="room-title">
               <div className="room-title-name">
                 <h3>{activeChat.title}</h3>
+                {activeChat.muted ? (
+                  <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                    <img src="/icons/bell-100.png" alt="" />
+                  </span>
+                ) : null}
                 {activeChat.premium ? (
                   <span className="premium-crown room-crown" aria-label="Премиум">
                     <img src="/icons/crown64.png" alt="" />
@@ -153,6 +162,13 @@ export function DirectChatRoom({
               <div className="room-menu">
                 <button
                   type="button"
+                  className="room-menu-item"
+                  onClick={onToggleChatMuted}
+                >
+                  {activeChat.muted ? 'Включить уведомления' : 'Заглушить'}
+                </button>
+                <button
+                  type="button"
                   className="room-menu-item room-menu-item-premium"
                   onClick={onOpenPremiumGift}
                 >
@@ -161,6 +177,13 @@ export function DirectChatRoom({
                 </button>
                 <button type="button" className="room-menu-item danger" onClick={onBlockChat}>
                   Заблокировать
+                </button>
+                <button
+                  type="button"
+                  className="room-menu-item danger"
+                  onClick={onRequestReportContact}
+                >
+                  Пожаловаться
                 </button>
                 <button
                   type="button"

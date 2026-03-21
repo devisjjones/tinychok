@@ -123,6 +123,8 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           <ForwardedChannelHeader sourceChannel={props.message.sourceChannel} />
           <span className="bubble-meta">Переслано</span>
         </>
+      ) : props.message.sourceGroup ? (
+        <span className="bubble-meta">Приглашение в группу</span>
       ) : null}
       <BubbleMessageContent
         linkedChannel={props.linkedChannel}
