@@ -27,9 +27,11 @@
   - `api.staging.tinychok.ru -> 158.160.197.255`
   - `staging.tinychok.ru -> 158.160.197.255`
 - внешние резолверы `1.1.1.1` и `8.8.8.8` видят staging-поддомены на `158.160.197.255`
-- staging VM обновлена до commit `4fde821` (`Add legal pages and polish messaging UI`)
+- staging VM подтверждённо была обновлена до commit `4fde821` (`Add legal pages and polish messaging UI`)
+- в `origin/codex/staging-deploy` уже есть более новый commit `1b8df3f` (`Polish mobile composer and refresh staging docs`)
 - latest deploy sequence `npm ci -> npm run build -> sudo systemctl restart tinychok-staging -> sudo rsync -av --delete dist/ /var/www/tinychok-staging/` был выполнен успешно `2026-03-21`
 - владелец проекта после выкладки подтвердил staging-статус: `Всё работает`
+- для следующих выкладок в репо добавлен скрипт `scripts/deploy-staging.sh`
 
 ## Access guard status
 
@@ -45,7 +47,7 @@
 
 ## Последний подтверждённый deploy batch
 
-Коммит `4fde821` (`Add legal pages and polish messaging UI`) сейчас является последним подтверждённым staging-состоянием.
+Коммит `4fde821` (`Add legal pages and polish messaging UI`) сейчас остаётся последним подтверждённым staging-состоянием.
 
 В этот пакет изменений вошло:
 
@@ -84,6 +86,53 @@
 - `src/user-agreement.tsx`
 - `user-agreement.html`
 - `vite.config.ts`
+
+## Что уже готово к следующему deploy
+
+В `origin/codex/staging-deploy` уже лежит commit `1b8df3f` (`Polish mobile composer and refresh staging docs`).
+
+Он добавляет:
+
+- mobile/narrow composer polish
+- возврат фокуса в поле после отправки
+- скрытие send-кнопки без текста и вложения
+- замену `hourglass-24.gif` на `hourglass-48.png`
+- предзагрузку delivery-иконок для offline pending-state
+- repo-скрипт `scripts/deploy-staging.sh`
+- обновлённые md runbook-файлы
+
+Если выкладка делается вручную, используется тот же flow:
+
+```bash
+cd /home/devis/tinychok
+git fetch origin
+git checkout codex/staging-deploy
+git pull origin codex/staging-deploy
+npm ci
+npm run build
+sudo systemctl restart tinychok-staging
+sudo rsync -av --delete dist/ /var/www/tinychok-staging/
+```
+
+Если выкладка делается через repo-скрипт:
+
+```bash
+cd /home/devis/tinychok
+bash scripts/deploy-staging.sh
+```
+
+Если нужен one-command deploy из любой папки на VM, есть разовая установка wrapper-команды:
+
+```bash
+cd /home/devis/tinychok
+bash scripts/install-staging-deploy-command.sh
+```
+
+После этого достаточно:
+
+```bash
+tinychok-staging-deploy
+```
 
 ## Полезные operational notes
 

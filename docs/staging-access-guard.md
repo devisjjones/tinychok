@@ -2,14 +2,14 @@
 
 ## Current applied state
 
-По состоянию на `2026-03-21` это уже включено на staging и осталось включённым после последнего deploy commit `4fde821`:
+По состоянию на `2026-03-21` это уже включено на staging и осталось включённым после последнего подтверждённого deploy commit `4fde821`:
 
 - basic auth включен на HTTPS-блоке `nginx` для `https://staging.tinychok.ru`
 - `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
 - логин basic auth: `tinychok`
 - пароль хранится только на VM и не должен попадать в чат или git
 - allowlist тестовых телефонов уже добавлен в `/home/devis/tinychok/.env` через `TINYCHOK_ALLOWED_TEST_PHONES`
-- последняя выкладка frontend/backend через `npm ci`, `npm run build`, `systemctl restart` и `rsync` не отключала эти ограничения
+- последняя подтверждённая выкладка frontend/backend через `npm ci`, `npm run build`, `systemctl restart` и `rsync` не отключала эти ограничения
 
 Самый простой и практичный режим для текущего staging:
 
@@ -94,7 +94,7 @@ sudo systemctl reload nginx
 
 ## Что перепроверять после нового deploy
 
-Кодовый deploy через `npm ci`, `npm run build`, `systemctl restart` и `rsync` обычно не трогает access guard, но после очередной выкладки всё равно полезно быстро проверить:
+Кодовый deploy через `npm ci`, `npm run build`, `systemctl restart` и `rsync` или через `bash scripts/deploy-staging.sh` обычно не трогает access guard, но после очередной выкладки всё равно полезно быстро проверить:
 
 ```bash
 git rev-parse --short HEAD

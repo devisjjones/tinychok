@@ -5,9 +5,9 @@
 ## Git state
 
 - текущая рабочая ветка для staging deploy: `codex/staging-deploy`
-- текущий актуальный commit в `origin/codex/staging-deploy`: `4fde821`
-- commit message: `Add legal pages and polish messaging UI`
-- локальный `HEAD` и `HEAD` на staging VM перед новой задачей должны совпадать с `4fde821`
+- текущий актуальный commit в `origin/codex/staging-deploy`: `1b8df3f`
+- commit message: `Polish mobile composer and refresh staging docs`
+- локальный `HEAD` и `HEAD` на staging VM перед новой задачей должны совпадать с `1b8df3f`
 
 Если продолжать в новой ветке, безопасная точка старта:
 
@@ -30,64 +30,50 @@
 - поиск аккаунтов через backend уже реализован
 - баг с seeded mock history для реальных staging-аккаунтов уже исправлен
 - фикс сортировки чатов по latest activity уже включён в staging
-- deploy до `4fde821` на staging VM был применён `2026-03-21`
+- deploy до `1b8df3f` на staging VM ещё не подтверждён в этом файле
 - после `npm ci`, `npm run build`, `sudo systemctl restart tinychok-staging` и `sudo rsync -av --delete dist/ /var/www/tinychok-staging/` владелец проекта подтвердил, что staging работает
 
 ## Последний подтверждённый change batch
 
-Коммит `4fde821` (`Add legal pages and polish messaging UI`) сейчас является подтверждённой точкой старта и уже задеплоен на staging.
+Коммит `1b8df3f` (`Polish mobile composer and refresh staging docs`) сейчас является текущей точкой старта в `origin/codex/staging-deploy`.
 
-Что вошло в этот пакет изменений:
+До него staging уже был подтверждён на `4fde821`, а `1b8df3f` добавляет поверх этого следующий пакет изменений:
 
-- добавлена отдельная страница `Пользовательское соглашение` и ссылка на неё из auth flow
-- под кнопкой `Получить код` добавлен текст согласия с двумя документами
-- ссылка на соглашение добавлена и в настройки рядом с privacy policy
-- нижняя и верхняя панели получили обновлённые размеры и tint иконок
-- нижняя кнопка каналов переведена на `news_settings.png`
-- затемнение при открытом контекстном меню теперь работает через отдельный overlay выбранного сообщения, а не затемняет сам bubble
-- для direct/group сообщений добавлены состояния delivery:
-  - `pending` с `hourglass-24.gif`
-  - `delivered` с `double-tick-50.png`
-  - `failed` с `warning-48.png`
-  - retry/delete actions для failed сообщения
-- для direct chat добавлен реальный read receipt:
-  - backend сохраняет `readAt`
-  - исходящее сообщение светлеет после фактического прочтения собеседником
-- compact direct chat cards в списке чатов были переработаны:
-  - убран preview последнего сообщения
-  - карточки и аватары стали компактнее
-  - online-dot перенесён на правый нижний угол аватара
-  - справа теперь показывается либо typing animation, либо unread badge, либо время последнего сообщения
-  - unread badge растягивается для двухзначных значений и ограничивается отображением `99+`
+- mobile/narrow chat composer:
+  - кнопка `Назад` уже переделана в стрелку и поставлена левее аватарки
+  - кнопка `Отправить` заменена на компактную стрелку вправо
+  - поле ввода переведено в однострочный auto-grow до половины экрана
+  - после отправки фокус возвращается в поле
+  - кнопка отправки скрывается, если нет текста и вложения
+- mobile alignment polish:
+  - скрепка переносится влево внутри поля ввода
+  - send-кнопка и скрепка центрируются относительно поля
+  - уменьшен лишний нижний воздух в composer на узком экране
+- pending delivery indicator:
+  - `hourglass-24.gif` заменён на статичную `hourglass-48.png`
+  - delivery-иконки предзагружаются заранее, чтобы offline pending-state не показывал пустую картинку
+- staging docs обновлены под текущий runbook
+- добавлен repo-скрипт `scripts/deploy-staging.sh` для стандартного staging deploy
 
 Ключевые изменённые файлы:
 
-- `server/src/store.ts`
+- `scripts/deploy-staging.sh`
+- `package.json`
 - `src/App.tsx`
 - `src/App.css`
-- `src/app/types.ts`
-- `src/app/utils.ts`
 - `src/components/SelectedBubbleOverlay.tsx`
 - `src/rooms/DirectChatRoom.tsx`
 - `src/rooms/GroupRoom.tsx`
 - `src/rooms/SubscriptionChannelRoom.tsx`
-- `src/screens/AuthScreen.tsx`
-- `src/UserAgreementPage.tsx`
-- `src/userAgreementContent.ts`
-- `src/user-agreement.tsx`
-- `user-agreement.html`
-- `vite.config.ts`
-- `public/icons/news_settings.png`
-- `public/icons/hourglass-24.gif`
-- `public/icons/check-mark-50.png`
-- `public/icons/double-tick-50.png`
-- `public/icons/warning-48.png`
+- `docs/next-branch-handoff.md`
+- `docs/staging-rollout-status.md`
+- `docs/staging-access-guard.md`
+- `public/icons/hourglass-48.png`
 
 Operational note:
 
-- staging VM уже подтянута до `4fde821`
-- сборка и выкладка на staging были подтверждены `2026-03-21`
-- ручной smoke-check владельцем проекта после выкладки: `Всё работает`
+- staging VM до этого была подтверждена на `4fde821`
+- для следующей выкладки теперь можно использовать либо ручную последовательность, либо `bash scripts/deploy-staging.sh`
 
 ## Что уже создано и установлено
 
@@ -129,6 +115,26 @@ sudo systemctl restart tinychok-staging
 sudo rsync -av --delete dist/ /var/www/tinychok-staging/
 ```
 
+Альтернатива тем же шагам одним запуском на staging VM:
+
+```bash
+cd /home/devis/tinychok
+bash scripts/deploy-staging.sh
+```
+
+Если хочется запуск без `cd`, есть разовая установка wrapper-команды:
+
+```bash
+cd /home/devis/tinychok
+bash scripts/install-staging-deploy-command.sh
+```
+
+После этого deploy можно запускать из любой директории:
+
+```bash
+tinychok-staging-deploy
+```
+
 ## Какие секреты уже существуют, но не должны храниться в репозитории
 
 - `POSTGRES_PASSWORD` для `tinychok_app`
@@ -142,7 +148,8 @@ sudo rsync -av --delete dist/ /var/www/tinychok-staging/
 
 - базовый staging rollout уже закрыт
 - access guard уже включён и после последней выкладки не менялся
-- текущая подтверждённая staging-точка старта: `4fde821`
+- текущая git-точка старта в `origin`: `1b8df3f`
+- последняя подтверждённая staging-выкладка до нового deploy: `4fde821`
 - следующую работу выбирать уже из продуктовых/bugfix задач, а не из базовой staging-инфраструктуры
 - после следующего подтверждённого deploy обновлять этот файл, если commit staging-состояния поменялся
 
