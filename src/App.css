@@ -1754,15 +1754,29 @@
   display: flex;
   align-items: flex-start;
   gap: 14px;
+  min-width: 0;
+}
+
+.room-id > div {
+  min-width: 0;
 }
 
 .room-mobile-back {
   display: none;
   min-height: 34px;
-  padding: 0 14px;
+  min-width: 34px;
+  padding: 0;
   align-items: center;
   justify-content: center;
   line-height: 1;
+  flex-shrink: 0;
+}
+
+.room-mobile-back-icon {
+  display: block;
+  font-size: 1.25rem;
+  line-height: 1;
+  transform: translateX(-1px);
 }
 
 .room-title {
@@ -2243,7 +2257,20 @@
 }
 
 .composer-input {
+  display: grid;
+  gap: 10px;
+}
+
+.composer-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.composer-field {
   position: relative;
+  min-width: 0;
 }
 
 .composer-reply {
@@ -2273,9 +2300,12 @@
 
 .composer textarea {
   resize: none;
-  padding: 16px 140px 16px 16px;
+  min-height: 56px;
+  max-height: min(50dvh, 320px);
+  padding: 15px 54px 15px 16px;
   border-radius: 18px;
-  min-height: 92px;
+  line-height: 1.45;
+  overflow-y: auto;
 }
 
 .composer-tools {
@@ -2293,6 +2323,9 @@
   border-radius: 12px;
   font-size: 0.95rem;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .composer-tool img {
@@ -2309,9 +2342,22 @@
 }
 
 .composer-send {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
+  position: static;
+  align-self: flex-end;
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 16px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.composer-send-icon {
+  display: block;
+  font-size: 1.28rem;
+  line-height: 1;
+  transform: translateX(1px);
 }
 
 .message-menu {
@@ -2545,22 +2591,37 @@
   }
 
   .room-header {
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 12px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
     margin-bottom: 2px;
   }
 
   .room-mobile-back {
-    display: inline-flex;
-    flex: 0 0 100%;
+    display: inline-grid;
   }
 
   .room-actions {
-    flex: 0 0 100%;
-    width: 100%;
+    flex: 0 0 auto;
+    width: auto;
     margin-left: 0;
     justify-content: flex-end;
+  }
+
+  .room-id {
+    gap: 10px;
+    align-items: center;
+  }
+
+  .room-id .avatar.large {
+    width: 50px;
+    height: 50px;
+    border-radius: 18px;
+  }
+
+  .room-title-name {
+    flex-wrap: wrap;
   }
 
   .settings-panel {
@@ -2650,13 +2711,41 @@
   }
 
   .composer textarea {
-    padding-right: 16px;
-    padding-bottom: 72px;
+    min-height: 52px;
+    max-height: 50dvh;
+    padding: 13px 14px 13px 52px;
+  }
+
+  .composer {
+    padding: 8px 10px;
+  }
+
+  .composer-tools {
+    top: 0;
+    bottom: 0;
+    left: 8px;
+    right: auto;
+    transform: none;
+    display: flex;
+    align-items: center;
+  }
+
+  .composer-entry {
+    display: flex;
+    align-items: center;
+  }
+
+  .composer-field {
+    flex: 1 1 auto;
   }
 
   .composer-send {
-    left: 12px;
-    right: auto;
+    align-self: center;
+    flex: 0 0 48px;
+    width: 48px;
+    min-width: 48px;
+    height: 48px;
+    min-height: 48px;
   }
 }
 
@@ -2710,8 +2799,46 @@
     padding: 16px;
   }
 
+  .room-header {
+    gap: 8px;
+  }
+
+  .room-id .avatar.large {
+    width: 46px;
+    height: 46px;
+    border-radius: 17px;
+  }
+
+  .room-header h3 {
+    font-size: 1.15rem;
+  }
+
+  .room-header p {
+    font-size: 0.9rem;
+    line-height: 1.25;
+  }
+
   .message-feed {
     padding: 18px 0;
+  }
+
+  .composer-entry {
+    gap: 8px;
+  }
+
+  .composer-tool {
+    min-width: 34px;
+    height: 30px;
+    padding: 0 10px;
+  }
+
+  .composer-send {
+    flex-basis: 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    border-radius: 14px;
   }
 
   .room-confirm {

@@ -27,39 +27,63 @@
   - `api.staging.tinychok.ru -> 158.160.197.255`
   - `staging.tinychok.ru -> 158.160.197.255`
 - внешние резолверы `1.1.1.1` и `8.8.8.8` видят staging-поддомены на `158.160.197.255`
+- staging VM обновлена до commit `4fde821` (`Add legal pages and polish messaging UI`)
+- latest deploy sequence `npm ci -> npm run build -> sudo systemctl restart tinychok-staging -> sudo rsync -av --delete dist/ /var/www/tinychok-staging/` был выполнен успешно `2026-03-21`
+- владелец проекта после выкладки подтвердил staging-статус: `Всё работает`
 
 ## Access guard status
 
-По состоянию на `2026-03-21` доступ к staging уже закрыт так, как и планировалось:
+По состоянию на `2026-03-21` доступ к staging уже закрыт так, как и планировалось, и это состояние сохранилось после последней выкладки:
 
 - basic auth включен на HTTPS-блоке `nginx` для `staging.tinychok.ru`
-- `curl -I https://staging.tinychok.ru` возвращал `401 Unauthorized`
+- `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
 - логин basic auth: `tinychok`
 - пароль создан через `htpasswd` на VM и не должен попадать в чат или git
 - backend staging ограничен allowlist-ом телефонов через `TINYCHOK_ALLOWED_TEST_PHONES` в `/home/devis/tinychok/.env`
 
-Подробный runbook лежит в [docs/staging-access-guard.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-access-guard.md).
+Подробный runbook лежит в [docs/staging-access-guard.md](docs/staging-access-guard.md).
 
-## Последний подтверждённый bugfix
+## Последний подтверждённый deploy batch
 
-Коммит `32b3322` (`Sort chats by latest activity`) исправил сортировку списка чатов:
+Коммит `4fde821` (`Add legal pages and polish messaging UI`) сейчас является последним подтверждённым staging-состоянием.
 
-- проблема была в том, что чат с новым сообщением после полуночи нового дня мог оказаться ниже чатов предыдущего дня с временем `13:xx` или `14:xx`
-- причиной было отсутствие полного `createdAt` timestamp у новых сообщений и сортировка не по реальной последней активности
-- в коде добавлен `createdAt` у новых direct/group сообщений
-- список чатов теперь сортируется по latest activity
+В этот пакет изменений вошло:
 
-Изменённые файлы:
+- отдельная страница `Пользовательское соглашение`
+- согласие с двумя документами под кнопкой `Получить код`
+- ссылка на соглашение в настройках
+- обновление размера и tint иконок верхней и нижней панелей
+- замена нижней иконки каналов на `news_settings.png`
+- корректный overlay выбранного сообщения для direct/group/channel context menu
+- состояния delivery для direct/group сообщений:
+  - `pending`
+  - `delivered`
+  - `failed`
+- retry/delete flow для failed сообщений
+- реальный direct read receipt через `readAt`
+- переработанные compact direct chat cards в левом списке:
+  - без preview последнего сообщения
+  - с typing animation / unread badge / временем в правом слоте
+  - с online-dot на аватаре
+  - с wide unread badge и ограничением `99+`
+
+Ключевые файлы пакета:
 
 - `server/src/store.ts`
 - `src/App.tsx`
+- `src/App.css`
 - `src/app/types.ts`
 - `src/app/utils.ts`
-
-Дополнительно подтверждено:
-
-- `git pull` до `32b3322` на staging VM уже был сделан
-- ручная проверка владельцем проекта подтвердила, что фикс работал на staging `2026-03-20`
+- `src/components/SelectedBubbleOverlay.tsx`
+- `src/rooms/DirectChatRoom.tsx`
+- `src/rooms/GroupRoom.tsx`
+- `src/rooms/SubscriptionChannelRoom.tsx`
+- `src/screens/AuthScreen.tsx`
+- `src/UserAgreementPage.tsx`
+- `src/userAgreementContent.ts`
+- `src/user-agreement.tsx`
+- `user-agreement.html`
+- `vite.config.ts`
 
 ## Полезные operational notes
 
@@ -70,6 +94,11 @@
 - основной backend сейчас работает через:
   - `tinychok-staging.service`
   - `nginx` site `tinychok-staging-api`
+- после каждого нового deploy полезно отдельно проверять:
+  - `git rev-parse --short HEAD`
+  - `curl -I https://staging.tinychok.ru`
+  - `curl -s https://api.staging.tinychok.ru/healthz`
+  - визуальный smoke-check в браузере после basic auth
 
 ## Что теперь закрыто
 
@@ -80,9 +109,10 @@
 - basic auth для frontend staging-домена
 - allowlist тестовых телефонов на backend
 - фиксы по account search, seeded mock history и сортировке чатов
+- legal pages и текущий messaging UI polish batch из `4fde821`
 
 ## Следующий шаг
 
 Обязательного незакрытого staging rollout шага сейчас нет.
 
-Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя текущую точку старта на `32b3322`.
+Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя текущую точку старта на `4fde821`.

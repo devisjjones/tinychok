@@ -2,13 +2,14 @@
 
 ## Current applied state
 
-По состоянию на `2026-03-21` это уже включено на staging:
+По состоянию на `2026-03-21` это уже включено на staging и осталось включённым после последнего deploy commit `4fde821`:
 
 - basic auth включен на HTTPS-блоке `nginx` для `https://staging.tinychok.ru`
 - `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
 - логин basic auth: `tinychok`
 - пароль хранится только на VM и не должен попадать в чат или git
 - allowlist тестовых телефонов уже добавлен в `/home/devis/tinychok/.env` через `TINYCHOK_ALLOWED_TEST_PHONES`
+- последняя выкладка frontend/backend через `npm ci`, `npm run build`, `systemctl restart` и `rsync` не отключала эти ограничения
 
 Самый простой и практичный режим для текущего staging:
 
@@ -19,8 +20,8 @@
 
 ## Почему нужны оба замка
 
-- пароль на сайте закрывает сам UI от случайных посетителей;
-- allowlist телефонов на backend не даёт зарегистрироваться любому номеру, даже если кто-то узнает URL API.
+- пароль на сайте закрывает сам UI от случайных посетителей
+- allowlist телефонов на backend не даёт зарегистрироваться любому номеру, даже если кто-то узнает URL API
 
 ## Что уже поддерживает код
 
@@ -91,14 +92,26 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+## Что перепроверять после нового deploy
+
+Кодовый deploy через `npm ci`, `npm run build`, `systemctl restart` и `rsync` обычно не трогает access guard, но после очередной выкладки всё равно полезно быстро проверить:
+
+```bash
+git rev-parse --short HEAD
+curl -I https://staging.tinychok.ru
+curl -s https://api.staging.tinychok.ru/healthz
+```
+
+Если frontend открывается без basic auth или неподдерживаемый номер снова может пройти auth, значит проблема уже не в коде интерфейса, а в `nginx` или staging `.env`.
+
 ## Что получится в итоге
 
-- твои друзья сначала вводят общий пароль на сайт;
-- потом входят только со своими номерами из allowlist;
-- любой левый номер получает отказ ещё на auth шаге.
+- твои друзья сначала вводят общий пароль на сайт
+- потом входят только со своими номерами из allowlist
+- любой левый номер получает отказ ещё на auth шаге
 
 ## Что это не решает
 
-- это не production security;
-- это просто нормальная защита staging от случайных людей и лишнего шума;
-- для следующего уровня уже нужны VPN, Cloudflare Access или полноценные invite flows.
+- это не production security
+- это просто нормальная защита staging от случайных людей и лишнего шума
+- для следующего уровня уже нужны VPN, Cloudflare Access или полноценные invite flows

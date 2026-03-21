@@ -1,4 +1,5 @@
 import type { ChangeEvent, FormEvent, MouseEvent, ReactNode, RefObject } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import type { GroupPreview, Message } from '../app/types'
 import { shouldShowDeliveryCaption } from '../app/utils'
 import { BubbleMessageContent } from '../components/BubbleMessageContent'
@@ -18,7 +19,7 @@ type GroupRoomProps = {
   onDraftChange: (value: string) => void
   onMessageSelect: (event: MouseEvent<HTMLButtonElement>, message: Message) => void
   onOpenAttachmentPicker: () => void
-  onSubmit: () => void
+  onSubmit: () => void | Promise<void>
 }
 
 export function GroupRoom({
@@ -38,12 +39,36 @@ export function GroupRoom({
   onOpenAttachmentPicker,
   onSubmit,
 }: GroupRoomProps) {
+  const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentName)
+
+  useLayoutEffect(() => {
+    const textarea = draftInputRef.current
+    if (!textarea) return
+
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+    const maxHeight = Math.max(120, Math.floor(viewportHeight * 0.5))
+
+    textarea.style.height = '0px'
+    const nextHeight = Math.min(textarea.scrollHeight, maxHeight)
+    textarea.style.height = `${Math.max(56, nextHeight)}px`
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
+  }, [draft])
+
   return (
     <>
       <section className="chat-room">
         <header className="room-header">
-          <button type="button" className="soft-button room-mobile-back" onClick={onBack}>
-            Назад
+          <button
+            type="button"
+            className="soft-button room-mobile-back"
+            onClick={onBack}
+            aria-label="Назад"
+            title="Назад"
+          >
+            <span className="room-mobile-back-icon" aria-hidden="true">
+              &larr;
+            </span>
           </button>
           <div className="room-id">
             <span className="avatar large" style={{ backgroundColor: group.accent }}>
@@ -119,7 +144,7 @@ export function GroupRoom({
                       messageFailed
                         ? '/icons/warning-48.png'
                         : messagePending
-                          ? '/icons/hourglass-24.gif'
+                          ? '/icons/hourglass-48.png'
                           : '/icons/double-tick-50.png'
                     }
                     alt=""
@@ -133,39 +158,56 @@ export function GroupRoom({
 
         <form
           className="composer"
-          onSubmit={(event: FormEvent<HTMLFormElement>) => {
+          onSubmit={async (event: FormEvent<HTMLFormElement>) => {
             event.preventDefault()
-            onSubmit()
+            await Promise.resolve(onSubmit())
+            window.requestAnimationFrame(() => {
+              draftInputRef.current?.focus()
+            })
           }}
         >
           <div className="composer-input">
-            <input
-              ref={attachmentInputRef}
-              type="file"
-              className="composer-attachment-input"
-              onChange={onAttachmentChange}
-            />
-            <textarea
-              rows={3}
-              placeholder="Напиши сообщение в группу..."
-              value={draft}
-              onFocus={onComposerFocus}
-              onChange={(event) => onDraftChange(event.target.value)}
-            />
-            <div className="composer-tools">
-              <button
-                type="button"
-                className={attachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}
-                onClick={onOpenAttachmentPicker}
-                aria-label="Добавить файл"
-                title={attachmentName || 'Добавить файл'}
-              >
-                <img src="/icons/attach100.png" alt="" />
-              </button>
+            <div className="composer-entry">
+              <div className="composer-field">
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  className="composer-attachment-input"
+                  onChange={onAttachmentChange}
+                />
+                <textarea
+                  ref={draftInputRef}
+                  rows={1}
+                  placeholder="Напиши сообщение в группу..."
+                  value={draft}
+                  onFocus={onComposerFocus}
+                  onChange={(event) => onDraftChange(event.target.value)}
+                />
+                <div className="composer-tools">
+                  <button
+                    type="button"
+                    className={attachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}
+                    onClick={onOpenAttachmentPicker}
+                    aria-label="Добавить файл"
+                    title={attachmentName || 'Добавить файл'}
+                  >
+                    <img src="/icons/attach100.png" alt="" />
+                  </button>
+                </div>
+              </div>
+              {hasComposerPayload ? (
+                <button
+                  type="submit"
+                  className="send-button composer-send"
+                  aria-label="Отправить"
+                  title="Отправить"
+                >
+                  <span className="composer-send-icon" aria-hidden="true">
+                    &rarr;
+                  </span>
+                </button>
+              ) : null}
             </div>
-            <button type="submit" className="send-button composer-send">
-              Отправить
-            </button>
           </div>
         </form>
       </section>

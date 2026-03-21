@@ -102,7 +102,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
             props.deliveryIssue === 'failed'
               ? '/icons/warning-48.png'
               : props.deliveryIssue === 'pending'
-                ? '/icons/hourglass-24.gif'
+                ? '/icons/hourglass-48.png'
                 : '/icons/double-tick-50.png'
           }
           alt=""

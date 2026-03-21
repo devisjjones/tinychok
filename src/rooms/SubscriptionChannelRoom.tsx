@@ -23,8 +23,16 @@ export function SubscriptionChannelRoom({
     <>
       <section className="chat-room channel-room">
         <header className="room-header">
-          <button type="button" className="soft-button room-mobile-back" onClick={onBack}>
-            Назад
+          <button
+            type="button"
+            className="soft-button room-mobile-back"
+            onClick={onBack}
+            aria-label="Назад"
+            title="Назад"
+          >
+            <span className="room-mobile-back-icon" aria-hidden="true">
+              &larr;
+            </span>
           </button>
           <div className="room-id">
             <span className="avatar large" style={{ backgroundColor: channel.accent }}>

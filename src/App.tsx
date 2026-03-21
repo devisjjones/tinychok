@@ -118,6 +118,12 @@ type PendingAttachmentDraft = {
 
 type DeliveryIssue = 'pending' | 'failed'
 
+const deliveryIndicatorIconPaths = [
+  '/icons/hourglass-48.png',
+  '/icons/warning-48.png',
+  '/icons/double-tick-50.png',
+]
+
 type PendingDirectMessage = {
   attachment?: Message['attachment']
   attachmentDraft?: PendingAttachmentDraft
@@ -374,6 +380,18 @@ function App() {
   )
   const [groupMessageActionAnchor, setGroupMessageActionAnchor] = useState<ActionAnchor | null>(null)
   const { cookieConsent, updateCookieConsent } = useCookieConsent()
+
+  useEffect(() => {
+    const preloadedImages = deliveryIndicatorIconPaths.map((path) => {
+      const image = new Image()
+      image.src = path
+      return image
+    })
+
+    return () => {
+      preloadedImages.length = 0
+    }
+  }, [])
 
   const blockedContactIds = session?.blockedContactIds ?? []
   const availableChats = sortChatsByRecentActivity(
@@ -4389,9 +4407,7 @@ function App() {
               setForwardingGroupMessageText('')
             }}
             onOpenAttachmentPicker={openGroupAttachmentPicker}
-            onSubmit={() => {
-              void sendGroupMessage()
-            }}
+            onSubmit={sendGroupMessage}
           />
         ) : null}
 
@@ -4437,9 +4453,7 @@ function App() {
                 setConfirmingDeleteHistoryChatId(activeChat.id)
                 setChatActionsOpen(false)
               }}
-              onSubmit={() => {
-                void sendMessage()
-              }}
+              onSubmit={sendMessage}
               onToggleChatActions={() => setChatActionsOpen((current) => !current)}
               onToggleFavoriteChat={() => {
                 void togglePinnedChat(activeChat.id)
