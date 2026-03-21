@@ -5,9 +5,11 @@
 ## Git state
 
 - текущая рабочая ветка для staging deploy: `codex/staging-deploy`
-- текущий актуальный commit в `origin/codex/staging-deploy`: `1b8df3f`
-- commit message: `Polish mobile composer and refresh staging docs`
-- локальный `HEAD` и `HEAD` на staging VM перед новой задачей должны совпадать с `1b8df3f`
+- последняя подтверждённая staging-выкладка: `1b8df3f`
+- commit message подтверждённой staging-выкладки: `Polish mobile composer and refresh staging docs`
+- последний продуктовый batch в ветке после этого: `1a037b9`
+- commit message последнего продуктового batch: `Refine channel and group messaging flows`
+- локальный `HEAD` на staging VM сейчас не должен считаться актуальным, пока commit `1a037b9` не будет отдельно задеплоен и проверен
 
 Если продолжать в новой ветке, безопасная точка старта:
 
@@ -30,7 +32,8 @@
 - поиск аккаунтов через backend уже реализован
 - баг с seeded mock history для реальных staging-аккаунтов уже исправлен
 - фикс сортировки чатов по latest activity уже включён в staging
-- deploy до `1b8df3f` на staging VM ещё не подтверждён в этом файле
+- staging deploy до `1b8df3f` уже подтверждён владельцем проекта
+- commit `1a037b9` пока в staging не подтверждён
 - после `npm ci`, `npm run build`, `sudo systemctl restart tinychok-staging` и `sudo rsync -av --delete dist/ /var/www/tinychok-staging/` владелец проекта подтвердил, что staging работает
 
 ## Последний подтверждённый change batch
@@ -72,8 +75,33 @@
 
 Operational note:
 
-- staging VM до этого была подтверждена на `4fde821`
+- staging VM сейчас последне подтверждённо была на `1b8df3f`
 - для следующей выкладки теперь можно использовать либо ручную последовательность, либо `bash scripts/deploy-staging.sh`
+
+## Текущий непроверенный batch в ветке
+
+После подтверждённого staging commit `1b8df3f` в ветке уже лежит новый продуктовый batch `1a037b9` (`Refine channel and group messaging flows`).
+
+В него входят:
+
+- group room:
+  - у входящих сообщений участника рендерится уменьшенная аватарка
+  - premium crown и online-dot выводятся рядом с именем отправителя
+  - у своих сообщений в группе появилась возможность удаления
+- channel management:
+  - действия `Передать` и `Удалить канал` убраны под кнопку `Управление`
+  - кнопка `Управление` перенесена вниз рядом с `Назад`
+  - исправлен popover редактирования названия канала: поле снова фокусируется и доступно для ввода
+- channel links:
+  - прямая ссылка канала переведена на формат `@handle`
+  - handle автогенерируется из названия с `_` вместо пробелов
+  - при конфликте автоматически добавляется числовой суффикс
+  - старые URL формата `https://.../c/...` мягко нормализуются в `@handle`
+- linked channel bubbles:
+  - standalone `@channel_handle` в сообщении превращается в кликабельную плашку канала
+  - по нажатию открывается подписанный канал или preview канала
+
+Этот batch уже собран локально через `npm run build`, но staging-подтверждения для него ещё нет.
 
 ## Что уже создано и установлено
 
@@ -148,8 +176,8 @@ tinychok-staging-deploy
 
 - базовый staging rollout уже закрыт
 - access guard уже включён и после последней выкладки не менялся
-- текущая git-точка старта в `origin`: `1b8df3f`
-- последняя подтверждённая staging-выкладка до нового deploy: `4fde821`
+- текущая подтверждённая staging-точка старта: `1b8df3f`
+- следующий непроверенный batch для deploy: `1a037b9`
 - следующую работу выбирать уже из продуктовых/bugfix задач, а не из базовой staging-инфраструктуры
 - после следующего подтверждённого deploy обновлять этот файл, если commit staging-состояния поменялся
 

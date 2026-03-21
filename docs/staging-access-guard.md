@@ -2,14 +2,14 @@
 
 ## Current applied state
 
-По состоянию на `2026-03-21` это уже включено на staging и осталось включённым после последнего подтверждённого deploy commit `4fde821`:
+По состоянию на `2026-03-21` это уже включено на staging и осталось включённым после последнего подтверждённого deploy commit `1b8df3f`:
 
 - basic auth включен на HTTPS-блоке `nginx` для `https://staging.tinychok.ru`
 - `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
 - логин basic auth: `tinychok`
 - пароль хранится только на VM и не должен попадать в чат или git
 - allowlist тестовых телефонов уже добавлен в `/home/devis/tinychok/.env` через `TINYCHOK_ALLOWED_TEST_PHONES`
-- последняя подтверждённая выкладка frontend/backend через `npm ci`, `npm run build`, `systemctl restart` и `rsync` не отключала эти ограничения
+- последняя подтверждённая выкладка frontend/backend через `npm ci`, `npm run build`, `systemctl restart` и `rsync` на commit `1b8df3f` не отключала эти ограничения
 
 Самый простой и практичный режим для текущего staging:
 
@@ -103,6 +103,18 @@ curl -s https://api.staging.tinychok.ru/healthz
 ```
 
 Если frontend открывается без basic auth или неподдерживаемый номер снова может пройти auth, значит проблема уже не в коде интерфейса, а в `nginx` или staging `.env`.
+
+## Что важно учесть для текущего branch state
+
+- в `origin/codex/staging-deploy` уже лежит более новый непроверенный batch `1a037b9`
+- этот batch не должен менять `basic auth` или `allowlist`, но после следующего deploy их всё равно нужно быстро перепроверить
+- минимальная post-deploy проверка остаётся такой же:
+
+```bash
+git rev-parse --short HEAD
+curl -I https://staging.tinychok.ru
+curl -s https://api.staging.tinychok.ru/healthz
+```
 
 ## Что получится в итоге
 

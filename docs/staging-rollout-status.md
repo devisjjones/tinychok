@@ -27,15 +27,15 @@
   - `api.staging.tinychok.ru -> 158.160.197.255`
   - `staging.tinychok.ru -> 158.160.197.255`
 - внешние резолверы `1.1.1.1` и `8.8.8.8` видят staging-поддомены на `158.160.197.255`
-- staging VM подтверждённо была обновлена до commit `4fde821` (`Add legal pages and polish messaging UI`)
-- в `origin/codex/staging-deploy` уже есть более новый commit `1b8df3f` (`Polish mobile composer and refresh staging docs`)
+- staging VM подтверждённо была обновлена до commit `1b8df3f` (`Polish mobile composer and refresh staging docs`)
+- в `origin/codex/staging-deploy` уже есть более новый продуктовый batch `1a037b9` (`Refine channel and group messaging flows`)
 - latest deploy sequence `npm ci -> npm run build -> sudo systemctl restart tinychok-staging -> sudo rsync -av --delete dist/ /var/www/tinychok-staging/` был выполнен успешно `2026-03-21`
 - владелец проекта после выкладки подтвердил staging-статус: `Всё работает`
 - для следующих выкладок в репо добавлен скрипт `scripts/deploy-staging.sh`
 
 ## Access guard status
 
-По состоянию на `2026-03-21` доступ к staging уже закрыт так, как и планировалось, и это состояние сохранилось после последней выкладки:
+По состоянию на `2026-03-21` доступ к staging уже закрыт так, как и планировалось, и это состояние сохранилось после последней подтверждённой выкладки `1b8df3f`:
 
 - basic auth включен на HTTPS-блоке `nginx` для `staging.tinychok.ru`
 - `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
@@ -47,51 +47,9 @@
 
 ## Последний подтверждённый deploy batch
 
-Коммит `4fde821` (`Add legal pages and polish messaging UI`) сейчас остаётся последним подтверждённым staging-состоянием.
+Коммит `1b8df3f` (`Polish mobile composer and refresh staging docs`) сейчас является последним подтверждённым staging-состоянием.
 
 В этот пакет изменений вошло:
-
-- отдельная страница `Пользовательское соглашение`
-- согласие с двумя документами под кнопкой `Получить код`
-- ссылка на соглашение в настройках
-- обновление размера и tint иконок верхней и нижней панелей
-- замена нижней иконки каналов на `news_settings.png`
-- корректный overlay выбранного сообщения для direct/group/channel context menu
-- состояния delivery для direct/group сообщений:
-  - `pending`
-  - `delivered`
-  - `failed`
-- retry/delete flow для failed сообщений
-- реальный direct read receipt через `readAt`
-- переработанные compact direct chat cards в левом списке:
-  - без preview последнего сообщения
-  - с typing animation / unread badge / временем в правом слоте
-  - с online-dot на аватаре
-  - с wide unread badge и ограничением `99+`
-
-Ключевые файлы пакета:
-
-- `server/src/store.ts`
-- `src/App.tsx`
-- `src/App.css`
-- `src/app/types.ts`
-- `src/app/utils.ts`
-- `src/components/SelectedBubbleOverlay.tsx`
-- `src/rooms/DirectChatRoom.tsx`
-- `src/rooms/GroupRoom.tsx`
-- `src/rooms/SubscriptionChannelRoom.tsx`
-- `src/screens/AuthScreen.tsx`
-- `src/UserAgreementPage.tsx`
-- `src/userAgreementContent.ts`
-- `src/user-agreement.tsx`
-- `user-agreement.html`
-- `vite.config.ts`
-
-## Что уже готово к следующему deploy
-
-В `origin/codex/staging-deploy` уже лежит commit `1b8df3f` (`Polish mobile composer and refresh staging docs`).
-
-Он добавляет:
 
 - mobile/narrow composer polish
 - возврат фокуса в поле после отправки
@@ -99,7 +57,41 @@
 - замену `hourglass-24.gif` на `hourglass-48.png`
 - предзагрузку delivery-иконок для offline pending-state
 - repo-скрипт `scripts/deploy-staging.sh`
-- обновлённые md runbook-файлы
+- docs update под staging runbook на тот момент
+
+Ключевые файлы пакета:
+
+- `scripts/deploy-staging.sh`
+- `package.json`
+- `src/App.tsx`
+- `src/App.css`
+- `src/components/SelectedBubbleOverlay.tsx`
+- `src/rooms/DirectChatRoom.tsx`
+- `src/rooms/GroupRoom.tsx`
+- `src/rooms/SubscriptionChannelRoom.tsx`
+- `docs/next-branch-handoff.md`
+- `docs/staging-rollout-status.md`
+- `docs/staging-access-guard.md`
+- `public/icons/hourglass-48.png`
+
+## Что уже готово к следующему deploy
+
+В `origin/codex/staging-deploy` уже лежит новый продуктовый batch `1a037b9` (`Refine channel and group messaging flows`).
+
+Он добавляет:
+
+- удаление своих сообщений в группе
+- корректный popover редактирования названия канала
+- кнопку `Управление` для действий с каналом вместо двух отдельных action-card
+- group sender metadata:
+  - уменьшенная аватарка
+  - online-dot
+  - premium crown
+- channel handles в формате `@...`:
+  - автогенерация из названия
+  - уникализация числовым суффиксом
+  - нормализация старых URL
+- standalone `@channel_handle` в сообщениях превращается в кликабельную channel-pill
 
 Если выкладка делается вручную, используется тот же flow:
 
@@ -158,10 +150,10 @@ tinychok-staging-deploy
 - basic auth для frontend staging-домена
 - allowlist тестовых телефонов на backend
 - фиксы по account search, seeded mock history и сортировке чатов
-- legal pages и текущий messaging UI polish batch из `4fde821`
+- legal pages и mobile composer batch из `1b8df3f`
 
 ## Следующий шаг
 
 Обязательного незакрытого staging rollout шага сейчас нет.
 
-Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя текущую точку старта на `4fde821`.
+Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что `1a037b9` пока ещё ждёт deploy и smoke-check.
