@@ -7,8 +7,8 @@
 - текущая рабочая ветка для staging deploy: `codex/staging-deploy`
 - последняя подтверждённая staging-выкладка: `1b8df3f`
 - commit message подтверждённой staging-выкладки: `Polish mobile composer and refresh staging docs`
-- последний продуктовый batch в ветке после этого: `2bf7a1e`
-- commit message последнего продуктового batch: `Add direct and channel moderation actions`
+- последний продуктовый batch в ветке после этого: `a21f0d1`
+- commit message последнего продуктового batch: `Expand group creation and seed test fixtures`
 - staging VM по-прежнему нельзя считать актуальной по `HEAD`, пока не будет отдельно задеплоен и проверен весь накопившийся stack после `1b8df3f`
 
 Если продолжать в новой ветке, безопасная точка старта:
@@ -33,7 +33,7 @@
 - баг с seeded mock history для реальных staging-аккаунтов уже исправлен
 - фикс сортировки чатов по latest activity уже включён в staging
 - staging deploy до `1b8df3f` уже подтверждён владельцем проекта
-- commits `1a037b9`, `30a8256` и `2bf7a1e` пока в staging не подтверждены
+- commits `1a037b9`, `30a8256`, `2bf7a1e` и `a21f0d1` пока в staging не подтверждены
 - после `npm ci`, `npm run build`, `sudo systemctl restart tinychok-staging` и `sudo rsync -av --delete dist/ /var/www/tinychok-staging/` владелец проекта подтвердил, что staging работает
 
 ## Последний подтверждённый change batch
@@ -138,6 +138,23 @@ Operational note:
   - `Поделиться` отправляет в личный чат plain `@handle` ссылку на канал
   - channel complaints сохраняются отдельно и не блокируют автоматически, решение остаётся за администрацией
 
+### `a21f0d1` `Expand group creation and seed test fixtures`
+
+- group creation:
+  - в списке групп добавлена кнопка `Создать группу`
+  - из `...` меню личного чата можно открыть тот же flow с уже предвыбранным контактом
+  - в modal создания группы можно сразу задать название, аватарку и несколько участников
+  - у контактов в списке выбора показываются premium crown и избранное со звездой
+  - для узкого окна браузера modal и avatar-picker переведены на безопасный scrollable layout
+- group avatar:
+  - аватарка группы сохраняется как отдельный upload kind `group-avatar`
+  - старая group-avatar очищается при замене или удалении группы
+- test fixtures for staging/dev:
+  - текущие mock contacts заведены как backend test accounts с явным флагом `isTestEntity`
+  - в non-production bootstrap теперь автоматически попадают тестовые аккаунты, группы и каналы
+  - добавлены `10` тестовых subscribed channels, у каждого по `20` тестовых сообщений
+  - production startup автоматически вычищает все test fixtures из runtime state
+
 Весь этот stack уже собран локально через `npm run build`, но staging-подтверждения для него ещё нет.
 
 ## Что уже создано и установлено
@@ -214,7 +231,7 @@ tinychok-staging-deploy
 - базовый staging rollout уже закрыт
 - access guard уже включён и после последней выкладки не менялся
 - текущая подтверждённая staging-точка старта: `1b8df3f`
-- следующий непроверенный deploy-candidate: cumulative stack до `2bf7a1e`
+- следующий непроверенный deploy-candidate: cumulative stack до `a21f0d1`
 - следующую работу выбирать уже из продуктовых/bugfix задач, а не из базовой staging-инфраструктуры
 - после следующего подтверждённого deploy обновлять этот файл, если commit staging-состояния поменялся
 

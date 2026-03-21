@@ -28,7 +28,7 @@
   - `staging.tinychok.ru -> 158.160.197.255`
 - внешние резолверы `1.1.1.1` и `8.8.8.8` видят staging-поддомены на `158.160.197.255`
 - staging VM подтверждённо была обновлена до commit `1b8df3f` (`Polish mobile composer and refresh staging docs`)
-- в `origin/codex/staging-deploy` уже лежит неподтверждённый product stack `1a037b9 -> 30a8256 -> 2bf7a1e`
+- в `origin/codex/staging-deploy` уже лежит неподтверждённый product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1`
 - latest deploy sequence `npm ci -> npm run build -> sudo systemctl restart tinychok-staging -> sudo rsync -av --delete dist/ /var/www/tinychok-staging/` был выполнен успешно `2026-03-21`
 - владелец проекта после выкладки подтвердил staging-статус: `Всё работает`
 - для следующих выкладок в репо добавлен скрипт `scripts/deploy-staging.sh`
@@ -120,6 +120,22 @@
 - отправка `@handle` канала в личный чат через share flow
 - отдельный backend counter для жалоб на каналы без автоматической блокировки
 
+### `a21f0d1` `Expand group creation and seed test fixtures`
+
+- новый modal `Создать группу`:
+  - запуск из списка групп
+  - запуск из личного чата с предвыбранным контактом
+  - выбор нескольких участников, названия и аватарки группы сразу при создании
+- visual polish group create flow:
+  - premium/status badges в participant list
+  - исправления narrow-screen layout и scroll внутри modal
+  - popup выбора group avatar вынесен в корректный overlay
+- backend test fixtures:
+  - mock contacts переведены в реальные test accounts в state store
+  - test accounts и test channels помечаются `isTestEntity`
+  - в non-production пользователю автоматически доступны `10` test channels по `20` сообщений
+  - production startup вычищает test fixtures из runtime state
+
 Если выкладка делается вручную, используется тот же flow:
 
 ```bash
@@ -178,10 +194,10 @@ tinychok-staging-deploy
 - allowlist тестовых телефонов на backend
 - фиксы по account search, seeded mock history и сортировке чатов
 - legal pages и mobile composer batch из `1b8df3f`
-- product stack `1a037b9 -> 30a8256 -> 2bf7a1e` ещё не выкатывался на staging и ждёт deploy + smoke-check
+- product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1` ещё не выкатывался на staging и ждёт deploy + smoke-check
 
 ## Следующий шаг
 
 Обязательного незакрытого staging rollout шага сейчас нет.
 
-Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что staging-кандидат сейчас представляет собой cumulative stack до `2bf7a1e`, который ещё ждёт deploy и smoke-check.
+Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что staging-кандидат сейчас представляет собой cumulative stack до `a21f0d1`, который ещё ждёт deploy и smoke-check.

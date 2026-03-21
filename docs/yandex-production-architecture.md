@@ -153,7 +153,15 @@ Backend надо держать не как один большой `store.ts`, 
 - PostgreSQL schema уже лежит в `server/sql/yandex-postgres-schema.sql`;
 - backend уже поддерживает transitional `file | postgres` state store;
 - для первого PostgreSQL migration-шага есть `server/sql/yandex-postgres-state-store.sql`;
-- есть `.env.production.example` с production-переменными под Yandex Cloud.
+- есть `.env.production.example` с production-переменными под Yandex Cloud;
+- тестовые staging/dev fixtures теперь помечаются флагом `isTestEntity` и на production startup автоматически вычищаются из runtime state.
+
+## Правило Production Deploy
+
+- production deploy обязан идти с `TINYCHOK_APP_ENV=production`;
+- при таком запуске backend автоматически удаляет из state store все тестовые аккаунты, тестовые группы, тестовые подписки на каналы и связанные с ними сообщения/сессии/репорты;
+- staging/dev fixtures можно держать в file-store или PostgreSQL staging-среды, но они не должны переноситься в production runtime;
+- если production backend стартовал не в `production`-режиме, deploy считается некорректным, потому что auto-cleanup тестовых сущностей не сработает.
 
 ## Что делаем следующим практическим шагом
 
