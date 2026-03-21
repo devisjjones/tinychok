@@ -14,10 +14,19 @@ export function formatMessagePreview(message: Pick<Message, 'text' | 'attachment
   return 'Пока пусто'
 }
 
+export function shouldShowDeliveryCaption(message: Pick<Message, 'text' | 'attachment'>) {
+  return formatMessagePreview(message).length >= 18
+}
+
 export function formatAttachmentSize(size: number) {
   if (size < 1024) return `${size} Б`
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} КБ`
   return `${(size / (1024 * 1024)).toFixed(1)} МБ`
+}
+
+export function formatUnreadBadgeCount(count: number) {
+  if (count > 99) return '99+'
+  return String(Math.max(0, count))
 }
 
 export function isImageMimeType(mimeType: string) {

@@ -5,93 +5,68 @@
 ## Git state
 
 - текущая рабочая ветка для staging deploy: `codex/staging-deploy`
-- последний подтверждённый push: `1e12345`
-- commit message: `Document live staging API rollout`
-- продолжать дальше нужно от актуального `HEAD` ветки `codex/staging-deploy`
+- текущий актуальный commit в `origin/codex/staging-deploy`: `32b3322`
+- commit message: `Sort chats by latest activity`
+- локальный `HEAD` должен совпадать с `origin/codex/staging-deploy`
 
 Если продолжать в новой ветке, безопасная точка старта:
 
 - branch from: текущий `HEAD` ветки `codex/staging-deploy`
-- recommended new branch name: `codex/staging-frontend`
+- recommended new branch name: `codex/staging-followup`
 
-## Что уже сделано в коде
+## Что уже подтверждено по staging
 
-- добавлен backend на `Fastify + WebSocket`
-- введён transitional backend store `file | postgres`
-- добавлен media backend `local | object-storage`
-- `Yandex Object Storage` уже поддерживается кодом через signed URL redirect по `/uploads/...`
-- добавлены `.env.production.example` и `.env.staging.example`
-- документация по `Yandex Cloud`, доменам и production-архитектуре уже лежит в `docs/`
+- staging backend live на `https://api.staging.tinychok.ru`
+- staging frontend live на `https://staging.tinychok.ru`
+- frontend и backend крутятся на VM `tinychok-staging-1`
+- `nginx` настроен
+- HTTPS выпущен и для `api.staging.tinychok.ru`, и для `staging.tinychok.ru`
+- public IP staging VM переведён в static
+- `staging.tinychok.ru` закрыт через `nginx basic auth`
+- `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
+- логин basic auth: `tinychok`
+- пароль basic auth уже создан через `htpasswd` на VM и не должен попадать в чат или git
+- backend staging ограничен allowlist-ом телефонов через `TINYCHOK_ALLOWED_TEST_PHONES` в `/home/devis/tinychok/.env`
+- поиск аккаунтов через backend уже реализован
+- баг с seeded mock history для реальных staging-аккаунтов уже исправлен
 
-## Что уже создано в Yandex Cloud
+## Последний подтверждённый фикс
+
+Коммит `32b3322` (`Sort chats by latest activity`) исправляет баг, при котором чат с новым сообщением после полуночи нового дня мог опускаться ниже чатов предыдущего дня.
+
+Что сделано:
+
+- добавлен `createdAt` у новых direct/group сообщений
+- список чатов теперь сортируется по реальной latest activity
+
+Изменённые файлы:
+
+- `server/src/store.ts`
+- `src/App.tsx`
+- `src/app/types.ts`
+- `src/app/utils.ts`
+
+Operational note:
+
+- `git pull` до `32b3322` на staging VM уже был сделан
+- ручная проверка владельцем проекта подтвердила, что фикс работал на staging `2026-03-20`
+
+## Что уже создано и установлено
 
 - cloud: `cloud-kurusayd`
 - staging folder: `tinychok-staging` (`b1g5c3ai08ckdov60ft0`)
 - production folder: `tinychok-prod` (`b1g4ldq3ej90fvfmdqcl`)
 - staging bucket: `tinychok-media-staging`
 - staging service account: `tinychok-storage-staging`
-- для staging service account уже создан static access key
 - staging VM: `tinychok-staging-1`
 - staging VM id: `fv4gef3170h8s344dmh6`
 - staging public ip: `158.160.197.255`
 - staging private ip: `10.130.0.34`
-
-## Что уже установлено на staging VM
-
-- рабочий вход через `Cloud Shell`
-- `PostgreSQL 16.13`
-- PostgreSQL service = `active`
-- база `tinychok`
-- пользователь `tinychok_app`
-- вход в базу под `tinychok_app` уже подтверждён
+- `PostgreSQL 16.13` установлен на VM
 - `Node.js v24.14.0`
 - `npm 11.9.0`
 - `nginx`
 - `certbot`
-
-## Что уже реально поднято
-
-- на VM настроен `GitHub deploy key`
-- `ssh -T git@github.com` на staging VM проходит успешно
-- репозиторий склонирован в `/home/devis/tinychok`
-- staging `.env` создан на VM
-- backend переведён в `systemd`
-- системный сервис: `tinychok-staging.service`
-- `tinychok-staging.service` находится в состоянии `active`
-- `nginx` проксирует `api.staging.tinychok.ru` на `127.0.0.1:8787`
-- выпущен `Let's Encrypt` сертификат для `api.staging.tinychok.ru`
-- подтверждены ответы:
-  - `https://api.staging.tinychok.ru/healthz`
-  - `https://api.staging.tinychok.ru/readyz`
-- staging DNS уже создан в `Reg.ru`:
-  - `api.staging.tinychok.ru -> 158.160.197.255`
-  - `staging.tinychok.ru -> 158.160.197.255`
-
-## Какие секреты уже существуют, но не должны храниться в репозитории
-
-- `POSTGRES_PASSWORD` для `tinychok_app`
-- `OBJECT_STORAGE_ACCESS_KEY`
-- `OBJECT_STORAGE_SECRET_KEY`
-
-Эти значения уже есть у владельца проекта, но их нельзя писать в git или чат.
-
-## Следующий правильный шаг
-
-Выложить staging frontend на `staging.tinychok.ru`.
-
-Практический порядок:
-
-1. Решить, где отдаём frontend:
-   - на этой же VM через `nginx`
-   - или как статическую выдачу вне VM
-2. Собрать frontend со staging-конфигом:
-   - `VITE_API_BASE_URL=https://api.staging.tinychok.ru`
-   - `VITE_WS_BASE_URL=wss://api.staging.tinychok.ru`
-3. Подключить выдачу `staging.tinychok.ru`
-4. Выпустить HTTPS для `staging.tinychok.ru`
-5. Проверить загрузку UI, auth и websocket через staging API
-
-Короткий frontend-only runbook для этого шага лежит в [docs/staging-frontend-rollout.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-frontend-rollout.md).
 
 ## Полезные команды на staging VM
 
@@ -100,39 +75,32 @@
 - `sudo systemctl status nginx --no-pager`
 - `curl -s https://api.staging.tinychok.ru/healthz`
 - `curl -s https://api.staging.tinychok.ru/readyz`
+- `curl -I https://staging.tinychok.ru`
 
-## Что нужно будет подставить в staging env
+Если нужно повторно применить frontend/backend deploy после нового merge:
 
-- `TINYCHOK_APP_ENV=staging`
-- `TINYCHOK_STORE_MODE=postgres`
-- `TINYCHOK_MEDIA_BACKEND=object-storage`
-- `HOST=0.0.0.0`
-- `PORT=8787`
-- `PUBLIC_APP_URL=https://staging.tinychok.ru`
-- `PUBLIC_API_URL=https://api.staging.tinychok.ru`
-- `PUBLIC_MEDIA_BASE_URL=`
-- `VITE_API_BASE_URL=https://api.staging.tinychok.ru`
-- `VITE_WS_BASE_URL=wss://api.staging.tinychok.ru`
-- `TINYCHOK_ALLOWED_TEST_PHONES=+79990000001,+79990000002`
-- `POSTGRES_URL=`
-- `POSTGRES_HOST=127.0.0.1`
-- `POSTGRES_PORT=5432`
-- `POSTGRES_DB=tinychok`
-- `POSTGRES_USER=tinychok_app`
-- `POSTGRES_PASSWORD=<stored-secret>`
-- `POSTGRES_SSL=false`
-- `POSTGRES_BOOTSTRAP_FROM_FILE=true`
-- `OBJECT_STORAGE_ENDPOINT=https://storage.yandexcloud.net`
-- `OBJECT_STORAGE_BUCKET=tinychok-media-staging`
-- `OBJECT_STORAGE_REGION=ru-central1`
-- `OBJECT_STORAGE_ACCESS_KEY=<stored-secret>`
-- `OBJECT_STORAGE_SECRET_KEY=<stored-secret>`
-- `OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS=300`
+```bash
+cd /home/devis/tinychok
+npm ci
+npm run build
+sudo systemctl restart tinychok-staging
+sudo rsync -av --delete dist/ /var/www/tinychok-staging/
+```
 
-## Что не надо делать
+## Какие секреты уже существуют, но не должны храниться в репозитории
 
-- не трогать рабочий `tinychok-staging.service`, если задача не про backend deploy
-- не коммитить `.env` и не писать секреты в чат
-- не полагаться на локальный resolver `127.0.0.53` на VM как на единственный DNS-check
-- не делать bucket публичным
-- не создавать staging `Managed PostgreSQL` по дефолтной managed-форме
+- `POSTGRES_PASSWORD` для `tinychok_app`
+- `OBJECT_STORAGE_ACCESS_KEY`
+- `OBJECT_STORAGE_SECRET_KEY`
+- пароль `nginx basic auth` для `staging.tinychok.ru`
+
+Эти значения уже есть у владельца проекта, но их нельзя писать в git или чат.
+
+## Как продолжать работу
+
+- staging-базовый rollout уже закрыт
+- access guard уже включён
+- последний staging bugfix по сортировке чатов уже подтверждён
+- следующую задачу выбирать уже из продуктовых/bugfix задач, а не из базовой staging-инфраструктуры
+
+Для ручных инструкций человеку использовать формат из [docs/collaboration-instructions.md](/Users/devisjones/Documents/New%20project/tinychok/docs/collaboration-instructions.md).

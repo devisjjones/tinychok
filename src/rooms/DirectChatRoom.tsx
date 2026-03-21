@@ -8,6 +8,7 @@ import type { Chat, Message, ReplyTarget } from '../app/types'
 import {
   formatMessagePreview,
   formatRoomPresence,
+  shouldShowDeliveryCaption,
 } from '../app/utils'
 import { BubbleMessageContent } from '../components/BubbleMessageContent'
 
@@ -18,6 +19,7 @@ type DirectChatRoomProps = {
   attachmentName: string
   chatActionsOpen: boolean
   draft: string
+  getMessageDeliveryIssue: (messageId: number) => 'pending' | 'failed' | null
   messageFeedRef: RefObject<HTMLDivElement | null>
   pinnedMessage: Message | null
   quietMode: boolean
@@ -46,6 +48,7 @@ export function DirectChatRoom({
   attachmentName,
   chatActionsOpen,
   draft,
+  getMessageDeliveryIssue,
   messageFeedRef,
   pinnedMessage,
   quietMode,
@@ -161,26 +164,74 @@ export function DirectChatRoom({
       ) : null}
 
       <div className="message-feed" ref={messageFeedRef}>
-        {activeChat.messages.map((message) => (
-          <button
-            key={message.id}
-            type="button"
-            className={
-              message.author === 'me'
-                ? activeMessageId === message.id
-                  ? 'bubble bubble-button mine selected'
-                  : 'bubble bubble-button mine'
-                : activeMessageId === message.id
-                  ? 'bubble bubble-button selected'
-                  : 'bubble bubble-button'
-            }
-            onClick={(event) => onMessageSelect(event, message)}
-          >
-            {message.forwarded ? <span className="bubble-meta">Переслано</span> : null}
-            <BubbleMessageContent message={message} replyChatTitle={activeChat.title} />
-            <time>{message.time}</time>
-          </button>
-        ))}
+        {activeChat.messages.map((message) => {
+          const messageDeliveryIssue =
+            message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
+          const messagePending = messageDeliveryIssue === 'pending'
+          const messageFailed = messageDeliveryIssue === 'failed'
+          const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
+          const showDeliveryIndicator = message.author === 'me'
+          const messageReadByRecipient = message.author === 'me' && Boolean(message.readAt)
+          const bubbleClassNames = ['bubble', 'bubble-button']
+
+          if (message.author === 'me') {
+            bubbleClassNames.push('mine')
+          }
+
+          if (activeMessageId === message.id) {
+            bubbleClassNames.push('selected')
+          }
+
+          if (showDeliveryIndicator) {
+            bubbleClassNames.push('has-delivery-indicator')
+          }
+
+          if (messageDeliveryIssue) {
+            bubbleClassNames.push('has-delivery-issue')
+          }
+
+          if (showDeliveryCaption) {
+            bubbleClassNames.push('has-delivery-caption')
+          }
+
+          if (messageFailed) {
+            bubbleClassNames.push('delivery-failed')
+          }
+
+          if (messageReadByRecipient) {
+            bubbleClassNames.push('read-by-recipient')
+          }
+
+          return (
+            <button
+              key={message.id}
+              type="button"
+              className={bubbleClassNames.join(' ')}
+              onClick={(event) => onMessageSelect(event, message)}
+            >
+              {message.forwarded ? <span className="bubble-meta">Переслано</span> : null}
+              <BubbleMessageContent message={message} replyChatTitle={activeChat.title} />
+              <time>{message.time}</time>
+              {showDeliveryCaption ? (
+                <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+              ) : null}
+              {showDeliveryIndicator ? (
+                <img
+                  className="bubble-delivery-indicator"
+                  src={
+                    messageFailed
+                      ? '/icons/warning-48.png'
+                      : messagePending
+                        ? '/icons/hourglass-24.gif'
+                        : '/icons/double-tick-50.png'
+                  }
+                  alt=""
+                  aria-hidden="true"
+                />
+              ) : null}
+            </button>
+          )
+        })}
 
         {activeChat.typing && !quietMode ? (
           <div className="typing">

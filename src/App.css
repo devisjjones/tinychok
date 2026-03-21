@@ -2,7 +2,7 @@
   height: 100vh;
   height: 100dvh;
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(328px, 392px) minmax(0, 1fr);
   gap: 24px;
   padding: 24px;
   box-sizing: border-box;
@@ -408,6 +408,9 @@
   width: 18px;
   height: 18px;
   display: block;
+  filter: brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
+    brightness(93%) contrast(90%);
+  transition: filter 180ms ease;
 }
 
 .quiet-toggle {
@@ -496,13 +499,18 @@
   box-shadow: 0 12px 30px rgba(128, 76, 45, 0.22);
 }
 
+.filter.active .filter-icon {
+  filter: brightness(0) saturate(100%) invert(100%);
+}
+
 .filter-badge {
   position: absolute;
   top: -6px;
   right: -6px;
-  min-width: 18px;
+  width: 18px;
   height: 18px;
-  padding: 0 4px;
+  min-width: 18px;
+  padding: 0;
   border-radius: 999px;
   display: grid;
   place-items: center;
@@ -513,10 +521,16 @@
   pointer-events: none;
 }
 
+.filter-badge.filter-badge-wide {
+  width: auto;
+  min-width: 26px;
+  padding: 0 6px;
+}
+
 .chat-list {
   display: grid;
   flex: 1 1 auto;
-  gap: 12px;
+  gap: 8px;
   align-content: start;
   overflow: auto;
   padding-top: 10px;
@@ -677,6 +691,23 @@
   height: 50px;
 }
 
+.bottom-nav .icon-button img {
+  width: 28px;
+  height: 28px;
+  filter: brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
+    brightness(93%) contrast(90%);
+  transition: filter 180ms ease;
+}
+
+.bottom-nav .icon-button-channel img {
+  width: 28px;
+  height: 28px;
+}
+
+.bottom-nav .icon-button.active img {
+  filter: brightness(0) saturate(100%) invert(100%);
+}
+
 .premium-button-label {
   font-size: 1.1rem;
   font-weight: 600;
@@ -699,6 +730,30 @@
   overflow: visible;
 }
 
+.chat-card.chat-card-compact {
+  padding: 11px 12px;
+  gap: 10px;
+  align-items: center;
+}
+
+.chat-card.chat-card-compact .avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  font-size: 1rem;
+}
+
+.chat-card.chat-card-compact .chat-copy {
+  gap: 0;
+}
+
+.chat-card.chat-card-compact .chat-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
 .chat-card.active {
   border-color: rgba(141, 89, 57, 0.25);
   background: rgba(255, 248, 240, 0.95);
@@ -716,6 +771,12 @@
   place-items: center;
   color: #fff7ef;
   font-weight: 700;
+}
+
+.chat-avatar-stack {
+  position: relative;
+  display: inline-flex;
+  align-self: start;
 }
 
 .avatar.large {
@@ -743,12 +804,54 @@
   min-width: 0;
 }
 
+.chat-topline-meta {
+  min-width: 20px;
+  white-space: nowrap;
+}
+
+.chat-topline-typing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 24px;
+}
+
+.chat-topline-badge {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--ink);
+  color: #fff8f0;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.chat-topline .chat-topline-badge {
+  color: #fff8f0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-topline .chat-topline-badge.chat-topline-badge-wide {
+  width: auto;
+  min-width: 32px;
+  padding: 0 8px;
+}
+
 .presence-dot {
-  width: 8px;
-  height: 8px;
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
   border-radius: 999px;
   background: #57c785;
-  display: inline-flex;
+  display: inline-block;
   flex: 0 0 auto;
   box-shadow: 0 0 0 2px rgba(255, 251, 245, 0.96);
 }
@@ -862,14 +965,24 @@
   position: absolute;
   top: -8px;
   right: -8px;
-  min-width: 28px;
+  width: 28px;
   height: 28px;
+  min-width: 28px;
+  padding: 0;
   border-radius: 999px;
   display: grid;
   place-items: center;
   background: var(--ink);
   color: #fff8f0;
   font-size: 0.84rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge.badge-wide {
+  width: auto;
+  min-width: 36px;
+  padding: 0 8px;
 }
 
 .stage {
@@ -1772,6 +1885,10 @@
   z-index: 5;
 }
 
+.message-menu-scrim {
+  background: rgba(36, 23, 14, 0.18);
+}
+
 .room-confirm {
   position: fixed;
   top: 50%;
@@ -1893,6 +2010,7 @@
   box-shadow: 0 16px 30px rgba(72, 52, 33, 0.08);
   overflow-wrap: anywhere;
   word-break: break-word;
+  position: relative;
 }
 
 .bubble-button {
@@ -1904,8 +2022,21 @@
 .bubble-button.selected {
   position: relative;
   z-index: 7;
-  box-shadow: 0 22px 40px rgba(72, 52, 33, 0.16);
-  outline: 1px solid rgba(141, 89, 57, 0.18);
+  box-shadow: 0 22px 40px rgba(72, 52, 33, 0.18);
+  outline: 1px solid rgba(141, 89, 57, 0.22);
+}
+
+.bubble-button.selected:not(.mine) {
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.bubble-overlay.bubble-button.selected {
+  position: fixed;
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 7;
 }
 
 .bubble.mine {
@@ -1915,12 +2046,29 @@
   color: #fff8f2;
 }
 
+.bubble.mine.read-by-recipient {
+  background: linear-gradient(135deg, #b58263, #ddb28c);
+  box-shadow: 0 16px 30px rgba(72, 52, 33, 0.1);
+}
+
+.bubble.mine.has-delivery-issue {
+  background: linear-gradient(135deg, #8c5738, #c58457);
+}
+
+.bubble.mine.delivery-failed {
+  background: linear-gradient(135deg, #9c6443, #c07b53);
+}
+
+.bubble.mine.read-by-recipient .bubble-reply {
+  background: rgba(255, 248, 242, 0.2);
+}
+
 .channel-post {
   max-width: min(620px, 100%);
 }
 
 .channel-post.selected {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.98);
 }
 
 .bubble p,
@@ -2007,7 +2155,58 @@
   display: block;
   margin-top: 8px;
   font-size: 0.8rem;
+  line-height: 14px;
   opacity: 0.72;
+}
+
+.bubble.has-delivery-indicator time {
+  padding-right: 22px;
+}
+
+.bubble.has-delivery-issue time {
+  padding-right: 22px;
+}
+
+.bubble-delivery-indicator {
+  position: absolute;
+  right: 12px;
+  bottom: 16px;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.bubble-delivery-caption {
+  display: none;
+  position: absolute;
+  right: 32px;
+  bottom: 15px;
+  max-width: calc(100% - 74px);
+  font-size: 0.68rem;
+  line-height: 1;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0.78;
+}
+
+.bubble.mine .bubble-delivery-caption {
+  color: rgba(255, 248, 242, 0.88);
+}
+
+.bubble:not(.mine) .bubble-delivery-caption {
+  color: rgba(95, 66, 46, 0.78);
+}
+
+.bubble.has-delivery-caption .bubble-delivery-caption {
+  display: block;
+}
+
+.bubble.has-delivery-caption time {
+  padding-right: 154px;
 }
 
 .typing {

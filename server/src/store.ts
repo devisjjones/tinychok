@@ -405,9 +405,11 @@ function materializeDialogMessage(
     attachment: message.attachment,
     author: message.author,
     createdAt: message.createdAt,
+    deliveryId: message.deliveryId,
     displayAuthor: message.displayAuthor,
     forwarded: message.forwarded,
     id: message.id,
+    readAt: message.readAt,
     replyTo: message.replyTo,
     text: message.text,
     time: message.time,
@@ -434,13 +436,39 @@ function materializeGroupMessage(
     attachment: message.attachment,
     author: message.author,
     createdAt: message.createdAt,
+    deliveryId: message.deliveryId,
     displayAuthor: message.displayAuthor,
     forwarded: message.forwarded,
     id: message.id,
+    readAt: message.readAt,
     replyTo: message.replyTo,
     text: message.text,
     time: message.time,
   }
+}
+
+function getMessageReadReceiptKey(
+  message: Pick<
+    Message,
+    'attachment' | 'createdAt' | 'deliveryId' | 'forwarded' | 'replyTo' | 'text' | 'time'
+  >,
+) {
+  if (message.deliveryId?.trim()) {
+    return `delivery:${message.deliveryId.trim()}`
+  }
+
+  if (message.createdAt?.trim()) {
+    return `created:${message.createdAt.trim()}`
+  }
+
+  return JSON.stringify({
+    attachment: message.attachment?.fileName ?? '',
+    forwarded: Boolean(message.forwarded),
+    replyAuthor: message.replyTo?.author ?? '',
+    replyText: message.replyTo?.text ?? '',
+    text: message.text,
+    time: message.time,
+  })
 }
 
 function materializeManagedChannel(
@@ -946,6 +974,7 @@ export class TinychokStore {
         }
       : undefined
     const createdAt = new Date().toISOString()
+    const deliveryId = randomUUID()
     const time = formatNowTime()
     const recipientIdentifier = normalizeIdentifier(dialog.phone)
     const recipientAccount =
@@ -968,6 +997,7 @@ export class TinychokStore {
       replyTo: senderReplyTo,
       text,
       createdAt,
+      deliveryId,
       time,
     })
 
@@ -998,6 +1028,7 @@ export class TinychokStore {
         replyTo: recipientReplyTo,
         text,
         createdAt,
+        deliveryId,
         time,
       })
 
@@ -1233,11 +1264,62 @@ export class TinychokStore {
       throw new Error('Диалог не найден.')
     }
 
+    const readAt = new Date().toISOString()
+    const justReadMessages = this.database.dialogMessages.filter(
+      (message) =>
+        message.ownerIdentifier === account.identifier &&
+        message.dialogId === dialog.id &&
+        message.author === 'them' &&
+        !message.readAt,
+    )
+
+    for (const message of justReadMessages) {
+      message.readAt = readAt
+    }
+
+    const broadcastIdentifiers = [account.identifier]
+    const contactIdentifier = normalizeIdentifier(dialog.phone)
+
+    if (contactIdentifier && contactIdentifier !== account.identifier && justReadMessages.length > 0) {
+      const senderDialog = this.database.dialogs.find(
+        (candidate) =>
+          candidate.ownerIdentifier === contactIdentifier &&
+          normalizeIdentifier(candidate.phone) === account.identifier,
+      )
+
+      if (senderDialog) {
+        const justReadKeys = new Set(justReadMessages.map((message) => getMessageReadReceiptKey(message)))
+        let senderMessagesUpdated = false
+
+        for (const message of this.database.dialogMessages) {
+          if (
+            message.ownerIdentifier !== contactIdentifier ||
+            message.dialogId !== senderDialog.id ||
+            message.author !== 'me' ||
+            message.readAt
+          ) {
+            continue
+          }
+
+          if (!justReadKeys.has(getMessageReadReceiptKey(message))) {
+            continue
+          }
+
+          message.readAt = readAt
+          senderMessagesUpdated = true
+        }
+
+        if (senderMessagesUpdated) {
+          broadcastIdentifiers.push(contactIdentifier)
+        }
+      }
+    }
+
     dialog.unread = 0
     await this.persist()
 
     return {
-      broadcastIdentifiers: [account.identifier],
+      broadcastIdentifiers: [...new Set(broadcastIdentifiers)],
       snapshot: this.buildSnapshot(account, token),
     }
   }

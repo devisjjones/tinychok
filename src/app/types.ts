@@ -19,8 +19,10 @@ export type Message = {
   text: string
   time: string
   createdAt?: string
+  deliveryId?: string
   displayAuthor?: string
   attachment?: MessageAttachment
+  readAt?: string
   replyTo?: {
     text: string
     author: 'me' | 'them'

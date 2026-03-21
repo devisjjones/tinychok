@@ -1,5 +1,15 @@
 # Staging Access Guard
 
+## Current applied state
+
+По состоянию на `2026-03-21` это уже включено на staging:
+
+- basic auth включен на HTTPS-блоке `nginx` для `https://staging.tinychok.ru`
+- `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
+- логин basic auth: `tinychok`
+- пароль хранится только на VM и не должен попадать в чат или git
+- allowlist тестовых телефонов уже добавлен в `/home/devis/tinychok/.env` через `TINYCHOK_ALLOWED_TEST_PHONES`
+
 Самый простой и практичный режим для текущего staging:
 
 1. На `https://staging.tinychok.ru` ставится общий пароль.

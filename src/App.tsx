@@ -75,10 +75,10 @@ import {
   formatGroupPreview,
   formatGroupTime,
   formatNowTime,
-  formatPreview,
   formatSessionName,
   formatSubscriptionChannelPreview,
   formatSubscriptionChannelTime,
+  formatUnreadBadgeCount,
   getChannelVisibilityDescription,
   getChannelVisibilityLabel,
   getNextChannelVisibility,
@@ -103,6 +103,7 @@ import { DirectChatRoom } from './rooms/DirectChatRoom'
 import { GroupRoom } from './rooms/GroupRoom'
 import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
+import { SelectedBubbleOverlay } from './components/SelectedBubbleOverlay'
 import { useCookieConsent } from './app/useCookieConsent'
 import type { AppSnapshot, UpdateManagedChannelBody, UpdateSessionBody } from './shared/backend'
 import './App.css'
@@ -115,6 +116,146 @@ type PendingAttachmentDraft = {
   size: number
 }
 
+type DeliveryIssue = 'pending' | 'failed'
+
+type PendingDirectMessage = {
+  attachment?: Message['attachment']
+  attachmentDraft?: PendingAttachmentDraft
+  chatId: number
+  createdAt: string
+  localId: number
+  queuedAt: string
+  replyTo?: Message['replyTo']
+  status: DeliveryIssue
+  text: string
+  time: string
+  retryCount: number
+}
+
+type PendingGroupMessage = {
+  attachment?: Message['attachment']
+  attachmentDraft?: PendingAttachmentDraft
+  createdAt: string
+  groupId: number
+  localId: number
+  queuedAt: string
+  status: DeliveryIssue
+  text: string
+  time: string
+  retryCount: number
+}
+
+type StoredAttachmentDraft = Omit<PendingAttachmentDraft, 'file'>
+
+type StoredPendingDirectMessage = Omit<PendingDirectMessage, 'attachmentDraft'> & {
+  attachmentDraft?: StoredAttachmentDraft
+}
+
+type StoredPendingGroupMessage = Omit<PendingGroupMessage, 'attachmentDraft'> & {
+  attachmentDraft?: StoredAttachmentDraft
+}
+
+const DELIVERY_FAILURE_TIMEOUT_MS = 15_000
+const failedDirectMessagesStorageKeyPrefix = 'tinychok.failed-direct'
+const failedGroupMessagesStorageKeyPrefix = 'tinychok.failed-group'
+
+function getFailedDirectMessagesStorageKey(identifier: string) {
+  return `${failedDirectMessagesStorageKeyPrefix}:${identifier}`
+}
+
+function getFailedGroupMessagesStorageKey(identifier: string) {
+  return `${failedGroupMessagesStorageKeyPrefix}:${identifier}`
+}
+
+function serializeAttachmentDraft(
+  attachmentDraft?: PendingAttachmentDraft,
+): StoredAttachmentDraft | undefined {
+  if (!attachmentDraft) return undefined
+
+  return {
+    fileName: attachmentDraft.fileName,
+    mediaUrl: attachmentDraft.mediaUrl,
+    mimeType: attachmentDraft.mimeType,
+    size: attachmentDraft.size,
+  }
+}
+
+function deserializeAttachmentDraft(
+  attachmentDraft?: StoredAttachmentDraft,
+): PendingAttachmentDraft | undefined {
+  if (!attachmentDraft) return undefined
+  if (attachmentDraft.mediaUrl?.startsWith('blob:')) return undefined
+
+  return {
+    fileName: attachmentDraft.fileName,
+    mediaUrl: attachmentDraft.mediaUrl,
+    mimeType: attachmentDraft.mimeType,
+    size: attachmentDraft.size,
+  }
+}
+
+function sanitizePersistedAttachment(attachment?: Message['attachment']) {
+  if (!attachment) return undefined
+  if (attachment.mediaUrl.startsWith('blob:')) return undefined
+
+  return {
+    fileName: attachment.fileName,
+    mediaUrl: attachment.mediaUrl,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+  } satisfies NonNullable<Message['attachment']>
+}
+
+function serializePendingDirectMessages(messages: PendingDirectMessage[]): StoredPendingDirectMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    attachment: sanitizePersistedAttachment(message.attachment),
+    attachmentDraft: serializeAttachmentDraft(message.attachmentDraft),
+  }))
+}
+
+function serializePendingGroupMessages(messages: PendingGroupMessage[]): StoredPendingGroupMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    attachment: sanitizePersistedAttachment(message.attachment),
+    attachmentDraft: serializeAttachmentDraft(message.attachmentDraft),
+  }))
+}
+
+function loadPersistedFailedDirectMessages(identifier: string) {
+  if (typeof window === 'undefined') return [] as PendingDirectMessage[]
+
+  const raw = window.localStorage.getItem(getFailedDirectMessagesStorageKey(identifier))
+  if (!raw) return []
+
+  try {
+    return (JSON.parse(raw) as StoredPendingDirectMessage[]).map((message) => ({
+      ...message,
+      attachment: sanitizePersistedAttachment(message.attachment),
+      attachmentDraft: deserializeAttachmentDraft(message.attachmentDraft),
+    }))
+  } catch {
+    return []
+  }
+}
+
+function loadPersistedFailedGroupMessages(identifier: string) {
+  if (typeof window === 'undefined') return [] as PendingGroupMessage[]
+
+  const raw = window.localStorage.getItem(getFailedGroupMessagesStorageKey(identifier))
+  if (!raw) return []
+
+  try {
+    return (JSON.parse(raw) as StoredPendingGroupMessage[]).map((message) => ({
+      ...message,
+      attachment: sanitizePersistedAttachment(message.attachment),
+      attachmentDraft: deserializeAttachmentDraft(message.attachmentDraft),
+    }))
+  } catch {
+    return []
+  }
+}
+
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
   const accountNameRef = useRef<HTMLHeadingElement | null>(null)
@@ -125,6 +266,10 @@ function App() {
   const channelAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const channelAvatarObjectUrlsRef = useRef(new Set<string>())
   const localMessageAttachmentObjectUrlsRef = useRef(new Set<string>())
+  const pendingDirectMessagesRef = useRef<PendingDirectMessage[]>([])
+  const pendingGroupMessagesRef = useRef<PendingGroupMessage[]>([])
+  const nextOptimisticMessageIdRef = useRef(-1)
+  const pendingRetryInFlightRef = useRef(false)
   const backendSyncTimeoutRef = useRef<number | null>(null)
   const skipNextBackendSyncRef = useRef(false)
   // These refs keep the debounced write-path transparent: text fields update locally first,
@@ -221,6 +366,8 @@ function App() {
   const [activeGroupMessageId, setActiveGroupMessageId] = useState<number | null>(null)
   const [forwardingSubscriptionPostText, setForwardingSubscriptionPostText] = useState('')
   const [forwardingGroupMessageText, setForwardingGroupMessageText] = useState('')
+  const [pendingDirectMessages, setPendingDirectMessages] = useState<PendingDirectMessage[]>([])
+  const [pendingGroupMessages, setPendingGroupMessages] = useState<PendingGroupMessage[]>([])
   const [messageActionAnchor, setMessageActionAnchor] = useState<ActionAnchor | null>(null)
   const [subscriptionPostActionAnchor, setSubscriptionPostActionAnchor] = useState<ActionAnchor | null>(
     null,
@@ -423,6 +570,51 @@ function App() {
       : cookieConsent === 'necessary'
       ? 'Вы приняли только необходимые cookie'
       : 'Выбор ещё не сохранён'
+  const pendingDirectMessageIds = new Set(
+    pendingDirectMessages
+      .filter((message) => message.status === 'pending')
+      .map((message) => message.localId),
+  )
+  const failedDirectMessageIds = new Set(
+    pendingDirectMessages
+      .filter((message) => message.status === 'failed')
+      .map((message) => message.localId),
+  )
+  const pendingGroupMessageIds = new Set(
+    pendingGroupMessages
+      .filter((message) => message.status === 'pending')
+      .map((message) => message.localId),
+  )
+  const failedGroupMessageIds = new Set(
+    pendingGroupMessages
+      .filter((message) => message.status === 'failed')
+      .map((message) => message.localId),
+  )
+  const hasPendingOutgoingMessages =
+    pendingDirectMessages.some((message) => message.status === 'pending') ||
+    pendingGroupMessages.some((message) => message.status === 'pending')
+  const hasLocalOutboxMessages =
+    pendingDirectMessages.length > 0 || pendingGroupMessages.length > 0
+  function getDirectMessageDeliveryIssue(messageId: number): DeliveryIssue | null {
+    return failedDirectMessageIds.has(messageId)
+      ? 'failed'
+      : pendingDirectMessageIds.has(messageId)
+        ? 'pending'
+        : null
+  }
+
+  function getGroupMessageDeliveryIssue(messageId: number): DeliveryIssue | null {
+    return failedGroupMessageIds.has(messageId)
+      ? 'failed'
+      : pendingGroupMessageIds.has(messageId)
+        ? 'pending'
+        : null
+  }
+
+  const activeMessageDeliveryIssue =
+    activeMessage?.author === 'me' ? getDirectMessageDeliveryIssue(activeMessage.id) : null
+  const activeGroupMessageDeliveryIssue =
+    activeGroupMessage?.author === 'me' ? getGroupMessageDeliveryIssue(activeGroupMessage.id) : null
   const nextCookieConsentChoice = cookieConsent === 'analytics' ? 'necessary' : 'analytics'
   const cookieConsentToggleLabel = cookieConsent === null ? 'Сохранить выбор' : 'Изменить выбор'
   const cookieConsentBanner = (
@@ -461,6 +653,70 @@ function App() {
       localAttachmentObjectUrls.clear()
     }
   }, [])
+
+  useEffect(() => {
+    pendingDirectMessagesRef.current = pendingDirectMessages
+  }, [pendingDirectMessages])
+
+  useEffect(() => {
+    pendingGroupMessagesRef.current = pendingGroupMessages
+  }, [pendingGroupMessages])
+
+  useEffect(() => {
+    if (!session?.identifier) return
+
+    setPendingDirectMessages((currentMessages) => {
+      const pendingMessages = currentMessages.filter((message) => message.status === 'pending')
+      const failedMessages = loadPersistedFailedDirectMessages(session.identifier)
+
+      return [
+        ...pendingMessages,
+        ...failedMessages.filter(
+          (failedMessage) => !pendingMessages.some((message) => message.localId === failedMessage.localId),
+        ),
+      ]
+    })
+
+    setPendingGroupMessages((currentMessages) => {
+      const pendingMessages = currentMessages.filter((message) => message.status === 'pending')
+      const failedMessages = loadPersistedFailedGroupMessages(session.identifier)
+
+      return [
+        ...pendingMessages,
+        ...failedMessages.filter(
+          (failedMessage) => !pendingMessages.some((message) => message.localId === failedMessage.localId),
+        ),
+      ]
+    })
+  }, [session?.identifier])
+
+  useEffect(() => {
+    if (!session?.identifier || typeof window === 'undefined') return
+
+    const failedMessages = pendingDirectMessages.filter((message) => message.status === 'failed')
+    const storageKey = getFailedDirectMessagesStorageKey(session.identifier)
+
+    if (failedMessages.length === 0) {
+      window.localStorage.removeItem(storageKey)
+      return
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(serializePendingDirectMessages(failedMessages)))
+  }, [pendingDirectMessages, session?.identifier])
+
+  useEffect(() => {
+    if (!session?.identifier || typeof window === 'undefined') return
+
+    const failedMessages = pendingGroupMessages.filter((message) => message.status === 'failed')
+    const storageKey = getFailedGroupMessagesStorageKey(session.identifier)
+
+    if (failedMessages.length === 0) {
+      window.localStorage.removeItem(storageKey)
+      return
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(serializePendingGroupMessages(failedMessages)))
+  }, [pendingGroupMessages, session?.identifier])
 
   useEffect(() => {
     if (!copyHintText) return
@@ -600,20 +856,102 @@ function App() {
     window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
   }, [persistSession])
 
+  const mergeDirectOutboxMessagesIntoChats = useCallback((snapshotChats: AppSnapshot['chats']) => {
+    const queuedMessages = pendingDirectMessagesRef.current
+
+    if (queuedMessages.length === 0) return snapshotChats
+
+    const queuedMessagesByChatId = new Map<number, PendingDirectMessage[]>()
+
+    queuedMessages.forEach((message) => {
+      const chatMessages = queuedMessagesByChatId.get(message.chatId) ?? []
+      chatMessages.push(message)
+      queuedMessagesByChatId.set(message.chatId, chatMessages)
+    })
+
+    return snapshotChats.map((chat) => {
+      const queuedMessagesForChat = queuedMessagesByChatId.get(chat.id)
+      if (!queuedMessagesForChat || queuedMessagesForChat.length === 0) return chat
+
+      const existingIds = new Set(chat.messages.map((message) => message.id))
+      const localMessages = queuedMessagesForChat
+        .filter((message) => !existingIds.has(message.localId))
+        .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+        .map((message) => ({
+          attachment: message.attachment,
+          author: 'me' as const,
+          createdAt: message.createdAt,
+          id: message.localId,
+          replyTo: message.replyTo,
+          text: message.text,
+          time: message.time,
+        }))
+
+      if (localMessages.length === 0) return chat
+
+      return {
+        ...chat,
+        messages: [...chat.messages, ...localMessages],
+      }
+    })
+  }, [])
+
+  const mergeGroupOutboxMessagesIntoGroups = useCallback((snapshotGroups: AppSnapshot['groups']) => {
+    const queuedMessages = pendingGroupMessagesRef.current
+
+    if (queuedMessages.length === 0) return snapshotGroups
+
+    const queuedMessagesByGroupId = new Map<number, PendingGroupMessage[]>()
+
+    queuedMessages.forEach((message) => {
+      const groupMessages = queuedMessagesByGroupId.get(message.groupId) ?? []
+      groupMessages.push(message)
+      queuedMessagesByGroupId.set(message.groupId, groupMessages)
+    })
+
+    return snapshotGroups.map((group) => {
+      const queuedMessagesForGroup = queuedMessagesByGroupId.get(group.id)
+      if (!queuedMessagesForGroup || queuedMessagesForGroup.length === 0) return group
+
+      const existingIds = new Set(group.messages.map((message) => message.id))
+      const localMessages = queuedMessagesForGroup
+        .filter((message) => !existingIds.has(message.localId))
+        .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+        .map((message) => ({
+          attachment: message.attachment,
+          author: 'me' as const,
+          createdAt: message.createdAt,
+          id: message.localId,
+          text: message.text,
+          time: message.time,
+        }))
+
+      if (localMessages.length === 0) return group
+
+      return {
+        ...group,
+        messages: [...group.messages, ...localMessages],
+      }
+    })
+  }, [])
+
   const applySnapshot = useCallback((snapshot: AppSnapshot) => {
+    const mergedChats = mergeDirectOutboxMessagesIntoChats(snapshot.chats)
+    const mergedGroups = mergeGroupOutboxMessagesIntoGroups(snapshot.groups)
+
     skipNextBackendSyncRef.current = true
-    setChats(snapshot.chats)
+    setChats(mergedChats)
     setChannels(snapshot.channels)
     setDiscoveryResults(snapshot.discoveryResults)
-    setGroups(snapshot.groups)
+    setGroups(mergedGroups)
     setSubscriptionChannels(snapshot.subscriptionChannels)
     setActiveChatId((currentChatId) =>
-      currentChatId !== null && snapshot.chats.some((chat) => chat.id === currentChatId)
+      currentChatId !== null && mergedChats.some((chat) => chat.id === currentChatId)
         ? currentChatId
         : null,
     )
     setActiveGroupId((currentGroupId) =>
-      currentGroupId !== null && snapshot.groups.some((group) => group.id === currentGroupId)
+      currentGroupId !== null && mergedGroups.some((group) => group.id === currentGroupId)
         ? currentGroupId
         : null,
     )
@@ -627,9 +965,9 @@ function App() {
       currentChannelId !== null && snapshot.channels.some((channel) => channel.id === currentChannelId)
         ? currentChannelId
         : snapshot.channels[0]?.id ?? null,
-    )
+      )
     syncSession(snapshot.session)
-  }, [syncSession])
+  }, [mergeDirectOutboxMessagesIntoChats, mergeGroupOutboxMessagesIntoGroups, syncSession])
 
   useEffect(() => {
     if (!session) {
@@ -648,6 +986,13 @@ function App() {
   }, [channels, chats, discoveryResults, groups, session, subscriptionChannels])
 
   const fallbackSaveCurrentSnapshot = useCallback(async (reason: string) => {
+    if (
+      pendingDirectMessagesRef.current.length > 0 ||
+      pendingGroupMessagesRef.current.length > 0
+    ) {
+      return
+    }
+
     const snapshot = latestSnapshotRef.current
     const sessionToken = snapshot?.session.sessionToken
 
@@ -665,6 +1010,10 @@ function App() {
     // Profile inputs are edited character-by-character, so they use a dedicated debounce path
     // instead of pushing a full snapshot on every keystroke.
     if (!backendReady || !session?.sessionToken) return
+
+    if (hasPendingOutgoingMessages) {
+      return
+    }
 
     suppressSessionSnapshotSyncRef.current = true
     pendingSessionPatchRef.current = {
@@ -874,6 +1223,10 @@ function App() {
       }
     }
 
+    if (hasLocalOutboxMessages) {
+      return
+    }
+
     if (backendSyncTimeoutRef.current !== null) {
       window.clearTimeout(backendSyncTimeoutRef.current)
     }
@@ -899,7 +1252,17 @@ function App() {
         backendSyncTimeoutRef.current = null
       }
     }
-  }, [backendReady, channels, chats, discoveryResults, groups, session, subscriptionChannels])
+  }, [
+    backendReady,
+    channels,
+    chats,
+    discoveryResults,
+    groups,
+    hasLocalOutboxMessages,
+    hasPendingOutgoingMessages,
+    session,
+    subscriptionChannels,
+  ])
 
   async function submitPhoneStep() {
     const normalized = normalizeIdentifier(identifier)
@@ -1016,9 +1379,17 @@ function App() {
     setActiveGroupMessageId(null)
     setForwardingSubscriptionPostText('')
     setForwardingGroupMessageText('')
+    setPendingDirectMessages([])
+    setPendingGroupMessages([])
     setMessageActionAnchor(null)
     setSubscriptionPostActionAnchor(null)
     setGroupMessageActionAnchor(null)
+  }
+
+  function getNextOptimisticMessageId() {
+    const nextId = nextOptimisticMessageIdRef.current
+    nextOptimisticMessageIdRef.current -= 1
+    return nextId
   }
 
   function clearChatComposer(chatId: number) {
@@ -1041,6 +1412,84 @@ function App() {
       ...currentAttachments,
       [groupId]: undefined,
     }))
+  }
+
+  function queuePendingDirectMessage(message: PendingDirectMessage) {
+    setPendingDirectMessages((currentMessages) => [...currentMessages, message])
+  }
+
+  function queuePendingGroupMessage(message: PendingGroupMessage) {
+    setPendingGroupMessages((currentMessages) => [...currentMessages, message])
+  }
+
+  function updatePendingDirectMessage(
+    localId: number,
+    updater: (message: PendingDirectMessage) => PendingDirectMessage,
+  ) {
+    setPendingDirectMessages((currentMessages) =>
+      currentMessages.map((message) => (message.localId === localId ? updater(message) : message)),
+    )
+  }
+
+  function updatePendingGroupMessage(
+    localId: number,
+    updater: (message: PendingGroupMessage) => PendingGroupMessage,
+  ) {
+    setPendingGroupMessages((currentMessages) =>
+      currentMessages.map((message) => (message.localId === localId ? updater(message) : message)),
+    )
+  }
+
+  function removePendingDirectMessage(localId: number) {
+    setPendingDirectMessages((currentMessages) =>
+      currentMessages.filter((message) => message.localId !== localId),
+    )
+  }
+
+  function removePendingGroupMessage(localId: number) {
+    setPendingGroupMessages((currentMessages) =>
+      currentMessages.filter((message) => message.localId !== localId),
+    )
+  }
+
+  function clearPendingDirectMessagesForChat(chatId: number) {
+    setPendingDirectMessages((currentMessages) =>
+      currentMessages.filter((message) => message.chatId !== chatId),
+    )
+  }
+
+  function markPendingDirectMessageAttemptFailed(localId: number) {
+    const failureTimestamp = new Date().toISOString()
+
+    updatePendingDirectMessage(localId, (message) => {
+      const shouldFail =
+        Date.now() - Date.parse(message.queuedAt) >= DELIVERY_FAILURE_TIMEOUT_MS
+
+      return {
+        ...message,
+        retryCount: message.retryCount + 1,
+        status: shouldFail ? 'failed' : 'pending',
+      }
+    })
+
+    return failureTimestamp
+  }
+
+  function markPendingGroupMessageAttemptFailed(localId: number) {
+    const failureTimestamp = new Date().toISOString()
+
+    updatePendingGroupMessage(localId, (message) => {
+      const shouldFail =
+        Date.now() - Date.parse(message.queuedAt) >= DELIVERY_FAILURE_TIMEOUT_MS
+
+      return {
+        ...message,
+        retryCount: message.retryCount + 1,
+        status: shouldFail ? 'failed' : 'pending',
+      }
+    })
+
+    return failureTimestamp
   }
 
   function applyLocalDialogRead(chatId: number) {
@@ -1087,12 +1536,16 @@ function App() {
     text: string,
     options?: {
       attachment?: Message['attachment']
+      createdAt?: string
       forwarded?: boolean
+      localId?: number
       markAsRead?: boolean
       replyTo?: Message['replyTo']
+      time?: string
     },
   ) {
-    const createdAt = new Date().toISOString()
+    const createdAt = options?.createdAt ?? new Date().toISOString()
+    const time = options?.time ?? formatNowTime()
 
     setChats((currentChats) =>
       currentChats.map((chat) => {
@@ -1109,11 +1562,11 @@ function App() {
               attachment: options?.attachment,
               author: 'me',
               forwarded: options?.forwarded,
-              id: Date.now(),
+              id: options?.localId ?? Date.now(),
               replyTo: options?.replyTo,
               text,
               createdAt,
-              time: formatNowTime(),
+              time,
             },
           ],
         }
@@ -1139,10 +1592,13 @@ function App() {
     text: string,
     options?: {
       attachment?: Message['attachment']
+      createdAt?: string
+      localId?: number
+      time?: string
     },
   ) {
-    const time = formatNowTime()
-    const createdAt = new Date().toISOString()
+    const time = options?.time ?? formatNowTime()
+    const createdAt = options?.createdAt ?? new Date().toISOString()
 
     setGroups((currentGroups) =>
       currentGroups.map((group) =>
@@ -1157,7 +1613,7 @@ function App() {
                 ...group.messages,
                 {
                   attachment: options?.attachment,
-                  id: Date.now() + group.id,
+                  id: options?.localId ?? Date.now() + group.id,
                   author: 'me',
                   createdAt,
                   text,
@@ -1171,6 +1627,7 @@ function App() {
   }
 
   function applyLocalDeleteChatHistory(chatId: number) {
+    clearPendingDirectMessagesForChat(chatId)
     setChats((currentChats) =>
       currentChats.map((chat) =>
         chat.id === chatId
@@ -1224,6 +1681,64 @@ function App() {
     } satisfies NonNullable<Message['attachment']>
   }
 
+  async function resolvePendingAttachmentForSend(
+    sessionToken: string,
+    attachmentDraft?: PendingAttachmentDraft,
+  ) {
+    if (!attachmentDraft) {
+      return {
+        attachment: undefined,
+        attachmentDraft: undefined,
+      }
+    }
+
+    if (attachmentDraft.mediaUrl) {
+      return {
+        attachment: {
+          fileName: attachmentDraft.fileName,
+          mediaUrl: attachmentDraft.mediaUrl,
+          mimeType: attachmentDraft.mimeType,
+          size: attachmentDraft.size,
+        } satisfies NonNullable<Message['attachment']>,
+        attachmentDraft,
+      }
+    }
+
+    if (!attachmentDraft.file) {
+      throw new Error('Вложение больше недоступно локально. Добавьте файл заново.')
+    }
+
+    const uploadedMedia = await uploadMediaFile(sessionToken, attachmentDraft.file, 'attachment')
+
+    return {
+      attachment: {
+        fileName: uploadedMedia.fileName,
+        mediaUrl: uploadedMedia.mediaUrl,
+        mimeType: uploadedMedia.mimeType,
+        size: uploadedMedia.size,
+      } satisfies NonNullable<Message['attachment']>,
+      attachmentDraft: {
+        fileName: uploadedMedia.fileName,
+        mediaUrl: uploadedMedia.mediaUrl,
+        mimeType: uploadedMedia.mimeType,
+        size: uploadedMedia.size,
+      } satisfies PendingAttachmentDraft,
+    }
+  }
+
+  function applyLocalDeleteGroupMessage(groupId: number, messageId: number) {
+    setGroups((currentGroups) =>
+      currentGroups.map((group) => {
+        if (group.id !== groupId) return group
+
+        return {
+          ...group,
+          messages: group.messages.filter((message) => message.id !== messageId),
+        }
+      }),
+    )
+  }
+
   async function createPendingAttachmentDraft(file: File) {
     // Chat and group composers share the same upload contract, so one helper keeps
     // the draft -> upload -> final message attachment path explicit in one place.
@@ -1250,6 +1765,7 @@ function App() {
   }
 
   function applyLocalDeleteContact(chatId: number) {
+    clearPendingDirectMessagesForChat(chatId)
     setChats((currentChats) => currentChats.filter((chat) => chat.id !== chatId))
     clearDeletedChatLocalState(chatId)
   }
@@ -1388,6 +1904,10 @@ function App() {
 
     if (!text && !attachment) return
 
+    const localId = getNextOptimisticMessageId()
+    const createdAt = new Date().toISOString()
+    const time = formatNowTime()
+
     if (backendReady && session?.sessionToken) {
       try {
         const response = await sendDirectMessageRequest(session.sessionToken, chatId, {
@@ -1399,10 +1919,36 @@ function App() {
         applySnapshot(response.snapshot)
       } catch (error) {
         console.error('Failed to send direct message', error)
-        applyLocalDirectMessage(chatId, text, { attachment, replyTo })
+        applyLocalDirectMessage(chatId, text, { attachment, createdAt, localId, replyTo, time })
+        queuePendingDirectMessage({
+          attachment,
+          attachmentDraft,
+          chatId,
+          createdAt,
+          localId,
+          queuedAt: createdAt,
+          replyTo,
+          retryCount: 0,
+          status: 'pending',
+          text,
+          time,
+        })
       }
     } else {
-      applyLocalDirectMessage(chatId, text, { attachment, replyTo })
+      applyLocalDirectMessage(chatId, text, { attachment, createdAt, localId, replyTo, time })
+      queuePendingDirectMessage({
+        attachment,
+        attachmentDraft,
+        chatId,
+        createdAt,
+        localId,
+        queuedAt: createdAt,
+        replyTo,
+        retryCount: 0,
+        status: 'pending',
+        text,
+        time,
+      })
     }
 
     clearChatComposer(chatId)
@@ -1428,8 +1974,13 @@ function App() {
 
     const groupId = activeGroup.id
     const text = (groupMessageDrafts[groupId] ?? '').trim()
-    const attachment = buildMessageAttachmentFromDraft(groupAttachmentDrafts[groupId])
+    const attachmentDraft = groupAttachmentDrafts[groupId]
+    const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
     if (!text && !attachment) return
+
+    const localId = getNextOptimisticMessageId()
+    const createdAt = new Date().toISOString()
+    const time = formatNowTime()
 
     if (backendReady && session?.sessionToken) {
       try {
@@ -1440,10 +1991,34 @@ function App() {
         applySnapshot(response.snapshot)
       } catch (error) {
         console.error('Failed to send group message', error)
-        applyLocalGroupMessage(groupId, text, { attachment })
+        applyLocalGroupMessage(groupId, text, { attachment, createdAt, localId, time })
+        queuePendingGroupMessage({
+          attachment,
+          attachmentDraft,
+          createdAt,
+          groupId,
+          localId,
+          queuedAt: createdAt,
+          retryCount: 0,
+          status: 'pending',
+          text,
+          time,
+        })
       }
     } else {
-      applyLocalGroupMessage(groupId, text, { attachment })
+      applyLocalGroupMessage(groupId, text, { attachment, createdAt, localId, time })
+      queuePendingGroupMessage({
+        attachment,
+        attachmentDraft,
+        createdAt,
+        groupId,
+        localId,
+        queuedAt: createdAt,
+        retryCount: 0,
+        status: 'pending',
+        text,
+        time,
+      })
     }
 
     clearGroupComposer(groupId)
@@ -1512,6 +2087,124 @@ function App() {
     setSubscriptionPostActionAnchor(null)
     setGroupMessageActionAnchor(null)
   }
+
+  const flushPendingMessages = useCallback(async () => {
+    if (
+      pendingRetryInFlightRef.current ||
+      !backendReady ||
+      !session?.sessionToken ||
+      !hasPendingOutgoingMessages
+    ) {
+      return
+    }
+
+    pendingRetryInFlightRef.current = true
+
+    try {
+      const nextDirectMessage = pendingDirectMessages.find((message) => message.status === 'pending')
+
+      if (nextDirectMessage) {
+        const resolvedAttachment = await resolvePendingAttachmentForSend(
+          session.sessionToken,
+          nextDirectMessage.attachmentDraft,
+        )
+
+        if (
+          resolvedAttachment.attachmentDraft?.mediaUrl &&
+          resolvedAttachment.attachmentDraft.mediaUrl !== nextDirectMessage.attachmentDraft?.mediaUrl
+        ) {
+          updatePendingDirectMessage(nextDirectMessage.localId, (message) => ({
+            ...message,
+            attachment: resolvedAttachment.attachment,
+            attachmentDraft: resolvedAttachment.attachmentDraft,
+          }))
+        }
+
+        const response = await sendDirectMessageRequest(session.sessionToken, nextDirectMessage.chatId, {
+          attachment: resolvedAttachment.attachment,
+          markAsRead: true,
+          replyTo: nextDirectMessage.replyTo,
+          text: nextDirectMessage.text,
+        })
+
+        removePendingDirectMessage(nextDirectMessage.localId)
+        applySnapshot(response.snapshot)
+        return
+      }
+
+      const nextGroupMessage = pendingGroupMessages.find((message) => message.status === 'pending')
+
+      if (!nextGroupMessage) return
+
+      const resolvedAttachment = await resolvePendingAttachmentForSend(
+        session.sessionToken,
+        nextGroupMessage.attachmentDraft,
+      )
+
+      if (
+        resolvedAttachment.attachmentDraft?.mediaUrl &&
+        resolvedAttachment.attachmentDraft.mediaUrl !== nextGroupMessage.attachmentDraft?.mediaUrl
+      ) {
+        updatePendingGroupMessage(nextGroupMessage.localId, (message) => ({
+          ...message,
+          attachment: resolvedAttachment.attachment,
+          attachmentDraft: resolvedAttachment.attachmentDraft,
+        }))
+      }
+
+      const response = await sendGroupMessageRequest(session.sessionToken, nextGroupMessage.groupId, {
+        attachment: resolvedAttachment.attachment,
+        text: nextGroupMessage.text,
+      })
+
+      removePendingGroupMessage(nextGroupMessage.localId)
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to retry pending outgoing message', error)
+      const nextDirectMessage = pendingDirectMessages.find((message) => message.status === 'pending')
+
+      if (nextDirectMessage) {
+        markPendingDirectMessageAttemptFailed(nextDirectMessage.localId)
+      } else {
+        const nextGroupMessage = pendingGroupMessages.find((message) => message.status === 'pending')
+
+        if (nextGroupMessage) {
+          markPendingGroupMessageAttemptFailed(nextGroupMessage.localId)
+        }
+      }
+    } finally {
+      pendingRetryInFlightRef.current = false
+    }
+  }, [
+    applySnapshot,
+    backendReady,
+    hasPendingOutgoingMessages,
+    markPendingDirectMessageAttemptFailed,
+    markPendingGroupMessageAttemptFailed,
+    pendingDirectMessages,
+    pendingGroupMessages,
+    session?.sessionToken,
+    updatePendingDirectMessage,
+    updatePendingGroupMessage,
+  ])
+
+  useEffect(() => {
+    if (!backendReady || !session?.sessionToken || !hasPendingOutgoingMessages) return
+
+    const tryFlushPendingMessages = () => {
+      void flushPendingMessages()
+    }
+
+    tryFlushPendingMessages()
+
+    const retryIntervalId = window.setInterval(tryFlushPendingMessages, 4000)
+    window.addEventListener('online', tryFlushPendingMessages)
+
+    return () => {
+      window.clearInterval(retryIntervalId)
+      window.removeEventListener('online', tryFlushPendingMessages)
+    }
+  }, [backendReady, flushPendingMessages, hasPendingOutgoingMessages, session?.sessionToken])
 
   function openSubscriptionChannel(channelId: number) {
     const shouldRetainSubscriptionChannelInList =
@@ -1902,6 +2595,57 @@ function App() {
     })
   }
 
+  function retryFailedDirectMessage(chatId: number, messageId: number) {
+    updatePendingDirectMessage(messageId, (message) => ({
+      ...message,
+      queuedAt: new Date().toISOString(),
+      retryCount: 0,
+      status: 'pending',
+    }))
+
+    setMessageActionMessageId(null)
+    setMessageActionAnchor(null)
+    setForwardingMessageId(null)
+
+    if (activeChatId !== chatId) {
+      setActiveChatId(chatId)
+    }
+  }
+
+  function retryFailedGroupMessage(groupId: number, messageId: number) {
+    updatePendingGroupMessage(messageId, (message) => ({
+      ...message,
+      queuedAt: new Date().toISOString(),
+      retryCount: 0,
+      status: 'pending',
+    }))
+
+    closeGroupMessageActions()
+
+    if (activeGroupId !== groupId) {
+      setActiveGroupId(groupId)
+    }
+  }
+
+  function deleteFailedDirectMessage(chatId: number, messageId: number) {
+    removePendingDirectMessage(messageId)
+    applyLocalDeleteMessage(chatId, messageId)
+
+    if (replyTarget?.id === messageId) {
+      setReplyTarget(null)
+    }
+
+    setMessageActionMessageId(null)
+    setMessageActionAnchor(null)
+    setForwardingMessageId(null)
+  }
+
+  function deleteFailedGroupMessage(groupId: number, messageId: number) {
+    removePendingGroupMessage(messageId)
+    applyLocalDeleteGroupMessage(groupId, messageId)
+    closeGroupMessageActions()
+  }
+
   async function deleteMessage(chatId: number, messageId: number) {
     if (backendReady && session?.sessionToken) {
       try {
@@ -2260,10 +3004,18 @@ function App() {
     <>
       <button
         type="button"
-        className="room-confirm-scrim"
+        className="room-confirm-scrim message-menu-scrim"
         aria-label="Закрыть действия с постом канала"
         onClick={closeSubscriptionPostActions}
       />
+      {subscriptionPostActionAnchor ? (
+        <SelectedBubbleOverlay
+          anchor={subscriptionPostActionAnchor}
+          kind="channel"
+          post={activeSubscriptionPost}
+          draft={Boolean(activeSubscriptionChannel?.draft)}
+        />
+      ) : null}
       {activeSubscriptionChannel?.visibility === 'closed' ? (
         subscriptionPostActionAnchor ? (
           <div
@@ -2337,10 +3089,19 @@ function App() {
     <>
       <button
         type="button"
-        className="room-confirm-scrim"
+        className="room-confirm-scrim message-menu-scrim"
         aria-label="Закрыть действия с сообщением группы"
         onClick={closeGroupMessageActions}
       />
+      {groupMessageActionAnchor ? (
+        <SelectedBubbleOverlay
+          anchor={groupMessageActionAnchor}
+          deliveryIssue={activeGroupMessageDeliveryIssue ?? undefined}
+          kind="group"
+          message={activeGroupMessage}
+          mine={activeGroupMessage.author === 'me'}
+        />
+      ) : null}
       {forwardingGroupMessageText ? (
         <div className="room-confirm room-forward">
           <p className="room-confirm-copy">Кому переслать сообщение?</p>
@@ -2376,23 +3137,44 @@ function App() {
           className="message-menu"
           style={groupMessageMenuStyle}
         >
-          <button
-            type="button"
-            className="message-menu-item"
-            onClick={() => setForwardingGroupMessageText(formatMessagePreview(activeGroupMessage))}
-          >
-            Переслать
-          </button>
-          <button
-            type="button"
-            className="message-menu-item"
-            onClick={() => {
-              copyToClipboard(formatMessagePreview(activeGroupMessage), 'Сообщение скопировано')
-              closeGroupMessageActions()
-            }}
-          >
-            Скопировать
-          </button>
+          {activeGroupMessageDeliveryIssue === 'failed' ? (
+            <>
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => retryFailedGroupMessage(activeGroup!.id, activeGroupMessage.id)}
+              >
+                Отправить повторно
+              </button>
+              <button
+                type="button"
+                className="message-menu-item danger"
+                onClick={() => deleteFailedGroupMessage(activeGroup!.id, activeGroupMessage.id)}
+              >
+                Удалить
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => setForwardingGroupMessageText(formatMessagePreview(activeGroupMessage))}
+              >
+                Переслать
+              </button>
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => {
+                  copyToClipboard(formatMessagePreview(activeGroupMessage), 'Сообщение скопировано')
+                  closeGroupMessageActions()
+                }}
+              >
+                Скопировать
+              </button>
+            </>
+          )}
         </div>
       ) : null}
     </>
@@ -2478,14 +3260,22 @@ function App() {
                 <>
                   <img className="filter-icon" src="/icons/star100.png" alt="Избранное" />
                   {!quietMode && totalFavoriteUnreadCount > 0 ? (
-                    <span className="filter-badge">{totalFavoriteUnreadCount}</span>
+                    <span
+                      className={
+                        totalFavoriteUnreadCount > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'
+                      }
+                    >
+                      {formatUnreadBadgeCount(totalFavoriteUnreadCount)}
+                    </span>
                   ) : null}
                 </>
               ) : (
                 <span>Все</span>
               )}
               {filter === 'Все' && !quietMode && totalUnreadCount > 0 ? (
-                <span className="filter-badge">{totalUnreadCount}</span>
+                <span className={totalUnreadCount > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'}>
+                  {formatUnreadBadgeCount(totalUnreadCount)}
+                </span>
               ) : null}
             </button>
           ))}
@@ -2513,7 +3303,13 @@ function App() {
           >
             <img className="filter-icon" src="/icons/news100.svg" alt="Каналы" />
             {!quietMode && totalChannelNotifications > 0 ? (
-              <span className="filter-badge">{totalChannelNotifications}</span>
+              <span
+                className={
+                  totalChannelNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'
+                }
+              >
+                {formatUnreadBadgeCount(totalChannelNotifications)}
+              </span>
             ) : null}
           </button>
           <button
@@ -2540,7 +3336,9 @@ function App() {
           >
             <img className="filter-icon" src="/icons/group100.png" alt="Группы" />
             {!quietMode && totalGroupNotifications > 0 ? (
-              <span className="filter-badge">{totalGroupNotifications}</span>
+              <span className={totalGroupNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'}>
+                {formatUnreadBadgeCount(totalGroupNotifications)}
+              </span>
             ) : null}
           </button>
         </div>
@@ -2569,14 +3367,16 @@ function App() {
                     className={chat.id === activeChat?.id ? 'chat-card active' : 'chat-card'}
                     onClick={() => openChat(chat.id)}
                   >
-                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {chat.title.slice(0, 1)}
+                    <span className="chat-avatar-stack">
+                      <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                        {chat.title.slice(0, 1)}
+                      </span>
+                      {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                     </span>
                     <span className="chat-copy">
                     <span className="chat-topline">
                       <span className="chat-name-row">
                         <strong className="chat-name-text">{chat.title}</strong>
-                        {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                         {chat.premium ? (
                           <span className="premium-crown chat-crown" aria-label="Премиум">
                             <img src="/icons/crown64.png" alt="" />
@@ -2594,7 +3394,11 @@ function App() {
                       {searchShowsPhone ? chat.phone : chat.handle}
                     </span>
                   </span>
-                  {!quietMode && chat.unread > 0 ? <span className="badge">{chat.unread}</span> : null}
+                  {!quietMode && chat.unread > 0 ? (
+                    <span className={chat.unread > 9 ? 'badge badge-wide' : 'badge'}>
+                      {formatUnreadBadgeCount(chat.unread)}
+                    </span>
+                  ) : null}
                 </button>
                 ))}
               </section>
@@ -2659,7 +3463,11 @@ function App() {
                   <span className="chat-handle">{channel.handle}</span>
                   <span className="chat-preview">{formatSubscriptionChannelPreview(channel)}</span>
                 </span>
-                {!quietMode && channel.unread > 0 ? <span className="badge">{channel.unread}</span> : null}
+                {!quietMode && channel.unread > 0 ? (
+                  <span className={channel.unread > 9 ? 'badge badge-wide' : 'badge'}>
+                    {formatUnreadBadgeCount(channel.unread)}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -2688,7 +3496,11 @@ function App() {
                   <span className="chat-handle">{`${group.handle} · ${group.members} участников`}</span>
                   <span className="chat-preview">{formatGroupPreview(group)}</span>
                 </span>
-                {!quietMode && group.unread > 0 ? <span className="badge">{group.unread}</span> : null}
+                {!quietMode && group.unread > 0 ? (
+                  <span className={group.unread > 9 ? 'badge badge-wide' : 'badge'}>
+                    {formatUnreadBadgeCount(group.unread)}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -2698,17 +3510,25 @@ function App() {
               <button
                 key={chat.id}
                 type="button"
-                className={chat.id === activeChat?.id ? 'chat-card active' : 'chat-card'}
+                className={[
+                  'chat-card',
+                  bottomSection === 'contacts' ? '' : 'chat-card-compact',
+                  chat.id === activeChat?.id ? 'active' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 onClick={() => openChat(chat.id)}
               >
-                <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                  {chat.title.slice(0, 1)}
+                <span className="chat-avatar-stack">
+                  <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                    {chat.title.slice(0, 1)}
+                  </span>
+                  {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                 </span>
                 <span className="chat-copy">
                     <span className="chat-topline">
                       <span className="chat-name-row">
                         <strong className="chat-name-text">{chat.title}</strong>
-                        {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                         {chat.premium ? (
                           <span className="premium-crown chat-crown" aria-label="Премиум">
                             <img src="/icons/crown64.png" alt="" />
@@ -2720,24 +3540,30 @@ function App() {
                         </span>
                         ) : null}
                     </span>
-                    {bottomSection === 'contacts' ? null : <span>{chat.messages.at(-1)?.time}</span>}
+                    {bottomSection === 'contacts' ? null : chat.typing && !quietMode ? (
+                      <span className="chat-topline-typing" aria-label={`${chat.title} печатает`}>
+                        <span className="typing-dot" />
+                        <span className="typing-dot" />
+                        <span className="typing-dot" />
+                      </span>
+                    ) : !quietMode && chat.unread > 0 ? (
+                      <span
+                        className={
+                          chat.unread > 9
+                            ? 'chat-topline-badge chat-topline-badge-wide'
+                            : 'chat-topline-badge'
+                        }
+                      >
+                        {formatUnreadBadgeCount(chat.unread)}
+                      </span>
+                    ) : (
+                      <span className="chat-topline-meta">{chat.messages.at(-1)?.time}</span>
+                    )}
                   </span>
                   {bottomSection === 'contacts' ? (
                     <span className="chat-preview chat-status-preview">{formatContactStatus(chat)}</span>
-                  ) : chat.typing && !quietMode ? (
-                    <div className="chat-typing" aria-label={`${chat.title} печатает`}>
-                      <span className="typing-dot" />
-                      <span className="typing-dot" />
-                      <span className="typing-dot" />
-                      <span className="chat-typing-label">печатает...</span>
-                    </div>
-                  ) : (
-                    <span className="chat-preview">{formatPreview(chat)}</span>
-                  )}
+                  ) : null}
                 </span>
-                {bottomSection === 'contacts' || quietMode || chat.unread <= 0 ? null : (
-                  <span className="badge">{chat.unread}</span>
-                )}
               </button>
             ))}
           </div>
@@ -2827,7 +3653,7 @@ function App() {
               onClick={() => openChannelsListView()}
               aria-label="Каналы"
             >
-              <img src="/icons/omnichannel100.png" alt="" />
+              <img src="/icons/news_settings.png" alt="" />
             </button>
           ) : (
             <button
@@ -2987,6 +3813,12 @@ function App() {
                   <button type="button" className="settings-action-card">
                     Сменить номер телефона
                   </button>
+                  <a
+                    className="settings-action-card settings-action-link"
+                    href="/user-agreement.html"
+                  >
+                    Пользовательское соглашение
+                  </a>
                   <a
                     className="settings-action-card settings-action-link"
                     href="/privacy-policy.html"
@@ -3540,6 +4372,7 @@ function App() {
             attachmentInputRef={groupAttachmentInputRef}
             attachmentName={groupAttachmentDrafts[activeGroup.id]?.fileName ?? ''}
             draft={groupMessageDrafts[activeGroup.id] ?? ''}
+            getMessageDeliveryIssue={getGroupMessageDeliveryIssue}
             group={activeGroup}
             messageFeedRef={messageFeedRef}
             onAttachmentChange={handleGroupAttachmentChange}
@@ -3571,6 +4404,7 @@ function App() {
               attachmentName={chatAttachmentDrafts[activeChat.id]?.fileName ?? ''}
               chatActionsOpen={chatActionsOpen}
               draft={chatMessageDrafts[activeChat.id] ?? ''}
+              getMessageDeliveryIssue={getDirectMessageDeliveryIssue}
               messageFeedRef={messageFeedRef}
               pinnedMessage={pinnedMessage}
               quietMode={quietMode}
@@ -3619,7 +4453,7 @@ function App() {
               <>
                 <button
                   type="button"
-                  className="room-confirm-scrim"
+                  className="room-confirm-scrim message-menu-scrim"
                   aria-label="Закрыть меню сообщения"
                   onClick={() => {
                     setMessageActionMessageId(null)
@@ -3627,51 +4461,82 @@ function App() {
                   }}
                 />
                 {messageActionAnchor ? (
+                  <SelectedBubbleOverlay
+                    anchor={messageActionAnchor}
+                    deliveryIssue={activeMessageDeliveryIssue ?? undefined}
+                    kind="direct"
+                    message={activeMessage}
+                    mine={activeMessage.author === 'me'}
+                    replyChatTitle={activeChat.title}
+                  />
+                ) : null}
+                {messageActionAnchor ? (
                   <div
                     ref={messageMenuRef}
                     className="message-menu"
                     style={messageMenuStyle}
                   >
-                    <button type="button" className="message-menu-item" onClick={() => replyToMessage(activeMessage)}>
-                      Ответить
-                    </button>
-                    <button
-                      type="button"
-                      className="message-menu-item"
-                      onClick={() => copyMessageText(activeMessage)}
-                    >
-                      Скопировать
-                    </button>
-                    <button
-                      type="button"
-                      className="message-menu-item"
-                      onClick={() => {
-                        void pinMessage(activeChat.id, activeMessage.id)
-                      }}
-                    >
-                      Закрепить
-                    </button>
-                    <button
-                      type="button"
-                      className="message-menu-item"
-                      onClick={() => {
-                        setForwardingMessageId(activeMessage.id)
-                        setMessageActionMessageId(null)
-                        setMessageActionAnchor(null)
-                      }}
-                    >
-                      Переслать
-                    </button>
-                    <button
-                      type="button"
-                      className="message-menu-item danger"
-                      onClick={() => {
-                        setConfirmingDeleteMessageId(activeMessage.id)
-                        setMessageActionMessageId(null)
-                      }}
-                    >
-                      Удалить
-                    </button>
+                    {activeMessageDeliveryIssue === 'failed' ? (
+                      <>
+                        <button
+                          type="button"
+                          className="message-menu-item"
+                          onClick={() => retryFailedDirectMessage(activeChat.id, activeMessage.id)}
+                        >
+                          Отправить повторно
+                        </button>
+                        <button
+                          type="button"
+                          className="message-menu-item danger"
+                          onClick={() => deleteFailedDirectMessage(activeChat.id, activeMessage.id)}
+                        >
+                          Удалить
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="message-menu-item" onClick={() => replyToMessage(activeMessage)}>
+                          Ответить
+                        </button>
+                        <button
+                          type="button"
+                          className="message-menu-item"
+                          onClick={() => copyMessageText(activeMessage)}
+                        >
+                          Скопировать
+                        </button>
+                        <button
+                          type="button"
+                          className="message-menu-item"
+                          onClick={() => {
+                            void pinMessage(activeChat.id, activeMessage.id)
+                          }}
+                        >
+                          Закрепить
+                        </button>
+                        <button
+                          type="button"
+                          className="message-menu-item"
+                          onClick={() => {
+                            setForwardingMessageId(activeMessage.id)
+                            setMessageActionMessageId(null)
+                            setMessageActionAnchor(null)
+                          }}
+                        >
+                          Переслать
+                        </button>
+                        <button
+                          type="button"
+                          className="message-menu-item danger"
+                          onClick={() => {
+                            setConfirmingDeleteMessageId(activeMessage.id)
+                            setMessageActionMessageId(null)
+                          }}
+                        >
+                          Удалить
+                        </button>
+                      </>
+                    )}
                   </div>
                 ) : null}
               </>

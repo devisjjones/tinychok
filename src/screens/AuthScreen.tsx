@@ -125,7 +125,11 @@ export function AuthScreen({
 
           {authStep === 'phone' ? (
             <p className="auth-submit-note">
-              Нажимая «Получить код», вы подтверждаете, что ознакомились с{' '}
+              Продолжая авторизацию, вы соглашаетесь с{' '}
+              <a className="auth-submit-note-link" href="/user-agreement.html">
+                Пользовательским соглашением
+              </a>{' '}
+              и{' '}
               <a className="auth-submit-note-link" href="/privacy-policy.html">
                 Политикой обработки персональных данных
               </a>
