@@ -7,9 +7,9 @@
 - текущая рабочая ветка для staging deploy: `codex/staging-deploy`
 - последняя подтверждённая staging-выкладка: `1b8df3f`
 - commit message подтверждённой staging-выкладки: `Polish mobile composer and refresh staging docs`
-- последний продуктовый batch в ветке после этого: `1a037b9`
-- commit message последнего продуктового batch: `Refine channel and group messaging flows`
-- локальный `HEAD` на staging VM сейчас не должен считаться актуальным, пока commit `1a037b9` не будет отдельно задеплоен и проверен
+- последний продуктовый batch в ветке после этого: `2bf7a1e`
+- commit message последнего продуктового batch: `Add direct and channel moderation actions`
+- staging VM по-прежнему нельзя считать актуальной по `HEAD`, пока не будет отдельно задеплоен и проверен весь накопившийся stack после `1b8df3f`
 
 Если продолжать в новой ветке, безопасная точка старта:
 
@@ -33,7 +33,7 @@
 - баг с seeded mock history для реальных staging-аккаунтов уже исправлен
 - фикс сортировки чатов по latest activity уже включён в staging
 - staging deploy до `1b8df3f` уже подтверждён владельцем проекта
-- commit `1a037b9` пока в staging не подтверждён
+- commits `1a037b9`, `30a8256` и `2bf7a1e` пока в staging не подтверждены
 - после `npm ci`, `npm run build`, `sudo systemctl restart tinychok-staging` и `sudo rsync -av --delete dist/ /var/www/tinychok-staging/` владелец проекта подтвердил, что staging работает
 
 ## Последний подтверждённый change batch
@@ -78,11 +78,11 @@ Operational note:
 - staging VM сейчас последне подтверждённо была на `1b8df3f`
 - для следующей выкладки теперь можно использовать либо ручную последовательность, либо `bash scripts/deploy-staging.sh`
 
-## Текущий непроверенный batch в ветке
+## Текущий непроверенный product stack в ветке
 
-После подтверждённого staging commit `1b8df3f` в ветке уже лежит новый продуктовый batch `1a037b9` (`Refine channel and group messaging flows`).
+После подтверждённого staging commit `1b8df3f` в ветке уже накопился следующий непроверенный стек продуктовых коммитов:
 
-В него входят:
+### `1a037b9` `Refine channel and group messaging flows`
 
 - group room:
   - у входящих сообщений участника рендерится уменьшенная аватарка
@@ -101,7 +101,44 @@ Operational note:
   - standalone `@channel_handle` в сообщении превращается в кликабельную плашку канала
   - по нажатию открывается подписанный канал или preview канала
 
-Этот batch уже собран локально через `npm run build`, но staging-подтверждения для него ещё нет.
+### `30a8256` `Refine avatar flows and channel limits`
+
+- create/edit channel avatar:
+  - отдельный popup для смены аватарки канала
+  - загрузка только `JPEG/PNG` до `1 МБ`
+  - live preview со скруглением как в UI
+  - стоковые аватарки подхватываются из отдельных папок `src/assets/stock-avatars/channels` и `src/assets/stock-avatars/users`
+  - при смене аватарки старая server-side аватарка очищается
+- profile avatar:
+  - у пользователя появилась отдельная смена аватарки с тем же upload flow
+  - в настройках аватарка перестроена слева от имени, с кнопкой `Сменить` под ней
+- settings/profile polish:
+  - заголовок `Настройки` вынесен выше профайл-блока
+  - длинное имя в header настроек автоматически уменьшает размер шрифта
+  - убрано внутреннее clipping-поведение settings-экрана
+  - никнейм теперь принимает кириллицу, лимит `16` символов
+- premium and limits:
+  - на годовой premium-card добавлен badge `Выгода 42%`
+  - один пользователь может управлять максимум `5` каналами
+
+### `2bf7a1e` `Add direct and channel moderation actions`
+
+- direct chats:
+  - в меню личного чата добавлены `Заглушить` / `Включить уведомления`
+  - заглушённые диалоги показывают иконку `bell-100.png`
+  - при mute новые сообщения не поднимают unread counter
+- complaints:
+  - в личных чатах добавлен popup жалобы с причинами `Спам`, `Обман`, `Очень неприятно`
+  - жалобы сохраняются на backend отдельно по контакту и репортёру
+  - при количестве жалоб больше `10` вход по номеру временно блокируется на шаге верификации с подсказкой написать на `devisjjones@gmail.com`
+  - у создателя группы пункт `Пожаловаться` убран из group menu
+- subscription channels:
+  - в header канала добавлена кнопка `...`
+  - menu канала содержит `Заглушить`, `Покинуть`, `Поделиться`, `Пожаловаться`
+  - `Поделиться` отправляет в личный чат plain `@handle` ссылку на канал
+  - channel complaints сохраняются отдельно и не блокируют автоматически, решение остаётся за администрацией
+
+Весь этот stack уже собран локально через `npm run build`, но staging-подтверждения для него ещё нет.
 
 ## Что уже создано и установлено
 
@@ -177,7 +214,7 @@ tinychok-staging-deploy
 - базовый staging rollout уже закрыт
 - access guard уже включён и после последней выкладки не менялся
 - текущая подтверждённая staging-точка старта: `1b8df3f`
-- следующий непроверенный batch для deploy: `1a037b9`
+- следующий непроверенный deploy-candidate: cumulative stack до `2bf7a1e`
 - следующую работу выбирать уже из продуктовых/bugfix задач, а не из базовой staging-инфраструктуры
 - после следующего подтверждённого deploy обновлять этот файл, если commit staging-состояния поменялся
 

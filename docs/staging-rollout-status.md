@@ -28,7 +28,7 @@
   - `staging.tinychok.ru -> 158.160.197.255`
 - внешние резолверы `1.1.1.1` и `8.8.8.8` видят staging-поддомены на `158.160.197.255`
 - staging VM подтверждённо была обновлена до commit `1b8df3f` (`Polish mobile composer and refresh staging docs`)
-- в `origin/codex/staging-deploy` уже есть более новый продуктовый batch `1a037b9` (`Refine channel and group messaging flows`)
+- в `origin/codex/staging-deploy` уже лежит неподтверждённый product stack `1a037b9 -> 30a8256 -> 2bf7a1e`
 - latest deploy sequence `npm ci -> npm run build -> sudo systemctl restart tinychok-staging -> sudo rsync -av --delete dist/ /var/www/tinychok-staging/` был выполнен успешно `2026-03-21`
 - владелец проекта после выкладки подтвердил staging-статус: `Всё работает`
 - для следующих выкладок в репо добавлен скрипт `scripts/deploy-staging.sh`
@@ -76,9 +76,9 @@
 
 ## Что уже готово к следующему deploy
 
-В `origin/codex/staging-deploy` уже лежит новый продуктовый batch `1a037b9` (`Refine channel and group messaging flows`).
+Следующая staging-выкладка теперь должна проверять не один commit, а весь накопившийся stack после `1b8df3f`:
 
-Он добавляет:
+### `1a037b9` `Refine channel and group messaging flows`
 
 - удаление своих сообщений в группе
 - корректный popover редактирования названия канала
@@ -92,6 +92,33 @@
   - уникализация числовым суффиксом
   - нормализация старых URL
 - standalone `@channel_handle` в сообщениях превращается в кликабельную channel-pill
+
+### `30a8256` `Refine avatar flows and channel limits`
+
+- popup-выбор и upload channel avatar с ограничением `JPEG/PNG` до `1 МБ`
+- отдельные стоковые аватарки для каналов и пользователей из репозитория
+- user avatar с тем же upload flow и server-side cleanup старого файла
+- visual polish settings screen:
+  - аватарка слева от имени
+  - отдельный заголовок `Настройки`
+  - автоуменьшение длинного имени
+  - устранение clipping-маски вверху и внизу settings-экрана
+- кириллица в никнейме с лимитом `16` символов
+- badge `Выгода 42%` на годовом premium plan
+- лимит `5` каналов на одного пользователя
+
+### `2bf7a1e` `Add direct and channel moderation actions`
+
+- жалобы на пользователей с выбором причины и backend storage
+- временная блокировка логина для аккаунтов, набравших больше `10` жалоб
+- mute для direct chat с индикатором перечёркнутого колокольчика
+- channel room menu:
+  - `Заглушить`
+  - `Покинуть`
+  - `Поделиться`
+  - `Пожаловаться`
+- отправка `@handle` канала в личный чат через share flow
+- отдельный backend counter для жалоб на каналы без автоматической блокировки
 
 Если выкладка делается вручную, используется тот же flow:
 
@@ -151,9 +178,10 @@ tinychok-staging-deploy
 - allowlist тестовых телефонов на backend
 - фиксы по account search, seeded mock history и сортировке чатов
 - legal pages и mobile composer batch из `1b8df3f`
+- product stack `1a037b9 -> 30a8256 -> 2bf7a1e` ещё не выкатывался на staging и ждёт deploy + smoke-check
 
 ## Следующий шаг
 
 Обязательного незакрытого staging rollout шага сейчас нет.
 
-Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что `1a037b9` пока ещё ждёт deploy и smoke-check.
+Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что staging-кандидат сейчас представляет собой cumulative stack до `2bf7a1e`, который ещё ждёт deploy и smoke-check.
