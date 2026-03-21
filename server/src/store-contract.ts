@@ -7,6 +7,7 @@ export type AppStore = Pick<
   | 'deleteDialog'
   | 'deleteDialogHistory'
   | 'deleteDialogMessage'
+  | 'deleteGroupMessage'
   | 'deleteManagedChannel'
   | 'getIdentifierByToken'
   | 'getSnapshotByToken'

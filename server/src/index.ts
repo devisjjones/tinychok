@@ -473,6 +473,23 @@ app.post('/api/groups/:groupId/read', async (request, reply) => {
   }
 })
 
+app.delete('/api/groups/:groupId/messages/:messageId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const messageId = getNumericRouteParam(request, 'messageId')
+    const result = await store.deleteGroupMessage(token, groupId, messageId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.post('/api/channels', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {

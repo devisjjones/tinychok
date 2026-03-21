@@ -1361,7 +1361,7 @@
   background: rgba(255, 251, 245, 0.98);
   border: 1px solid rgba(141, 89, 57, 0.14);
   box-shadow: 0 24px 60px rgba(64, 35, 18, 0.16);
-  z-index: 7;
+  z-index: 10;
 }
 
 .channel-title-popover-actions {

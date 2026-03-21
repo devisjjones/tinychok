@@ -1317,6 +1317,53 @@ export class TinychokStore {
     }
   }
 
+  async deleteGroupMessage(
+    token: string,
+    groupId: number,
+    messageId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const group = this.findGroup(account.identifier, groupId)
+    if (!group) {
+      throw new Error('Группа не найдена.')
+    }
+
+    const message = this.database.groupMessages.find(
+      (candidate) =>
+        candidate.ownerIdentifier === account.identifier &&
+        candidate.groupId === groupId &&
+        candidate.id === messageId,
+    )
+
+    if (!message) {
+      throw new Error('Сообщение не найдено.')
+    }
+
+    if (message.author !== 'me') {
+      throw new Error('Можно удалять только свои сообщения.')
+    }
+
+    this.database.groupMessages = this.database.groupMessages.filter(
+      (candidate) =>
+        !(
+          candidate.ownerIdentifier === account.identifier &&
+          candidate.groupId === groupId &&
+          candidate.id === messageId
+        ),
+    )
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async markDialogRead(token: string, dialogId: number): Promise<MutationResult> {
     const account = this.findAccountByToken(token)
     if (!account) {

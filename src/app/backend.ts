@@ -346,6 +346,19 @@ export async function markDialogRead(sessionToken: string, dialogId: number) {
   return normalizeMutationResponse(payload)
 }
 
+export async function deleteGroupMessage(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}`),
+    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function markGroupRead(sessionToken: string, groupId: number) {
   const response = await fetch(
     makeHttpUrl(`/api/groups/${groupId}/read`),

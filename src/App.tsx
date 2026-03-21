@@ -34,6 +34,7 @@ import {
   deleteDialog as deleteDialogRequest,
   deleteDialogHistory as deleteDialogHistoryRequest,
   deleteDialogMessage as deleteDialogMessageRequest,
+  deleteGroupMessage as deleteGroupMessageRequest,
   deleteManagedChannel as deleteManagedChannelRequest,
   fetchBootstrap,
   markDialogRead as markDialogReadRequest,
@@ -369,6 +370,7 @@ function buildPreviewSubscriptionChannelFromManagedChannel(channel: Channel): Su
 
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
+  const channelTitleInputRef = useRef<HTMLInputElement | null>(null)
   const accountNameRef = useRef<HTMLHeadingElement | null>(null)
   const accountStatusRef = useRef<HTMLParagraphElement | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
@@ -450,6 +452,7 @@ function App() {
     null,
   )
   const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState<number | null>(null)
+  const [confirmingDeleteGroupMessageId, setConfirmingDeleteGroupMessageId] = useState<number | null>(null)
   const [confirmingDeleteChannelId, setConfirmingDeleteChannelId] = useState<number | null>(null)
   const [transferringChannelId, setTransferringChannelId] = useState<number | null>(null)
   const [channelTransferTargetChatId, setChannelTransferTargetChatId] = useState<number | null>(null)
@@ -646,6 +649,15 @@ function App() {
     channelActionMenuWidth,
     channelActionMenuHeight,
   )
+
+  useEffect(() => {
+    if (editingChannelTitleId === null) return
+
+    window.requestAnimationFrame(() => {
+      channelTitleInputRef.current?.focus()
+      channelTitleInputRef.current?.select()
+    })
+  }, [editingChannelTitleId])
   const { menuRef: messageMenuRef, style: messageMenuStyle } = useAnchoredMenu(
     messageActionAnchor,
     chatActionMenuWidth,
@@ -2245,6 +2257,7 @@ function App() {
     setConfirmingDeleteHistoryChatId(null)
     setConfirmingDeleteContactChatId(null)
     setConfirmingDeleteMessageId(null)
+    setConfirmingDeleteGroupMessageId(null)
     setForwardingSubscriptionPostText('')
     setForwardingGroupMessageText('')
     setMessageActionAnchor(null)
@@ -2994,6 +3007,25 @@ function App() {
     closeGroupMessageActions()
   }
 
+  async function deleteGroupMessage(groupId: number, messageId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await deleteGroupMessageRequest(session.sessionToken, groupId, messageId)
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to delete group message', error)
+        applyLocalDeleteGroupMessage(groupId, messageId)
+      }
+    } else {
+      applyLocalDeleteGroupMessage(groupId, messageId)
+    }
+
+    setActiveGroupMessageId(null)
+    setForwardingGroupMessageText('')
+    setConfirmingDeleteGroupMessageId(null)
+    setGroupMessageActionAnchor(null)
+  }
+
   async function deleteMessage(chatId: number, messageId: number) {
     if (backendReady && session?.sessionToken) {
       try {
@@ -3053,6 +3085,7 @@ function App() {
     setConfirmingDeleteHistoryChatId(null)
     setConfirmingDeleteContactChatId(null)
     setConfirmingDeleteMessageId(null)
+    setConfirmingDeleteGroupMessageId(null)
     setConfirmingDeleteChannelId(null)
     setTransferringChannelId(null)
     setChannelTransferTargetChatId(null)
@@ -3316,6 +3349,7 @@ function App() {
   function closeGroupMessageActions() {
     setActiveGroupMessageId(null)
     setForwardingGroupMessageText('')
+    setConfirmingDeleteGroupMessageId(null)
     setGroupMessageActionAnchor(null)
   }
 
@@ -3679,6 +3713,19 @@ function App() {
               >
                 Скопировать
               </button>
+              {activeGroupMessage.author === 'me' ? (
+                <button
+                  type="button"
+                  className="message-menu-item danger"
+                  onClick={() => {
+                    setConfirmingDeleteGroupMessageId(activeGroupMessage.id)
+                    setActiveGroupMessageId(null)
+                    setGroupMessageActionAnchor(null)
+                  }}
+                >
+                  Удалить
+                </button>
+              ) : null}
             </>
           )}
         </div>
@@ -3727,6 +3774,39 @@ function App() {
           >
             Закрыть
           </button>
+        </div>
+      </>
+  ) : null
+
+  const confirmingDeleteGroupMessageDialog =
+    activeGroup && confirmingDeleteGroupMessageId !== null ? (
+      <>
+        <button
+          type="button"
+          className="room-confirm-scrim"
+          aria-label="Закрыть подтверждение удаления сообщения группы"
+          onClick={() => setConfirmingDeleteGroupMessageId(null)}
+        />
+        <div className="room-confirm room-confirm-compact">
+          <p className="room-confirm-copy">Удалить своё сообщение в группе?</p>
+          <div className="room-confirm-actions room-confirm-actions-dual">
+            <button
+              type="button"
+              className="room-confirm-button room-confirm-danger"
+              onClick={() => {
+                void deleteGroupMessage(activeGroup.id, confirmingDeleteGroupMessageId)
+              }}
+            >
+              Удалить
+            </button>
+            <button
+              type="button"
+              className="room-confirm-button"
+              onClick={() => setConfirmingDeleteGroupMessageId(null)}
+            >
+              Отмена
+            </button>
+          </div>
         </div>
       </>
     ) : null
@@ -5035,6 +5115,7 @@ function App() {
           />
         ) : null}
         {groupParticipantsDialog}
+        {confirmingDeleteGroupMessageDialog}
 
         {isChatOpen ? (
           <>
@@ -5489,6 +5570,7 @@ function App() {
             <div className="channel-title-popover">
               <p className="settings-label">Название канала</p>
               <input
+                ref={channelTitleInputRef}
                 type="text"
                 className="settings-input"
                 maxLength={channelTitleMaxLength}
