@@ -404,6 +404,7 @@ function materializeDialogMessage(
   return {
     attachment: message.attachment,
     author: message.author,
+    createdAt: message.createdAt,
     displayAuthor: message.displayAuthor,
     forwarded: message.forwarded,
     id: message.id,
@@ -432,6 +433,7 @@ function materializeGroupMessage(
   return {
     attachment: message.attachment,
     author: message.author,
+    createdAt: message.createdAt,
     displayAuthor: message.displayAuthor,
     forwarded: message.forwarded,
     id: message.id,
@@ -943,6 +945,7 @@ export class TinychokStore {
           text: sanitizeMessageText(payload.replyTo.text).slice(0, 280),
         }
       : undefined
+    const createdAt = new Date().toISOString()
     const time = formatNowTime()
     const recipientIdentifier = normalizeIdentifier(dialog.phone)
     const recipientAccount =
@@ -964,6 +967,7 @@ export class TinychokStore {
       ownerIdentifier: account.identifier,
       replyTo: senderReplyTo,
       text,
+      createdAt,
       time,
     })
 
@@ -993,6 +997,7 @@ export class TinychokStore {
         ownerIdentifier: recipientAccount.identifier,
         replyTo: recipientReplyTo,
         text,
+        createdAt,
         time,
       })
 
@@ -1191,11 +1196,13 @@ export class TinychokStore {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
 
+    const createdAt = new Date().toISOString()
     const time = formatNowTime()
 
     this.database.groupMessages.push({
       attachment,
       author: 'me',
+      createdAt,
       groupId,
       id: this.getNextGroupMessageId(account.identifier, groupId),
       ownerIdentifier: account.identifier,

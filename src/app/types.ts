@@ -9,6 +9,7 @@ export type ChannelPost = {
   id: number
   text: string
   time: string
+  createdAt?: string
   attachment?: MessageAttachment
 }
 
@@ -17,6 +18,7 @@ export type Message = {
   author: 'me' | 'them'
   text: string
   time: string
+  createdAt?: string
   displayAuthor?: string
   attachment?: MessageAttachment
   replyTo?: {

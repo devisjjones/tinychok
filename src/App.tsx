@@ -95,6 +95,7 @@ import {
   sanitizeChannelTitle,
   sanitizePersonField,
   sanitizeStatusField,
+  sortChatsByRecentActivity,
 } from './app/utils'
 import { AuthScreen } from './screens/AuthScreen'
 import { ConfirmLogoutScreen } from './screens/ConfirmLogoutScreen'
@@ -228,8 +229,12 @@ function App() {
   const { cookieConsent, updateCookieConsent } = useCookieConsent()
 
   const blockedContactIds = session?.blockedContactIds ?? []
-  const availableChats = chats.filter((chat) => !blockedContactIds.includes(chat.id))
-  const blockedChats = chats.filter((chat) => blockedContactIds.includes(chat.id))
+  const availableChats = sortChatsByRecentActivity(
+    chats.filter((chat) => !blockedContactIds.includes(chat.id)),
+  )
+  const blockedChats = sortChatsByRecentActivity(
+    chats.filter((chat) => blockedContactIds.includes(chat.id)),
+  )
   const visibleRetainedAllChatId =
     activeFilter === 'Все' &&
     stageView === 'main' &&
@@ -1087,6 +1092,8 @@ function App() {
       replyTo?: Message['replyTo']
     },
   ) {
+    const createdAt = new Date().toISOString()
+
     setChats((currentChats) =>
       currentChats.map((chat) => {
         if (chat.id !== chatId) return chat
@@ -1105,6 +1112,7 @@ function App() {
               id: Date.now(),
               replyTo: options?.replyTo,
               text,
+              createdAt,
               time: formatNowTime(),
             },
           ],
@@ -1134,6 +1142,7 @@ function App() {
     },
   ) {
     const time = formatNowTime()
+    const createdAt = new Date().toISOString()
 
     setGroups((currentGroups) =>
       currentGroups.map((group) =>
@@ -1150,6 +1159,7 @@ function App() {
                   attachment: options?.attachment,
                   id: Date.now() + group.id,
                   author: 'me',
+                  createdAt,
                   text,
                   time,
                 },

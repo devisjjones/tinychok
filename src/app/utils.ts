@@ -29,6 +29,46 @@ export function formatPreview(chat: Chat) {
   return latest ? formatMessagePreview(latest) : 'Пока пусто'
 }
 
+function parseIsoDate(value?: string) {
+  if (!value) return null
+
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function getChatLastActivityTimestamp(chat: Chat) {
+  return parseIsoDate(chat.messages.at(-1)?.createdAt)
+}
+
+export function sortChatsByRecentActivity(chats: Chat[]) {
+  return chats
+    .map((chat, index) => ({
+      chat,
+      index,
+      lastActivityTimestamp: getChatLastActivityTimestamp(chat),
+    }))
+    .sort((left, right) => {
+      if (left.lastActivityTimestamp === null && right.lastActivityTimestamp === null) {
+        return left.index - right.index
+      }
+
+      if (left.lastActivityTimestamp === null) {
+        return 1
+      }
+
+      if (right.lastActivityTimestamp === null) {
+        return -1
+      }
+
+      if (left.lastActivityTimestamp === right.lastActivityTimestamp) {
+        return left.index - right.index
+      }
+
+      return right.lastActivityTimestamp - left.lastActivityTimestamp
+    })
+    .map(({ chat }) => chat)
+}
+
 export function formatGroupPreview(group: GroupPreview) {
   const latest = group.messages.at(-1)
   return latest ? formatMessagePreview(latest) : group.preview
