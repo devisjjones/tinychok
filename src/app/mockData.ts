@@ -1,4 +1,11 @@
-import type { Channel, Chat, GroupPreview, SearchResult, SubscriptionChannel } from './types'
+import type {
+  Channel,
+  Chat,
+  GroupParticipant,
+  GroupPreview,
+  SearchResult,
+  SubscriptionChannel,
+} from './types'
 import { makeDraftChannel } from './utils'
 
 export const initialChats: Chat[] = [
@@ -416,12 +423,34 @@ export const discoveryResults: SearchResult[] = [
   },
 ]
 
+function buildGroupParticipant(chatId: number): GroupParticipant {
+  const chat = initialChats.find((candidate) => candidate.id === chatId)
+
+  if (!chat) {
+    throw new Error(`Unknown group participant chat id: ${chatId}`)
+  }
+
+  return {
+    accent: chat.accent,
+    id: chat.id,
+    online: chat.online,
+    premium: chat.premium,
+    status: chat.online ? 'в сети' : chat.lastSeen ?? chat.status,
+    title: chat.title,
+  }
+}
+
+function buildGroupParticipants(chatIds: number[]) {
+  return chatIds.map((chatId) => buildGroupParticipant(chatId))
+}
+
 export const initialSubscribedChannels: SubscriptionChannel[] = [
   {
     id: 1,
     title: 'Ночной архив',
     handle: '@night_archive',
     accent: '#8c5738',
+    readers: 148,
     preview: 'Черновик публикации: тихие заметки и закрытые анонсы.',
     time: '22:14',
     unread: 3,
@@ -450,6 +479,7 @@ export const initialSubscribedChannels: SubscriptionChannel[] = [
     title: 'Тихие релизы',
     handle: '@quiet_releases',
     accent: '#6eb6ff',
+    readers: 96,
     preview: 'Новый выпуск: обновили premium flow и экран каналов.',
     time: '20:06',
     unread: 0,
@@ -473,6 +503,7 @@ export const initialSubscribedChannels: SubscriptionChannel[] = [
     title: 'Клуб сигналов',
     handle: '@signal_club',
     accent: '#82c9a3',
+    readers: 214,
     preview: '3 новых сигнала за вечер и подборка коротких постов.',
     time: '18:42',
     unread: 5,
@@ -501,6 +532,7 @@ export const initialSubscribedChannels: SubscriptionChannel[] = [
     title: 'Newsroom',
     handle: '@tiny_newsroom',
     accent: '#ff8a5b',
+    readers: 327,
     preview: 'Запустили тихий режим уведомлений для каналов.',
     time: '16:11',
     unread: 2,
@@ -530,11 +562,13 @@ export const initialGroups: GroupPreview[] = [
     time: '21:24',
     unread: 4,
     members: 8,
+    participants: buildGroupParticipants([1, 3, 6, 14, 18, 5, 20, 4]),
     messages: [
       {
         id: 1,
         author: 'them',
         displayAuthor: 'Мира',
+        groupParticipantId: 1,
         text: 'Соберём в этой группе спокойные обсуждения интерфейса и приватных сценариев.',
         time: '20:48',
       },
@@ -548,6 +582,7 @@ export const initialGroups: GroupPreview[] = [
         id: 3,
         author: 'them',
         displayAuthor: 'Лев',
+        groupParticipantId: 3,
         text: 'Тогда здесь же проверим, как ведёт себя меню действий у сообщений в групповом потоке.',
         time: '21:24',
       },
@@ -562,11 +597,13 @@ export const initialGroups: GroupPreview[] = [
     time: '19:16',
     unread: 0,
     members: 5,
+    participants: buildGroupParticipants([6, 2, 5, 16, 18]),
     messages: [
       {
         id: 1,
         author: 'them',
         displayAuthor: 'Полина',
+        groupParticipantId: 6,
         text: 'В эту группу складываем короткие заметки по сборкам, текстам и мелким визуальным багам.',
         time: '18:40',
       },
@@ -587,11 +624,13 @@ export const initialGroups: GroupPreview[] = [
     time: '17:42',
     unread: 2,
     members: 11,
+    participants: buildGroupParticipants([2, 5, 6, 1, 3, 4, 14, 18, 20, 16, 17]),
     messages: [
       {
         id: 1,
         author: 'them',
         displayAuthor: 'Соня',
+        groupParticipantId: 2,
         text: 'Нужно накидать несколько черновых сообщений, чтобы группа ощущалась живой, а не пустой.',
         time: '17:11',
       },
@@ -599,6 +638,7 @@ export const initialGroups: GroupPreview[] = [
         id: 2,
         author: 'them',
         displayAuthor: 'Никита',
+        groupParticipantId: 5,
         text: 'И сразу проверить, что копирование и пересылка из группы работают так же стабильно, как в обычном чате.',
         time: '17:42',
       },

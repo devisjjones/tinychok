@@ -1,13 +1,71 @@
-import type { Message } from '../app/types'
+import type { MouseEvent as ReactMouseEvent } from 'react'
+import type { ChannelMessageSource, Message } from '../app/types'
 import { formatAttachmentSize, formatMessageAuthor, isImageMimeType } from '../app/utils'
 
 type BubbleMessageContentProps = {
   message: Pick<Message, 'attachment' | 'replyTo' | 'text'>
+  linkedChannel?: ChannelMessageSource | null
+  onOpenLinkedChannel?: () => void
   replyChatTitle?: string
 }
 
+type ForwardedChannelHeaderProps = {
+  sourceChannel: NonNullable<Message['sourceChannel']>
+  onClick?: () => void
+}
+
+export function ForwardedChannelHeader({
+  sourceChannel,
+  onClick,
+}: ForwardedChannelHeaderProps) {
+  return (
+    <>
+      {onClick ? (
+        <button
+          type="button"
+          className="bubble-forwarded-source bubble-forwarded-source-button"
+          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+            event.stopPropagation()
+            onClick()
+          }}
+        >
+          <span
+            className="avatar bubble-forwarded-source-avatar"
+            style={{ backgroundColor: sourceChannel.accent ?? '#8c5738' }}
+          >
+            {sourceChannel.title.slice(0, 1)}
+          </span>
+          <span className="bubble-forwarded-source-copy">
+            <span className="bubble-forwarded-source-title">{sourceChannel.title}</span>
+            <span className="chat-star bubble-forwarded-source-icon" aria-hidden="true">
+              <img src="/icons/news100.svg" alt="" />
+            </span>
+          </span>
+        </button>
+      ) : (
+        <div className="bubble-forwarded-source">
+          <span
+            className="avatar bubble-forwarded-source-avatar"
+            style={{ backgroundColor: sourceChannel.accent ?? '#8c5738' }}
+          >
+            {sourceChannel.title.slice(0, 1)}
+          </span>
+          <span className="bubble-forwarded-source-copy">
+            <span className="bubble-forwarded-source-title">{sourceChannel.title}</span>
+            <span className="chat-star bubble-forwarded-source-icon" aria-hidden="true">
+              <img src="/icons/news100.svg" alt="" />
+            </span>
+          </span>
+        </div>
+      )}
+    </>
+  )
+}
+
 export function BubbleMessageContent({
+  linkedChannel,
   message,
+  onOpenLinkedChannel,
   replyChatTitle,
 }: BubbleMessageContentProps) {
   return (
@@ -41,7 +99,11 @@ export function BubbleMessageContent({
           </div>
         </div>
       ) : null}
-      {message.text.trim() ? <p>{message.text}</p> : null}
+      {linkedChannel ? (
+        <ForwardedChannelHeader sourceChannel={linkedChannel} onClick={onOpenLinkedChannel} />
+      ) : message.text.trim() ? (
+        <p>{message.text}</p>
+      ) : null}
     </>
   )
 }

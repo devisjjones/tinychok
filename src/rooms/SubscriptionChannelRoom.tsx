@@ -9,6 +9,10 @@ type SubscriptionChannelRoomProps = {
   messageFeedRef: RefObject<HTMLDivElement | null>
   onBack: () => void
   onPostSelect: (event: MouseEvent<HTMLButtonElement>, postId: number) => void
+  subscriptionAction?: {
+    label: string
+    onClick: () => void
+  }
 }
 
 export function SubscriptionChannelRoom({
@@ -18,6 +22,7 @@ export function SubscriptionChannelRoom({
   messageFeedRef,
   onBack,
   onPostSelect,
+  subscriptionAction,
 }: SubscriptionChannelRoomProps) {
   return (
     <>
@@ -64,12 +69,22 @@ export function SubscriptionChannelRoom({
               }
               onClick={(event) => onPostSelect(event, post.id)}
             >
-              <span className="bubble-meta">{channel.draft ? 'Draft-пост' : 'Пост канала'}</span>
               <BubbleMessageContent message={post} />
               <time>{post.time}</time>
             </button>
           ))}
         </div>
+        {subscriptionAction ? (
+          <div className="channel-room-footer">
+            <button
+              type="button"
+              className="send-button channel-subscribe-button"
+              onClick={subscriptionAction.onClick}
+            >
+              {subscriptionAction.label}
+            </button>
+          </div>
+        ) : null}
       </section>
       {actions}
     </>

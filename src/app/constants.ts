@@ -7,6 +7,7 @@ export const accountNameMinFontSize = 20
 export const accountStatusMaxFontSize = 15
 export const accountStatusMinFontSize = 10.5
 export const channelTitleMaxLength = 30
+export const channelDirectLinkMaxLength = 30
 export const channelDescriptionMaxLength = 160
 export const channelActionMenuWidth = 280
 export const channelActionMenuHeight = 132

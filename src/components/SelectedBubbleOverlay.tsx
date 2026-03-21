@@ -1,12 +1,13 @@
-import type { ActionAnchor, ChannelPost, Message } from '../app/types'
+import type { ActionAnchor, ChannelPost, GroupParticipant, Message } from '../app/types'
 import { shouldShowDeliveryCaption } from '../app/utils'
-import { BubbleMessageContent } from './BubbleMessageContent'
+import { BubbleMessageContent, ForwardedChannelHeader } from './BubbleMessageContent'
 
 type SelectedBubbleOverlayProps =
   | {
       anchor: ActionAnchor
       kind: 'direct'
       deliveryIssue?: 'pending' | 'failed'
+      linkedChannel?: NonNullable<Message['sourceChannel']> | null
       message: Message
       mine: boolean
       replyChatTitle?: string
@@ -15,12 +16,15 @@ type SelectedBubbleOverlayProps =
       anchor: ActionAnchor
       deliveryIssue?: 'pending' | 'failed'
       kind: 'group'
+      linkedChannel?: NonNullable<Message['sourceChannel']> | null
       message: Message
       mine: boolean
+      participant?: GroupParticipant | null
     }
   | {
       anchor: ActionAnchor
       kind: 'channel'
+      channelTitle: string
       post: ChannelPost
       draft: boolean
     }
@@ -41,7 +45,6 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         style={getOverlayPosition(props.anchor)}
         aria-hidden="true"
       >
-        <span className="bubble-meta">{props.draft ? 'Draft-пост' : 'Пост канала'}</span>
         <BubbleMessageContent
           message={{ attachment: props.post.attachment, replyTo: undefined, text: props.post.text }}
         />
@@ -81,13 +84,48 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       aria-hidden="true"
     >
       {props.kind === 'direct' ? (
-        props.message.forwarded ? <span className="bubble-meta">Переслано</span> : null
+        props.message.forwarded && !props.message.sourceChannel ? (
+          <span className="bubble-meta">
+            {props.message.forwardedAuthorName
+              ? `Переслано ${props.message.forwardedAuthorName}`
+              : 'Переслано'}
+          </span>
+        ) : null
       ) : (
-        <span className="bubble-meta">
-          {props.message.author === 'me' ? 'Вы' : props.message.displayAuthor ?? 'Участник группы'}
-        </span>
+        props.message.author === 'me' ? (
+          <span className="bubble-meta">Вы</span>
+        ) : props.participant ? (
+          <div className="bubble-sender">
+            <span className="bubble-sender-avatar-stack">
+              <span
+                className="avatar bubble-sender-avatar"
+                style={{ backgroundColor: props.participant.accent }}
+              >
+                {props.participant.title.slice(0, 1)}
+              </span>
+              {props.participant.online ? (
+                <span className="bubble-sender-presence-dot" aria-label="В сети" />
+              ) : null}
+            </span>
+            <span className="bubble-sender-name">{props.participant.title}</span>
+            {props.participant.premium ? (
+              <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+                <img src="/icons/crown64.png" alt="" />
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <span className="bubble-meta">{props.message.displayAuthor ?? 'Участник группы'}</span>
+        )
       )}
+      {props.message.sourceChannel ? (
+        <>
+          <ForwardedChannelHeader sourceChannel={props.message.sourceChannel} />
+          <span className="bubble-meta">Переслано</span>
+        </>
+      ) : null}
       <BubbleMessageContent
+        linkedChannel={props.linkedChannel}
         message={props.message}
         replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
       />

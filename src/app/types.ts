@@ -13,6 +13,24 @@ export type ChannelPost = {
   attachment?: MessageAttachment
 }
 
+export type ChannelMessageSource = {
+  accent?: string
+  draft?: boolean
+  handle?: string
+  id?: number
+  title: string
+  visibility?: SubscriptionChannel['visibility']
+}
+
+export type GroupParticipant = {
+  id: number
+  title: string
+  accent: string
+  online?: boolean
+  premium?: boolean
+  status: string
+}
+
 export type Message = {
   id: number
   author: 'me' | 'them'
@@ -28,6 +46,9 @@ export type Message = {
     author: 'me' | 'them'
   }
   forwarded?: boolean
+  forwardedAuthorName?: string
+  groupParticipantId?: number
+  sourceChannel?: ChannelMessageSource
 }
 
 export type ReplyTarget = {
@@ -68,6 +89,7 @@ export type SubscriptionChannel = {
   title: string
   handle: string
   accent: string
+  readers: number
   preview: string
   time: string
   unread: number
@@ -85,6 +107,7 @@ export type GroupPreview = {
   time: string
   unread: number
   members: number
+  participants: GroupParticipant[]
   messages: Message[]
 }
 

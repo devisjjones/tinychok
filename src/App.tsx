@@ -9,6 +9,7 @@ import {
   channelActionMenuWidth,
   channelAvatarTones,
   channelBlockedMenuHeight,
+  channelDirectLinkMaxLength,
   channelDescriptionMaxLength,
   channelTitleMaxLength,
   chatActionMenuHeight,
@@ -58,13 +59,18 @@ import type {
   ActionAnchor,
   AuthStep,
   Channel,
+  ChannelPost,
+  Chat,
   ChannelsView,
+  GroupPreview,
+  GroupParticipant,
   Message,
   ReplyTarget,
   SearchResult,
   Session,
   SettingsView,
   StageView,
+  SubscriptionChannel,
   TopListView,
 } from './app/types'
 import { scheduleActionAnchor, useAnchoredMenu } from './app/useAnchoredMenu'
@@ -72,13 +78,16 @@ import {
   formatMessagePreview,
   formatChannelAvatarLabel,
   formatContactStatus,
+  formatGroupLatestAuthor,
   formatGroupPreview,
   formatGroupTime,
   formatNowTime,
   formatSessionName,
-  formatSubscriptionChannelPreview,
+  formatSubscriptionChannelReaders,
   formatSubscriptionChannelTime,
   formatUnreadBadgeCount,
+  buildChannelDirectLinkFromTitle,
+  ensureUniqueChannelDirectLink,
   getChannelVisibilityDescription,
   getChannelVisibilityLabel,
   getNextChannelVisibility,
@@ -91,6 +100,7 @@ import {
   normalizeIdentifier,
   normalizeNickname,
   normalizePremiumExpiry,
+  sanitizeChannelDirectLink,
   sanitizeChannelDescription,
   sanitizeChannelTitle,
   sanitizePersonField,
@@ -149,6 +159,16 @@ type PendingGroupMessage = {
   text: string
   time: string
   retryCount: number
+}
+
+function getSyntheticChannelId(seed: string) {
+  let hash = 0
+
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) | 0
+  }
+
+  return -Math.max(1, Math.abs(hash))
 }
 
 type StoredAttachmentDraft = Omit<PendingAttachmentDraft, 'file'>
@@ -262,6 +282,91 @@ function loadPersistedFailedGroupMessages(identifier: string) {
   }
 }
 
+function buildGroupParticipantFromChat(chat: Chat, participantId?: number): GroupParticipant {
+  return {
+    accent: chat.accent,
+    id: participantId ?? chat.id,
+    online: chat.online,
+    premium: chat.premium,
+    status: formatContactStatus(chat),
+    title: chat.title,
+  }
+}
+
+function buildFallbackGroupParticipant(title: string, participantId: number): GroupParticipant {
+  return {
+    accent: '#cfb4a0',
+    id: participantId,
+    online: false,
+    premium: false,
+    status: 'Участник группы',
+    title,
+  }
+}
+
+function hydrateGroupParticipants(group: GroupPreview, chats: Chat[]): GroupParticipant[] {
+  const chatByTitle = new Map(chats.map((chat) => [chat.title, chat]))
+  const fallbackChatByTitle = new Map(initialChats.map((chat) => [chat.title, chat]))
+  const participantsById = new Map<number, GroupParticipant>()
+  const participantsByTitle = new Map<string, GroupParticipant>()
+
+  function upsertParticipant(participant: GroupParticipant) {
+    participantsById.set(participant.id, participant)
+    participantsByTitle.set(participant.title, participant)
+  }
+
+  group.participants.forEach((participant) => {
+    const matchingChat =
+      chatByTitle.get(participant.title) ?? fallbackChatByTitle.get(participant.title)
+
+    upsertParticipant(
+      matchingChat
+        ? buildGroupParticipantFromChat(matchingChat, participant.id)
+        : participant,
+    )
+  })
+
+  group.messages.forEach((message) => {
+    if (message.author === 'me' || !message.displayAuthor) return
+
+    if (message.groupParticipantId !== undefined && participantsById.has(message.groupParticipantId)) {
+      return
+    }
+
+    if (participantsByTitle.has(message.displayAuthor)) return
+
+    const matchingChat =
+      chatByTitle.get(message.displayAuthor) ?? fallbackChatByTitle.get(message.displayAuthor)
+
+    upsertParticipant(
+      matchingChat
+        ? buildGroupParticipantFromChat(matchingChat, message.groupParticipantId)
+        : buildFallbackGroupParticipant(
+            message.displayAuthor,
+            message.groupParticipantId ?? getSyntheticChannelId(`${group.id}:${message.displayAuthor}`),
+          ),
+    )
+  })
+
+  return Array.from(participantsById.values())
+}
+
+function buildPreviewSubscriptionChannelFromManagedChannel(channel: Channel): SubscriptionChannel {
+  return {
+    accent: channel.avatarTone,
+    draft: channel.status === 'draft',
+    handle: channel.directLink,
+    id: channel.id,
+    posts: [],
+    preview: channel.description,
+    readers: 0,
+    time: '',
+    title: channel.title,
+    unread: 0,
+    visibility: channel.visibility,
+  }
+}
+
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
   const accountNameRef = useRef<HTMLHeadingElement | null>(null)
@@ -353,11 +458,13 @@ function App() {
   const [channelTransferSearch, setChannelTransferSearch] = useState('')
   const [creatingChannelTitle, setCreatingChannelTitle] = useState('')
   const [creatingChannelDirectLink, setCreatingChannelDirectLink] = useState('')
+  const [creatingChannelDirectLinkDirty, setCreatingChannelDirectLinkDirty] = useState(false)
   const [creatingChannelDescription, setCreatingChannelDescription] = useState('')
   const [creatingChannelAvatarTone, setCreatingChannelAvatarTone] = useState(channelAvatarTones[0])
   const [uploadingChannelAvatarId, setUploadingChannelAvatarId] = useState<number | null>(null)
   const [editingChannelTitleId, setEditingChannelTitleId] = useState<number | null>(null)
   const [editingChannelTitleValue, setEditingChannelTitleValue] = useState('')
+  const [channelManagementOpenId, setChannelManagementOpenId] = useState<number | null>(null)
   const [topListView, setTopListView] = useState<TopListView>('none')
   const [copyHintText, setCopyHintText] = useState('')
   const [discoveryResults, setDiscoveryResults] = useState(initialDiscoveryResults)
@@ -368,8 +475,10 @@ function App() {
   const [subscriptionChannels, setSubscriptionChannels] = useState(initialSubscribedChannels)
   const [groups, setGroups] = useState(initialGroups)
   const [activeSubscriptionChannelId, setActiveSubscriptionChannelId] = useState<number | null>(null)
+  const [previewSubscriptionChannel, setPreviewSubscriptionChannel] = useState<SubscriptionChannel | null>(null)
   const [activeSubscriptionPostId, setActiveSubscriptionPostId] = useState<number | null>(null)
   const [activeGroupMessageId, setActiveGroupMessageId] = useState<number | null>(null)
+  const [groupParticipantsOpen, setGroupParticipantsOpen] = useState(false)
   const [forwardingSubscriptionPostText, setForwardingSubscriptionPostText] = useState('')
   const [forwardingGroupMessageText, setForwardingGroupMessageText] = useState('')
   const [pendingDirectMessages, setPendingDirectMessages] = useState<PendingDirectMessage[]>([])
@@ -491,17 +600,42 @@ function App() {
     activeSubscriptionChannelId === null
       ? null
       : subscriptionChannels.find((channel) => channel.id === activeSubscriptionChannelId) ?? null
+  const currentSubscriptionChannel = previewSubscriptionChannel ?? activeSubscriptionChannel
   const activeSubscriptionPost =
     activeSubscriptionPostId === null
       ? null
-      : activeSubscriptionChannel?.posts.find((post) => post.id === activeSubscriptionPostId) ?? null
-  const activeGroup = activeGroupId === null ? null : groups.find((group) => group.id === activeGroupId) ?? null
+      : currentSubscriptionChannel?.posts.find((post) => post.id === activeSubscriptionPostId) ?? null
+  const persistedActiveGroup =
+    activeGroupId === null ? null : groups.find((group) => group.id === activeGroupId) ?? null
+  const activeGroup = persistedActiveGroup
+    ? {
+        ...persistedActiveGroup,
+        participants: hydrateGroupParticipants(persistedActiveGroup, chats),
+      }
+    : null
   const activeGroupMessage =
     activeGroupMessageId === null
       ? null
       : activeGroup?.messages.find((message) => message.id === activeGroupMessageId) ?? null
+  function resolveGroupParticipant(
+    group: typeof activeGroup,
+    message: Message | null,
+  ): GroupParticipant | null {
+    if (!group || !message || message.author === 'me') return null
+
+    if (message.groupParticipantId !== undefined) {
+      const matchedParticipant = group.participants.find(
+        (participant) => participant.id === message.groupParticipantId,
+      )
+      if (matchedParticipant) return matchedParticipant
+    }
+
+    if (!message.displayAuthor) return null
+    return group.participants.find((participant) => participant.title === message.displayAuthor) ?? null
+  }
+  const activeGroupMessageParticipant = resolveGroupParticipant(activeGroup, activeGroupMessage)
   const subscriptionMenuFallbackHeight =
-    activeSubscriptionChannel?.visibility === 'closed' ? channelBlockedMenuHeight : channelActionMenuHeight
+    currentSubscriptionChannel?.visibility === 'closed' ? channelBlockedMenuHeight : channelActionMenuHeight
   const { menuRef: subscriptionPostMenuRef, style: subscriptionPostMenuStyle } = useAnchoredMenu(
     subscriptionPostActionAnchor,
     channelActionMenuWidth,
@@ -545,7 +679,7 @@ function App() {
   const isChannelDetailView = isChannelsView && channelsView === 'detail'
   const isChatOpen = stageView === 'main' && activeChat !== null
   const isGroupOpen = stageView === 'main' && activeGroup !== null
-  const isSubscriptionChannelOpen = stageView === 'main' && activeSubscriptionChannel !== null
+  const isSubscriptionChannelOpen = stageView === 'main' && currentSubscriptionChannel !== null
   const isChannelsTopListOpen = topListView === 'channels'
   const isGroupsTopListOpen = topListView === 'groups'
   const isAnyRoomOpen = isChatOpen || isSubscriptionChannelOpen || isGroupOpen
@@ -1556,9 +1690,11 @@ function App() {
       attachment?: Message['attachment']
       createdAt?: string
       forwarded?: boolean
+      forwardedAuthorName?: string
       localId?: number
       markAsRead?: boolean
       replyTo?: Message['replyTo']
+      sourceChannel?: Message['sourceChannel']
       time?: string
     },
   ) {
@@ -1580,8 +1716,10 @@ function App() {
               attachment: options?.attachment,
               author: 'me',
               forwarded: options?.forwarded,
+              forwardedAuthorName: options?.forwardedAuthorName,
               id: options?.localId ?? Date.now(),
               replyTo: options?.replyTo,
+              sourceChannel: options?.sourceChannel,
               text,
               createdAt,
               time,
@@ -1611,7 +1749,10 @@ function App() {
     options?: {
       attachment?: Message['attachment']
       createdAt?: string
+      forwarded?: boolean
+      forwardedAuthorName?: string
       localId?: number
+      sourceChannel?: Message['sourceChannel']
       time?: string
     },
   ) {
@@ -1634,6 +1775,9 @@ function App() {
                   id: options?.localId ?? Date.now() + group.id,
                   author: 'me',
                   createdAt,
+                  forwarded: options?.forwarded,
+                  forwardedAuthorName: options?.forwardedAuthorName,
+                  sourceChannel: options?.sourceChannel,
                   text,
                   time,
                 },
@@ -2089,9 +2233,11 @@ function App() {
   function closeActiveRoom() {
     setActiveChatId(null)
     setActiveSubscriptionChannelId(null)
+    setPreviewSubscriptionChannel(null)
     setActiveSubscriptionPostId(null)
     setActiveGroupId(null)
     setActiveGroupMessageId(null)
+    setGroupParticipantsOpen(false)
     setMessageActionMessageId(null)
     setForwardingMessageId(null)
     setReplyTarget(null)
@@ -2243,6 +2389,7 @@ function App() {
     setForwardingGroupMessageText('')
     setGroupMessageActionAnchor(null)
     setRetainedSubscriptionChannelId(shouldRetainSubscriptionChannelInList ? channelId : null)
+    setPreviewSubscriptionChannel(null)
     setActiveSubscriptionChannelId(channelId)
     setActiveSubscriptionPostId(null)
     setForwardingSubscriptionPostText('')
@@ -2250,6 +2397,135 @@ function App() {
     setTopListView('channels')
     setSearchOpen(false)
     void syncSubscriptionChannelRead(channelId)
+  }
+
+  function buildPreviewSubscriptionChannel(
+    sourceChannel: NonNullable<Message['sourceChannel']>,
+    previewPost?: ChannelPost,
+  ) {
+    return {
+      accent: sourceChannel.accent ?? '#8c5738',
+      draft: sourceChannel.draft,
+      handle: sourceChannel.handle ?? '@channel_preview',
+      id: sourceChannel.id ?? getSyntheticChannelId(sourceChannel.title),
+      posts: previewPost ? [previewPost] : [],
+      preview: previewPost?.text ?? '',
+      readers: 0,
+      time: previewPost?.time ?? '',
+      title: sourceChannel.title,
+      unread: 0,
+      visibility: sourceChannel.visibility ?? 'public',
+    } satisfies SubscriptionChannel
+  }
+
+  function openSourceChannel(sourceChannel: NonNullable<Message['sourceChannel']>, previewPost?: ChannelPost) {
+    const normalizedHandle = sourceChannel.handle ? sanitizeChannelDirectLink(sourceChannel.handle) : ''
+    if (!sourceChannel) return
+
+    if (sourceChannel.id !== undefined) {
+      const existingChannel = subscriptionChannels.find((channel) => channel.id === sourceChannel.id)
+      if (existingChannel) {
+        openSubscriptionChannel(existingChannel.id)
+        return
+      }
+    }
+
+    const existingByTitle = subscriptionChannels.find(
+      (channel) => channel.title === sourceChannel.title,
+    )
+    if (existingByTitle) {
+      openSubscriptionChannel(existingByTitle.id)
+      return
+    }
+
+    if (normalizedHandle) {
+      const existingByHandle = subscriptionChannels.find(
+        (channel) => sanitizeChannelDirectLink(channel.handle) === normalizedHandle,
+      )
+      if (existingByHandle) {
+        openSubscriptionChannel(existingByHandle.id)
+        return
+      }
+
+      const managedChannel = channels.find(
+        (channel) => sanitizeChannelDirectLink(channel.directLink) === normalizedHandle,
+      )
+      if (managedChannel) {
+        setStageView('main')
+        setRetainedAllChatId(null)
+        setRetainedFavoriteChatId(null)
+        setRetainedGroupId(null)
+        setRetainedSubscriptionChannelId(null)
+        setActiveChatId(null)
+        setActiveGroupId(null)
+        setActiveGroupMessageId(null)
+        setMessageActionMessageId(null)
+        setForwardingMessageId(null)
+        setForwardingGroupMessageText('')
+        setGroupMessageActionAnchor(null)
+        setPreviewSubscriptionChannel(buildPreviewSubscriptionChannelFromManagedChannel(managedChannel))
+        setActiveSubscriptionChannelId(null)
+        setActiveSubscriptionPostId(null)
+        setForwardingSubscriptionPostText('')
+        setSubscriptionPostActionAnchor(null)
+        setTopListView('channels')
+        setSearchOpen(false)
+        return
+      }
+    }
+
+    setStageView('main')
+    setRetainedAllChatId(null)
+    setRetainedFavoriteChatId(null)
+    setRetainedGroupId(null)
+    setRetainedSubscriptionChannelId(null)
+    setActiveChatId(null)
+    setActiveGroupId(null)
+    setActiveGroupMessageId(null)
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    setForwardingGroupMessageText('')
+    setGroupMessageActionAnchor(null)
+    setPreviewSubscriptionChannel(buildPreviewSubscriptionChannel(sourceChannel, previewPost))
+    setActiveSubscriptionChannelId(null)
+    setActiveSubscriptionPostId(null)
+    setForwardingSubscriptionPostText('')
+    setSubscriptionPostActionAnchor(null)
+    setTopListView('channels')
+    setSearchOpen(false)
+  }
+
+  function openSourceChannelFromMessage(message: Message) {
+    const sourceChannel = message.sourceChannel
+    if (!sourceChannel) return
+
+    const previewPost: ChannelPost = {
+      attachment: message.attachment,
+      createdAt: message.createdAt,
+      id: message.id,
+      text: message.text,
+      time: message.time,
+    }
+
+    openSourceChannel(sourceChannel, previewPost)
+  }
+
+  function subscribeToPreviewSubscriptionChannel() {
+    if (!previewSubscriptionChannel) return
+
+    const existingChannel = subscriptionChannels.find(
+      (channel) =>
+        channel.id === previewSubscriptionChannel.id ||
+        channel.title === previewSubscriptionChannel.title,
+    )
+
+    if (existingChannel) {
+      openSubscriptionChannel(existingChannel.id)
+      return
+    }
+
+    setSubscriptionChannels((currentChannels) => [previewSubscriptionChannel, ...currentChannels])
+    openSubscriptionChannel(previewSubscriptionChannel.id)
   }
 
   function openGroup(groupId: number) {
@@ -2262,6 +2538,7 @@ function App() {
     setRetainedFavoriteChatId(null)
     setRetainedSubscriptionChannelId(null)
     setActiveChatId(null)
+    setPreviewSubscriptionChannel(null)
     setActiveSubscriptionChannelId(null)
     setActiveSubscriptionPostId(null)
     setForwardingSubscriptionPostText('')
@@ -2309,6 +2586,7 @@ function App() {
     setRetainedFavoriteChatId(shouldRetainChatInFavoritesFilter ? chatId : null)
     setRetainedSubscriptionChannelId(null)
     setRetainedGroupId(null)
+    setPreviewSubscriptionChannel(null)
     setActiveSubscriptionChannelId(null)
     setActiveSubscriptionPostId(null)
     setActiveGroupId(null)
@@ -2584,20 +2862,36 @@ function App() {
   }
 
   function forwardMessageToChat(targetChatId: number, message: Message) {
-    void forwardTextToChat(targetChatId, formatMessagePreview(message))
+    void forwardTextToChat(targetChatId, formatMessagePreview(message), {
+      forwarded: true,
+      forwardedAuthorName:
+        message.forwardedAuthorName ??
+        (message.author === 'me' ? sessionName : activeChat?.title ?? message.displayAuthor),
+      sourceChannel: message.sourceChannel,
+    })
     setForwardingMessageId(null)
     setMessageActionMessageId(null)
   }
 
-  async function forwardTextToChat(targetChatId: number, text: string) {
+  async function forwardTextToChat(
+    targetChatId: number,
+    text: string,
+    options?: {
+      forwarded?: boolean
+      forwardedAuthorName?: string
+      sourceChannel?: Message['sourceChannel']
+    },
+  ) {
     const trimmedText = text.trim()
     if (!trimmedText) return
 
     if (backendReady && session?.sessionToken) {
       try {
         const response = await sendDirectMessageRequest(session.sessionToken, targetChatId, {
-          forwarded: true,
+          forwarded: options?.forwarded ?? true,
+          forwardedAuthorName: options?.forwardedAuthorName,
           markAsRead: targetChatId === activeChatId,
+          sourceChannel: options?.sourceChannel,
           text: trimmedText,
         })
         applySnapshot(response.snapshot)
@@ -2608,8 +2902,44 @@ function App() {
     }
 
     applyLocalDirectMessage(targetChatId, trimmedText, {
-      forwarded: true,
+      forwarded: options?.forwarded ?? true,
+      forwardedAuthorName: options?.forwardedAuthorName,
       markAsRead: targetChatId === activeChatId,
+      sourceChannel: options?.sourceChannel,
+    })
+  }
+
+  async function forwardTextToGroup(
+    targetGroupId: number,
+    text: string,
+    options?: {
+      forwarded?: boolean
+      forwardedAuthorName?: string
+      sourceChannel?: Message['sourceChannel']
+    },
+  ) {
+    const trimmedText = text.trim()
+    if (!trimmedText) return
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await sendGroupMessageRequest(session.sessionToken, targetGroupId, {
+          forwarded: options?.forwarded ?? true,
+          forwardedAuthorName: options?.forwardedAuthorName,
+          sourceChannel: options?.sourceChannel,
+          text: trimmedText,
+        })
+        applySnapshot(response.snapshot)
+        return
+      } catch (error) {
+        console.error('Failed to forward text to group', error)
+      }
+    }
+
+    applyLocalGroupMessage(targetGroupId, trimmedText, {
+      forwarded: options?.forwarded ?? true,
+      forwardedAuthorName: options?.forwardedAuthorName,
+      sourceChannel: options?.sourceChannel,
     })
   }
 
@@ -2690,12 +3020,14 @@ function App() {
   function prepareChannelDraft(channelNumber: number, channelId: number) {
     const nextDraft = makeDraftChannel(channelNumber, channelId)
     setCreatingChannelTitle(nextDraft.title)
-    setCreatingChannelDirectLink(nextDraft.directLink)
+    setCreatingChannelDirectLink(buildUniqueChannelDirectLinkFromTitle(nextDraft.title))
+    setCreatingChannelDirectLinkDirty(false)
     setCreatingChannelDescription(nextDraft.description)
     setCreatingChannelAvatarTone(nextDraft.avatarTone)
   }
 
   function openChannelsView(nextView: ChannelsView = 'list') {
+    setChannelManagementOpenId(null)
     setRetainedAllChatId(null)
     setRetainedFavoriteChatId(null)
     setRetainedSubscriptionChannelId(null)
@@ -2704,9 +3036,11 @@ function App() {
     setChannelsView(nextView)
     setTopListView('none')
     setActiveSubscriptionChannelId(null)
+    setPreviewSubscriptionChannel(null)
     setActiveSubscriptionPostId(null)
     setActiveGroupId(null)
     setActiveGroupMessageId(null)
+    setGroupParticipantsOpen(false)
     setForwardingSubscriptionPostText('')
     setForwardingGroupMessageText('')
     setConfirmingLogout(false)
@@ -2740,17 +3074,96 @@ function App() {
   }
 
   function openChannelDetailView(channelId: number) {
+    setChannelManagementOpenId(null)
     setActiveChannelId(channelId)
     openChannelsView('detail')
   }
 
+  function collectKnownChannelDirectLinks(excludeManagedChannelId?: number) {
+    return [
+      ...channels
+        .filter((channel) => channel.id !== excludeManagedChannelId)
+        .map((channel) => channel.directLink),
+      ...subscriptionChannels.map((channel) => channel.handle),
+    ]
+  }
+
+  function buildUniqueChannelDirectLinkFromTitle(title: string, excludeManagedChannelId?: number) {
+    return ensureUniqueChannelDirectLink(
+      buildChannelDirectLinkFromTitle(title),
+      collectKnownChannelDirectLinks(excludeManagedChannelId),
+      title,
+    )
+  }
+
+  function buildEditableChannelDirectLink(value: string, fallbackTitle = 'Канал') {
+    return sanitizeChannelDirectLink(value) || buildChannelDirectLinkFromTitle(fallbackTitle)
+  }
+
+  function resolveChannelReferenceByHandle(
+    handleValue: string,
+  ): NonNullable<Message['sourceChannel']> | null {
+    const normalizedHandle = sanitizeChannelDirectLink(handleValue)
+    if (!normalizedHandle) return null
+
+    const existingSubscriptionChannel = subscriptionChannels.find(
+      (channel) => sanitizeChannelDirectLink(channel.handle) === normalizedHandle,
+    )
+    if (existingSubscriptionChannel) {
+      return {
+        accent: existingSubscriptionChannel.accent,
+        draft: existingSubscriptionChannel.draft,
+        handle: existingSubscriptionChannel.handle,
+        id: existingSubscriptionChannel.id,
+        title: existingSubscriptionChannel.title,
+        visibility: existingSubscriptionChannel.visibility,
+      }
+    }
+
+    const existingManagedChannel = channels.find(
+      (channel) => sanitizeChannelDirectLink(channel.directLink) === normalizedHandle,
+    )
+    if (existingManagedChannel) {
+      return {
+        accent: existingManagedChannel.avatarTone,
+        draft: existingManagedChannel.status === 'draft',
+        handle: existingManagedChannel.directLink,
+        id: existingManagedChannel.id,
+        title: existingManagedChannel.title,
+        visibility: existingManagedChannel.visibility,
+      }
+    }
+
+    return null
+  }
+
+  function resolveEmbeddedChannelFromMessage(
+    message: Pick<Message, 'sourceChannel' | 'text'>,
+  ): NonNullable<Message['sourceChannel']> | null {
+    if (message.sourceChannel) return null
+
+    const trimmedText = message.text.trim()
+    if (!/^@\S+$/u.test(trimmedText)) return null
+
+    return resolveChannelReferenceByHandle(trimmedText)
+  }
+
   function updateChannel(channelId: number, patch: Partial<Channel>) {
+    const normalizedDirectLink =
+      patch.directLink !== undefined ? sanitizeChannelDirectLink(patch.directLink) : undefined
+    const normalizedPatch: Partial<Channel> = {
+      ...patch,
+      ...(patch.directLink !== undefined
+        ? { directLink: normalizedDirectLink || '@' }
+        : {}),
+    }
+
     setChannels((currentChannels) =>
       currentChannels.map((channel) =>
         channel.id === channelId
           ? {
               ...channel,
-              ...patch,
+              ...normalizedPatch,
             }
           : channel,
       ),
@@ -2758,32 +3171,36 @@ function App() {
 
     const serverPatch: UpdateManagedChannelBody = {}
 
-    if (patch.title !== undefined) {
-      serverPatch.title = patch.title
+    if (normalizedPatch.title !== undefined) {
+      serverPatch.title = normalizedPatch.title
     }
 
-    if (patch.directLink !== undefined) {
-      serverPatch.directLink = patch.directLink
+    if (normalizedDirectLink !== undefined && normalizedDirectLink !== '') {
+      serverPatch.directLink = ensureUniqueChannelDirectLink(
+        normalizedDirectLink,
+        collectKnownChannelDirectLinks(channelId),
+        normalizedPatch.title ?? channels.find((channel) => channel.id === channelId)?.title ?? 'Канал',
+      )
     }
 
-    if (patch.description !== undefined) {
-      serverPatch.description = patch.description
+    if (normalizedPatch.description !== undefined) {
+      serverPatch.description = normalizedPatch.description
     }
 
-    if (patch.visibility !== undefined) {
-      serverPatch.visibility = patch.visibility
+    if (normalizedPatch.visibility !== undefined) {
+      serverPatch.visibility = normalizedPatch.visibility
     }
 
-    if (patch.avatarTone !== undefined) {
-      serverPatch.avatarTone = patch.avatarTone
+    if (normalizedPatch.avatarTone !== undefined) {
+      serverPatch.avatarTone = normalizedPatch.avatarTone
     }
 
-    if (patch.avatarImage !== undefined) {
-      serverPatch.avatarImage = patch.avatarImage
+    if (normalizedPatch.avatarImage !== undefined) {
+      serverPatch.avatarImage = normalizedPatch.avatarImage
     }
 
-    if (patch.status !== undefined) {
-      serverPatch.status = patch.status
+    if (normalizedPatch.status !== undefined) {
+      serverPatch.status = normalizedPatch.status
     }
 
     if (Object.keys(serverPatch).length > 0) {
@@ -2838,7 +3255,12 @@ function App() {
         const response = await createManagedChannelRequest(session.sessionToken, {
           avatarTone: creatingChannelAvatarTone,
           description: creatingChannelDescription,
-          directLink: creatingChannelDirectLink,
+          directLink: ensureUniqueChannelDirectLink(
+            sanitizeChannelDirectLink(creatingChannelDirectLink) ||
+              buildChannelDirectLinkFromTitle(creatingChannelTitle),
+            collectKnownChannelDirectLinks(),
+            creatingChannelTitle,
+          ),
           title: creatingChannelTitle,
           visibility: 'private',
         })
@@ -2854,7 +3276,11 @@ function App() {
     const nextId = channels.reduce((maxId, channel) => Math.max(maxId, channel.id), 0) + 1
     const title =
       sanitizeChannelTitle(creatingChannelTitle) || `Новый канал ${channels.length + 1}`
-    const directLink = creatingChannelDirectLink.trim() || `https://tinychok.app/c/draft-${nextId}`
+    const directLink = ensureUniqueChannelDirectLink(
+      sanitizeChannelDirectLink(creatingChannelDirectLink) || buildChannelDirectLinkFromTitle(title),
+      collectKnownChannelDirectLinks(),
+      title,
+    )
     const description =
       sanitizeChannelDescription(creatingChannelDescription) ||
       'Описание канала пока не заполнено. Здесь можно подготовить текст до публикации.'
@@ -2914,6 +3340,7 @@ function App() {
   }
 
   function startChannelTransfer(channelId: number) {
+    setChannelManagementOpenId(null)
     setConfirmingDeleteChannelId(null)
     setTransferringChannelId(channelId)
     setChannelTransferTargetChatId(null)
@@ -3026,15 +3453,16 @@ function App() {
         aria-label="Закрыть действия с постом канала"
         onClick={closeSubscriptionPostActions}
       />
-      {subscriptionPostActionAnchor ? (
+      {subscriptionPostActionAnchor && !forwardingSubscriptionPostText ? (
         <SelectedBubbleOverlay
           anchor={subscriptionPostActionAnchor}
+          channelTitle={currentSubscriptionChannel?.title ?? ''}
           kind="channel"
           post={activeSubscriptionPost}
-          draft={Boolean(activeSubscriptionChannel?.draft)}
+          draft={Boolean(currentSubscriptionChannel?.draft)}
         />
       ) : null}
-      {activeSubscriptionChannel?.visibility === 'closed' ? (
+      {currentSubscriptionChannel?.visibility === 'closed' ? (
         subscriptionPostActionAnchor ? (
           <div
             ref={subscriptionPostMenuRef}
@@ -3050,22 +3478,72 @@ function App() {
         <div className="room-confirm room-forward">
           <p className="room-confirm-copy">Кому переслать сообщение?</p>
           <div className="room-forward-list">
-            {availableChats.map((chat) => (
-              <button
-                key={chat.id}
-                type="button"
-                className="room-forward-item"
-                onClick={() => {
-                  void forwardTextToChat(chat.id, forwardingSubscriptionPostText)
-                  closeSubscriptionPostActions()
-                }}
-              >
-                <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                  {chat.title.slice(0, 1)}
-                </span>
-                <span>{chat.title}</span>
-              </button>
-            ))}
+            {availableChats.length > 0 ? (
+              <div className="room-forward-section">
+                <p className="room-forward-section-title">Личные чаты</p>
+                {availableChats.map((chat) => (
+                  <button
+                    key={`chat-${chat.id}`}
+                    type="button"
+                    className="room-forward-item"
+                    onClick={() => {
+                      void forwardTextToChat(chat.id, forwardingSubscriptionPostText, {
+                        forwarded: true,
+                        sourceChannel: currentSubscriptionChannel
+                          ? {
+                              accent: currentSubscriptionChannel.accent,
+                              draft: currentSubscriptionChannel.draft,
+                              handle: currentSubscriptionChannel.handle,
+                              id: currentSubscriptionChannel.id,
+                              title: currentSubscriptionChannel.title,
+                              visibility: currentSubscriptionChannel.visibility,
+                            }
+                          : undefined,
+                      })
+                      closeSubscriptionPostActions()
+                    }}
+                  >
+                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                      {chat.title.slice(0, 1)}
+                    </span>
+                    <span>{chat.title}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {orderedGroups.length > 0 ? (
+              <div className="room-forward-section">
+                <p className="room-forward-section-title">Группы</p>
+                {orderedGroups.map((group) => (
+                  <button
+                    key={`group-${group.id}`}
+                    type="button"
+                    className="room-forward-item"
+                    onClick={() => {
+                      void forwardTextToGroup(group.id, forwardingSubscriptionPostText, {
+                        forwarded: true,
+                        sourceChannel: currentSubscriptionChannel
+                          ? {
+                              accent: currentSubscriptionChannel.accent,
+                              draft: currentSubscriptionChannel.draft,
+                              handle: currentSubscriptionChannel.handle,
+                              id: currentSubscriptionChannel.id,
+                              title: currentSubscriptionChannel.title,
+                              visibility: currentSubscriptionChannel.visibility,
+                            }
+                          : undefined,
+                      })
+                      closeSubscriptionPostActions()
+                    }}
+                  >
+                    <span className="avatar" style={{ backgroundColor: group.accent }}>
+                      {group.title.slice(0, 1)}
+                    </span>
+                    <span>{group.title}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           <button
             type="button"
@@ -3111,13 +3589,15 @@ function App() {
         aria-label="Закрыть действия с сообщением группы"
         onClick={closeGroupMessageActions}
       />
-      {groupMessageActionAnchor ? (
+      {groupMessageActionAnchor && !forwardingGroupMessageText ? (
         <SelectedBubbleOverlay
           anchor={groupMessageActionAnchor}
           deliveryIssue={activeGroupMessageDeliveryIssue ?? undefined}
           kind="group"
+          linkedChannel={activeGroupMessage ? resolveEmbeddedChannelFromMessage(activeGroupMessage) : null}
           message={activeGroupMessage}
           mine={activeGroupMessage.author === 'me'}
+          participant={activeGroupMessageParticipant}
         />
       ) : null}
       {forwardingGroupMessageText ? (
@@ -3130,7 +3610,15 @@ function App() {
                 type="button"
                 className="room-forward-item"
                 onClick={() => {
-                  void forwardTextToChat(chat.id, forwardingGroupMessageText)
+                  void forwardTextToChat(chat.id, forwardingGroupMessageText, {
+                    forwarded: true,
+                    forwardedAuthorName:
+                      activeGroupMessage?.forwardedAuthorName ??
+                      (activeGroupMessage?.author === 'me'
+                        ? sessionName
+                        : activeGroupMessageParticipant?.title ?? activeGroupMessage?.displayAuthor),
+                    sourceChannel: activeGroupMessage?.sourceChannel,
+                  })
                   closeGroupMessageActions()
                 }}
               >
@@ -3197,6 +3685,51 @@ function App() {
       ) : null}
     </>
   ) : null
+
+  const groupParticipantsDialog =
+    activeGroup && groupParticipantsOpen ? (
+      <>
+        <button
+          type="button"
+          className="room-confirm-scrim"
+          aria-label="Закрыть список участников"
+          onClick={() => setGroupParticipantsOpen(false)}
+        />
+        <div className="room-confirm room-participants">
+          <p className="room-confirm-copy">{`Участники группы ${activeGroup.title}`}</p>
+          <div className="room-forward-list room-participants-list">
+            {activeGroup.participants.map((participant) => (
+              <div key={participant.id} className="room-forward-item room-participant-item">
+                <span className="chat-avatar-stack room-participant-avatar-stack">
+                  <span className="avatar" style={{ backgroundColor: participant.accent }}>
+                    {participant.title.slice(0, 1)}
+                  </span>
+                  {participant.online ? <span className="presence-dot" aria-label="В сети" /> : null}
+                </span>
+                <span className="room-participant-copy">
+                  <span className="room-participant-name-row">
+                    <strong>{participant.title}</strong>
+                    {participant.premium ? (
+                      <span className="premium-crown chat-crown" aria-label="Премиум">
+                        <img src="/icons/crown64.png" alt="" />
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="room-participant-status">{participant.status}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="room-confirm-button"
+            onClick={() => setGroupParticipantsOpen(false)}
+          >
+            Закрыть
+          </button>
+        </div>
+      </>
+    ) : null
 
   return (
     <>
@@ -3462,7 +3995,13 @@ function App() {
               <button
                 key={channel.id}
                 type="button"
-                className={channel.id === activeSubscriptionChannelId ? 'chat-card active' : 'chat-card'}
+                className={[
+                  'chat-card',
+                  'chat-card-compact',
+                  channel.id === activeSubscriptionChannelId ? 'active' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 onClick={() => openSubscriptionChannel(channel.id)}
               >
                 <span className="avatar" style={{ backgroundColor: channel.accent }}>
@@ -3476,50 +4015,74 @@ function App() {
                         <img src="/icons/news100.svg" alt="Канал" />
                       </span>
                     </span>
-                    <span>{formatSubscriptionChannelTime(channel)}</span>
+                    {!quietMode && channel.unread > 0 ? (
+                      <span
+                        className={
+                          channel.unread > 9
+                            ? 'chat-topline-badge chat-topline-badge-wide'
+                            : 'chat-topline-badge'
+                        }
+                      >
+                        {formatUnreadBadgeCount(channel.unread)}
+                      </span>
+                    ) : (
+                      <span className="chat-topline-meta">{formatSubscriptionChannelTime(channel)}</span>
+                    )}
                   </span>
-                  <span className="chat-handle">{channel.handle}</span>
-                  <span className="chat-preview">{formatSubscriptionChannelPreview(channel)}</span>
+                  <span className="chat-preview chat-status-preview">
+                    {formatSubscriptionChannelReaders(channel)}
+                  </span>
                 </span>
-                {!quietMode && channel.unread > 0 ? (
-                  <span className={channel.unread > 9 ? 'badge badge-wide' : 'badge'}>
-                    {formatUnreadBadgeCount(channel.unread)}
-                  </span>
-                ) : null}
               </button>
             ))}
           </div>
         ) : isGroupsTopListOpen ? (
           <div className="chat-list">
             {orderedGroups.map((group) => (
-              <button
-                key={group.id}
-                type="button"
-                className={group.id === activeGroupId ? 'chat-card active' : 'chat-card'}
-                onClick={() => openGroup(group.id)}
-              >
-                <span className="avatar" style={{ backgroundColor: group.accent }}>
-                  {group.title.slice(0, 1)}
-                </span>
-                <span className="chat-copy">
-                  <span className="chat-topline group-topline">
-                    <span className="chat-name-row group-name-row">
-                      <strong className="chat-name-text group-name-text">{group.title}</strong>
-                      <span className="chat-star">
-                        <img src="/icons/group100.png" alt="Группа" />
-                      </span>
+              (() => {
+                const groupLatestAuthor = formatGroupLatestAuthor(group)
+                const groupMeta = groupLatestAuthor
+                  ? `${group.members} участников · ${groupLatestAuthor}`
+                  : `${group.members} участников`
+
+                return (
+                  <button
+                    key={group.id}
+                    type="button"
+                    className={group.id === activeGroupId ? 'chat-card active' : 'chat-card'}
+                    onClick={() => openGroup(group.id)}
+                  >
+                    <span className="avatar" style={{ backgroundColor: group.accent }}>
+                      {group.title.slice(0, 1)}
                     </span>
-                    <span className="group-time">{formatGroupTime(group)}</span>
-                  </span>
-                  <span className="chat-handle">{`${group.handle} · ${group.members} участников`}</span>
-                  <span className="chat-preview">{formatGroupPreview(group)}</span>
-                </span>
-                {!quietMode && group.unread > 0 ? (
-                  <span className={group.unread > 9 ? 'badge badge-wide' : 'badge'}>
-                    {formatUnreadBadgeCount(group.unread)}
-                  </span>
-                ) : null}
-              </button>
+                    <span className="chat-copy">
+                      <span className="chat-topline">
+                        <span className="chat-name-row">
+                          <strong className="chat-name-text">{group.title}</strong>
+                          <span className="chat-star">
+                            <img src="/icons/group100.png" alt="Группа" />
+                          </span>
+                        </span>
+                        {!quietMode && group.unread > 0 ? (
+                          <span
+                            className={
+                              group.unread > 9
+                                ? 'chat-topline-badge chat-topline-badge-wide'
+                                : 'chat-topline-badge'
+                            }
+                          >
+                            {formatUnreadBadgeCount(group.unread)}
+                          </span>
+                        ) : (
+                          <span className="chat-topline-meta">{formatGroupTime(group)}</span>
+                        )}
+                      </span>
+                      <span className="chat-handle">{groupMeta}</span>
+                      <span className="chat-preview">{formatGroupPreview(group)}</span>
+                    </span>
+                  </button>
+                )
+              })()
             ))}
           </div>
         ) : (
@@ -3596,6 +4159,7 @@ function App() {
                 setStageView('main')
               }
               setTopListView('none')
+              setPreviewSubscriptionChannel(null)
               setActiveSubscriptionChannelId(null)
               setBottomSection('chats')
               setSearchOpen(false)
@@ -3622,6 +4186,7 @@ function App() {
                 setStageView('main')
               }
               setTopListView('none')
+              setPreviewSubscriptionChannel(null)
               setActiveSubscriptionChannelId(null)
               setBottomSection('contacts')
               setSearchOpen(false)
@@ -3736,7 +4301,7 @@ function App() {
         !isPremiumView &&
         !isChannelsView &&
         !activeChat &&
-        !activeSubscriptionChannel &&
+        !currentSubscriptionChannel &&
         !activeGroup ? (
           <div className="hero-panel hero-panel-idle">
             <div>
@@ -4146,7 +4711,14 @@ function App() {
                     className="settings-input"
                     maxLength={channelTitleMaxLength}
                     value={creatingChannelTitle}
-                    onChange={(event) => setCreatingChannelTitle(event.target.value.slice(0, channelTitleMaxLength))}
+                    onChange={(event) => {
+                      const nextTitle = event.target.value.slice(0, channelTitleMaxLength)
+                      setCreatingChannelTitle(nextTitle)
+
+                      if (!creatingChannelDirectLinkDirty) {
+                        setCreatingChannelDirectLink(buildUniqueChannelDirectLinkFromTitle(nextTitle))
+                      }
+                    }}
                   />
                 </article>
 
@@ -4155,8 +4727,15 @@ function App() {
                   <input
                     type="text"
                     className="settings-input"
+                    maxLength={channelDirectLinkMaxLength + 1}
                     value={creatingChannelDirectLink}
-                    onChange={(event) => setCreatingChannelDirectLink(event.target.value)}
+                    placeholder="@kanal"
+                    onChange={(event) => {
+                      setCreatingChannelDirectLinkDirty(true)
+                      setCreatingChannelDirectLink(
+                        buildEditableChannelDirectLink(event.target.value, creatingChannelTitle),
+                      )
+                    }}
                   />
                 </article>
 
@@ -4269,14 +4848,18 @@ function App() {
                         <input
                           type="text"
                           className="settings-input channel-link-input"
+                          maxLength={channelDirectLinkMaxLength + 1}
                           value={
                             activeChannel.visibility === 'closed'
                               ? 'Недоступно для закрытого канала'
-                              : activeChannel.directLink
+                              : activeChannel.directLink || '@'
                           }
                           readOnly={activeChannel.visibility === 'closed'}
+                          placeholder="@kanal"
                           onChange={(event) =>
-                            updateChannel(activeChannel.id, { directLink: event.target.value })
+                            updateChannel(activeChannel.id, {
+                              directLink: buildEditableChannelDirectLink(event.target.value, activeChannel.title),
+                            })
                           }
                         />
                         <button
@@ -4332,22 +4915,38 @@ function App() {
                     </article>
                   </div>
 
-                  <div className="channels-actions">
-                    <button
-                      type="button"
-                      className="settings-action-card danger"
-                      onClick={() => setConfirmingDeleteChannelId(activeChannel.id)}
-                    >
-                      Удалить канал
-                    </button>
-                    <button
-                      type="button"
-                      className="settings-action-card"
-                      onClick={() => startChannelTransfer(activeChannel.id)}
-                    >
-                      Передать
-                    </button>
-                  </div>
+                  {channelManagementOpenId === activeChannel.id ? (
+                    <>
+                      <button
+                        type="button"
+                        className="room-confirm-scrim"
+                        aria-label="Закрыть управление каналом"
+                        onClick={() => setChannelManagementOpenId(null)}
+                      />
+                      <div className="room-confirm room-confirm-compact">
+                        <p className="room-confirm-copy">Управление каналом</p>
+                        <div className="room-forward-list">
+                          <button
+                            type="button"
+                            className="room-forward-item"
+                            onClick={() => startChannelTransfer(activeChannel.id)}
+                          >
+                            Передать
+                          </button>
+                          <button
+                            type="button"
+                            className="room-forward-item room-confirm-danger"
+                            onClick={() => {
+                              setChannelManagementOpenId(null)
+                              setConfirmingDeleteChannelId(activeChannel.id)
+                            }}
+                          >
+                            Удалить канал
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
                 </>
               ) : (
                 <div className="channels-empty-state">
@@ -4363,6 +4962,19 @@ function App() {
                 <button type="button" className="soft-button" onClick={openChannelsListView}>
                   Назад
                 </button>
+                {activeChannel ? (
+                  <button
+                    type="button"
+                    className="soft-button"
+                    onClick={() =>
+                      setChannelManagementOpenId((current) =>
+                        current === activeChannel.id ? null : activeChannel.id,
+                      )
+                    }
+                  >
+                    Управление
+                  </button>
+                ) : null}
               </div>
             </div>
           </section>
@@ -4371,8 +4983,8 @@ function App() {
         {isSubscriptionChannelOpen ? (
           <SubscriptionChannelRoom
             actions={subscriptionPostActions}
-            activePostId={activeSubscriptionPostId}
-            channel={activeSubscriptionChannel}
+            activePostId={forwardingSubscriptionPostText ? null : activeSubscriptionPostId}
+            channel={currentSubscriptionChannel!}
             messageFeedRef={messageFeedRef}
             onBack={closeActiveRoom}
             onPostSelect={(event, postId) => {
@@ -4380,13 +4992,21 @@ function App() {
               scheduleActionAnchor(event.currentTarget, 'start', setSubscriptionPostActionAnchor)
               setForwardingSubscriptionPostText('')
             }}
+            subscriptionAction={
+              previewSubscriptionChannel
+                ? {
+                    label: 'Подписаться',
+                    onClick: subscribeToPreviewSubscriptionChannel,
+                  }
+                : undefined
+            }
           />
         ) : null}
 
         {isGroupOpen ? (
           <GroupRoom
             actions={groupMessageActions}
-            activeMessageId={activeGroupMessageId}
+            activeMessageId={forwardingGroupMessageText ? null : activeGroupMessageId}
             attachmentInputRef={groupAttachmentInputRef}
             attachmentName={groupAttachmentDrafts[activeGroup.id]?.fileName ?? ''}
             draft={groupMessageDrafts[activeGroup.id] ?? ''}
@@ -4406,10 +5026,15 @@ function App() {
               )
               setForwardingGroupMessageText('')
             }}
+            onOpenLinkedChannel={openSourceChannel}
+            onOpenParticipants={() => setGroupParticipantsOpen(true)}
+            onOpenSourceChannel={openSourceChannelFromMessage}
             onOpenAttachmentPicker={openGroupAttachmentPicker}
+            resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
             onSubmit={sendGroupMessage}
           />
         ) : null}
+        {groupParticipantsDialog}
 
         {isChatOpen ? (
           <>
@@ -4438,6 +5063,8 @@ function App() {
                   setMessageActionAnchor,
                 )
               }}
+              onOpenLinkedChannel={openSourceChannel}
+              onOpenSourceChannel={openSourceChannelFromMessage}
               onOpenAttachmentPicker={openAttachmentPicker}
               onOpenPremiumGift={() => {
                 setPremiumGiftChatId(activeChat.id)
@@ -4453,6 +5080,7 @@ function App() {
                 setConfirmingDeleteHistoryChatId(activeChat.id)
                 setChatActionsOpen(false)
               }}
+              resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
               onSubmit={sendMessage}
               onToggleChatActions={() => setChatActionsOpen((current) => !current)}
               onToggleFavoriteChat={() => {
@@ -4479,6 +5107,7 @@ function App() {
                     anchor={messageActionAnchor}
                     deliveryIssue={activeMessageDeliveryIssue ?? undefined}
                     kind="direct"
+                    linkedChannel={resolveEmbeddedChannelFromMessage(activeMessage)}
                     message={activeMessage}
                     mine={activeMessage.author === 'me'}
                     replyChatTitle={activeChat.title}

@@ -94,8 +94,10 @@ export type UpdateSessionBody = Partial<
 export type SendDirectMessageBody = {
   attachment?: MessageAttachment
   forwarded?: boolean
+  forwardedAuthorName?: string
   markAsRead?: boolean
   replyTo?: Message['replyTo']
+  sourceChannel?: Message['sourceChannel']
   text: string
 }
 
@@ -109,6 +111,9 @@ export type SetDialogPinnedMessageBody = {
 
 export type SendGroupMessageBody = {
   attachment?: MessageAttachment
+  forwarded?: boolean
+  forwardedAuthorName?: string
+  sourceChannel?: Message['sourceChannel']
   text: string
 }
 

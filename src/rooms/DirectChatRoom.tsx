@@ -5,13 +5,13 @@ import type {
   RefObject,
 } from 'react'
 import { useLayoutEffect, useRef } from 'react'
-import type { Chat, Message, ReplyTarget } from '../app/types'
+import type { ChannelMessageSource, Chat, Message, ReplyTarget } from '../app/types'
 import {
   formatMessagePreview,
   formatRoomPresence,
   shouldShowDeliveryCaption,
 } from '../app/utils'
-import { BubbleMessageContent } from '../components/BubbleMessageContent'
+import { BubbleMessageContent, ForwardedChannelHeader } from '../components/BubbleMessageContent'
 
 type DirectChatRoomProps = {
   activeChat: Chat
@@ -31,11 +31,14 @@ type DirectChatRoomProps = {
   onCloseChatActions: () => void
   onDraftChange: (value: string) => void
   onMessageSelect: (event: MouseEvent<HTMLButtonElement>, message: Message) => void
+  onOpenLinkedChannel: (sourceChannel: ChannelMessageSource) => void
+  onOpenSourceChannel: (message: Message) => void
   onOpenAttachmentPicker: () => void
   onOpenPremiumGift: () => void
   onReplyCancel: () => void
   onRequestDeleteContact: () => void
   onRequestDeleteHistory: () => void
+  resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   onSubmit: () => void | Promise<void>
   onToggleChatActions: () => void
   onToggleFavoriteChat: () => void
@@ -60,11 +63,14 @@ export function DirectChatRoom({
   onCloseChatActions,
   onDraftChange,
   onMessageSelect,
+  onOpenLinkedChannel,
+  onOpenSourceChannel,
   onOpenAttachmentPicker,
   onOpenPremiumGift,
   onReplyCancel,
   onRequestDeleteContact,
   onRequestDeleteHistory,
+  resolveLinkedChannelFromMessage,
   onSubmit,
   onToggleChatActions,
   onToggleFavoriteChat,
@@ -190,6 +196,7 @@ export function DirectChatRoom({
 
       <div className="message-feed" ref={messageFeedRef}>
         {activeChat.messages.map((message) => {
+          const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
           const messageDeliveryIssue =
             message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
           const messagePending = messageDeliveryIssue === 'pending'
@@ -234,8 +241,30 @@ export function DirectChatRoom({
               className={bubbleClassNames.join(' ')}
               onClick={(event) => onMessageSelect(event, message)}
             >
-              {message.forwarded ? <span className="bubble-meta">Переслано</span> : null}
-              <BubbleMessageContent message={message} replyChatTitle={activeChat.title} />
+              {message.sourceChannel ? (
+                <>
+                  <ForwardedChannelHeader
+                    sourceChannel={message.sourceChannel}
+                    onClick={() => onOpenSourceChannel(message)}
+                  />
+                  <span className="bubble-meta">Переслано</span>
+                </>
+              ) : null}
+              {message.forwarded && !message.sourceChannel ? (
+                <span className="bubble-meta">
+                  {message.forwardedAuthorName
+                    ? `Переслано ${message.forwardedAuthorName}`
+                    : 'Переслано'}
+                </span>
+              ) : null}
+              <BubbleMessageContent
+                linkedChannel={linkedChannel}
+                message={message}
+                onOpenLinkedChannel={
+                  linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                }
+                replyChatTitle={activeChat.title}
+              />
               <time>{message.time}</time>
               {showDeliveryCaption ? (
                 <span className="bubble-delivery-caption">Сообщение не отправлено</span>

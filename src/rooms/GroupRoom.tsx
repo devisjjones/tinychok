@@ -1,8 +1,8 @@
 import type { ChangeEvent, FormEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import { useLayoutEffect, useRef } from 'react'
-import type { GroupPreview, Message } from '../app/types'
+import type { ChannelMessageSource, GroupParticipant, GroupPreview, Message } from '../app/types'
 import { shouldShowDeliveryCaption } from '../app/utils'
-import { BubbleMessageContent } from '../components/BubbleMessageContent'
+import { BubbleMessageContent, ForwardedChannelHeader } from '../components/BubbleMessageContent'
 
 type GroupRoomProps = {
   actions: ReactNode
@@ -18,7 +18,11 @@ type GroupRoomProps = {
   onComposerFocus: () => void
   onDraftChange: (value: string) => void
   onMessageSelect: (event: MouseEvent<HTMLButtonElement>, message: Message) => void
+  onOpenLinkedChannel: (sourceChannel: ChannelMessageSource) => void
+  onOpenParticipants: () => void
+  onOpenSourceChannel: (message: Message) => void
   onOpenAttachmentPicker: () => void
+  resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   onSubmit: () => void | Promise<void>
 }
 
@@ -36,11 +40,31 @@ export function GroupRoom({
   onComposerFocus,
   onDraftChange,
   onMessageSelect,
+  onOpenLinkedChannel,
+  onOpenParticipants,
+  onOpenSourceChannel,
   onOpenAttachmentPicker,
+  resolveLinkedChannelFromMessage,
   onSubmit,
 }: GroupRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentName)
+
+  function resolveGroupParticipant(message: Message): GroupParticipant | null {
+    if (message.author === 'me') return null
+
+    if (message.groupParticipantId !== undefined) {
+      const matchedParticipant = group.participants.find(
+        (participant) => participant.id === message.groupParticipantId,
+      )
+      if (matchedParticipant) return matchedParticipant
+    }
+
+    if (!message.displayAuthor) return null
+    return (
+      group.participants.find((participant) => participant.title === message.displayAuthor) ?? null
+    )
+  }
 
   useLayoutEffect(() => {
     const textarea = draftInputRef.current
@@ -83,13 +107,21 @@ export function GroupRoom({
                   </span>
                 </div>
               </div>
-              <p>{`${group.handle} · ${group.members} участников`}</p>
+              <button
+                type="button"
+                className="room-members-link"
+                onClick={onOpenParticipants}
+              >
+                {`${group.members} участников`}
+              </button>
             </div>
           </div>
         </header>
 
         <div className="message-feed" ref={messageFeedRef}>
           {group.messages.map((message) => {
+            const groupParticipant = resolveGroupParticipant(message)
+            const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
             const messageDeliveryIssue =
               message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
             const messagePending = messageDeliveryIssue === 'pending'
@@ -129,10 +161,44 @@ export function GroupRoom({
                 className={bubbleClassNames.join(' ')}
                 onClick={(event) => onMessageSelect(event, message)}
               >
-                <span className="bubble-meta">
-                  {message.author === 'me' ? 'Вы' : message.displayAuthor ?? 'Участник группы'}
-                </span>
-                <BubbleMessageContent message={message} />
+                {message.author === 'me' ? (
+                  <span className="bubble-meta">Вы</span>
+                ) : groupParticipant ? (
+                  <div className="bubble-sender">
+                    <span className="bubble-sender-avatar-stack">
+                      <span className="avatar bubble-sender-avatar" style={{ backgroundColor: groupParticipant.accent }}>
+                        {groupParticipant.title.slice(0, 1)}
+                      </span>
+                      {groupParticipant.online ? (
+                        <span className="bubble-sender-presence-dot" aria-label="В сети" />
+                      ) : null}
+                    </span>
+                    <span className="bubble-sender-name">{groupParticipant.title}</span>
+                    {groupParticipant.premium ? (
+                      <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+                        <img src="/icons/crown64.png" alt="" />
+                      </span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <span className="bubble-meta">{message.displayAuthor ?? 'Участник группы'}</span>
+                )}
+                {message.sourceChannel ? (
+                  <>
+                    <ForwardedChannelHeader
+                      sourceChannel={message.sourceChannel}
+                      onClick={() => onOpenSourceChannel(message)}
+                    />
+                    <span className="bubble-meta">Переслано</span>
+                  </>
+                ) : null}
+                <BubbleMessageContent
+                  linkedChannel={linkedChannel}
+                  message={message}
+                  onOpenLinkedChannel={
+                    linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                  }
+                />
                 <time>{message.time}</time>
                 {showDeliveryCaption ? (
                   <span className="bubble-delivery-caption">Сообщение не отправлено</span>

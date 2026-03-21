@@ -1,5 +1,6 @@
 import {
   channelAvatarTones,
+  channelDirectLinkMaxLength,
   channelDescriptionMaxLength,
   channelTitleMaxLength,
   nicknameFieldMaxLength,
@@ -83,6 +84,12 @@ export function formatGroupPreview(group: GroupPreview) {
   return latest ? formatMessagePreview(latest) : group.preview
 }
 
+export function formatGroupLatestAuthor(group: GroupPreview) {
+  const latest = group.messages.at(-1)
+  if (!latest) return ''
+  return latest.author === 'me' ? 'Вы' : latest.displayAuthor ?? 'Участник'
+}
+
 export function formatGroupTime(group: GroupPreview) {
   const latest = group.messages.at(-1)
   return latest ? latest.time : group.time
@@ -91,6 +98,10 @@ export function formatGroupTime(group: GroupPreview) {
 export function formatSubscriptionChannelPreview(channel: SubscriptionChannel) {
   const latest = channel.posts.at(-1)
   return latest ? formatMessagePreview(latest) : channel.preview
+}
+
+export function formatSubscriptionChannelReaders(channel: SubscriptionChannel) {
+  return `${channel.readers} читателей`
 }
 
 export function formatSubscriptionChannelTime(channel: SubscriptionChannel) {
@@ -178,6 +189,75 @@ export function sanitizeChannelTitle(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, channelTitleMaxLength)
 }
 
+function normalizeChannelDirectLinkCore(
+  value: string,
+  options?: {
+    replaceWhitespaceWithUnderscore?: boolean
+  },
+) {
+  const normalizedValue = value
+    .trim()
+    .replace(/^https?:\/\/[^/]+\/c\//iu, '')
+    .replace(/^@+/u, '')
+    .replace(/[/?#].*$/u, '')
+
+  const whitespaceNormalized = options?.replaceWhitespaceWithUnderscore
+    ? normalizedValue.replace(/\s+/gu, '_')
+    : normalizedValue.replace(/\s+/gu, '')
+
+  return Array.from(whitespaceNormalized.toLowerCase())
+    .filter((character) => /[\p{Script=Latin}\p{Script=Cyrillic}0-9_-]/u.test(character))
+    .slice(0, channelDirectLinkMaxLength)
+    .join('')
+}
+
+export function sanitizeChannelDirectLink(value: string) {
+  const handle = normalizeChannelDirectLinkCore(value)
+
+  return handle ? `@${handle}` : ''
+}
+
+export function buildChannelDirectLinkFromTitle(value: string) {
+  const handle = normalizeChannelDirectLinkCore(value, {
+    replaceWhitespaceWithUnderscore: true,
+  })
+
+  return `@${handle || 'kanal'}`
+}
+
+export function ensureUniqueChannelDirectLink(
+  candidate: string,
+  existingLinks: string[],
+  fallbackSource = 'kanal',
+) {
+  const normalizedExistingHandles = new Set(
+    existingLinks
+      .map((link) => sanitizeChannelDirectLink(link))
+      .filter(Boolean)
+      .map((link) => link.slice(1)),
+  )
+
+  const fallbackHandle = buildChannelDirectLinkFromTitle(fallbackSource).slice(1)
+  const baseHandle =
+    sanitizeChannelDirectLink(candidate).slice(1) ||
+    fallbackHandle ||
+    'kanal'
+
+  if (!normalizedExistingHandles.has(baseHandle)) {
+    return `@${baseHandle}`
+  }
+
+  for (let suffix = 1; ; suffix += 1) {
+    const suffixValue = String(suffix)
+    const basePart = baseHandle.slice(0, Math.max(1, channelDirectLinkMaxLength - suffixValue.length))
+    const nextHandle = `${basePart}${suffixValue}`
+
+    if (!normalizedExistingHandles.has(nextHandle)) {
+      return `@${nextHandle}`
+    }
+  }
+}
+
 export function sanitizeChannelDescription(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, channelDescriptionMaxLength)
 }
@@ -234,20 +314,20 @@ export function makeDraftChannel(channelNumber: number, channelId: number): Chan
   const templates = [
     {
       title: 'Ночной архив',
-      directLink: 'https://tinychok.app/c/night-archive',
+      directLink: '@night_archive',
       description:
         'Черновик тихого канала для личных заметок, редких анонсов и сохранённых сообщений.',
       avatarTone: '#8c5738',
     },
     {
       title: 'Тихие релизы',
-      directLink: 'https://tinychok.app/c/quiet-releases',
+      directLink: '@quiet_releases',
       description: 'Канал для аккуратных обновлений продукта без шума, спама и лишних пингов.',
       avatarTone: '#6eb6ff',
     },
     {
       title: 'Клуб сигналов',
-      directLink: 'https://tinychok.app/c/signal-club',
+      directLink: '@signal_club',
       description:
         'Подборка коротких сигналов, которые удобно публиковать для своей закрытой аудитории.',
       avatarTone: '#82c9a3',
@@ -259,7 +339,7 @@ export function makeDraftChannel(channelNumber: number, channelId: number): Chan
   return {
     id: channelId,
     title: template?.title ?? `Новый канал ${channelNumber}`,
-    directLink: template?.directLink ?? `https://tinychok.app/c/draft-${channelId}`,
+    directLink: template?.directLink ?? '@kanal',
     description:
       template?.description ??
       'Описание канала пока не заполнено. Здесь можно подготовить текст до публикации.',

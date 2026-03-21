@@ -20,12 +20,15 @@ import type {
   SubscriptionChannel,
 } from '../../src/app/types'
 import {
+  buildChannelDirectLinkFromTitle,
+  ensureUniqueChannelDirectLink,
   formatAccountName,
   formatNowTime,
   hasActivePremium,
   makePremiumExpiry,
   normalizeIdentifier,
   normalizeNickname,
+  sanitizeChannelDirectLink,
   sanitizeChannelDescription,
   sanitizeChannelTitle,
   sanitizePersonField,
@@ -252,6 +255,34 @@ function sanitizeGroupHandle(value: string, groupId: number) {
   return `@${normalized || `group_${groupId}`}`
 }
 
+function sanitizeSourceChannel(
+  sourceChannel?: Message['sourceChannel'],
+): Message['sourceChannel'] | undefined {
+  const title = sanitizeChannelTitle(sourceChannel?.title ?? '')
+  if (!title) return undefined
+
+  return {
+    accent: sourceChannel?.accent?.trim() || undefined,
+    draft: sourceChannel?.draft,
+    handle: sourceChannel?.handle ? sanitizeChannelDirectLink(sourceChannel.handle) || undefined : undefined,
+    id:
+      typeof sourceChannel?.id === 'number' && Number.isInteger(sourceChannel.id)
+        ? sourceChannel.id
+        : undefined,
+    title,
+    visibility:
+      sourceChannel?.visibility === 'private' ||
+      sourceChannel?.visibility === 'public' ||
+      sourceChannel?.visibility === 'closed'
+        ? sourceChannel.visibility
+        : undefined,
+  }
+}
+
+function sanitizeForwardedAuthorName(value?: string) {
+  return sanitizePersonField(value ?? '', displayNameFieldMaxLength)
+}
+
 function buildAccountHandle(account: Account) {
   const normalizedDigits = account.identifier.replace(/[^\d]/g, '')
   return account.nickname?.trim()
@@ -320,6 +351,7 @@ function toPersistedGroup(ownerIdentifier: string, group: GroupPreview): Persist
     id: group.id,
     members: group.members,
     ownerIdentifier,
+    participants: group.participants,
     preview: group.preview,
     time: group.time,
     title: group.title,
@@ -360,6 +392,7 @@ function toPersistedSubscriptionChannel(
     id: channel.id,
     ownerIdentifier,
     preview: channel.preview,
+    readers: channel.readers ?? 0,
     time: channel.time,
     title: channel.title,
     unread: channel.unread,
@@ -408,20 +441,26 @@ function materializeDialogMessage(
     deliveryId: message.deliveryId,
     displayAuthor: message.displayAuthor,
     forwarded: message.forwarded,
+    forwardedAuthorName: message.forwardedAuthorName,
     id: message.id,
     readAt: message.readAt,
     replyTo: message.replyTo,
+    sourceChannel: message.sourceChannel,
     text: message.text,
     time: message.time,
   }
 }
 
 function materializeGroup(group: PersistedGroup): Omit<PersistedGroup, 'ownerIdentifier'> {
+  const fallbackParticipants =
+    initialGroups.find((seedGroup) => seedGroup.id === group.id)?.participants ?? []
+
   return {
     accent: group.accent,
     handle: group.handle,
     id: group.id,
     members: group.members,
+    participants: group.participants ?? fallbackParticipants,
     preview: group.preview,
     time: group.time,
     title: group.title,
@@ -439,9 +478,12 @@ function materializeGroupMessage(
     deliveryId: message.deliveryId,
     displayAuthor: message.displayAuthor,
     forwarded: message.forwarded,
+    forwardedAuthorName: message.forwardedAuthorName,
+    groupParticipantId: message.groupParticipantId,
     id: message.id,
     readAt: message.readAt,
     replyTo: message.replyTo,
+    sourceChannel: message.sourceChannel,
     text: message.text,
     time: message.time,
   }
@@ -450,7 +492,15 @@ function materializeGroupMessage(
 function getMessageReadReceiptKey(
   message: Pick<
     Message,
-    'attachment' | 'createdAt' | 'deliveryId' | 'forwarded' | 'replyTo' | 'text' | 'time'
+    | 'attachment'
+    | 'createdAt'
+    | 'deliveryId'
+    | 'forwarded'
+    | 'forwardedAuthorName'
+    | 'replyTo'
+    | 'sourceChannel'
+    | 'text'
+    | 'time'
   >,
 ) {
   if (message.deliveryId?.trim()) {
@@ -464,8 +514,10 @@ function getMessageReadReceiptKey(
   return JSON.stringify({
     attachment: message.attachment?.fileName ?? '',
     forwarded: Boolean(message.forwarded),
+    forwardedAuthorName: message.forwardedAuthorName ?? '',
     replyAuthor: message.replyTo?.author ?? '',
     replyText: message.replyTo?.text ?? '',
+    sourceChannelTitle: message.sourceChannel?.title ?? '',
     text: message.text,
     time: message.time,
   })
@@ -478,7 +530,7 @@ function materializeManagedChannel(
     avatarImage: channel.avatarImage,
     avatarTone: channel.avatarTone,
     description: channel.description,
-    directLink: channel.directLink,
+    directLink: sanitizeChannelDirectLink(channel.directLink) || '@kanal',
     id: channel.id,
     status: channel.status,
     title: channel.title,
@@ -495,6 +547,7 @@ function materializeSubscriptionChannel(
     handle: channel.handle,
     id: channel.id,
     preview: channel.preview,
+    readers: channel.readers ?? 0,
     time: channel.time,
     title: channel.title,
     unread: channel.unread,
@@ -973,6 +1026,8 @@ export class TinychokStore {
           text: sanitizeMessageText(payload.replyTo.text).slice(0, 280),
         }
       : undefined
+    const forwardedAuthorName = sanitizeForwardedAuthorName(payload.forwardedAuthorName)
+    const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
     const createdAt = new Date().toISOString()
     const deliveryId = randomUUID()
     const time = formatNowTime()
@@ -992,9 +1047,11 @@ export class TinychokStore {
       author: 'me',
       dialogId: dialog.id,
       forwarded: payload.forwarded,
+      forwardedAuthorName,
       id: this.getNextDialogMessageId(account.identifier, dialog.id),
       ownerIdentifier: account.identifier,
       replyTo: senderReplyTo,
+      sourceChannel,
       text,
       createdAt,
       deliveryId,
@@ -1023,9 +1080,11 @@ export class TinychokStore {
         author: 'them',
         dialogId: recipientDialog.id,
         forwarded: payload.forwarded,
+        forwardedAuthorName,
         id: this.getNextDialogMessageId(recipientAccount.identifier, recipientDialog.id),
         ownerIdentifier: recipientAccount.identifier,
         replyTo: recipientReplyTo,
+        sourceChannel,
         text,
         createdAt,
         deliveryId,
@@ -1223,6 +1282,8 @@ export class TinychokStore {
 
     const text = sanitizeMessageText(payload.text)
     const attachment = sanitizeMessageAttachment(payload.attachment)
+    const forwardedAuthorName = sanitizeForwardedAuthorName(payload.forwardedAuthorName)
+    const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
     if (!text && !attachment) {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
@@ -1234,9 +1295,12 @@ export class TinychokStore {
       attachment,
       author: 'me',
       createdAt,
+      forwarded: payload.forwarded,
+      forwardedAuthorName,
       groupId,
       id: this.getNextGroupMessageId(account.identifier, groupId),
       ownerIdentifier: account.identifier,
+      sourceChannel,
       text,
       time,
     })
@@ -1378,7 +1442,11 @@ export class TinychokStore {
       (channel) => channel.ownerIdentifier === account.identifier,
     ).length + 1
     const title = sanitizeChannelTitle(payload.title) || `Новый канал ${channelNumber}`
-    const directLink = payload.directLink.trim() || `https://tinychok.app/c/draft-${channelId}`
+    const directLink = ensureUniqueChannelDirectLink(
+      sanitizeChannelDirectLink(payload.directLink) || buildChannelDirectLinkFromTitle(title),
+      this.database.managedChannels.map((channel) => channel.directLink),
+      title,
+    )
     const description =
       sanitizeChannelDescription(payload.description) ||
       'Описание канала пока не заполнено. Здесь можно подготовить текст до публикации.'
@@ -1431,7 +1499,13 @@ export class TinychokStore {
     }
 
     if (payload.directLink !== undefined) {
-      channel.directLink = payload.directLink.trim() || channel.directLink
+      channel.directLink = ensureUniqueChannelDirectLink(
+        sanitizeChannelDirectLink(payload.directLink) || channel.directLink,
+        this.database.managedChannels
+          .filter((candidate) => candidate.id !== channel.id)
+          .map((candidate) => candidate.directLink),
+        channel.title,
+      )
     }
 
     if (payload.description !== undefined) {
@@ -1511,6 +1585,16 @@ export class TinychokStore {
       id: groupId,
       members: 1,
       ownerIdentifier: account.identifier,
+      participants: [
+        {
+          accent: pickAccentForIdentifier(account.identifier),
+          id: groupId * 10_000 + 1,
+          online: this.hasActiveSession(account.identifier),
+          premium: hasActivePremium(account.premium, account.premiumExpiresAt),
+          status: account.status?.trim() || (this.hasActiveSession(account.identifier) ? 'в сети' : 'был(а) недавно в сети'),
+          title: account.displayName,
+        },
+      ],
       preview: 'Новая группа готова. Можно начинать обсуждение.',
       time: formatNowTime(),
       title,
