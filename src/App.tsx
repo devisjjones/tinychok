@@ -20,6 +20,7 @@ import {
   displayNameFieldMaxLength,
   groupActionMenuHeight,
   groupActionMenuWidth,
+  groupTitleMaxLength,
   managedChannelsPerUserLimit,
   nicknameFieldMaxLength,
   premiumGroupMemberLimit,
@@ -37,6 +38,7 @@ import {
 } from './app/mockData'
 import { loadAccounts, loadSession } from './app/storage'
 import {
+  createGroup as createGroupRequest,
   createManagedChannel as createManagedChannelRequest,
   deleteDialog as deleteDialogRequest,
   deleteDialogHistory as deleteDialogHistoryRequest,
@@ -426,6 +428,14 @@ function formatStockAvatarLabel(filePath: string) {
     .replace(/\b\p{L}/gu, (char) => char.toUpperCase())
 }
 
+function buildDefaultGroupTitle(session: Session | null) {
+  return `Группа: ${session ? formatSessionName(session) : 'создатель группы'}`
+}
+
+function buildLocalGroupHandle(groupId: number) {
+  return `@group_${groupId}`
+}
+
 function buildStockAvatarOptions(modules: Record<string, string>) {
   return Object.entries(modules)
     .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath, 'ru'))
@@ -460,6 +470,7 @@ function App() {
   const groupAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const channelsPanelRef = useRef<HTMLDivElement | null>(null)
   const channelAvatarInputRef = useRef<HTMLInputElement | null>(null)
+  const groupAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const channelAvatarObjectUrlsRef = useRef(new Set<string>())
   const localMessageAttachmentObjectUrlsRef = useRef(new Set<string>())
@@ -558,6 +569,20 @@ function App() {
   const [creatingChannelAvatarDraft, setCreatingChannelAvatarDraft] = useState<ChannelAvatarDraft | null>(
     null,
   )
+  const [groupCreateOpen, setGroupCreateOpen] = useState(false)
+  const [creatingGroupTitle, setCreatingGroupTitle] = useState('')
+  const [creatingGroupAccent, setCreatingGroupAccent] = useState(channelAvatarTones[0])
+  const [creatingGroupAvatarDraft, setCreatingGroupAvatarDraft] = useState<ChannelAvatarDraft | null>(
+    null,
+  )
+  const [creatingGroupMemberChatIds, setCreatingGroupMemberChatIds] = useState<number[]>([])
+  const [creatingGroupBusy, setCreatingGroupBusy] = useState(false)
+  const [creatingGroupError, setCreatingGroupError] = useState('')
+  const [creatingGroupSelectionHint, setCreatingGroupSelectionHint] = useState('')
+  const [groupAvatarPickerOpen, setGroupAvatarPickerOpen] = useState(false)
+  const [groupAvatarPickerDraft, setGroupAvatarPickerDraft] = useState<ChannelAvatarDraft | null>(null)
+  const [groupAvatarPickerError, setGroupAvatarPickerError] = useState('')
+  const [groupAvatarPickerMode, setGroupAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
   const [profileAvatarPickerOpen, setProfileAvatarPickerOpen] = useState(false)
   const [profileAvatarPickerDraft, setProfileAvatarPickerDraft] = useState<ChannelAvatarDraft | null>(null)
   const [profileAvatarPickerError, setProfileAvatarPickerError] = useState('')
@@ -656,6 +681,7 @@ function App() {
   const availableChats = sortChatsByRecentActivity(
     chats.filter((chat) => !blockedContactIds.includes(chat.id)),
   )
+  const creatableGroupChats = availableChats
   const blockedChats = sortChatsByRecentActivity(
     chats.filter((chat) => blockedContactIds.includes(chat.id)),
   )
@@ -925,6 +951,11 @@ function App() {
   const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
   const sessionName = session ? formatSessionName(session) : ''
   const sessionAvatarLabel = session?.displayName.trim().slice(0, 1).toUpperCase() || 'Я'
+  const creatingGroupMemberLimit = sessionHasPremium ? premiumGroupMemberLimit : defaultGroupMemberLimit
+  const selectedGroupCreateChats = creatableGroupChats.filter((chat) =>
+    creatingGroupMemberChatIds.includes(chat.id),
+  )
+  const canCreateGroup = selectedGroupCreateChats.length > 0
   const premiumDaysLeft = getPremiumDaysLeft(session?.premium, session?.premiumExpiresAt)
   const premiumMonthlyPrice = 199
   const premiumAnnualPrice = 1390
@@ -2317,6 +2348,186 @@ function App() {
       }
 
       return nextDraft
+    })
+  }
+
+  function openGroupCreateDialog(preselectedChatIds: number[] = []) {
+    const nextSelectedChatIds = [...new Set(
+      preselectedChatIds.filter((chatId) => creatableGroupChats.some((chat) => chat.id === chatId)),
+    )]
+
+    if (groupAvatarPickerDraft && groupAvatarPickerDraft !== creatingGroupAvatarDraft) {
+      releaseChannelAvatarDraft(groupAvatarPickerDraft)
+    }
+
+    releaseChannelAvatarDraft(creatingGroupAvatarDraft)
+    setGroupCreateOpen(true)
+    setCreatingGroupTitle('')
+    setCreatingGroupAccent(channelAvatarTones[0])
+    setCreatingGroupAvatarDraft(null)
+    setCreatingGroupMemberChatIds(nextSelectedChatIds)
+    setCreatingGroupBusy(false)
+    setCreatingGroupError('')
+    setCreatingGroupSelectionHint('')
+    setGroupAvatarPickerOpen(false)
+    setGroupAvatarPickerDraft(null)
+    setGroupAvatarPickerError('')
+    setGroupAvatarPickerMode('none')
+
+    if (groupAvatarInputRef.current) {
+      groupAvatarInputRef.current.value = ''
+    }
+  }
+
+  function closeGroupCreateDialog(options?: { preserveCurrentDraft?: boolean }) {
+    if (!options?.preserveCurrentDraft) {
+      releaseChannelAvatarDraft(creatingGroupAvatarDraft)
+    }
+
+    if (groupAvatarPickerDraft && groupAvatarPickerDraft !== creatingGroupAvatarDraft) {
+      releaseChannelAvatarDraft(groupAvatarPickerDraft)
+    }
+
+    setGroupCreateOpen(false)
+    setCreatingGroupTitle('')
+    setCreatingGroupAccent(channelAvatarTones[0])
+    setCreatingGroupAvatarDraft(null)
+    setCreatingGroupMemberChatIds([])
+    setCreatingGroupBusy(false)
+    setCreatingGroupError('')
+    setCreatingGroupSelectionHint('')
+    setGroupAvatarPickerOpen(false)
+    setGroupAvatarPickerDraft(null)
+    setGroupAvatarPickerError('')
+    setGroupAvatarPickerMode('none')
+
+    if (groupAvatarInputRef.current) {
+      groupAvatarInputRef.current.value = ''
+    }
+  }
+
+  function openGroupAvatarPicker() {
+    setGroupAvatarPickerOpen(true)
+    setGroupAvatarPickerDraft(creatingGroupAvatarDraft)
+    setGroupAvatarPickerError('')
+    setGroupAvatarPickerMode('none')
+  }
+
+  function closeGroupAvatarPicker(options?: { preserveCurrentDraft?: boolean }) {
+    if (!options?.preserveCurrentDraft) {
+      const shouldPreserveSavedDraft =
+        groupAvatarPickerDraft !== null && groupAvatarPickerDraft === creatingGroupAvatarDraft
+
+      if (!shouldPreserveSavedDraft) {
+        releaseChannelAvatarDraft(groupAvatarPickerDraft)
+      }
+    }
+
+    setGroupAvatarPickerOpen(false)
+    setGroupAvatarPickerDraft(null)
+    setGroupAvatarPickerError('')
+    setGroupAvatarPickerMode('none')
+
+    if (groupAvatarInputRef.current) {
+      groupAvatarInputRef.current.value = ''
+    }
+  }
+
+  function selectStockGroupAvatar(option: StockAvatarOption) {
+    const nextDraft = buildStockAvatarDraft(option)
+
+    setGroupAvatarPickerMode('stock')
+    setGroupAvatarPickerError('')
+    setGroupAvatarPickerDraft((currentDraft) => {
+      const shouldPreserveSavedDraft =
+        currentDraft !== null && currentDraft === creatingGroupAvatarDraft
+
+      if (!shouldPreserveSavedDraft) {
+        releaseChannelAvatarDraft(currentDraft)
+      }
+
+      return nextDraft
+    })
+  }
+
+  function triggerGroupAvatarUpload() {
+    setGroupAvatarPickerMode('device')
+    setGroupAvatarPickerError('')
+    groupAvatarInputRef.current?.click()
+  }
+
+  function handleGroupAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      event.target.value = ''
+      return
+    }
+
+    if (!channelAvatarUploadAcceptedMimeTypes.includes(file.type as (typeof channelAvatarUploadAcceptedMimeTypes)[number])) {
+      setGroupAvatarPickerError('Поддерживаются только JPG и PNG.')
+      event.target.value = ''
+      return
+    }
+
+    if (file.size > channelAvatarUploadMaxSizeBytes) {
+      setGroupAvatarPickerError('Файл слишком большой. Максимальный размер аватарки 1 МБ.')
+      event.target.value = ''
+      return
+    }
+
+    const nextAvatarImage = URL.createObjectURL(file)
+    channelAvatarObjectUrlsRef.current.add(nextAvatarImage)
+    setGroupAvatarPickerError('')
+    setGroupAvatarPickerMode('device')
+    setGroupAvatarPickerDraft((currentDraft) => {
+      const shouldPreserveSavedDraft =
+        currentDraft !== null && currentDraft === creatingGroupAvatarDraft
+
+      if (!shouldPreserveSavedDraft) {
+        releaseChannelAvatarDraft(currentDraft)
+      }
+
+      return {
+        file,
+        kind: 'upload',
+        label: file.name,
+        previewUrl: nextAvatarImage,
+      }
+    })
+
+    event.target.value = ''
+  }
+
+  function applyGroupAvatarSelection() {
+    if (!groupAvatarPickerDraft) return
+
+    if (creatingGroupAvatarDraft && creatingGroupAvatarDraft !== groupAvatarPickerDraft) {
+      releaseChannelAvatarDraft(creatingGroupAvatarDraft)
+    }
+
+    setCreatingGroupAvatarDraft(groupAvatarPickerDraft)
+    closeGroupAvatarPicker({ preserveCurrentDraft: true })
+  }
+
+  function toggleGroupCreateMember(chatId: number) {
+    setCreatingGroupSelectionHint('')
+    setCreatingGroupError('')
+    setCreatingGroupMemberChatIds((currentChatIds) => {
+      const nextSelected = currentChatIds.includes(chatId)
+        ? currentChatIds.filter((currentChatId) => currentChatId !== chatId)
+        : [...currentChatIds, chatId]
+
+      if (nextSelected.length + 1 > creatingGroupMemberLimit) {
+        setCreatingGroupError(
+          creatingGroupMemberLimit === premiumGroupMemberLimit
+            ? `Даже с премиумом владельца в группе может быть максимум ${premiumGroupMemberLimit} человек.`
+            : `Максимальный размер одной группы — ${defaultGroupMemberLimit} человек. Чтобы приглашать больше людей, необходимо активировать премиум владельцу группы.`,
+        )
+        return currentChatIds
+      }
+
+      return nextSelected
     })
   }
 
@@ -4242,6 +4453,119 @@ function App() {
     }
   }
 
+  async function createGroup() {
+    if (!session) return
+
+    if (!canCreateGroup) {
+      setCreatingGroupSelectionHint('Добавьте хотя бы одного пользователя в группу с вами.')
+      return
+    }
+
+    if (selectedGroupCreateChats.length + 1 > creatingGroupMemberLimit) {
+      setCreatingGroupError(
+        creatingGroupMemberLimit === premiumGroupMemberLimit
+          ? `Даже с премиумом владельца в группе может быть максимум ${premiumGroupMemberLimit} человек.`
+          : `Максимальный размер одной группы — ${defaultGroupMemberLimit} человек. Чтобы приглашать больше людей, необходимо активировать премиум владельцу группы.`,
+      )
+      return
+    }
+
+    setCreatingGroupBusy(true)
+    setCreatingGroupError('')
+    setCreatingGroupSelectionHint('')
+
+    try {
+      const defaultTitle = buildDefaultGroupTitle(session)
+      const nextTitle = creatingGroupTitle.replace(/\s+/g, ' ').trim().slice(0, groupTitleMaxLength) || defaultTitle
+      let nextAvatarImage = creatingGroupAvatarDraft?.previewUrl
+      let preserveCurrentDraft = creatingGroupAvatarDraft?.kind === 'upload'
+
+      if (creatingGroupAvatarDraft?.kind === 'upload') {
+        if (!creatingGroupAvatarDraft.file) {
+          throw new Error('Сначала выберите изображение для загрузки.')
+        }
+
+        if (backendReady && session.sessionToken) {
+          const uploadedMedia = await uploadMediaFile(
+            session.sessionToken,
+            creatingGroupAvatarDraft.file,
+            'group-avatar',
+          )
+          nextAvatarImage = uploadedMedia.mediaUrl
+          preserveCurrentDraft = false
+          releaseChannelAvatarDraft(creatingGroupAvatarDraft)
+        }
+      }
+
+      if (backendReady && session.sessionToken) {
+        const response = await createGroupRequest(session.sessionToken, {
+          accent: creatingGroupAccent,
+          avatarImage: nextAvatarImage,
+          memberDialogIds: selectedGroupCreateChats.map((chat) => chat.id),
+          title: nextTitle,
+        })
+        applySnapshot(response.snapshot)
+        closeGroupCreateDialog({ preserveCurrentDraft })
+        openGroup(response.groupId)
+        return
+      }
+
+      const nextGroupId = groups.reduce((maxId, group) => Math.max(maxId, group.id), 0) + 1
+      const creatorParticipant: GroupParticipant = {
+        accent: creatingGroupAccent,
+        id: getSyntheticChannelId(session.identifier),
+        identifier: session.identifier,
+        online: true,
+        premium: sessionHasPremium,
+        status: session.status?.trim() || 'в сети',
+        title: formatSessionName(session),
+      }
+      const participants = [
+        creatorParticipant,
+        ...selectedGroupCreateChats.map((chat) => buildGroupParticipantFromChat(chat, chat.id)),
+      ]
+      const nextGroup: GroupPreview = {
+        accent: creatingGroupAccent,
+        avatarImage: nextAvatarImage,
+        creatorIdentifier: session.identifier,
+        handle: buildLocalGroupHandle(nextGroupId),
+        id: nextGroupId,
+        members: participants.length,
+        messages: [],
+        muted: false,
+        participants,
+        preview: 'Группа создана. Можно начинать обсуждение.',
+        sharedId: `${session.identifier}:${nextGroupId}:${Date.now()}`,
+        time: formatNowTime(),
+        title: nextTitle,
+        unread: 0,
+      }
+
+      setGroups((currentGroups) => [nextGroup, ...currentGroups])
+
+      selectedGroupCreateChats.forEach((chat) => {
+        applyLocalDirectMessage(chat.id, '', {
+          markAsRead: chat.id === activeChatId,
+          sourceGroup: {
+            accent: nextGroup.accent,
+            avatarImage: nextGroup.avatarImage,
+            creatorIdentifier: nextGroup.creatorIdentifier,
+            handle: nextGroup.handle,
+            sharedId: nextGroup.sharedId,
+            title: nextGroup.title,
+          },
+        })
+      })
+
+      closeGroupCreateDialog({ preserveCurrentDraft })
+      openGroup(nextGroupId)
+    } catch (error) {
+      console.error('Failed to create group', error)
+      setCreatingGroupError(error instanceof Error ? error.message : 'Не удалось создать группу.')
+      setCreatingGroupBusy(false)
+    }
+  }
+
   async function createChannel() {
     if (channels.length >= managedChannelsPerUserLimit) {
       openManagedChannelLimitError()
@@ -4583,7 +4907,11 @@ function App() {
                     }}
                   >
                     <span className="avatar" style={{ backgroundColor: group.accent }}>
-                      {group.title.slice(0, 1)}
+                      {group.avatarImage ? (
+                        <img src={group.avatarImage} alt="" className="channel-avatar-image" />
+                      ) : (
+                        formatChannelAvatarLabel(group.title)
+                      )}
                     </span>
                     <span>{group.title}</span>
                   </button>
@@ -5559,6 +5887,23 @@ function App() {
           </div>
         ) : isGroupsTopListOpen ? (
           <div className="chat-list">
+            <button
+              type="button"
+              className="chat-card group-create-card"
+              onClick={() => openGroupCreateDialog()}
+            >
+              <span className="avatar group-create-card-avatar" aria-hidden="true">
+                +
+              </span>
+              <span className="chat-copy">
+                <span className="chat-topline">
+                  <span className="chat-name-row">
+                    <strong className="chat-name-text">Создать группу</strong>
+                  </span>
+                </span>
+                <span className="chat-preview">Название, аватарка и участники в одном окне</span>
+              </span>
+            </button>
             {orderedGroups.map((group) => (
               (() => {
                 const groupLatestAuthor = formatGroupLatestAuthor(group)
@@ -5574,7 +5919,11 @@ function App() {
                     onClick={() => openGroup(group.id)}
                   >
                     <span className="avatar" style={{ backgroundColor: group.accent }}>
-                      {group.title.slice(0, 1)}
+                      {group.avatarImage ? (
+                        <img src={group.avatarImage} alt="" className="channel-avatar-image" />
+                      ) : (
+                        formatChannelAvatarLabel(group.title)
+                      )}
                     </span>
                     <span className="chat-copy">
                       <span className="chat-topline">
@@ -6640,7 +6989,6 @@ function App() {
         ) : null}
         {groupParticipantsDialog}
         {confirmingDeleteGroupMessageDialog}
-
         {isChatOpen ? (
           <>
             <DirectChatRoom
@@ -6659,6 +7007,10 @@ function App() {
               onBack={closeActiveRoom}
               onBlockChat={() => blockChat(activeChat.id)}
               onCloseChatActions={() => setChatActionsOpen(false)}
+              onCreateGroup={() => {
+                setChatActionsOpen(false)
+                openGroupCreateDialog([activeChat.id])
+              }}
               onDraftChange={(value) => updateChatDraft(activeChat.id, value)}
               onMessageSelect={(event, message) => {
                 setMessageActionMessageId(message.id)
@@ -7511,6 +7863,261 @@ function App() {
         />
         {copyHintText ? <div className="copy-hint">{copyHintText}</div> : null}
       </section>
+      {groupCreateOpen ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть создание группы"
+            onClick={() => closeGroupCreateDialog()}
+          />
+          <div className="room-confirm room-group-create">
+            <p className="room-confirm-copy">Создать группу</p>
+            <div className="channels-fields">
+              <article className="settings-item">
+                <span className="settings-label">Название группы</span>
+                <input
+                  type="text"
+                  className="settings-input"
+                  maxLength={groupTitleMaxLength}
+                  value={creatingGroupTitle}
+                  placeholder={buildDefaultGroupTitle(session)}
+                  onChange={(event) => {
+                    setCreatingGroupTitle(event.target.value.slice(0, groupTitleMaxLength))
+                    setCreatingGroupError('')
+                  }}
+                />
+              </article>
+
+              <article className="settings-item">
+                <span className="settings-label">Аватарка группы</span>
+                <div className="channel-avatar-settings">
+                  <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: creatingGroupAccent }}>
+                    {creatingGroupAvatarDraft?.previewUrl ? (
+                      <img src={creatingGroupAvatarDraft.previewUrl} alt="" className="channel-avatar-image" />
+                    ) : (
+                      formatChannelAvatarLabel(creatingGroupTitle || buildDefaultGroupTitle(session))
+                    )}
+                  </span>
+                  <div className="channel-avatar-copy">
+                    <p className="settings-text">
+                      Можно выбрать готовое изображение Tinychok или загрузить JPG/PNG до 1 МБ.
+                    </p>
+                    <button
+                      type="button"
+                      className="soft-button"
+                      onClick={openGroupAvatarPicker}
+                    >
+                      Выбрать
+                    </button>
+                  </div>
+                </div>
+              </article>
+
+              <article className="settings-item">
+                <span className="settings-label">Добавить участников</span>
+                <div className="group-create-members-list">
+                  {creatableGroupChats.length > 0 ? (
+                    creatableGroupChats.map((chat) => {
+                      const isSelected = creatingGroupMemberChatIds.includes(chat.id)
+
+                      return (
+                        <button
+                          key={`group-create-member-${chat.id}`}
+                          type="button"
+                          className={`room-forward-item group-create-member-item${isSelected ? ' active' : ''}`}
+                          onClick={() => toggleGroupCreateMember(chat.id)}
+                          disabled={creatingGroupBusy}
+                        >
+                          <span className="chat-avatar-stack">
+                            <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                              {chat.title.slice(0, 1)}
+                            </span>
+                            {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
+                          </span>
+                          <span className="group-create-member-copy">
+                            <strong className="group-create-member-name-row">
+                              <span>{chat.title}</span>
+                              {chat.premium ? (
+                                <span className="premium-crown chat-crown" aria-label="Премиум">
+                                  <img src="/icons/crown64.png" alt="" />
+                                </span>
+                              ) : null}
+                              {chat.pinned ? (
+                                <span className="chat-star" aria-label="Избранный контакт">
+                                  <img src="/icons/star100.png" alt="" />
+                                </span>
+                              ) : null}
+                            </strong>
+                            <span>{chat.handle || chat.phone}</span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            className="group-create-member-checkbox"
+                            checked={isSelected}
+                            readOnly
+                            tabIndex={-1}
+                          />
+                        </button>
+                      )
+                    })
+                  ) : (
+                    <article className="settings-item room-transfer-empty">
+                      <p className="settings-text">
+                        Сначала добавьте хотя бы один контакт, чтобы создать группу.
+                      </p>
+                    </article>
+                  )}
+                </div>
+              </article>
+            </div>
+            {creatingGroupSelectionHint ? (
+              <p className="auth-error">{creatingGroupSelectionHint}</p>
+            ) : null}
+            {creatingGroupError ? <p className="auth-error">{creatingGroupError}</p> : null}
+            <div className="room-confirm-actions room-confirm-actions-dual">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => closeGroupCreateDialog()}
+                disabled={creatingGroupBusy}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                className={`room-confirm-button room-confirm-button-primary${canCreateGroup ? '' : ' disabled'}`}
+                aria-disabled={!canCreateGroup}
+                onClick={() => {
+                  if (creatingGroupBusy) return
+                  void createGroup()
+                }}
+              >
+                {creatingGroupBusy ? 'Создаём...' : 'Создать'}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+      {groupAvatarPickerOpen ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть выбор аватарки группы"
+            onClick={() => closeGroupAvatarPicker()}
+          />
+          <div className="channel-avatar-picker-popover group-avatar-picker-popover">
+            <div className="channel-avatar-picker-copy">
+              <strong>Аватарка группы</strong>
+              <p className="settings-text">Поддерживаются JPG и PNG. Максимальный размер 1 МБ.</p>
+            </div>
+            <div className="channel-avatar-picker-preview-card">
+              <span
+                className="channel-avatar channel-avatar-picker-preview"
+                style={{ backgroundColor: creatingGroupAccent }}
+              >
+                {groupAvatarPickerDraft?.previewUrl ?? creatingGroupAvatarDraft?.previewUrl ? (
+                  <img
+                    src={groupAvatarPickerDraft?.previewUrl ?? creatingGroupAvatarDraft?.previewUrl}
+                    alt=""
+                    className="channel-avatar-image"
+                  />
+                ) : (
+                  formatChannelAvatarLabel(creatingGroupTitle || buildDefaultGroupTitle(session))
+                )}
+              </span>
+              <div className="channel-avatar-picker-preview-copy">
+                <strong>{creatingGroupTitle.trim() || buildDefaultGroupTitle(session)}</strong>
+                <span>Так будет выглядеть аватарка группы.</span>
+              </div>
+            </div>
+            <div className="channel-avatar-picker-toggle-row">
+              <button
+                type="button"
+                className={`soft-button channel-avatar-picker-toggle${groupAvatarPickerMode === 'stock' ? ' active' : ''}`}
+                onClick={() => setGroupAvatarPickerMode('stock')}
+              >
+                Выбрать аватар
+              </button>
+              <button
+                type="button"
+                className={`soft-button channel-avatar-picker-toggle${groupAvatarPickerMode === 'device' ? ' active' : ''}`}
+                onClick={triggerGroupAvatarUpload}
+              >
+                Загрузить с устройства
+              </button>
+            </div>
+            {groupAvatarPickerMode === 'stock' ? (
+              channelAvatarStockOptions.length > 0 ? (
+                <div className="channel-avatar-stock-grid">
+                  {channelAvatarStockOptions.map((option) => {
+                    const optionPreviewUrl = option.imagePath
+                    const isSelected = groupAvatarPickerDraft?.previewUrl === optionPreviewUrl
+
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={`channel-avatar-stock-option${isSelected ? ' active' : ''}`}
+                        onClick={() => selectStockGroupAvatar(option)}
+                      >
+                        <img src={optionPreviewUrl} alt="" className="channel-avatar-stock-preview" />
+                        <span>{option.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <article className="settings-item channel-avatar-device-card">
+                  <p className="settings-text">
+                    В папке `src/assets/stock-avatars/channels` пока нет стоковых аватарок.
+                  </p>
+                </article>
+              )
+            ) : groupAvatarPickerMode === 'device' ? (
+              <article className="settings-item channel-avatar-device-card">
+                <p className="settings-text">
+                  Выберите изображение с устройства. Поддерживаются только JPG и PNG до 1 МБ.
+                </p>
+                <button type="button" className="soft-button" onClick={triggerGroupAvatarUpload}>
+                  Загрузить с устройства
+                </button>
+                {groupAvatarPickerDraft?.kind === 'upload' || groupAvatarPickerDraft?.kind === 'uploaded' ? (
+                  <p className="settings-text">
+                    Файл: <strong>{groupAvatarPickerDraft.label}</strong>
+                  </p>
+                ) : null}
+              </article>
+            ) : null}
+            <input
+              ref={groupAvatarInputRef}
+              type="file"
+              accept={channelAvatarUploadAcceptedMimeTypes.join(',')}
+              className="composer-attachment-input"
+              onChange={handleGroupAvatarChange}
+            />
+            {groupAvatarPickerError ? <p className="auth-error">{groupAvatarPickerError}</p> : null}
+            <div className="channel-avatar-picker-actions room-confirm-actions room-confirm-actions-dual">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => closeGroupAvatarPicker()}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="room-confirm-button room-confirm-button-primary"
+                onClick={applyGroupAvatarSelection}
+                disabled={!groupAvatarPickerDraft}
+              >
+                Применить
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
       </main>
       {cookieConsentBanner}
     </>

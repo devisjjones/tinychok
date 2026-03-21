@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path'
 import {
   defaultGroupMemberLimit,
   displayNameFieldMaxLength,
+  groupTitleMaxLength,
   managedChannelsPerUserLimit,
   premiumGroupMemberLimit,
   surnameFieldMaxLength,
@@ -184,6 +185,8 @@ const CONTACT_REPORT_BLOCK_MESSAGE =
   'На ваш аккаунт поступило много жалоб, поэтому вход временно заблокирован. Если произошла ошибка, напишите в поддержку и укажите email: devisjjones@gmail.com'
 const RESTRICTED_TEST_PHONE_MESSAGE =
   'Этот номер пока не добавлен в список тестеров. Попросите владельца проекта добавить его в staging allowlist.'
+const TEST_FIXTURE_CREATED_AT = '2026-03-21T00:00:00.000Z'
+const TEST_FIXTURE_PREMIUM_EXPIRES_AT = '2099-01-01T00:00:00.000Z'
 
 function cloneDiscoveryResults() {
   return structuredClone(discoveryResults)
@@ -209,7 +212,7 @@ function createDefaultDatabase(): Database {
 type PersistDatabaseFn = (database: Database) => Promise<void>
 
 function createSeedState() {
-  if (runtimeConfig.environment !== 'development') {
+  if (runtimeConfig.environment === 'production') {
     return {
       channels: [] as Channel[],
       chats: [] as Chat[],
@@ -219,11 +222,32 @@ function createSeedState() {
   }
 
   return {
-    channels: structuredClone(initialChannels),
+    channels:
+      runtimeConfig.environment === 'development' ? structuredClone(initialChannels) : ([] as Channel[]),
     chats: structuredClone(initialChats),
     groups: structuredClone(initialGroups),
     subscriptionChannels: structuredClone(initialSubscribedChannels),
   }
+}
+
+function buildTestAccounts() {
+  return initialChats.map((chat) => ({
+    avatarImage: undefined,
+    blockedContactIds: [],
+    createdAt: TEST_FIXTURE_CREATED_AT,
+    displayName: chat.title,
+    identifier: normalizeIdentifier(chat.phone),
+    isTestEntity: true,
+    nickname: normalizeNickname(chat.handle.replace(/^@+/u, '')),
+    premium: chat.premium ?? false,
+    premiumExpiresAt: chat.premium ? TEST_FIXTURE_PREMIUM_EXPIRES_AT : undefined,
+    status: chat.status
+      ? (chat.status.startsWith('Тестовый аккаунт')
+          ? chat.status
+          : `Тестовый аккаунт · ${chat.status}`)
+      : 'Тестовый аккаунт',
+    surname: '',
+  } satisfies Account))
 }
 
 function getSeedChatByPhone(phone: string) {
@@ -267,7 +291,7 @@ function sanitizeMessageAttachment(attachment: Message['attachment']) {
 }
 
 function sanitizeGroupTitle(value: string) {
-  return value.replace(/\s+/g, ' ').trim().slice(0, 48)
+  return value.replace(/\s+/g, ' ').trim().slice(0, groupTitleMaxLength)
 }
 
 function buildGroupHandle(title: string, groupId: number) {
@@ -323,6 +347,7 @@ function sanitizeSourceGroup(
 
   return {
     accent: sourceGroup?.accent?.trim() || undefined,
+    avatarImage: sourceGroup?.avatarImage?.trim() || undefined,
     creatorIdentifier: sourceGroup?.creatorIdentifier
       ? normalizeIdentifier(sourceGroup.creatorIdentifier) || undefined
       : undefined,
@@ -401,6 +426,7 @@ function toPersistedDialog(ownerIdentifier: string, chat: Chat): PersistedDialog
     accent: chat.accent,
     handle: chat.handle,
     id: chat.id,
+    isTestEntity: chat.isTestEntity,
     lastSeen: chat.lastSeen,
     mood: chat.mood,
     online: chat.online,
@@ -432,9 +458,11 @@ function toPersistedDialogMessage(
 function toPersistedGroup(ownerIdentifier: string, group: GroupPreview): PersistedGroup {
   return {
     accent: group.accent,
+    avatarImage: group.avatarImage,
     creatorIdentifier: group.creatorIdentifier?.trim() || ownerIdentifier,
     handle: group.handle,
     id: group.id,
+    isTestEntity: group.isTestEntity,
     members: group.members,
     muted: group.muted ?? false,
     ownerIdentifier,
@@ -478,6 +506,7 @@ function toPersistedSubscriptionChannel(
     draft: channel.draft,
     handle: channel.handle,
     id: channel.id,
+    isTestEntity: channel.isTestEntity,
     muted: channel.muted ?? false,
     ownerIdentifier,
     preview: channel.preview,
@@ -506,6 +535,7 @@ function materializeDialog(dialog: PersistedDialog): Omit<PersistedDialog, 'owne
     accent: dialog.accent,
     handle: dialog.handle,
     id: dialog.id,
+    isTestEntity: dialog.isTestEntity,
     lastSeen: dialog.lastSeen,
     mood: dialog.mood,
     muted: Boolean(dialog.muted),
@@ -548,9 +578,11 @@ function materializeGroup(group: PersistedGroup): Omit<PersistedGroup, 'ownerIde
 
   return {
     accent: group.accent,
+    avatarImage: group.avatarImage,
     creatorIdentifier: group.creatorIdentifier ?? group.ownerIdentifier,
     handle: group.handle,
     id: group.id,
+    isTestEntity: group.isTestEntity,
     members: group.members,
     muted: Boolean(group.muted),
     participants: group.participants ?? fallbackParticipants,
@@ -643,6 +675,7 @@ function materializeSubscriptionChannel(
     draft: channel.draft,
     handle: channel.handle,
     id: channel.id,
+    isTestEntity: channel.isTestEntity,
     muted: Boolean(channel.muted),
     preview: channel.preview,
     readers: channel.readers ?? 0,
@@ -719,6 +752,7 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
       createdAt: legacyAccount.createdAt,
       displayName: legacyAccount.displayName,
       identifier: legacyAccount.identifier,
+      isTestEntity: legacyAccount.isTestEntity,
       nickname: legacyAccount.nickname ?? '',
       premium: legacyAccount.premium ?? true,
       premiumExpiresAt: legacyAccount.premiumExpiresAt ?? makePremiumExpiry(30),
@@ -914,6 +948,7 @@ export class TinychokStore {
       createdAt: new Date().toISOString(),
       displayName,
       identifier: normalizedIdentifier,
+      isTestEntity: false,
       nickname: '',
       premium: true,
       premiumExpiresAt: makePremiumExpiry(30),
@@ -1615,14 +1650,33 @@ export class TinychokStore {
       throw new Error('Группа не найдена.')
     }
 
+    const previousAvatarImage = group.avatarImage
+    let broadcastIdentifiers = [account.identifier]
+
     if (payload.muted !== undefined) {
       group.muted = Boolean(payload.muted)
     }
 
+    if (payload.avatarImage !== undefined) {
+      const nextAvatarImage = payload.avatarImage.trim() || undefined
+      const sharedId = this.getSharedGroupId(group)
+      const groupCopies = this.listGroupCopies(sharedId)
+
+      for (const groupCopy of groupCopies) {
+        groupCopy.avatarImage = nextAvatarImage
+      }
+
+      broadcastIdentifiers = [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))]
+    }
+
     await this.persist()
 
+    if (previousAvatarImage && previousAvatarImage !== group.avatarImage) {
+      await deleteStoredMediaByUrl(previousAvatarImage, 'group-avatar')
+    }
+
     return {
-      broadcastIdentifiers: [account.identifier],
+      broadcastIdentifiers,
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -1756,6 +1810,7 @@ export class TinychokStore {
 
     if (creatorIdentifier === account.identifier) {
       const groupCopyKeys = new Set(groupCopies.map((groupCopy) => `${groupCopy.ownerIdentifier}:${groupCopy.id}`))
+      const removedAvatarImage = group.avatarImage
       this.database.groups = this.database.groups.filter(
         (candidate) => this.getSharedGroupId(candidate) !== sharedId,
       )
@@ -1764,6 +1819,10 @@ export class TinychokStore {
       )
 
       await this.persist()
+
+      if (removedAvatarImage) {
+        await deleteStoredMediaByUrl(removedAvatarImage, 'group-avatar')
+      }
 
       return {
         broadcastIdentifiers: [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))],
@@ -2188,36 +2247,119 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const groupId = this.getNextOwnedId(this.database.groups, account.identifier)
-    const groupNumber = this.database.groups.filter(
-      (group) => group.ownerIdentifier === account.identifier,
-    ).length + 1
-    const title = sanitizeGroupTitle(payload.title) || `Новая группа ${groupNumber}`
-    const creatorParticipant = this.buildGroupParticipant(account)
-    const sharedId = randomUUID()
+    const uniqueDialogIds = [...new Set(payload.memberDialogIds.filter((dialogId) => Number.isInteger(dialogId) && dialogId > 0))]
+    if (uniqueDialogIds.length === 0) {
+      throw new Error('Добавьте хотя бы одного пользователя в группу с вами.')
+    }
 
-    this.database.groups.push({
+    const recipientAccounts: Account[] = []
+    const recipientIdentifiers = new Set<string>()
+
+    for (const dialogId of uniqueDialogIds) {
+      const dialog = this.findDialog(account.identifier, dialogId)
+      if (!dialog) {
+        throw new Error('Контакт не найден.')
+      }
+
+      const recipientIdentifier = normalizeIdentifier(dialog.phone)
+      if (!recipientIdentifier || recipientIdentifier === account.identifier) {
+        throw new Error('Нельзя добавить этого пользователя в группу.')
+      }
+
+      if (recipientIdentifiers.has(recipientIdentifier)) {
+        continue
+      }
+
+      const recipientAccount = this.findAccount(recipientIdentifier)
+      if (!recipientAccount) {
+        throw new Error('Аккаунт контакта не найден.')
+      }
+
+      recipientIdentifiers.add(recipientIdentifier)
+      recipientAccounts.push(recipientAccount)
+    }
+
+    const memberLimit = getGroupMemberLimit(account)
+    if (recipientAccounts.length + 1 > memberLimit) {
+      throw new Error(
+        memberLimit === premiumGroupMemberLimit
+          ? `Даже с премиумом владельца в группе может быть максимум ${premiumGroupMemberLimit} человек.`
+          : `Максимальный размер одной группы — ${defaultGroupMemberLimit} человек. Чтобы приглашать больше людей, необходимо активировать премиум владельцу группы.`,
+      )
+    }
+
+    const groupId = this.getNextOwnedId(this.database.groups, account.identifier)
+    const title = sanitizeGroupTitle(payload.title) || `Группа: ${formatAccountName(account) || account.identifier}`
+    const creatorParticipant = this.buildGroupParticipant(account)
+    const participants = [creatorParticipant, ...recipientAccounts.map((recipient) => this.buildGroupParticipant(recipient))]
+    const sharedId = randomUUID()
+    const nextGroup: PersistedGroup = {
       accent: payload.accent?.trim() || pickAccentForIdentifier(`${account.identifier}${groupId}`),
+      avatarImage: payload.avatarImage?.trim() || undefined,
       creatorIdentifier: account.identifier,
       handle: payload.handle?.trim()
         ? sanitizeGroupHandle(payload.handle, groupId)
         : buildGroupHandle(title, groupId),
       id: groupId,
-      members: 1,
+      members: participants.length,
       muted: false,
       ownerIdentifier: account.identifier,
-      participants: [creatorParticipant],
-      preview: 'Новая группа готова. Можно начинать обсуждение.',
+      participants,
+      preview: 'Группа создана. Можно начинать обсуждение.',
       sharedId,
       time: formatNowTime(),
       title,
       unread: 0,
-    })
+    }
+
+    this.database.groups.push(nextGroup)
+
+    for (const recipientAccount of recipientAccounts) {
+      this.ensureGroupCopyForOwner(nextGroup, recipientAccount.identifier, participants)
+
+      const senderDialog = this.ensureDialogForContact(account.identifier, recipientAccount)
+      const recipientDialog = this.ensureDialogForContact(recipientAccount.identifier, account)
+      const createdAt = new Date().toISOString()
+      const deliveryId = randomUUID()
+      const time = formatNowTime()
+      const sourceGroup = this.buildGroupInviteSource(nextGroup)
+
+      this.database.dialogMessages.push({
+        author: 'me',
+        createdAt,
+        deliveryId,
+        dialogId: senderDialog.id,
+        id: this.getNextDialogMessageId(account.identifier, senderDialog.id),
+        ownerIdentifier: account.identifier,
+        sourceGroup,
+        text: '',
+        time,
+      })
+
+      this.database.dialogMessages.push({
+        author: 'them',
+        createdAt,
+        deliveryId,
+        dialogId: recipientDialog.id,
+        id: this.getNextDialogMessageId(recipientAccount.identifier, recipientDialog.id),
+        ownerIdentifier: recipientAccount.identifier,
+        sourceGroup,
+        text: '',
+        time,
+      })
+
+      senderDialog.typing = false
+      senderDialog.unread = 0
+      senderDialog.status = 'только что был(а) здесь'
+      recipientDialog.typing = false
+      recipientDialog.unread += 1
+      this.syncDialogContactProfile(recipientDialog, account)
+    }
 
     await this.persist()
 
     return {
-      broadcastIdentifiers: [account.identifier],
+      broadcastIdentifiers: [...new Set([account.identifier, ...recipientAccounts.map((recipient) => recipient.identifier)])],
       groupId,
       snapshot: this.buildSnapshot(account, token),
     }
@@ -2396,8 +2538,10 @@ export class TinychokStore {
 
     if (existingGroup) {
       existingGroup.accent = sourceGroup.accent
+      existingGroup.avatarImage = sourceGroup.avatarImage
       existingGroup.creatorIdentifier = sourceGroup.creatorIdentifier ?? sourceGroup.ownerIdentifier
       existingGroup.handle = sourceGroup.handle
+      existingGroup.isTestEntity = sourceGroup.isTestEntity
       existingGroup.members = participants.length
       existingGroup.participants = participants.map((participant) => this.cloneGroupParticipant(participant))
       existingGroup.preview = sourceGroup.preview
@@ -2409,9 +2553,11 @@ export class TinychokStore {
 
     const nextGroup: PersistedGroup = {
       accent: sourceGroup.accent,
+      avatarImage: sourceGroup.avatarImage,
       creatorIdentifier: sourceGroup.creatorIdentifier ?? sourceGroup.ownerIdentifier,
       handle: sourceGroup.handle,
       id: this.getNextOwnedId(this.database.groups, ownerIdentifier),
+      isTestEntity: sourceGroup.isTestEntity,
       members: participants.length,
       muted: false,
       ownerIdentifier,
@@ -2430,6 +2576,7 @@ export class TinychokStore {
   private buildGroupInviteSource(group: PersistedGroup): NonNullable<Message['sourceGroup']> {
     return {
       accent: group.accent,
+      avatarImage: group.avatarImage,
       creatorIdentifier: group.creatorIdentifier ?? group.ownerIdentifier,
       handle: group.handle,
       sharedId: this.getSharedGroupId(group),
@@ -2602,17 +2749,372 @@ export class TinychokStore {
   }
 }
 
-function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
-  if (isLegacyDatabase(parsed)) {
-    return {
-      database: migrateLegacyDatabase(parsed),
-      needsPersistenceRewrite: true,
+function normalizeChannelHandleForComparison(handle: string | undefined) {
+  const trimmed = handle?.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  return sanitizeChannelDirectLink(trimmed) || trimmed
+}
+
+function markKnownTestFixtures(database: Database) {
+  let didMutate = false
+  const testAccountIdentifiers = new Set(buildTestAccounts().map((account) => account.identifier))
+  const testGroupHandles = new Set(initialGroups.map((group) => group.handle.trim()))
+  const testSubscriptionHandles = new Set(
+    initialSubscribedChannels.map((channel) => normalizeChannelHandleForComparison(channel.handle)),
+  )
+
+  for (const account of database.accounts) {
+    if (!testAccountIdentifiers.has(account.identifier) || account.isTestEntity) {
+      continue
+    }
+
+    account.isTestEntity = true
+    didMutate = true
+  }
+
+  for (const dialog of database.dialogs) {
+    if (dialog.isTestEntity || !testAccountIdentifiers.has(normalizeIdentifier(dialog.phone))) {
+      continue
+    }
+
+    dialog.isTestEntity = true
+    didMutate = true
+  }
+
+  for (const group of database.groups) {
+    if (group.isTestEntity || !testGroupHandles.has(group.handle.trim())) {
+      continue
+    }
+
+    group.isTestEntity = true
+    didMutate = true
+  }
+
+  for (const channel of database.subscriptionChannels) {
+    if (
+      channel.isTestEntity ||
+      !testSubscriptionHandles.has(normalizeChannelHandleForComparison(channel.handle))
+    ) {
+      continue
+    }
+
+    channel.isTestEntity = true
+    didMutate = true
+  }
+
+  return didMutate
+}
+
+function upsertNonProductionTestAccounts(database: Database) {
+  let didMutate = false
+
+  for (const testAccount of buildTestAccounts()) {
+    const existingAccount = database.accounts.find(
+      (account) => account.identifier === testAccount.identifier,
+    )
+
+    if (!existingAccount) {
+      database.accounts.push(structuredClone(testAccount))
+      didMutate = true
+      continue
+    }
+
+    const nextPremiumExpiresAt = testAccount.premium ? testAccount.premiumExpiresAt : undefined
+
+    if (existingAccount.displayName !== testAccount.displayName) {
+      existingAccount.displayName = testAccount.displayName
+      didMutate = true
+    }
+    if ((existingAccount.nickname ?? '') !== testAccount.nickname) {
+      existingAccount.nickname = testAccount.nickname
+      didMutate = true
+    }
+    if ((existingAccount.status ?? '') !== testAccount.status) {
+      existingAccount.status = testAccount.status
+      didMutate = true
+    }
+    if ((existingAccount.surname ?? '') !== '') {
+      existingAccount.surname = ''
+      didMutate = true
+    }
+    if (existingAccount.avatarImage !== undefined) {
+      existingAccount.avatarImage = undefined
+      didMutate = true
+    }
+    if (existingAccount.isTestEntity !== true) {
+      existingAccount.isTestEntity = true
+      didMutate = true
+    }
+    if ((existingAccount.premium ?? false) !== (testAccount.premium ?? false)) {
+      existingAccount.premium = testAccount.premium
+      didMutate = true
+    }
+    if ((existingAccount.premiumExpiresAt ?? '') !== (nextPremiumExpiresAt ?? '')) {
+      existingAccount.premiumExpiresAt = nextPremiumExpiresAt
+      didMutate = true
+    }
+    if ((existingAccount.createdAt ?? '') !== testAccount.createdAt) {
+      existingAccount.createdAt = testAccount.createdAt
+      didMutate = true
+    }
+    if ((existingAccount.blockedContactIds ?? []).length > 0) {
+      existingAccount.blockedContactIds = []
+      didMutate = true
     }
   }
 
-  const normalized = parsed as Partial<Database>
+  return didMutate
+}
+
+function ensureOwnerTestDialogs(database: Database, ownerIdentifier: string) {
+  const ownerDialogs = database.dialogs.filter((dialog) => dialog.ownerIdentifier === ownerIdentifier)
+  const ownerHasKnownTestDialog = ownerDialogs.some((dialog) => dialog.isTestEntity)
+  if (ownerHasKnownTestDialog) {
+    return false
+  }
+
+  const seedState = createSeedState()
+  const chats = normalizeChats(ownerIdentifier, seedState.chats)
+  database.dialogs.push(...chats.dialogs)
+  database.dialogMessages.push(...chats.dialogMessages)
+  return chats.dialogs.length > 0 || chats.dialogMessages.length > 0
+}
+
+function ensureOwnerTestGroups(database: Database, ownerIdentifier: string) {
+  const ownerGroups = database.groups.filter((group) => group.ownerIdentifier === ownerIdentifier)
+  const ownerHasKnownTestGroup = ownerGroups.some((group) => group.isTestEntity)
+  if (ownerHasKnownTestGroup) {
+    return false
+  }
+
+  const seedState = createSeedState()
+  const groups = normalizeGroups(ownerIdentifier, seedState.groups)
+  database.groups.push(...groups.groups)
+  database.groupMessages.push(...groups.groupMessages)
+  return groups.groups.length > 0 || groups.groupMessages.length > 0
+}
+
+function ensureOwnerTestSubscriptionChannels(database: Database, ownerIdentifier: string) {
+  const existingHandles = new Set(
+    database.subscriptionChannels
+      .filter((channel) => channel.ownerIdentifier === ownerIdentifier)
+      .map((channel) => normalizeChannelHandleForComparison(channel.handle)),
+  )
+  const missingChannels = createSeedState().subscriptionChannels.filter(
+    (channel) => !existingHandles.has(normalizeChannelHandleForComparison(channel.handle)),
+  )
+
+  if (missingChannels.length === 0) {
+    return false
+  }
+
+  const normalizedChannels = normalizeSubscriptionChannels(ownerIdentifier, missingChannels)
+  database.subscriptionChannels.push(...normalizedChannels.subscriptionChannels)
+  database.subscriptionPosts.push(...normalizedChannels.subscriptionPosts)
+  return true
+}
+
+function applyNonProductionFixtures(database: Database) {
+  let didMutate = markKnownTestFixtures(database)
+  didMutate = upsertNonProductionTestAccounts(database) || didMutate
+
+  for (const account of database.accounts) {
+    if (account.isTestEntity) {
+      continue
+    }
+
+    didMutate = ensureOwnerTestDialogs(database, account.identifier) || didMutate
+    didMutate = ensureOwnerTestGroups(database, account.identifier) || didMutate
+    didMutate = ensureOwnerTestSubscriptionChannels(database, account.identifier) || didMutate
+  }
+
   return {
-    database: {
+    database,
+    needsPersistenceRewrite: didMutate,
+  }
+}
+
+function applyProductionFixtureCleanup(database: Database) {
+  let didMutate = false
+  const knownTestAccountIdentifiers = new Set(
+    buildTestAccounts().map((account) => normalizeIdentifier(account.identifier)),
+  )
+  const testAccountIdentifiers = new Set(
+    database.accounts
+      .filter((account) => account.isTestEntity)
+      .map((account) => normalizeIdentifier(account.identifier))
+      .concat([...knownTestAccountIdentifiers]),
+  )
+  const testGroupHandles = new Set(initialGroups.map((group) => group.handle.trim()))
+  const testSubscriptionHandles = new Set(
+    initialSubscribedChannels.map((channel) => normalizeChannelHandleForComparison(channel.handle)),
+  )
+
+  const removableDialogKeys = new Set(
+    database.dialogs
+      .filter(
+        (dialog) =>
+          dialog.isTestEntity ||
+          testAccountIdentifiers.has(dialog.ownerIdentifier) ||
+          testAccountIdentifiers.has(normalizeIdentifier(dialog.phone)),
+      )
+      .map((dialog) => `${dialog.ownerIdentifier}:${dialog.id}`),
+  )
+  const removableGroupKeys = new Set(
+    database.groups
+      .filter(
+        (group) =>
+          group.isTestEntity ||
+          testAccountIdentifiers.has(group.ownerIdentifier) ||
+          testAccountIdentifiers.has(normalizeIdentifier(group.creatorIdentifier ?? '')) ||
+          testGroupHandles.has(group.handle.trim()),
+      )
+      .map((group) => `${group.ownerIdentifier}:${group.id}`),
+  )
+  const removableSubscriptionChannelKeys = new Set(
+    database.subscriptionChannels
+      .filter(
+        (channel) =>
+          channel.isTestEntity ||
+          testAccountIdentifiers.has(channel.ownerIdentifier) ||
+          testSubscriptionHandles.has(normalizeChannelHandleForComparison(channel.handle)),
+      )
+      .map((channel) => `${channel.ownerIdentifier}:${channel.id}`),
+  )
+
+  const nextAccounts = database.accounts.filter((account) => !account.isTestEntity)
+  if (nextAccounts.length !== database.accounts.length) {
+    database.accounts = nextAccounts
+    didMutate = true
+  }
+
+  const nextAuthChallenges = database.authChallenges.filter(
+    (challenge) => !testAccountIdentifiers.has(challenge.identifier),
+  )
+  if (nextAuthChallenges.length !== database.authChallenges.length) {
+    database.authChallenges = nextAuthChallenges
+    didMutate = true
+  }
+
+  const nextSessions = database.sessions.filter(
+    (session) => !testAccountIdentifiers.has(session.identifier),
+  )
+  if (nextSessions.length !== database.sessions.length) {
+    database.sessions = nextSessions
+    didMutate = true
+  }
+
+  const nextContactReports = database.contactReports.filter(
+    (report) =>
+      !testAccountIdentifiers.has(report.reporterIdentifier) &&
+      !testAccountIdentifiers.has(report.targetIdentifier),
+  )
+  if (nextContactReports.length !== database.contactReports.length) {
+    database.contactReports = nextContactReports
+    didMutate = true
+  }
+
+  const nextDialogs = database.dialogs.filter(
+    (dialog) => !removableDialogKeys.has(`${dialog.ownerIdentifier}:${dialog.id}`),
+  )
+  if (nextDialogs.length !== database.dialogs.length) {
+    database.dialogs = nextDialogs
+    didMutate = true
+  }
+
+  const nextDialogMessages = database.dialogMessages.filter(
+    (message) =>
+      !testAccountIdentifiers.has(message.ownerIdentifier) &&
+      !removableDialogKeys.has(`${message.ownerIdentifier}:${message.dialogId}`),
+  )
+  if (nextDialogMessages.length !== database.dialogMessages.length) {
+    database.dialogMessages = nextDialogMessages
+    didMutate = true
+  }
+
+  const nextGroups = database.groups.filter(
+    (group) => !removableGroupKeys.has(`${group.ownerIdentifier}:${group.id}`),
+  )
+  if (nextGroups.length !== database.groups.length) {
+    database.groups = nextGroups
+    didMutate = true
+  }
+
+  const nextGroupMessages = database.groupMessages.filter(
+    (message) =>
+      !testAccountIdentifiers.has(message.ownerIdentifier) &&
+      !removableGroupKeys.has(`${message.ownerIdentifier}:${message.groupId}`),
+  )
+  if (nextGroupMessages.length !== database.groupMessages.length) {
+    database.groupMessages = nextGroupMessages
+    didMutate = true
+  }
+
+  const nextManagedChannels = database.managedChannels.filter(
+    (channel) => !testAccountIdentifiers.has(channel.ownerIdentifier),
+  )
+  if (nextManagedChannels.length !== database.managedChannels.length) {
+    database.managedChannels = nextManagedChannels
+    didMutate = true
+  }
+
+  const nextSubscriptionChannels = database.subscriptionChannels.filter(
+    (channel) => !removableSubscriptionChannelKeys.has(`${channel.ownerIdentifier}:${channel.id}`),
+  )
+  if (nextSubscriptionChannels.length !== database.subscriptionChannels.length) {
+    database.subscriptionChannels = nextSubscriptionChannels
+    didMutate = true
+  }
+
+  const nextSubscriptionPosts = database.subscriptionPosts.filter(
+    (post) =>
+      !testAccountIdentifiers.has(post.ownerIdentifier) &&
+      !removableSubscriptionChannelKeys.has(`${post.ownerIdentifier}:${post.channelId}`),
+  )
+  if (nextSubscriptionPosts.length !== database.subscriptionPosts.length) {
+    database.subscriptionPosts = nextSubscriptionPosts
+    didMutate = true
+  }
+
+  const nextSubscriptionChannelReports = database.subscriptionChannelReports.filter(
+    (report) =>
+      !testAccountIdentifiers.has(report.reporterIdentifier) &&
+      !testSubscriptionHandles.has(normalizeChannelHandleForComparison(report.targetHandle)),
+  )
+  if (nextSubscriptionChannelReports.length !== database.subscriptionChannelReports.length) {
+    database.subscriptionChannelReports = nextSubscriptionChannelReports
+    didMutate = true
+  }
+
+  return {
+    database,
+    needsPersistenceRewrite: didMutate,
+  }
+}
+
+function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewrite: boolean) {
+  const nextState =
+    runtimeConfig.environment === 'production'
+      ? applyProductionFixtureCleanup(database)
+      : applyNonProductionFixtures(database)
+
+  return {
+    database: nextState.database,
+    needsPersistenceRewrite: needsPersistenceRewrite || nextState.needsPersistenceRewrite,
+  }
+}
+
+function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
+  if (isLegacyDatabase(parsed)) {
+    return applyEnvironmentFixturePolicy(migrateLegacyDatabase(parsed), true)
+  }
+
+  const normalized = parsed as Partial<Database>
+  return applyEnvironmentFixturePolicy(
+    {
       ...createDefaultDatabase(),
       ...normalized,
       accounts: normalized.accounts ?? [],
@@ -2628,16 +3130,13 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
       subscriptionChannels: normalized.subscriptionChannels ?? [],
       subscriptionPosts: normalized.subscriptionPosts ?? [],
     } satisfies Database,
-    needsPersistenceRewrite: false,
-  }
+    false,
+  )
 }
 
 export function coerceDatabasePayload(value: unknown) {
   if (!value || typeof value !== 'object') {
-    return {
-      database: createDefaultDatabase(),
-      needsPersistenceRewrite: false,
-    }
+    return applyEnvironmentFixturePolicy(createDefaultDatabase(), false)
   }
 
   return normalizeDatabasePayload(value as Partial<Database | LegacyDatabase>)
@@ -2648,10 +3147,7 @@ export async function loadDatabaseFromFile(dataFilePath = DEFAULT_DATA_FILE) {
     const raw = await readFile(dataFilePath, 'utf8')
     return coerceDatabasePayload(JSON.parse(raw) as Partial<Database | LegacyDatabase>)
   } catch {
-    return {
-      database: createDefaultDatabase(),
-      needsPersistenceRewrite: false,
-    }
+    return applyEnvironmentFixturePolicy(createDefaultDatabase(), false)
   }
 }
 

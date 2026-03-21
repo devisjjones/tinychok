@@ -29,6 +29,7 @@ type DirectChatRoomProps = {
   onBack: () => void
   onBlockChat: () => void
   onCloseChatActions: () => void
+  onCreateGroup: () => void
   onDraftChange: (value: string) => void
   onMessageSelect: (event: MouseEvent<HTMLButtonElement>, message: Message) => void
   onOpenLinkedChannel: (sourceChannel: ChannelMessageSource) => void
@@ -63,6 +64,7 @@ export function DirectChatRoom({
   onBack,
   onBlockChat,
   onCloseChatActions,
+  onCreateGroup,
   onDraftChange,
   onMessageSelect,
   onOpenLinkedChannel,
@@ -166,6 +168,9 @@ export function DirectChatRoom({
                   onClick={onToggleChatMuted}
                 >
                   {activeChat.muted ? 'Включить уведомления' : 'Заглушить'}
+                </button>
+                <button type="button" className="room-menu-item" onClick={onCreateGroup}>
+                  Создать группу
                 </button>
                 <button
                   type="button"

@@ -8,7 +8,7 @@ import type {
 } from './types'
 import { makeDraftChannel } from './utils'
 
-export const initialChats: Chat[] = [
+const initialChatFixtures: Chat[] = [
   {
     id: 1,
     title: 'Мира',
@@ -396,6 +396,13 @@ export const initialChats: Chat[] = [
   },
 ]
 
+export const initialChats: Chat[] = initialChatFixtures.map((chat) => ({
+  ...chat,
+  isTestEntity: true,
+  mood: 'Тестовый аккаунт',
+  status: chat.status ? `Тестовый аккаунт · ${chat.status}` : 'Тестовый аккаунт',
+}))
+
 export const discoveryResults: SearchResult[] = [
   {
     id: 101,
@@ -433,6 +440,7 @@ function buildGroupParticipant(chatId: number): GroupParticipant {
   return {
     accent: chat.accent,
     id: chat.id,
+    identifier: chat.phone,
     online: chat.online,
     premium: chat.premium,
     status: chat.online ? 'в сети' : chat.lastSeen ?? chat.status,
@@ -444,115 +452,154 @@ function buildGroupParticipants(chatIds: number[]) {
   return chatIds.map((chatId) => buildGroupParticipant(chatId))
 }
 
-export const initialSubscribedChannels: SubscriptionChannel[] = [
+const testChannelDefinitions = [
   {
-    id: 1,
-    title: 'Ночной архив',
-    handle: '@night_archive',
     accent: '#8c5738',
+    handle: '@night_archive',
+    id: 1,
     readers: 148,
-    preview: 'Черновик публикации: тихие заметки и закрытые анонсы.',
-    time: '22:14',
+    title: 'Ночной архив',
     unread: 3,
-    draft: true,
-    visibility: 'private',
-    posts: [
-      {
-        id: 1,
-        text: 'Первый драфтовый пост про тихие ночные заметки и редкие личные публикации.',
-        time: '22:14',
-      },
-      {
-        id: 2,
-        text: 'Сюда можно складывать анонсы, которые увидят только свои люди без лишнего шума.',
-        time: '21:48',
-      },
-      {
-        id: 3,
-        text: 'Визуально канал должен оставаться спокойным: много воздуха, короткие тексты и чистый ритм.',
-        time: '21:02',
-      },
-    ],
+    visibility: 'private' as const,
   },
   {
-    id: 2,
-    title: 'Тихие релизы',
-    handle: '@quiet_releases',
     accent: '#6eb6ff',
+    handle: '@quiet_releases',
+    id: 2,
     readers: 96,
-    preview: 'Новый выпуск: обновили premium flow и экран каналов.',
-    time: '20:06',
+    title: 'Тихие релизы',
     unread: 0,
-    draft: true,
-    visibility: 'public',
-    posts: [
-      {
-        id: 1,
-        text: 'Драфт релиза: добавлены экраны управления каналами и передача канала через SMS-подтверждение.',
-        time: '20:06',
-      },
-      {
-        id: 2,
-        text: 'Следом планируется добрать больше сценариев для подписок и отдельного канального просмотра.',
-        time: '19:34',
-      },
-    ],
+    visibility: 'public' as const,
   },
   {
-    id: 3,
-    title: 'Клуб сигналов',
-    handle: '@signal_club',
     accent: '#82c9a3',
+    handle: '@signal_club',
+    id: 3,
     readers: 214,
-    preview: '3 новых сигнала за вечер и подборка коротких постов.',
-    time: '18:42',
+    title: 'Клуб сигналов',
     unread: 5,
-    draft: true,
-    visibility: 'closed',
-    posts: [
-      {
-        id: 1,
-        text: 'Сигнал 01: короткие посты лучше читаются, когда у канала есть спокойная шапка и стабильный ритм.',
-        time: '18:42',
-      },
-      {
-        id: 2,
-        text: 'Сигнал 02: непрочитанные публикации должны считываться мгновенно, без перегруза интерфейса.',
-        time: '18:09',
-      },
-      {
-        id: 3,
-        text: 'Сигнал 03: даже черновой канал уже должен ощущаться как законченный продуктовый экран.',
-        time: '17:27',
-      },
-    ],
+    visibility: 'closed' as const,
   },
   {
-    id: 4,
-    title: 'Newsroom',
-    handle: '@tiny_newsroom',
     accent: '#ff8a5b',
+    handle: '@tiny_newsroom',
+    id: 4,
     readers: 327,
-    preview: 'Запустили тихий режим уведомлений для каналов.',
-    time: '16:11',
+    title: 'Newsroom',
     unread: 2,
-    visibility: 'public',
-    posts: [
-      {
-        id: 1,
-        text: 'Сегодняшний драфт: каналам добавили отдельную кнопку в верхнем меню и счётчик новых публикаций.',
-        time: '16:11',
-      },
-      {
-        id: 2,
-        text: 'Следующее обновление посвятим полировке чтения постов и стабильной навигации между каналами.',
-        time: '15:38',
-      },
-    ],
+    visibility: 'public' as const,
+  },
+  {
+    accent: '#d18fff',
+    handle: '@moon_digest',
+    id: 5,
+    readers: 182,
+    title: 'Лунный дайджест',
+    unread: 4,
+    visibility: 'public' as const,
+  },
+  {
+    accent: '#ffd166',
+    handle: '@silent_beta',
+    id: 6,
+    readers: 71,
+    title: 'Silent Beta',
+    unread: 1,
+    visibility: 'private' as const,
+  },
+  {
+    accent: '#7dd3fc',
+    handle: '@warm_updates',
+    id: 7,
+    readers: 266,
+    title: 'Тёплые апдейты',
+    unread: 6,
+    visibility: 'public' as const,
+  },
+  {
+    accent: '#9ad0c2',
+    handle: '@product_garden',
+    id: 8,
+    readers: 121,
+    title: 'Product Garden',
+    unread: 2,
+    visibility: 'closed' as const,
+  },
+  {
+    accent: '#fca5a5',
+    handle: '@afterglow_notes',
+    id: 9,
+    readers: 199,
+    title: 'Afterglow Notes',
+    unread: 3,
+    visibility: 'public' as const,
+  },
+  {
+    accent: '#86efac',
+    handle: '@tinychok_lab',
+    id: 10,
+    readers: 88,
+    title: 'Tinychok Lab',
+    unread: 5,
+    visibility: 'private' as const,
   },
 ]
 
-export const initialGroups: GroupPreview[] = [
+const testChannelTimes = [
+  '22:14',
+  '21:52',
+  '21:28',
+  '21:04',
+  '20:46',
+  '20:21',
+  '19:58',
+  '19:34',
+  '19:12',
+  '18:49',
+  '18:27',
+  '18:03',
+  '17:41',
+  '17:18',
+  '16:56',
+  '16:33',
+  '16:09',
+  '15:46',
+  '15:24',
+  '15:01',
+]
+
+const testChannelPostTemplates = [
+  'Тестовый пост #{n}: фиксируем спокойный ритм публикаций и проверяем, как канал выглядит в длинной ленте.',
+  'Тестовый пост #{n}: сюда удобно складывать короткие апдейты по интерфейсу, релизам и настройкам приватности.',
+  'Тестовый пост #{n}: канал используется как fixture для staging, поэтому сообщения здесь специально оставлены для smoke-check.',
+  'Тестовый пост #{n}: проверяем поведение unread-счётчиков, тишину уведомлений и открытие карточек канала.',
+  'Тестовый пост #{n}: отдельная задача этого канала — дать стабильную тестовую выдачу для чтения и скролла.',
+]
+
+function buildTestChannelPosts(title: string) {
+  return testChannelTimes.map((time, index) => ({
+    id: index + 1,
+    text: testChannelPostTemplates[index % testChannelPostTemplates.length]
+      .replace('#{n}', String(index + 1))
+      .concat(` Канал: ${title}.`),
+    time,
+  }))
+}
+
+export const initialSubscribedChannels: SubscriptionChannel[] = testChannelDefinitions.map((channel) => {
+  const posts = buildTestChannelPosts(channel.title)
+
+  return {
+    ...channel,
+    draft: channel.visibility !== 'public',
+    isTestEntity: true,
+    posts,
+    preview: `Тестовый канал Tinychok: ${channel.title}. Внутри ${posts.length} сообщений для проверки чтения и скролла.`,
+    time: posts[0]?.time ?? '',
+  }
+})
+
+const initialGroupFixtures: GroupPreview[] = [
   {
     id: 1,
     title: 'Ночной круг',
@@ -645,6 +692,11 @@ export const initialGroups: GroupPreview[] = [
     ],
   },
 ]
+
+export const initialGroups: GroupPreview[] = initialGroupFixtures.map((group) => ({
+  ...group,
+  isTestEntity: true,
+}))
 
 export const initialChannels: Channel[] = [
   makeDraftChannel(1, 1),

@@ -78,7 +78,7 @@ export type OpenDirectDialogResponse = MutationResponse & {
   dialogId: number
 }
 
-export type UploadMediaKind = 'attachment' | 'channel-avatar' | 'profile-avatar'
+export type UploadMediaKind = 'attachment' | 'channel-avatar' | 'group-avatar' | 'profile-avatar'
 
 export type UploadMediaResponse = {
   fileName: string
@@ -126,7 +126,7 @@ export type SendGroupMessageBody = {
   text: string
 }
 
-export type UpdateGroupBody = Partial<Pick<GroupPreview, 'muted'>>
+export type UpdateGroupBody = Partial<Pick<GroupPreview, 'muted' | 'avatarImage'>>
 
 export type InviteGroupMemberBody = {
   dialogId: number
@@ -160,7 +160,9 @@ export type CreateManagedChannelResponse = MutationResponse & {
 
 export type CreateGroupBody = {
   accent?: string
+  avatarImage?: string
   handle?: string
+  memberDialogIds: number[]
   title: string
 }
 

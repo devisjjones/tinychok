@@ -24,6 +24,7 @@ export type ChannelMessageSource = {
 
 export type GroupMessageSource = {
   accent?: string
+  avatarImage?: string
   creatorIdentifier?: string
   handle?: string
   sharedId?: string
@@ -72,6 +73,7 @@ export type Chat = {
   title: string
   handle: string
   phone: string
+  isTestEntity?: boolean
   accent: string
   mood: string
   status: string
@@ -99,6 +101,7 @@ export type SubscriptionChannel = {
   id: number
   title: string
   handle: string
+  isTestEntity?: boolean
   accent: string
   readers: number
   preview: string
@@ -115,7 +118,9 @@ export type GroupPreview = {
   title: string
   handle: string
   accent: string
+  avatarImage?: string
   creatorIdentifier?: string
+  isTestEntity?: boolean
   muted?: boolean
   preview: string
   sharedId?: string
@@ -160,6 +165,7 @@ export type Account = {
   nickname?: string
   status?: string
   avatarImage?: string
+  isTestEntity?: boolean
   premium?: boolean
   premiumExpiresAt?: string
   blockedContactIds?: number[]

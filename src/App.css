@@ -766,6 +766,15 @@
   background: rgba(255, 248, 240, 0.95);
 }
 
+.group-create-card {
+  border-style: dashed;
+}
+
+.group-create-card-avatar {
+  background: rgba(140, 87, 56, 0.12);
+  color: var(--ink);
+}
+
 .search-card {
   cursor: default;
 }
@@ -1265,9 +1274,11 @@
   top: 50%;
   left: 50%;
   width: min(420px, calc(100vw - 32px));
+  max-height: min(92dvh, 720px);
+  overflow: auto;
   padding: 20px;
   border-radius: 24px;
-  background: rgba(255, 251, 245, 0.98);
+  background: rgba(255, 251, 245, 0.995);
   border: 1px solid rgba(141, 89, 57, 0.12);
   box-shadow: 0 24px 60px rgba(64, 35, 18, 0.2);
   display: grid;
@@ -1308,6 +1319,11 @@
 
 .channel-avatar-picker-preview-copy strong {
   color: var(--ink);
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .channel-avatar-picker-preview-copy span {
@@ -2135,6 +2151,17 @@
   transform: translateY(-1px);
 }
 
+.room-confirm-button-primary {
+  background: var(--ink);
+  color: #fff8f0;
+}
+
+.room-confirm-button.disabled,
+.room-confirm-button:disabled {
+  opacity: 0.52;
+  cursor: default;
+}
+
 .room-confirm-danger {
   background: rgba(255, 244, 241, 0.94);
   color: #8f2b1e;
@@ -2753,6 +2780,13 @@
   width: min(420px, calc(100vw - 32px));
 }
 
+.room-group-create {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .room-forward-list {
   display: grid;
   gap: 10px;
@@ -2787,6 +2821,64 @@
   color: var(--ink);
   cursor: pointer;
   text-align: left;
+}
+
+.group-create-members-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(38vh, 320px);
+  overflow: auto;
+}
+
+.group-create-member-item {
+  justify-content: flex-start;
+}
+
+.group-create-member-item.active {
+  border: 1px solid rgba(140, 87, 56, 0.24);
+  background: rgba(140, 87, 56, 0.12);
+}
+
+.group-create-member-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  flex: 1 1 auto;
+}
+
+.group-create-member-copy strong {
+  color: var(--ink);
+}
+
+.group-create-member-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.group-create-member-name-row > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-create-member-copy span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.group-create-member-checkbox {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  accent-color: #8c5738;
+  pointer-events: none;
+}
+
+.group-avatar-picker-popover {
+  z-index: 14;
 }
 
 .room-confirm-actions-dual {
@@ -3197,6 +3289,17 @@
 
   .chat-room {
     padding: 16px;
+  }
+
+  .room-group-create {
+    top: 12px;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: none;
+    transform: none;
+    overflow-y: auto;
   }
 
   .room-header {

@@ -107,7 +107,11 @@ export function BubbleMessageContent({
             className="avatar bubble-forwarded-source-avatar"
             style={{ backgroundColor: message.sourceGroup.accent ?? '#8c5738' }}
           >
-            {message.sourceGroup.title.slice(0, 1)}
+            {message.sourceGroup.avatarImage ? (
+              <img src={message.sourceGroup.avatarImage} alt="" className="channel-avatar-image" />
+            ) : (
+              message.sourceGroup.title.slice(0, 1)
+            )}
           </span>
           <span className="bubble-forwarded-source-copy">
             <span className="bubble-forwarded-source-title">{message.sourceGroup.title}</span>

@@ -29,6 +29,11 @@ const MEDIA_KIND_CONFIG: Record<
     directory: 'channel-avatars',
     maxSizeBytes: 1 * 1024 * 1024,
   },
+  'group-avatar': {
+    allowedMimeTypes: new Set(['image/jpeg', 'image/png']),
+    directory: 'group-avatars',
+    maxSizeBytes: 1 * 1024 * 1024,
+  },
   'profile-avatar': {
     allowedMimeTypes: new Set(['image/jpeg', 'image/png']),
     directory: 'profile-avatars',

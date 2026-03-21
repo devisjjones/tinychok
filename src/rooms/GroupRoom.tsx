@@ -1,7 +1,7 @@
 import type { ChangeEvent, FormEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import { useLayoutEffect, useRef } from 'react'
 import type { ChannelMessageSource, GroupParticipant, GroupPreview, Message } from '../app/types'
-import { shouldShowDeliveryCaption } from '../app/utils'
+import { formatChannelAvatarLabel, shouldShowDeliveryCaption } from '../app/utils'
 import { BubbleMessageContent, ForwardedChannelHeader } from '../components/BubbleMessageContent'
 
 type GroupRoomProps = {
@@ -98,7 +98,11 @@ export function GroupRoom({
           </button>
           <div className="room-id">
             <span className="avatar large" style={{ backgroundColor: group.accent }}>
-              {group.title.slice(0, 1)}
+              {group.avatarImage ? (
+                <img src={group.avatarImage} alt="" className="channel-avatar-image" />
+              ) : (
+                formatChannelAvatarLabel(group.title)
+              )}
             </span>
             <div>
                 <div className="room-title">

@@ -8,6 +8,7 @@ export const accountStatusMaxFontSize = 15
 export const accountStatusMinFontSize = 10.5
 export const defaultGroupMemberLimit = 10
 export const premiumGroupMemberLimit = 200
+export const groupTitleMaxLength = 48
 export const channelTitleMaxLength = 30
 export const channelDirectLinkMaxLength = 30
 export const channelDescriptionMaxLength = 160

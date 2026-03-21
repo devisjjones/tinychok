@@ -54,7 +54,15 @@ function makeAbsoluteUrl(pathname: string, baseUrl: string) {
 }
 
 function resolveMediaUrl(mediaUrl: string) {
-  if (/^https?:\/\//u.test(mediaUrl)) {
+  if (/^(?:https?:\/\/|blob:|data:)/u.test(mediaUrl)) {
+    return mediaUrl
+  }
+
+  if (mediaUrl.startsWith('/assets/')) {
+    if (typeof window !== 'undefined') {
+      return makeAbsoluteUrl(mediaUrl, window.location.origin)
+    }
+
     return mediaUrl
   }
 
@@ -68,6 +76,28 @@ function resolveMediaUrl(mediaUrl: string) {
   }
 
   return mediaUrl
+}
+
+function normalizeSourceGroup(sourceGroup: AppSnapshot['chats'][number]['messages'][number]['sourceGroup']) {
+  if (!sourceGroup) return sourceGroup
+
+  return {
+    ...sourceGroup,
+    avatarImage: sourceGroup.avatarImage ? resolveMediaUrl(sourceGroup.avatarImage) : sourceGroup.avatarImage,
+  }
+}
+
+function normalizeMessageMedia<T extends AppSnapshot['chats'][number]['messages'][number]>(message: T): T {
+  return {
+    ...message,
+    attachment: message.attachment
+      ? {
+          ...message.attachment,
+          mediaUrl: resolveMediaUrl(message.attachment.mediaUrl),
+        }
+      : undefined,
+    sourceGroup: normalizeSourceGroup(message.sourceGroup),
+  }
 }
 
 function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
@@ -85,27 +115,12 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
     })),
     chats: snapshot.chats.map((chat) => ({
       ...chat,
-      messages: chat.messages.map((message) => ({
-        ...message,
-        attachment: message.attachment
-          ? {
-              ...message.attachment,
-              mediaUrl: resolveMediaUrl(message.attachment.mediaUrl),
-            }
-          : undefined,
-      })),
+      messages: chat.messages.map((message) => normalizeMessageMedia(message)),
     })),
     groups: snapshot.groups.map((group) => ({
       ...group,
-      messages: group.messages.map((message) => ({
-        ...message,
-        attachment: message.attachment
-          ? {
-              ...message.attachment,
-              mediaUrl: resolveMediaUrl(message.attachment.mediaUrl),
-            }
-          : undefined,
-      })),
+      avatarImage: group.avatarImage ? resolveMediaUrl(group.avatarImage) : group.avatarImage,
+      messages: group.messages.map((message) => normalizeMessageMedia(message)),
     })),
     subscriptionChannels: snapshot.subscriptionChannels.map((channel) => ({
       ...channel,
