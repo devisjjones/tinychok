@@ -1,4 +1,4 @@
-import type { ActionAnchor, ChannelPost, GroupParticipant, Message } from '../app/types'
+import type { ActionAnchor, ChannelPost, GroupParticipant, Message, ThreadComment } from '../app/types'
 import { shouldShowDeliveryCaption } from '../app/utils'
 import { BubbleMessageContent, ForwardedChannelHeader } from './BubbleMessageContent'
 
@@ -28,6 +28,13 @@ type SelectedBubbleOverlayProps =
       post: ChannelPost
       draft: boolean
     }
+  | {
+      anchor: ActionAnchor
+      kind: 'thread-comment'
+      comment: ThreadComment
+      mine: boolean
+      participant?: GroupParticipant | null
+    }
 
 function getOverlayPosition(anchor: ActionAnchor) {
   return {
@@ -49,6 +56,44 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           message={{ attachment: props.post.attachment, replyTo: undefined, text: props.post.text }}
         />
         <time>{props.post.time}</time>
+      </div>
+    )
+  }
+
+  if (props.kind === 'thread-comment') {
+    return (
+      <div
+        className={`bubble bubble-overlay bubble-button selected${props.mine ? ' mine' : ''}`}
+        style={getOverlayPosition(props.anchor)}
+        aria-hidden="true"
+      >
+        {props.mine ? (
+          <span className="bubble-meta">Вы</span>
+        ) : props.participant ? (
+          <div className="bubble-sender">
+            <span className="bubble-sender-avatar-stack">
+              <span
+                className="avatar bubble-sender-avatar"
+                style={{ backgroundColor: props.participant.accent }}
+              >
+                {props.participant.title.slice(0, 1)}
+              </span>
+              {props.participant.online ? (
+                <span className="bubble-sender-presence-dot" aria-label="В сети" />
+              ) : null}
+            </span>
+            <span className="bubble-sender-name">{props.participant.title}</span>
+            {props.participant.premium ? (
+              <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+                <img src="/icons/crown64.png" alt="" />
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <span className="bubble-meta">{props.comment.displayAuthor ?? 'Участник'}</span>
+        )}
+        <span>{props.comment.text}</span>
+        <time>{props.comment.time}</time>
       </div>
     )
   }

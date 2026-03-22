@@ -438,6 +438,20 @@ export async function sendGroupThreadComment(
   return normalizeMutationResponse(payload)
 }
 
+export async function deleteGroupThreadComment(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+  commentId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/comments/${commentId}`),
+    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function sendManagedChannelPost(
   sessionToken: string,
   channelId: number,
@@ -482,6 +496,20 @@ export async function sendSubscriptionChannelThreadComment(
   const response = await fetch(
     makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/comments`),
     makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function deleteSubscriptionChannelThreadComment(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+  commentId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/comments/${commentId}`),
+    makeJsonRequestInit('DELETE', undefined, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)

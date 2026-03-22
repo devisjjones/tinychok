@@ -1,4 +1,4 @@
-import { type ChangeEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   accountNameMaxFontSize,
   accountNameMinFontSize,
@@ -44,7 +44,9 @@ import {
   deleteDialogHistory as deleteDialogHistoryRequest,
   deleteDialogMessage as deleteDialogMessageRequest,
   deleteGroupMessage as deleteGroupMessageRequest,
+  deleteGroupThreadComment as deleteGroupThreadCommentRequest,
   deleteManagedChannel as deleteManagedChannelRequest,
+  deleteSubscriptionChannelThreadComment as deleteSubscriptionChannelThreadCommentRequest,
   fetchBootstrap,
   inviteGroupMember as inviteGroupMemberRequest,
   leaveGroup as leaveGroupRequest,
@@ -127,6 +129,7 @@ import {
   sanitizeChannelTitle,
   sanitizePersonField,
   sanitizeStatusField,
+  shouldSubmitComposerWithEnter,
   sortChatsByRecentActivity,
 } from './app/utils'
 import { AuthScreen } from './screens/AuthScreen'
@@ -536,6 +539,13 @@ type BlacklistManagerTarget =
       scope: 'existing'
     }
 
+type BlacklistConfirmationTarget = {
+  identifier: string
+  nickname?: string
+  roomKind: 'group' | 'channel'
+  title: string
+}
+
 function formatStockAvatarLabel(filePath: string) {
   const fileName = filePath.split('/').pop() ?? filePath
 
@@ -722,6 +732,12 @@ function App() {
   const [threadError, setThreadError] = useState('')
   const [threadCommentActionId, setThreadCommentActionId] = useState<number | null>(null)
   const [threadCommentActionAnchor, setThreadCommentActionAnchor] = useState<ActionAnchor | null>(null)
+  const [confirmingDeleteThreadCommentId, setConfirmingDeleteThreadCommentId] = useState<number | null>(null)
+  const [forwardingThreadCommentText, setForwardingThreadCommentText] = useState('')
+  const [confirmingBlacklistTarget, setConfirmingBlacklistTarget] = useState<BlacklistConfirmationTarget | null>(
+    null,
+  )
+  const [blacklistHintTarget, setBlacklistHintTarget] = useState<'group-message' | 'thread-comment' | null>(null)
   const [blacklistManagerTarget, setBlacklistManagerTarget] = useState<BlacklistManagerTarget | null>(null)
   const [blacklistAddMode, setBlacklistAddMode] = useState(false)
   const [blacklistSearchQuery, setBlacklistSearchQuery] = useState('')
@@ -1089,6 +1105,43 @@ function App() {
     threadCommentActionId === null
       ? null
       : activeThreadComments.find((comment) => comment.id === threadCommentActionId) ?? null
+  const activeThreadCommentParticipant = resolveThreadCommentParticipant(activeThreadComment)
+  const activeThreadCommentAlreadyBlacklisted =
+    activeThreadCommentParticipant?.identifier && threadTarget
+      ? threadTarget.kind === 'group'
+        ? activeGroup
+          ? isRoomCommentsBlacklisted(activeGroup, activeThreadCommentParticipant.identifier)
+          : false
+        : currentSubscriptionChannel
+          ? isRoomCommentsBlacklisted(currentSubscriptionChannel, activeThreadCommentParticipant.identifier)
+          : false
+      : false
+  const canBlacklistActiveThreadComment =
+    Boolean(activeThreadCommentParticipant?.identifier) &&
+    activeThreadComment?.author !== 'me' &&
+    ((threadTarget?.kind === 'group' && isActiveGroupCreator) || threadTarget?.kind === 'channel')
+  const activeGroupMessageAlreadyBlacklisted =
+    activeGroup && activeGroupMessageParticipant?.identifier
+      ? isRoomCommentsBlacklisted(activeGroup, activeGroupMessageParticipant.identifier)
+      : false
+  function handleThreadComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (!threadDraft.trim() || threadBusy) return
+    if (
+      !shouldSubmitComposerWithEnter({
+        key: event.key,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        isComposing: event.nativeEvent.isComposing,
+      })
+    ) {
+      return
+    }
+
+    event.preventDefault()
+    void submitThreadComment()
+  }
   const activeThreadSourceLabel =
     threadTarget?.kind === 'group'
       ? activeGroup?.title ?? 'Группа'
@@ -1136,6 +1189,11 @@ function App() {
   }, [editingChannelTitleId])
   const { menuRef: messageMenuRef, style: messageMenuStyle } = useAnchoredMenu(
     messageActionAnchor,
+    chatActionMenuWidth,
+    chatActionMenuHeight,
+  )
+  const { menuRef: threadCommentMenuRef, style: threadCommentMenuStyle } = useAnchoredMenu(
+    threadCommentActionAnchor,
     chatActionMenuWidth,
     chatActionMenuHeight,
   )
@@ -2522,6 +2580,46 @@ function App() {
     )
   }
 
+  function applyLocalDeleteGroupThreadComment(groupId: number, messageId: number, commentId: number) {
+    setGroups((currentGroups) =>
+      currentGroups.map((group) =>
+        group.id !== groupId
+          ? group
+          : {
+              ...group,
+              messages: group.messages.map((message) =>
+                message.id !== messageId
+                  ? message
+                  : {
+                      ...message,
+                      threadComments: (message.threadComments ?? []).filter((comment) => comment.id !== commentId),
+                    },
+              ),
+            },
+      ),
+    )
+  }
+
+  function applyLocalDeleteSubscriptionThreadComment(channelId: number, postId: number, commentId: number) {
+    setSubscriptionChannels((currentChannels) =>
+      currentChannels.map((channel) =>
+        channel.id !== channelId
+          ? channel
+          : {
+              ...channel,
+              posts: channel.posts.map((post) =>
+                post.id !== postId
+                  ? post
+                  : {
+                      ...post,
+                      threadComments: (post.threadComments ?? []).filter((comment) => comment.id !== commentId),
+                    },
+              ),
+            },
+      ),
+    )
+  }
+
   function applyLocalManagedChannelPost(managedChannel: Channel, text: string) {
     const createdAt = new Date().toISOString()
     const time = formatNowTime()
@@ -3473,6 +3571,10 @@ function App() {
     setThreadError('')
     setThreadCommentActionId(null)
     setThreadCommentActionAnchor(null)
+    setConfirmingDeleteThreadCommentId(null)
+    setForwardingThreadCommentText('')
+    setConfirmingBlacklistTarget(null)
+    setBlacklistHintTarget(null)
     setThreadsDisabledNotice(null)
     setBlacklistManagerTarget(null)
     setBlacklistAddMode(false)
@@ -4087,6 +4189,8 @@ function App() {
     setThreadError('')
     setThreadCommentActionId(null)
     setThreadCommentActionAnchor(null)
+    setConfirmingBlacklistTarget(null)
+    setBlacklistHintTarget(null)
   }
 
   async function submitThreadComment() {
@@ -4162,6 +4266,20 @@ function App() {
       })
       closeThreadView()
     }
+  }
+
+  function openBlacklistConfirmation(target: BlacklistConfirmationTarget) {
+    setConfirmingBlacklistTarget(target)
+  }
+
+  function closeBlacklistConfirmation() {
+    setConfirmingBlacklistTarget(null)
+  }
+
+  function confirmBlacklistTarget() {
+    if (!confirmingBlacklistTarget) return
+    addMessageAuthorToCurrentRoomBlacklist(confirmingBlacklistTarget.identifier, confirmingBlacklistTarget.roomKind)
+    setConfirmingBlacklistTarget(null)
   }
 
   function openChat(chatId: number) {
@@ -4869,6 +4987,12 @@ function App() {
     closeGroupMessageActions()
   }
 
+  function closeThreadCommentActions() {
+    setThreadCommentActionId(null)
+    setThreadCommentActionAnchor(null)
+    setBlacklistHintTarget(null)
+  }
+
   async function deleteGroupMessage(groupId: number, messageId: number) {
     if (backendReady && session?.sessionToken) {
       try {
@@ -4909,6 +5033,50 @@ function App() {
     setForwardingMessageId(null)
     setConfirmingDeleteMessageId(null)
     setMessageActionAnchor(null)
+  }
+
+  async function deleteThreadComment(commentId: number) {
+    if (!threadTarget) return
+
+    if (threadTarget.kind === 'group') {
+      if (backendReady && session?.sessionToken) {
+        try {
+          const response = await deleteGroupThreadCommentRequest(
+            session.sessionToken,
+            threadTarget.groupId,
+            threadTarget.messageId,
+            commentId,
+          )
+          applySnapshot(response.snapshot)
+        } catch (error) {
+          console.error('Failed to delete group thread comment', error)
+          applyLocalDeleteGroupThreadComment(threadTarget.groupId, threadTarget.messageId, commentId)
+        }
+      } else {
+        applyLocalDeleteGroupThreadComment(threadTarget.groupId, threadTarget.messageId, commentId)
+      }
+    } else {
+      if (backendReady && session?.sessionToken) {
+        try {
+          const response = await deleteSubscriptionChannelThreadCommentRequest(
+            session.sessionToken,
+            threadTarget.channelId,
+            threadTarget.postId,
+            commentId,
+          )
+          applySnapshot(response.snapshot)
+        } catch (error) {
+          console.error('Failed to delete subscription thread comment', error)
+          applyLocalDeleteSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, commentId)
+        }
+      } else {
+        applyLocalDeleteSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, commentId)
+      }
+    }
+
+    setConfirmingDeleteThreadCommentId(null)
+    setForwardingThreadCommentText('')
+    closeThreadCommentActions()
   }
 
   function prepareChannelDraft(channelNumber: number, channelId: number) {
@@ -5624,6 +5792,7 @@ function App() {
     setForwardingGroupMessageText('')
     setConfirmingDeleteGroupMessageId(null)
     setGroupMessageActionAnchor(null)
+    setBlacklistHintTarget(null)
   }
 
   async function deleteChannel(channelId: number) {
@@ -5958,10 +6127,10 @@ function App() {
   const threadRoom = threadTarget ? (
     <>
       <section className="chat-room room-thread">
-        <header className="room-header">
+        <header className="room-header room-thread-header">
           <button
             type="button"
-            className="soft-button room-mobile-back"
+            className="soft-button room-mobile-back room-thread-back"
             onClick={closeThreadView}
             aria-label="Назад"
             title="Назад"
@@ -5980,9 +6149,6 @@ function App() {
               <p>Комментарии к выбранному сообщению</p>
             </div>
           </div>
-          <button type="button" className="soft-button" onClick={closeThreadView}>
-            Назад
-          </button>
         </header>
 
         <div className="room-thread-source" ref={threadSourceRef}>
@@ -6052,11 +6218,7 @@ function App() {
                 </button>
               )
             })
-          ) : (
-            <article className="settings-item room-transfer-empty">
-              <p className="settings-text">Комментариев пока нет.</p>
-            </article>
-          )}
+          ) : null}
         </div>
 
         {activeThreadBlockReason ? (
@@ -6071,6 +6233,9 @@ function App() {
               void submitThreadComment()
             }}
           >
+            {activeThreadComments.length === 0 ? (
+              <p className="room-thread-empty-copy">Будьте первым, кто оставит комментарий</p>
+            ) : null}
             <div className="composer-input">
               <div className="composer-entry">
                 <div className="composer-field">
@@ -6079,6 +6244,7 @@ function App() {
                     placeholder="Напишите комментарий..."
                     value={threadDraft}
                     onChange={(event) => setThreadDraft(event.target.value)}
+                    onKeyDown={handleThreadComposerKeyDown}
                   />
                   <div className="composer-tools">
                     {threadDraft.trim() ? (
@@ -6096,32 +6262,158 @@ function App() {
           </form>
         )}
       </section>
-      {threadCommentActionAnchor &&
-      activeThreadComment &&
-      ((threadTarget.kind === 'group' && isActiveGroupCreator) || threadTarget.kind === 'channel') &&
-      activeThreadComment.author !== 'me' &&
-      resolveThreadCommentParticipant(activeThreadComment)?.identifier ? (
-        <div
-          className="message-menu"
-          style={{
-            left: `${threadCommentActionAnchor.left}px`,
-            top: `${threadCommentActionAnchor.top}px`,
-            width: `${threadCommentActionAnchor.width}px`,
-          }}
-        >
+      {activeThreadComment ? (
+        <>
           <button
             type="button"
-            className="message-menu-item danger"
-            onClick={() =>
-              addMessageAuthorToCurrentRoomBlacklist(
-                resolveThreadCommentParticipant(activeThreadComment)?.identifier,
-                threadTarget.kind,
-              )
-            }
-          >
-            В чёрный список
-          </button>
-        </div>
+            className="room-confirm-scrim message-menu-scrim"
+            aria-label="Закрыть действия с комментарием"
+            onClick={() => {
+              closeThreadCommentActions()
+              setForwardingThreadCommentText('')
+            }}
+          />
+          {threadCommentActionAnchor && !forwardingThreadCommentText ? (
+            <SelectedBubbleOverlay
+              anchor={threadCommentActionAnchor}
+              kind="thread-comment"
+              comment={activeThreadComment}
+              mine={activeThreadComment.author === 'me'}
+              participant={activeThreadCommentParticipant}
+            />
+          ) : null}
+          {forwardingThreadCommentText ? (
+            <div className="room-confirm room-forward">
+              <p className="room-confirm-copy">Кому переслать сообщение?</p>
+              <div className="room-forward-list">
+                {availableChats.map((chat) => (
+                  <button
+                    key={`thread-forward-chat-${chat.id}`}
+                    type="button"
+                    className="room-forward-item"
+                    onClick={() => {
+                      void forwardTextToChat(chat.id, forwardingThreadCommentText, {
+                        forwarded: true,
+                        forwardedAuthorName:
+                          activeThreadComment.author === 'me'
+                            ? sessionName
+                            : activeThreadCommentParticipant?.title ?? activeThreadComment.displayAuthor,
+                      })
+                      setForwardingThreadCommentText('')
+                      closeThreadCommentActions()
+                    }}
+                  >
+                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                      {chat.title.slice(0, 1)}
+                    </span>
+                    <span>{chat.title}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setForwardingThreadCommentText('')}
+              >
+                Назад
+              </button>
+            </div>
+          ) : threadCommentActionAnchor ? (
+            <div
+              ref={threadCommentMenuRef}
+              className="message-menu"
+              style={threadCommentMenuStyle}
+            >
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => {
+                  copyToClipboard(activeThreadComment.text, 'Сообщение скопировано')
+                  closeThreadCommentActions()
+                }}
+              >
+                Скопировать
+              </button>
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => setForwardingThreadCommentText(activeThreadComment.text)}
+              >
+                Переслать
+              </button>
+              {activeThreadComment.author === 'me' ? (
+                <button
+                  type="button"
+                  className="message-menu-item danger"
+                  onClick={() => {
+                    setConfirmingDeleteThreadCommentId(activeThreadComment.id)
+                    closeThreadCommentActions()
+                  }}
+                >
+                  Удалить
+                </button>
+              ) : canBlacklistActiveThreadComment ? (
+                <>
+                  <button
+                    type="button"
+                    className={`message-menu-item danger${activeThreadCommentAlreadyBlacklisted ? ' disabled' : ''}`}
+                    aria-disabled={activeThreadCommentAlreadyBlacklisted}
+                    onClick={() => {
+                      if (activeThreadCommentAlreadyBlacklisted) {
+                        setBlacklistHintTarget('thread-comment')
+                        return
+                      }
+                      if (!activeThreadCommentParticipant?.identifier) return
+                      openBlacklistConfirmation({
+                        identifier: activeThreadCommentParticipant.identifier,
+                        nickname: activeThreadCommentParticipant.nickname,
+                        roomKind: threadTarget.kind,
+                        title: activeThreadCommentParticipant.title,
+                      })
+                      closeThreadCommentActions()
+                    }}
+                  >
+                    В чёрный список
+                  </button>
+                  {blacklistHintTarget === 'thread-comment' ? (
+                    <p className="settings-text message-menu-note">Пользователь уже в чёрном списке</p>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+      {confirmingDeleteThreadCommentId !== null ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть подтверждение удаления комментария"
+            onClick={() => setConfirmingDeleteThreadCommentId(null)}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">Удалить свой комментарий?</p>
+            <div className="room-confirm-actions room-confirm-actions-dual">
+              <button
+                type="button"
+                className="room-confirm-button room-confirm-danger"
+                onClick={() => {
+                  void deleteThreadComment(confirmingDeleteThreadCommentId)
+                }}
+              >
+                Удалить
+              </button>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setConfirmingDeleteThreadCommentId(null)}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </>
       ) : null}
     </>
   ) : null
@@ -6475,18 +6767,33 @@ function App() {
               {isActiveGroupCreator &&
               activeGroupMessage.author !== 'me' &&
               activeGroupMessageParticipant?.identifier ? (
-                <button
-                  type="button"
-                  className="message-menu-item danger"
-                  onClick={() =>
-                    addMessageAuthorToCurrentRoomBlacklist(
-                      activeGroupMessageParticipant.identifier,
-                      'group',
-                    )
-                  }
-                >
-                  В чёрный список
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className={`message-menu-item danger${activeGroupMessageAlreadyBlacklisted ? ' disabled' : ''}`}
+                    aria-disabled={activeGroupMessageAlreadyBlacklisted}
+                    onClick={() => {
+                      if (activeGroupMessageAlreadyBlacklisted) {
+                        setBlacklistHintTarget('group-message')
+                        return
+                      }
+                      if (!activeGroupMessageParticipant?.identifier) return
+                      openBlacklistConfirmation({
+                        identifier: activeGroupMessageParticipant.identifier,
+                        nickname: activeGroupMessageParticipant.nickname,
+                        roomKind: 'group',
+                        title: activeGroupMessageParticipant.title,
+                      })
+                      setActiveGroupMessageId(null)
+                      setGroupMessageActionAnchor(null)
+                    }}
+                  >
+                    В чёрный список
+                  </button>
+                  {blacklistHintTarget === 'group-message' ? (
+                    <p className="settings-text message-menu-note">Пользователь уже в чёрном списке</p>
+                  ) : null}
+                </>
               ) : null}
               {activeGroupMessage.author === 'me' ? (
                 <button
@@ -8278,7 +8585,7 @@ function App() {
                 </div>
               )}
 
-              <div className="settings-actions">
+              <div className="settings-actions channels-detail-actions">
                 <button type="button" className="soft-button" onClick={openChannelsListView}>
                   Назад
                 </button>
@@ -9788,6 +10095,49 @@ function App() {
                 </div>
               </>
             )}
+          </div>
+        </>
+      ) : null}
+      {confirmingBlacklistTarget ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть подтверждение чёрного списка"
+            onClick={closeBlacklistConfirmation}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">
+              {`Добавить ${confirmingBlacklistTarget.title} в чёрный список ${
+                confirmingBlacklistTarget.roomKind === 'channel' ? 'канала' : 'группы'
+              }?`}
+            </p>
+            <p className="settings-text room-confirm-note">
+              {confirmingBlacklistTarget.nickname
+                ? `@${confirmingBlacklistTarget.nickname}`
+                : confirmingBlacklistTarget.identifier}
+            </p>
+            <p className="settings-text room-confirm-note">
+              {confirmingBlacklistTarget.roomKind === 'channel'
+                ? `${confirmingBlacklistTarget.title} сможет читать канал, но больше не сможет писать комментарии.`
+                : `${confirmingBlacklistTarget.title} сможет читать группу, но больше не сможет писать сообщения и комментарии.`}
+            </p>
+            <div className="room-confirm-actions room-confirm-actions-dual">
+              <button
+                type="button"
+                className="room-confirm-button room-confirm-danger"
+                onClick={confirmBlacklistTarget}
+              >
+                В чёрный список
+              </button>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={closeBlacklistConfirmation}
+              >
+                Отмена
+              </button>
+            </div>
           </div>
         </>
       ) : null}

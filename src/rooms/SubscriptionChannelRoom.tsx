@@ -1,6 +1,8 @@
-import type { MouseEvent, ReactNode, RefObject } from 'react'
+import type { KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
+import { shouldSubmitComposerWithEnter } from '../app/utils'
 import type { SubscriptionChannel } from '../app/types'
 import { BubbleMessageContent } from '../components/BubbleMessageContent'
+import { ThreadedBubble } from '../components/ThreadedBubble'
 
 type SubscriptionChannelRoomProps = {
   actions: ReactNode
@@ -36,6 +38,25 @@ export function SubscriptionChannelRoom({
   publisher,
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (!publisher || !publisher.draft.trim() || publisher.isBusy) return
+    if (
+      !shouldSubmitComposerWithEnter({
+        key: event.key,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        isComposing: event.nativeEvent.isComposing,
+      })
+    ) {
+      return
+    }
+
+    event.preventDefault()
+    publisher.onSubmit()
+  }
+
   return (
     <>
       <section className="chat-room channel-room">
@@ -89,26 +110,26 @@ export function SubscriptionChannelRoom({
 
         <div className="message-feed" ref={messageFeedRef}>
           {channel.posts.map((post) => (
-            <div key={post.id} className="threaded-bubble">
-              <button
-                type="button"
-                className={
-                  activePostId === post.id
-                    ? 'bubble bubble-button channel-post selected'
-                    : 'bubble bubble-button channel-post'
-                }
-                onClick={(event) => onPostSelect(event, post.id)}
-              >
-                <BubbleMessageContent message={post} />
-                <time>{post.time}</time>
-              </button>
-              {(post.threadComments?.length ?? 0) > 0 ? (
-                <button type="button" className="thread-pill" onClick={() => onOpenThread(post.id)}>
-                  <img src="/icons/root-50.png" alt="" aria-hidden="true" className="thread-pill-icon" />
-                  <span>{`${post.threadComments?.length ?? 0} комментариев`}</span>
+            <ThreadedBubble
+              key={post.id}
+              variant="channel"
+              threadCount={post.threadComments?.length ?? 0}
+              onOpenThread={() => onOpenThread(post.id)}
+              bubble={
+                <button
+                  type="button"
+                  className={
+                    activePostId === post.id
+                      ? 'bubble bubble-button channel-post selected'
+                      : 'bubble bubble-button channel-post'
+                  }
+                  onClick={(event) => onPostSelect(event, post.id)}
+                >
+                  <BubbleMessageContent message={post} />
+                  <time>{post.time}</time>
                 </button>
-              ) : null}
-            </div>
+              }
+            />
           ))}
         </div>
         {publisher ? (
@@ -127,6 +148,7 @@ export function SubscriptionChannelRoom({
                     placeholder="Напишите сообщение в канал..."
                     value={publisher.draft}
                     onChange={(event) => publisher.onDraftChange(event.target.value)}
+                    onKeyDown={handleComposerKeyDown}
                   />
                   <div className="composer-tools">
                     {publisher.draft.trim() ? (

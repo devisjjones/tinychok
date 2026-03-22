@@ -1166,6 +1166,7 @@ export class TinychokStore {
       nickname: '',
       premium: true,
       premiumExpiresAt: makePremiumExpiry(30),
+      soundsDisabled: true,
       status: '',
       surname: '',
     }
@@ -1837,6 +1838,61 @@ export class TinychokStore {
     }
   }
 
+  async deleteGroupThreadComment(
+    token: string,
+    groupId: number,
+    messageId: number,
+    commentId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getGroupMessageById(account.identifier, groupId, messageId)
+    if (!target) {
+      throw new Error('Сообщение группы не найдено.')
+    }
+
+    const targetComment = (target.message.threadComments ?? []).find((comment) => comment.id === commentId)
+    if (!targetComment) {
+      throw new Error('Комментарий не найден.')
+    }
+
+    if (normalizeIdentifier(targetComment.authorIdentifier ?? '') !== account.identifier) {
+      throw new Error('Можно удалить только свой комментарий.')
+    }
+
+    const sharedId = this.getSharedGroupId(target.group)
+    const threadId = getGroupMessageThreadId(target.group, target.message)
+    const broadcastIdentifiers = new Set<string>()
+    const groupCopies = this.listGroupCopies(sharedId)
+
+    for (const groupCopy of groupCopies) {
+      const targetMessages = this.database.groupMessages.filter(
+        (message) =>
+          message.ownerIdentifier === groupCopy.ownerIdentifier &&
+          message.groupId === groupCopy.id &&
+          getGroupMessageThreadId(groupCopy, message) === threadId,
+      )
+
+      for (const targetMessage of targetMessages) {
+        const currentComments = targetMessage.threadComments ?? []
+        const nextComments = currentComments.filter((comment) => comment.id !== commentId)
+        if (nextComments.length === currentComments.length) continue
+        targetMessage.threadComments = nextComments
+        broadcastIdentifiers.add(groupCopy.ownerIdentifier)
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async sendManagedChannelPost(
     token: string,
     channelId: number,
@@ -2449,6 +2505,61 @@ export class TinychokStore {
 
     return {
       broadcastIdentifiers,
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async deleteSubscriptionChannelThreadComment(
+    token: string,
+    channelId: number,
+    postId: number,
+    commentId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getSubscriptionPostById(account.identifier, channelId, postId)
+    if (!target) {
+      throw new Error('Пост канала не найден.')
+    }
+
+    const targetComment = (target.post.threadComments ?? []).find((comment) => comment.id === commentId)
+    if (!targetComment) {
+      throw new Error('Комментарий не найден.')
+    }
+
+    if (normalizeIdentifier(targetComment.authorIdentifier ?? '') !== account.identifier) {
+      throw new Error('Можно удалить только свой комментарий.')
+    }
+
+    const normalizedHandle = sanitizeChannelDirectLink(target.channel.handle) || target.channel.handle
+    const threadId = getSubscriptionPostThreadId(target.channel, target.post)
+    const broadcastIdentifiers = new Set<string>()
+    const channelCopies = this.listSubscriptionChannelCopiesByHandle(normalizedHandle)
+
+    for (const channelCopy of channelCopies) {
+      const targetPosts = this.database.subscriptionPosts.filter(
+        (post) =>
+          post.ownerIdentifier === channelCopy.ownerIdentifier &&
+          post.channelId === channelCopy.id &&
+          getSubscriptionPostThreadId(channelCopy, post) === threadId,
+      )
+
+      for (const targetPost of targetPosts) {
+        const currentComments = targetPost.threadComments ?? []
+        const nextComments = currentComments.filter((comment) => comment.id !== commentId)
+        if (nextComments.length === currentComments.length) continue
+        targetPost.threadComments = nextComments
+        broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }

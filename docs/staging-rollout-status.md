@@ -28,14 +28,20 @@
   - `staging.tinychok.ru -> 158.160.197.255`
 - внешние резолверы `1.1.1.1` и `8.8.8.8` видят staging-поддомены на `158.160.197.255`
 - staging VM подтверждённо была обновлена до commit `1b8df3f` (`Polish mobile composer and refresh staging docs`)
-- в `origin/codex/staging-deploy` уже лежит неподтверждённый product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1 -> a6be3d3`
+- в `origin/codex/staging-deploy` уже лежит неподтверждённый product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1 -> a6be3d3 -> 27646e7 -> 4ad9b0b`
+- поверх `4ad9b0b` в текущем рабочем branch state уже собран ещё один follow-up batch без staging-подтверждения:
+  - thread-pill / thread-room visual polish
+  - desktop submit по `Enter` вне mobile keyboard
+  - default `soundsDisabled = true` для новых аккаунтов
+  - action modal и delete flow для thread comments
+  - confirm-popup при добавлении автора комментария / сообщения в blacklist
 - latest deploy sequence `npm ci -> npm run build -> sudo systemctl restart tinychok-staging -> sudo rsync -av --delete dist/ /var/www/tinychok-staging/` был выполнен успешно `2026-03-21`
 - владелец проекта после выкладки подтвердил staging-статус: `Всё работает`
 - для следующих выкладок в репо добавлен скрипт `scripts/deploy-staging.sh`
 
 ## Access guard status
 
-По состоянию на `2026-03-21` доступ к staging уже закрыт так, как и планировалось, и это состояние сохранилось после последней подтверждённой выкладки `1b8df3f`:
+По состоянию на `2026-03-22` доступ к staging уже закрыт так, как и планировалось, и это состояние сохранилось после последней подтверждённой выкладки `1b8df3f`:
 
 - basic auth включен на HTTPS-блоке `nginx` для `staging.tinychok.ru`
 - `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
@@ -162,6 +168,42 @@
   - send / attach встроены внутрь поля ввода и выровнены внутри composer-а
   - убран внешний фон composer-контейнера, уменьшен лишний нижний воздух в комнате
 
+### `27646e7` `Split send and receive chat sounds`
+
+- `jump.wav` используется на отправку
+- `take.wav` используется на получение в открытом direct chat
+- `public/svf` не участвует в runtime и в deploy не нужен
+
+### `4ad9b0b` `Refine profile save flow and settings prompts`
+
+- профиль больше не сохраняется на каждый символ
+- в настройках аккаунта появилась явная кнопка `Сохранить` только при изменениях
+- назад с несохранёнными изменениями открывает confirm-popup про сохранение
+- `Тихо` форсит UI-отображение `Выключить звуки`, но возвращает старое значение после отключения `Тихо`
+- в `Управление группой` и `Управление каналом` добавлена кнопка `Отмена`
+
+### Follow-up batch поверх `4ad9b0b`
+
+- thread comment / thread pill polish:
+  - thread-pill визуально слита с bubble, подгоняется по ширине bubble и режет длинный текст с `...`
+  - у bubble с тредом убраны нижние скругления
+  - в thread room оставлена одна стрелка `Назад`, она видна всегда
+  - пустой тред показывает текст `Будьте первым, кто оставит комментарий` над composer
+- desktop keyboard submit:
+  - на desktop `Enter` / `Return` отправляет сообщение или комментарий, если send активен
+  - на mobile keyboard это поведение отключено
+- новые аккаунты:
+  - новые пользователи создаются с выключенными звуками по умолчанию
+- channel settings:
+  - кнопка `Управление` в настройках канала перенесена вправо вниз
+- thread comment actions:
+  - по тапу на комментарий открывается action modal как у сообщения
+  - для своих комментариев есть удаление
+  - для чужих комментариев есть blacklist action без `Закрепить`
+- blacklist UX:
+  - перед добавлением в blacklist показывается confirm-popup с именем пользователя
+  - если пользователь уже в blacklist, кнопка визуально disabled и показывает локальный hint
+
 Если выкладка делается вручную, используется тот же flow:
 
 ```bash
@@ -220,10 +262,11 @@ tinychok-staging-deploy
 - allowlist тестовых телефонов на backend
 - фиксы по account search, seeded mock history и сортировке чатов
 - legal pages и mobile composer batch из `1b8df3f`
-- product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1 -> a6be3d3` ещё не выкатывался на staging и ждёт deploy + smoke-check
+- product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1 -> a6be3d3 -> 27646e7 -> 4ad9b0b` ещё не выкатывался на staging и ждёт deploy + smoke-check
+- свежий follow-up batch поверх `4ad9b0b` тоже не выкатывался на staging и должен считаться частью следующего cumulative smoke-check
 
 ## Следующий шаг
 
 Обязательного незакрытого staging rollout шага сейчас нет.
 
-Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что staging-кандидат сейчас представляет собой cumulative stack до `a6be3d3`, который ещё ждёт deploy и smoke-check.
+Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что staging-кандидат сейчас представляет собой cumulative stack до `4ad9b0b` плюс follow-up batch поверх него, который ещё ждёт deploy и smoke-check.

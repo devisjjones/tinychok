@@ -523,6 +523,24 @@ app.post('/api/groups/:groupId/messages/:messageId/comments', async (request, re
   }
 })
 
+app.delete('/api/groups/:groupId/messages/:messageId/comments/:commentId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const messageId = getNumericRouteParam(request, 'messageId')
+    const commentId = getNumericRouteParam(request, 'commentId')
+    const result = await store.deleteGroupThreadComment(token, groupId, messageId, commentId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.post('/api/groups/:groupId/read', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -719,6 +737,24 @@ app.post('/api/subscription-channels/:channelId/posts/:postId/comments', async (
     const postId = getNumericRouteParam(request, 'postId')
     const body = parseJsonPayload<SendSubscriptionChannelThreadCommentBody>(request.body)
     const result = await store.sendSubscriptionChannelThreadComment(token, channelId, postId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.delete('/api/subscription-channels/:channelId/posts/:postId/comments/:commentId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const postId = getNumericRouteParam(request, 'postId')
+    const commentId = getNumericRouteParam(request, 'commentId')
+    const result = await store.deleteSubscriptionChannelThreadComment(token, channelId, postId, commentId)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {

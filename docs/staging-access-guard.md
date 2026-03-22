@@ -2,7 +2,7 @@
 
 ## Current applied state
 
-По состоянию на `2026-03-21` это уже включено на staging и осталось включённым после последнего подтверждённого deploy commit `1b8df3f`:
+По состоянию на `2026-03-22` это уже включено на staging и осталось включённым после последнего подтверждённого deploy commit `1b8df3f`:
 
 - basic auth включен на HTTPS-блоке `nginx` для `https://staging.tinychok.ru`
 - `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
@@ -106,8 +106,9 @@ curl -s https://api.staging.tinychok.ru/healthz
 
 ## Что важно учесть для текущего branch state
 
-- в `origin/codex/staging-deploy` уже лежит более новый непроверенный batch `1a037b9`
-- этот batch не должен менять `basic auth` или `allowlist`, но после следующего deploy их всё равно нужно быстро перепроверить
+- в `origin/codex/staging-deploy` уже лежит более новый непроверенный cumulative stack до `4ad9b0b`
+- поверх `4ad9b0b` в текущем рабочем branch state уже есть follow-up UI batch, но он тоже не должен менять `basic auth` или `allowlist`
+- после следующего deploy эти ограничения всё равно нужно быстро перепроверить
 - минимальная post-deploy проверка остаётся такой же:
 
 ```bash

@@ -22,6 +22,34 @@ export function shouldShowDeliveryCaption(message: Pick<Message, 'text' | 'attac
   return formatMessagePreview(message).length >= 18
 }
 
+function isMobileKeyboardEnvironment() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false
+  }
+
+  const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches ?? false
+  const mobileUserAgent = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent,
+  )
+
+  return mobileUserAgent || (coarsePointer && navigator.maxTouchPoints > 0)
+}
+
+export function shouldSubmitComposerWithEnter(options: {
+  key: string
+  altKey: boolean
+  ctrlKey: boolean
+  metaKey: boolean
+  shiftKey: boolean
+  isComposing?: boolean
+}) {
+  if (options.key !== 'Enter') return false
+  if (options.altKey || options.ctrlKey || options.metaKey || options.shiftKey) return false
+  if (options.isComposing) return false
+
+  return !isMobileKeyboardEnvironment()
+}
+
 export function formatAttachmentSize(size: number) {
   if (size < 1024) return `${size} Б`
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} КБ`

@@ -31,3 +31,4 @@
 - `staging.tinychok.ru` закрыт через basic auth
 - backend staging ограничен через `TINYCHOK_ALLOWED_TEST_PHONES`
 - для любых ручных проверок staging сначала учитывать эти два ограничения доступа
+- если просим проверить cumulative staging-кандидат, полезно явно назвать, что проверяется весь накопившийся stack, а не только один свежий UI-фикс

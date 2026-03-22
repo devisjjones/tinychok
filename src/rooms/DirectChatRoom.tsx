@@ -1,6 +1,7 @@
 import type {
   ChangeEvent,
   FormEvent,
+  KeyboardEvent,
   MouseEvent,
   RefObject,
 } from 'react'
@@ -9,6 +10,7 @@ import type { ChannelMessageSource, Chat, Message, ReplyTarget } from '../app/ty
 import {
   formatMessagePreview,
   formatRoomPresence,
+  shouldSubmitComposerWithEnter,
   shouldShowDeliveryCaption,
 } from '../app/utils'
 import { BubbleMessageContent, ForwardedChannelHeader } from '../components/BubbleMessageContent'
@@ -84,6 +86,32 @@ export function DirectChatRoom({
 }: DirectChatRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentName)
+
+  async function submitComposer() {
+    await Promise.resolve(onSubmit())
+    window.requestAnimationFrame(() => {
+      draftInputRef.current?.focus()
+    })
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (!hasComposerPayload) return
+    if (
+      !shouldSubmitComposerWithEnter({
+        key: event.key,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        isComposing: event.nativeEvent.isComposing,
+      })
+    ) {
+      return
+    }
+
+    event.preventDefault()
+    void submitComposer()
+  }
 
   useLayoutEffect(() => {
     const textarea = draftInputRef.current
@@ -329,10 +357,7 @@ export function DirectChatRoom({
         className="composer"
         onSubmit={async (event: FormEvent<HTMLFormElement>) => {
           event.preventDefault()
-          await Promise.resolve(onSubmit())
-          window.requestAnimationFrame(() => {
-            draftInputRef.current?.focus()
-          })
+          await submitComposer()
         }}
       >
         <div className="composer-input">
@@ -361,6 +386,7 @@ export function DirectChatRoom({
                 placeholder="Напиши сообщение в тайник..."
                 value={draft}
                 onChange={(event) => onDraftChange(event.target.value)}
+                onKeyDown={handleComposerKeyDown}
               />
               <div className="composer-tools">
                 <button
