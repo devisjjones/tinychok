@@ -1,6 +1,6 @@
 # Staging Rollout Status
 
-Короткий статус staging-контура по состоянию на `2026-03-21`.
+Короткий статус staging-контура по состоянию на `2026-03-22`.
 
 ## Что уже подтверждено
 
@@ -28,7 +28,7 @@
   - `staging.tinychok.ru -> 158.160.197.255`
 - внешние резолверы `1.1.1.1` и `8.8.8.8` видят staging-поддомены на `158.160.197.255`
 - staging VM подтверждённо была обновлена до commit `1b8df3f` (`Polish mobile composer and refresh staging docs`)
-- в `origin/codex/staging-deploy` уже лежит неподтверждённый product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1`
+- в `origin/codex/staging-deploy` уже лежит неподтверждённый product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1 -> a6be3d3`
 - latest deploy sequence `npm ci -> npm run build -> sudo systemctl restart tinychok-staging -> sudo rsync -av --delete dist/ /var/www/tinychok-staging/` был выполнен успешно `2026-03-21`
 - владелец проекта после выкладки подтвердил staging-статус: `Всё работает`
 - для следующих выкладок в репо добавлен скрипт `scripts/deploy-staging.sh`
@@ -134,7 +134,33 @@
   - mock contacts переведены в реальные test accounts в state store
   - test accounts и test channels помечаются `isTestEntity`
   - в non-production пользователю автоматически доступны `10` test channels по `20` сообщений
-  - production startup вычищает test fixtures из runtime state
+- production startup вычищает test fixtures из runtime state
+
+### `a6be3d3` `Add threads, sound controls, and composer polish`
+
+- threads/comments для сообщений в группах и каналах:
+  - отдельный thread screen
+  - кнопка `Прокомментировать` в menu сообщения
+  - thread-pill под сообщением с иконкой `root-50.png` и comment counter
+- backend и UI правил комментариев:
+  - комментарии выключены / для всех / только для premium
+  - чёрный список для группы и канала
+  - пользователь из blacklist не может писать сообщения и комментарии
+- management fixes:
+  - `Управление группой` с передачей владельца и удалением группы
+  - удаление канала теперь дочищает все subscribed copies и posts
+  - владелец канала может публиковать сообщения прямо в channel room
+- seeded test content:
+  - в test channels / groups появились seeded треды и комментарии для smoke-check
+  - fixture rooms распределены по разным comment modes
+- sound and composer polish:
+  - `public/sfx/jump.wav` проигрывается при отправке сообщений
+  - `public/sfx/take.wav` проигрывается при новом сообщении в открытом direct chat
+  - в настройках профиля добавлен чек-бокс `Выключить звуки`
+  - send-button переведена на `sent.png`
+  - attach-button переведена на `attach.png`, без фоновой капсулы
+  - send / attach встроены внутрь поля ввода и выровнены внутри composer-а
+  - убран внешний фон composer-контейнера, уменьшен лишний нижний воздух в комнате
 
 Если выкладка делается вручную, используется тот же flow:
 
@@ -194,10 +220,10 @@ tinychok-staging-deploy
 - allowlist тестовых телефонов на backend
 - фиксы по account search, seeded mock history и сортировке чатов
 - legal pages и mobile composer batch из `1b8df3f`
-- product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1` ещё не выкатывался на staging и ждёт deploy + smoke-check
+- product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1 -> a6be3d3` ещё не выкатывался на staging и ждёт deploy + smoke-check
 
 ## Следующий шаг
 
 Обязательного незакрытого staging rollout шага сейчас нет.
 
-Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что staging-кандидат сейчас представляет собой cumulative stack до `a21f0d1`, который ещё ждёт deploy и smoke-check.
+Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что staging-кандидат сейчас представляет собой cumulative stack до `a6be3d3`, который ещё ждёт deploy и smoke-check.

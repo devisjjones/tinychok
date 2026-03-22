@@ -7,8 +7,8 @@
 - текущая рабочая ветка для staging deploy: `codex/staging-deploy`
 - последняя подтверждённая staging-выкладка: `1b8df3f`
 - commit message подтверждённой staging-выкладки: `Polish mobile composer and refresh staging docs`
-- последний продуктовый batch в ветке после этого: `a21f0d1`
-- commit message последнего продуктового batch: `Expand group creation and seed test fixtures`
+- последний продуктовый batch в ветке после этого: `a6be3d3`
+- commit message последнего продуктового batch: `Add threads, sound controls, and composer polish`
 - staging VM по-прежнему нельзя считать актуальной по `HEAD`, пока не будет отдельно задеплоен и проверен весь накопившийся stack после `1b8df3f`
 
 Если продолжать в новой ветке, безопасная точка старта:
@@ -33,7 +33,7 @@
 - баг с seeded mock history для реальных staging-аккаунтов уже исправлен
 - фикс сортировки чатов по latest activity уже включён в staging
 - staging deploy до `1b8df3f` уже подтверждён владельцем проекта
-- commits `1a037b9`, `30a8256`, `2bf7a1e` и `a21f0d1` пока в staging не подтверждены
+- commits `1a037b9`, `30a8256`, `2bf7a1e`, `a21f0d1` и `a6be3d3` пока в staging не подтверждены
 - после `npm ci`, `npm run build`, `sudo systemctl restart tinychok-staging` и `sudo rsync -av --delete dist/ /var/www/tinychok-staging/` владелец проекта подтвердил, что staging работает
 
 ## Последний подтверждённый change batch
@@ -153,7 +153,35 @@ Operational note:
   - текущие mock contacts заведены как backend test accounts с явным флагом `isTestEntity`
   - в non-production bootstrap теперь автоматически попадают тестовые аккаунты, группы и каналы
   - добавлены `10` тестовых subscribed channels, у каждого по `20` тестовых сообщений
-  - production startup автоматически вычищает все test fixtures из runtime state
+- production startup автоматически вычищает все test fixtures из runtime state
+
+### `a6be3d3` `Add threads, sound controls, and composer polish`
+
+- threads / comments:
+  - у сообщений в группах и каналах появились треды с отдельным экраном комментариев
+  - в меню сообщения добавлен пункт `Прокомментировать`
+  - под сообщениями показывается плашка с количеством комментариев и иконкой `root-50.png`
+  - если комментарии выключены, кнопка остаётся видимой, но показывает notice `В канале выключены комментарии` / `В группе выключены комментарии`
+- comment permissions and blacklist:
+  - в настройках групп и каналов добавлены режимы комментариев: выключены / для всех / только для премиум
+  - для групп и каналов добавлен `Чёрный список`
+  - пользователь из blacklist может читать, но не может писать сообщения и комментарии
+- group and channel management:
+  - в настройках группы вместо прямой destructive-кнопки добавлено `Управление группой`
+  - из `Управления группой` можно передать владельца и удалить группу
+  - при удалении канала теперь backend удаляет и все subscriber copies / posts, чтобы канал не оставался читатьcя после удаления
+  - владелец канала может публиковать сообщения прямо в канал
+- seeded fixtures:
+  - в test groups и test channels появились seeded треды с тестовыми комментариями
+  - comment modes разведены по fixture-данным: часть комнат без комментариев, часть для всех, часть только для premium
+- sound settings and composer polish:
+  - `public/sfx/jump.wav` проигрывается на отправку сообщений
+  - `public/sfx/take.wav` проигрывается на входящее сообщение в открытом личном чате
+  - в настройках профиля появился чек-бокс `Выключить звуки`
+  - send-кнопка заменена на иконку `sent.png`
+  - attach-кнопка переведена на `attach.png`, убран фоновый capsule, добавлен tint-filter
+  - send и attach встроены внутрь поля ввода и выровнены в правом нижнем углу composer-а
+  - у composer убрана внешняя фоновая подложка, поджаты нижние отступы комнаты
 
 Весь этот stack уже собран локально через `npm run build`, но staging-подтверждения для него ещё нет.
 
@@ -231,7 +259,7 @@ tinychok-staging-deploy
 - базовый staging rollout уже закрыт
 - access guard уже включён и после последней выкладки не менялся
 - текущая подтверждённая staging-точка старта: `1b8df3f`
-- следующий непроверенный deploy-candidate: cumulative stack до `a21f0d1`
+- следующий непроверенный deploy-candidate: cumulative stack до `a6be3d3`
 - следующую работу выбирать уже из продуктовых/bugfix задач, а не из базовой staging-инфраструктуры
 - после следующего подтверждённого deploy обновлять этот файл, если commit staging-состояния поменялся
 

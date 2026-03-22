@@ -227,6 +227,7 @@ const DELIVERY_FAILURE_TIMEOUT_MS = 15_000
 const failedDirectMessagesStorageKeyPrefix = 'tinychok.failed-direct'
 const failedGroupMessagesStorageKeyPrefix = 'tinychok.failed-group'
 const jumpSoundPath = '/sfx/jump.wav'
+const takeSoundPath = '/sfx/take.wav'
 
 function getFailedDirectMessagesStorageKey(identifier: string) {
   return `${failedDirectMessagesStorageKeyPrefix}:${identifier}`
@@ -1591,13 +1592,21 @@ function App() {
     window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
   }, [persistSession])
 
-  const playJumpSound = useCallback(() => {
+  const playAudioCue = useCallback((path: string) => {
     if (typeof window === 'undefined' || session?.soundsDisabled) return
 
-    const audio = new window.Audio(jumpSoundPath)
+    const audio = new window.Audio(path)
     audio.volume = 0.72
     void audio.play().catch(() => {})
   }, [session?.soundsDisabled])
+
+  const playSendSound = useCallback(() => {
+    playAudioCue(jumpSoundPath)
+  }, [playAudioCue])
+
+  const playReceiveSound = useCallback(() => {
+    playAudioCue(takeSoundPath)
+  }, [playAudioCue])
 
   const mergeDirectOutboxMessagesIntoChats = useCallback((snapshotChats: AppSnapshot['chats']) => {
     const queuedMessages = pendingDirectMessagesRef.current
@@ -2025,13 +2034,13 @@ function App() {
         )
 
         if (hasIncomingMessages) {
-          playJumpSound()
+          playReceiveSound()
         }
       }
     }
 
     previousChatsRef.current = chats
-  }, [activeChatId, chats, playJumpSound])
+  }, [activeChatId, chats, playReceiveSound])
 
   async function submitPhoneStep() {
     const normalized = normalizeIdentifier(identifier)
@@ -3172,7 +3181,7 @@ function App() {
 
     if (!text && !attachment) return
 
-    playJumpSound()
+    playSendSound()
 
     const localId = getNextOptimisticMessageId()
     const createdAt = new Date().toISOString()
@@ -3257,7 +3266,7 @@ function App() {
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
     if (!text && !attachment) return
 
-    playJumpSound()
+    playSendSound()
 
     const localId = getNextOptimisticMessageId()
     const createdAt = new Date().toISOString()
@@ -3312,7 +3321,7 @@ function App() {
     const text = (channelPostDrafts[currentSubscriptionChannel.id] ?? '').trim()
     if (!text) return
 
-    playJumpSound()
+    playSendSound()
 
     setChannelPostBusy(true)
     setChannelPostError('')
@@ -4071,7 +4080,7 @@ function App() {
     const text = threadDraft.trim()
     if (!text || !threadTarget) return
 
-    playJumpSound()
+    playSendSound()
 
     setThreadBusy(true)
     setThreadError('')
