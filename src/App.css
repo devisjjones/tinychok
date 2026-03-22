@@ -1854,6 +1854,13 @@
   gap: 12px;
 }
 
+.settings-save-button {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+
 .settings-consent-toggle {
   justify-self: start;
 }

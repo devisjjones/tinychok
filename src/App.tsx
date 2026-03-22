@@ -203,6 +203,11 @@ type PendingGroupMessage = {
   retryCount: number
 }
 
+type ProfileSettingsDraft = Pick<
+  Session,
+  'displayName' | 'surname' | 'nickname' | 'status' | 'avatarImage' | 'soundsDisabled'
+>
+
 function getSyntheticChannelId(seed: string) {
   let hash = 0
 
@@ -235,6 +240,17 @@ function getFailedDirectMessagesStorageKey(identifier: string) {
 
 function getFailedGroupMessagesStorageKey(identifier: string) {
   return `${failedGroupMessagesStorageKeyPrefix}:${identifier}`
+}
+
+function buildProfileSettingsDraft(session: Session): ProfileSettingsDraft {
+  return {
+    avatarImage: session.avatarImage,
+    displayName: session.displayName,
+    nickname: session.nickname ?? '',
+    soundsDisabled: Boolean(session.soundsDisabled),
+    status: session.status ?? '',
+    surname: session.surname ?? '',
+  }
 }
 
 function serializeAttachmentDraft(
@@ -599,9 +615,6 @@ function App() {
     session: loadSession(),
     subscriptionChannels: initialSubscribedChannels,
   })
-  const sessionMutationTimeoutRef = useRef<number | null>(null)
-  const pendingSessionPatchRef = useRef<UpdateSessionBody>({})
-  const suppressSessionSnapshotSyncRef = useRef(false)
   const channelMutationTimeoutsRef = useRef(new Map<number, number>())
   const pendingChannelPatchesRef = useRef(new Map<number, UpdateManagedChannelBody>())
   const suppressChannelSnapshotSyncRef = useRef(false)
@@ -637,6 +650,13 @@ function App() {
   const [authExistingAccount, setAuthExistingAccount] = useState<Pick<Account, 'displayName' | 'surname'> | null>(null)
   const [authBlockedNoticeOpen, setAuthBlockedNoticeOpen] = useState(false)
   const [session, setSession] = useState<Session | null>(() => loadSession())
+  const [profileSettingsDraft, setProfileSettingsDraft] = useState<ProfileSettingsDraft | null>(() => {
+    const storedSession = loadSession()
+    return storedSession ? buildProfileSettingsDraft(storedSession) : null
+  })
+  const [profileSettingsBusy, setProfileSettingsBusy] = useState(false)
+  const [profileSettingsError, setProfileSettingsError] = useState('')
+  const [confirmProfileSettingsLeaveOpen, setConfirmProfileSettingsLeaveOpen] = useState(false)
   const [backendReady, setBackendReady] = useState(false)
   const [confirmingLogout, setConfirmingLogout] = useState(false)
   const [bottomSection, setBottomSection] = useState<'chats' | 'contacts'>('chats')
@@ -1182,8 +1202,30 @@ function App() {
   const totalChannelNotifications = subscriptionChannels.reduce((sum, channel) => sum + channel.unread, 0)
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
   const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
+  const profilePreviewSession =
+    session && profileSettingsDraft
+      ? {
+          ...session,
+          ...profileSettingsDraft,
+        }
+      : session
   const sessionName = session ? formatSessionName(session) : ''
   const sessionAvatarLabel = session?.displayName.trim().slice(0, 1).toUpperCase() || 'Я'
+  const profileSettingsName = profilePreviewSession ? formatSessionName(profilePreviewSession) : ''
+  const profileSettingsAvatarLabel =
+    profilePreviewSession?.displayName.trim().slice(0, 1).toUpperCase() || 'Я'
+  const effectiveProfileSoundsDisabled = quietMode || Boolean(profileSettingsDraft?.soundsDisabled)
+  const profileSettingsDirty =
+    session !== null &&
+    profileSettingsDraft !== null &&
+    (
+      sanitizePersonField(profileSettingsDraft.displayName, displayNameFieldMaxLength) !== session.displayName ||
+      sanitizePersonField(profileSettingsDraft.surname ?? '', surnameFieldMaxLength) !== (session.surname ?? '') ||
+      normalizeNickname(profileSettingsDraft.nickname ?? '') !== (session.nickname ?? '') ||
+      sanitizeStatusField(profileSettingsDraft.status ?? '') !== (session.status ?? '') ||
+      (profileSettingsDraft.avatarImage?.trim() || undefined) !== session.avatarImage ||
+      Boolean(profileSettingsDraft.soundsDisabled) !== Boolean(session.soundsDisabled)
+    )
   const creatingGroupMemberLimit = sessionHasPremium ? premiumGroupMemberLimit : defaultGroupMemberLimit
   const selectedGroupCreateChats = creatableGroupChats.filter((chat) =>
     creatingGroupMemberChatIds.includes(chat.id),
@@ -1530,6 +1572,27 @@ function App() {
     return () => window.removeEventListener('resize', handleResize)
   }, [adjustAccountNameFontSize, adjustAccountStatusFontSize, isRailVisible, session?.status, sessionName])
 
+  useEffect(() => {
+    if (!session) {
+      setProfileSettingsDraft(null)
+      setProfileSettingsBusy(false)
+      setProfileSettingsError('')
+      return
+    }
+
+    setProfileSettingsDraft(buildProfileSettingsDraft(session))
+    setProfileSettingsBusy(false)
+    setProfileSettingsError('')
+  }, [
+    session?.identifier,
+    session?.displayName,
+    session?.surname,
+    session?.nickname,
+    session?.status,
+    session?.avatarImage,
+    session?.soundsDisabled,
+  ])
+
   const persistSession = useCallback((nextSession: Session | null) => {
     setSession(nextSession)
 
@@ -1593,12 +1656,12 @@ function App() {
   }, [persistSession])
 
   const playAudioCue = useCallback((path: string) => {
-    if (typeof window === 'undefined' || session?.soundsDisabled) return
+    if (typeof window === 'undefined' || quietMode || session?.soundsDisabled) return
 
     const audio = new window.Audio(path)
     audio.volume = 0.72
     void audio.play().catch(() => {})
-  }, [session?.soundsDisabled])
+  }, [quietMode, session?.soundsDisabled])
 
   const playSendSound = useCallback(() => {
     playAudioCue(jumpSoundPath)
@@ -1758,47 +1821,6 @@ function App() {
     }
   }, [applySnapshot])
 
-  const scheduleSessionMutation = useCallback((patch: UpdateSessionBody) => {
-    // Profile inputs are edited character-by-character, so they use a dedicated debounce path
-    // instead of pushing a full snapshot on every keystroke.
-    if (!backendReady || !session?.sessionToken) return
-
-    if (hasPendingOutgoingMessages) {
-      return
-    }
-
-    suppressSessionSnapshotSyncRef.current = true
-    pendingSessionPatchRef.current = {
-      ...pendingSessionPatchRef.current,
-      ...patch,
-    }
-
-    if (sessionMutationTimeoutRef.current !== null) {
-      window.clearTimeout(sessionMutationTimeoutRef.current)
-    }
-
-    sessionMutationTimeoutRef.current = window.setTimeout(() => {
-      const nextPatch = pendingSessionPatchRef.current
-      const sessionToken = latestSnapshotRef.current?.session.sessionToken
-
-      pendingSessionPatchRef.current = {}
-      sessionMutationTimeoutRef.current = null
-      suppressSessionSnapshotSyncRef.current = false
-
-      if (!sessionToken || Object.keys(nextPatch).length === 0) return
-
-      void (async () => {
-        try {
-          const response = await updateSessionRequest(sessionToken, nextPatch)
-          applySnapshot(response.snapshot)
-        } catch (error) {
-          console.error('Failed to sync session mutation', error)
-          await fallbackSaveCurrentSnapshot('session mutation')
-        }
-      })()
-    }, 320)
-  }, [applySnapshot, backendReady, fallbackSaveCurrentSnapshot, session?.sessionToken])
-
   const scheduleManagedChannelMutation = useCallback(
     (channelId: number, patch: UpdateManagedChannelBody) => {
       // Channel detail fields follow the same pattern as profile fields: local form state first,
@@ -1845,18 +1867,11 @@ function App() {
   useEffect(() => {
     if (session?.sessionToken) return
 
-    if (sessionMutationTimeoutRef.current !== null) {
-      window.clearTimeout(sessionMutationTimeoutRef.current)
-      sessionMutationTimeoutRef.current = null
-    }
-
     channelMutationTimeoutsRef.current.forEach((timeoutId) => {
       window.clearTimeout(timeoutId)
     })
     channelMutationTimeoutsRef.current.clear()
-    pendingSessionPatchRef.current = {}
     pendingChannelPatchesRef.current.clear()
-    suppressSessionSnapshotSyncRef.current = false
     suppressChannelSnapshotSyncRef.current = false
   }, [session?.sessionToken])
 
@@ -1963,14 +1978,12 @@ function App() {
       (sessionChanged || channelsChanged)
 
     if (onlySessionAndChannelChanged) {
-      // If the change is already traveling through dedicated session/channel mutations,
-      // we skip the legacy full snapshot save to avoid duplicate writes.
-      const sessionHandledByDedicatedMutation =
-        !sessionChanged || suppressSessionSnapshotSyncRef.current
-      const channelsHandledByDedicatedMutation =
-        !channelsChanged || suppressChannelSnapshotSyncRef.current
+      // Channel detail fields still travel through dedicated debounced mutations.
+      if (sessionChanged && !channelsChanged) {
+        return
+      }
 
-      if (sessionHandledByDedicatedMutation && channelsHandledByDedicatedMutation) {
+      if (!channelsChanged || suppressChannelSnapshotSyncRef.current) {
         return
       }
     }
@@ -3061,7 +3074,7 @@ function App() {
   }
 
   function getCurrentProfileAvatarPreview() {
-    return profileAvatarPickerDraft?.previewUrl ?? session?.avatarImage ?? null
+    return profileAvatarPickerDraft?.previewUrl ?? profileSettingsDraft?.avatarImage ?? session?.avatarImage ?? null
   }
 
   function closeProfileAvatarPicker(options?: { preserveCurrentDraft?: boolean }) {
@@ -4268,51 +4281,90 @@ function App() {
     applyLocalTogglePinnedChat(chatId)
   }
 
-  function updateSessionProfile(patch: Partial<Session>) {
+  function updateSessionProfile(patch: Partial<ProfileSettingsDraft>) {
+    setProfileSettingsError('')
+    setProfileSettingsDraft((currentDraft) => {
+      if (!currentDraft) return currentDraft
+
+      return {
+        ...currentDraft,
+        ...patch,
+      }
+    })
+  }
+
+  function discardProfileSettingsDraft() {
     if (!session) return
 
-    const nextDisplayName =
-      patch.displayName !== undefined
-        ? sanitizePersonField(patch.displayName, displayNameFieldMaxLength)
-        : session.displayName
-    const nextSurname =
-      patch.surname !== undefined
-        ? sanitizePersonField(patch.surname, surnameFieldMaxLength)
-        : session.surname ?? ''
-    const nextNickname =
-      patch.nickname !== undefined
-        ? normalizeNickname(patch.nickname)
-        : session.nickname ?? ''
-    const nextStatus =
-      patch.status !== undefined ? sanitizeStatusField(patch.status) : session.status ?? ''
-    const nextAvatarImage =
-      patch.avatarImage !== undefined ? patch.avatarImage?.trim() || undefined : session.avatarImage
-    const nextSoundsDisabled =
-      patch.soundsDisabled !== undefined ? Boolean(patch.soundsDisabled) : Boolean(session.soundsDisabled)
+    setProfileSettingsDraft(buildProfileSettingsDraft(session))
+    setProfileSettingsBusy(false)
+    setProfileSettingsError('')
+  }
 
-    if (nextDisplayName === '') return
+  function leaveSettingsToMain(options?: { discardProfileDraft?: boolean }) {
+    if (options?.discardProfileDraft) {
+      discardProfileSettingsDraft()
+    }
+
+    setConfirmProfileSettingsLeaveOpen(false)
+    setStageView('main')
+    setConfirmingLogout(false)
+  }
+
+  async function saveProfileSettings() {
+    if (!session || !profileSettingsDraft || !profileSettingsDirty) return
+
+    const nextDisplayName = sanitizePersonField(profileSettingsDraft.displayName, displayNameFieldMaxLength)
+    const nextSurname = sanitizePersonField(profileSettingsDraft.surname ?? '', surnameFieldMaxLength)
+    const nextNickname = normalizeNickname(profileSettingsDraft.nickname ?? '')
+    const nextStatus = sanitizeStatusField(profileSettingsDraft.status ?? '')
+    const nextAvatarImage = profileSettingsDraft.avatarImage?.trim() || undefined
+    const nextSoundsDisabled = Boolean(profileSettingsDraft.soundsDisabled)
+
+    if (!nextDisplayName) {
+      setProfileSettingsError('Имя не может быть пустым.')
+      return
+    }
+
+    const patch: UpdateSessionBody = {
+      avatarImage: nextAvatarImage,
+      displayName: nextDisplayName,
+      nickname: nextNickname,
+      soundsDisabled: nextSoundsDisabled,
+      status: nextStatus,
+      surname: nextSurname,
+    }
 
     const nextSession: Session = {
       ...session,
       avatarImage: nextAvatarImage,
       displayName: nextDisplayName,
-      surname: nextSurname,
       nickname: nextNickname,
       soundsDisabled: nextSoundsDisabled,
       status: nextStatus,
-      premium: session.premium ?? true,
-      premiumExpiresAt: normalizePremiumExpiry(session.premium ?? true, session.premiumExpiresAt),
+      surname: nextSurname,
     }
 
-    syncSession(nextSession)
-    scheduleSessionMutation({
-      displayName: nextDisplayName,
-      nickname: nextNickname,
-      soundsDisabled: nextSoundsDisabled,
-      status: nextStatus,
-      surname: nextSurname,
-      ...(patch.avatarImage !== undefined ? { avatarImage: nextAvatarImage } : {}),
-    })
+    setProfileSettingsBusy(true)
+    setProfileSettingsError('')
+
+    try {
+      if (backendReady && session.sessionToken) {
+        const response = await updateSessionRequest(session.sessionToken, patch)
+        applySnapshot(response.snapshot)
+        setProfileSettingsBusy(false)
+      } else {
+        syncSession(nextSession)
+        setProfileSettingsBusy(false)
+      }
+
+      return true
+    } catch (error) {
+      console.error('Failed to save profile settings', error)
+      setProfileSettingsError(error instanceof Error ? error.message : 'Не удалось сохранить настройки.')
+      setProfileSettingsBusy(false)
+      return false
+    }
   }
 
   function blockChat(chatId: number) {
@@ -5235,23 +5287,15 @@ function App() {
         }
       }
 
-      if (backendReady && session.sessionToken) {
-        try {
-          const response = await updateSessionRequest(session.sessionToken, { avatarImage: nextAvatarImage })
-          applySnapshot(response.snapshot)
-        } catch (error) {
-          console.error('Failed to sync profile avatar mutation', error)
-          syncSession({
-            ...session,
-            avatarImage: nextAvatarImage,
-          })
-        }
-      } else {
-        syncSession({
-          ...session,
-          avatarImage: nextAvatarImage,
-        })
-      }
+      setProfileSettingsError('')
+      setProfileSettingsDraft((currentDraft) =>
+        currentDraft
+          ? {
+              ...currentDraft,
+              avatarImage: nextAvatarImage,
+            }
+          : currentDraft,
+      )
 
       closeProfileAvatarPicker({ preserveCurrentDraft })
     } catch (error) {
@@ -7383,10 +7427,10 @@ function App() {
                     <div className="settings-profile-header">
                       <div className="settings-profile-avatar-stack">
                         <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: '#8c5738' }}>
-                          {session.avatarImage ? (
-                            <img src={session.avatarImage} alt="" className="channel-avatar-image" />
+                          {profilePreviewSession?.avatarImage ? (
+                            <img src={profilePreviewSession.avatarImage} alt="" className="channel-avatar-image" />
                           ) : (
-                            sessionAvatarLabel
+                            profileSettingsAvatarLabel
                           )}
                         </span>
                         <button
@@ -7398,7 +7442,7 @@ function App() {
                         </button>
                       </div>
                       <div className="settings-profile-copy">
-                        <h2 ref={settingsProfileNameRef}>{formatSessionName(session)}</h2>
+                        <h2 ref={settingsProfileNameRef}>{profileSettingsName}</h2>
                         <p className="settings-identity">{session.identifier}</p>
                       </div>
                     </div>
@@ -7419,7 +7463,7 @@ function App() {
                     <input
                     type="text"
                     className="settings-input"
-                    value={session.displayName}
+                    value={profileSettingsDraft?.displayName ?? ''}
                     maxLength={displayNameFieldMaxLength}
                     onChange={(event) =>
                       updateSessionProfile({ displayName: event.target.value })
@@ -7431,7 +7475,7 @@ function App() {
                     <input
                     type="text"
                     className="settings-input"
-                    value={session.surname ?? ''}
+                    value={profileSettingsDraft?.surname ?? ''}
                     maxLength={surnameFieldMaxLength}
                     onChange={(event) =>
                       updateSessionProfile({ surname: event.target.value })
@@ -7443,7 +7487,7 @@ function App() {
                     <input
                       type="text"
                       className="settings-input"
-                      value={session.status ?? ''}
+                      value={profileSettingsDraft?.status ?? ''}
                       placeholder="Статус не задан"
                       maxLength={statusFieldMaxLength}
                       onChange={(event) =>
@@ -7458,7 +7502,7 @@ function App() {
                       <input
                         type="text"
                         className="settings-input handle-input"
-                        value={session.nickname ?? ''}
+                        value={profileSettingsDraft?.nickname ?? ''}
                         placeholder="nickname"
                         maxLength={nicknameFieldMaxLength}
                         onChange={(event) =>
@@ -7473,7 +7517,8 @@ function App() {
                     <label className="settings-checkbox">
                       <input
                         type="checkbox"
-                        checked={Boolean(session?.soundsDisabled)}
+                        checked={effectiveProfileSoundsDisabled}
+                        disabled={quietMode}
                         onChange={(event) =>
                           updateSessionProfile({ soundsDisabled: event.target.checked })
                         }
@@ -7586,13 +7631,32 @@ function App() {
                 </div>
               )}
 
+              {settingsView === 'profile' && profileSettingsDirty ? (
+                <button
+                  type="button"
+                  className="send-button settings-save-button"
+                  onClick={() => {
+                    void saveProfileSettings()
+                  }}
+                  disabled={profileSettingsBusy}
+                >
+                  {profileSettingsBusy ? 'Сохраняем...' : 'Сохранить'}
+                </button>
+              ) : null}
+              {settingsView === 'profile' && profileSettingsError ? (
+                <p className="auth-error">{profileSettingsError}</p>
+              ) : null}
               <div className="settings-actions">
                 <button
                   type="button"
                   className="soft-button"
                   onClick={() => {
-                    setStageView('main')
-                    setConfirmingLogout(false)
+                    if (settingsView === 'profile' && profileSettingsDirty) {
+                      setConfirmProfileSettingsLeaveOpen(true)
+                      return
+                    }
+
+                    leaveSettingsToMain()
                   }}
                 >
                   Назад
@@ -7644,6 +7708,46 @@ function App() {
               </div>
             </div>
           </section>
+        ) : null}
+
+        {confirmProfileSettingsLeaveOpen ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть подтверждение сохранения настроек профиля"
+              onClick={() => setConfirmProfileSettingsLeaveOpen(false)}
+            />
+            <div className="room-confirm room-confirm-compact">
+              <p className="room-confirm-copy">Сохранить изменения настроек профиля?</p>
+              <div className="room-confirm-actions room-confirm-actions-dual">
+                <button
+                  type="button"
+                  className="room-confirm-button room-confirm-danger"
+                  onClick={() => {
+                    leaveSettingsToMain({ discardProfileDraft: true })
+                  }}
+                >
+                  Нет
+                </button>
+                <button
+                  type="button"
+                  className="room-confirm-button room-confirm-button-primary"
+                  disabled={profileSettingsBusy}
+                  onClick={() => {
+                    void (async () => {
+                      const saved = await saveProfileSettings()
+                      if (saved) {
+                        leaveSettingsToMain()
+                      }
+                    })()
+                  }}
+                >
+                  Да
+                </button>
+              </div>
+            </div>
+          </>
         ) : null}
 
         {isPremiumView ? (
@@ -8149,6 +8253,15 @@ function App() {
                             }}
                           >
                             Удалить канал
+                          </button>
+                        </div>
+                        <div className="room-confirm-actions room-confirm-actions-single">
+                          <button
+                            type="button"
+                            className="room-confirm-button"
+                            onClick={() => setChannelManagementOpenId(null)}
+                          >
+                            Отмена
                           </button>
                         </div>
                       </div>
@@ -9640,26 +9753,40 @@ function App() {
                 </div>
               </>
             ) : (
-              <div className="room-forward-list">
-                <button
-                  type="button"
-                  className="room-forward-item"
-                  onClick={() => setGroupTransferOwnerOpen(true)}
-                >
-                  Передать владельца
-                </button>
-                <button
-                  type="button"
-                  className="room-forward-item room-confirm-danger"
-                  onClick={() => {
-                    setGroupManagementOpen(false)
-                    closeGroupSettingsDialog()
-                    setConfirmingLeaveGroupId(activeGroup.id)
-                  }}
-                >
-                  Удалить группу
-                </button>
-              </div>
+              <>
+                <div className="room-forward-list">
+                  <button
+                    type="button"
+                    className="room-forward-item"
+                    onClick={() => setGroupTransferOwnerOpen(true)}
+                  >
+                    Передать владельца
+                  </button>
+                  <button
+                    type="button"
+                    className="room-forward-item room-confirm-danger"
+                    onClick={() => {
+                      setGroupManagementOpen(false)
+                      closeGroupSettingsDialog()
+                      setConfirmingLeaveGroupId(activeGroup.id)
+                    }}
+                  >
+                    Удалить группу
+                  </button>
+                </div>
+                <div className="room-confirm-actions room-confirm-actions-single">
+                  <button
+                    type="button"
+                    className="room-confirm-button"
+                    onClick={() => {
+                      setGroupManagementOpen(false)
+                      setGroupTransferOwnerOpen(false)
+                    }}
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </>
