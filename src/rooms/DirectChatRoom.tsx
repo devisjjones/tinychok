@@ -370,22 +370,22 @@ export function DirectChatRoom({
                   aria-label="Добавить файл"
                   title={attachmentName || 'Добавить файл'}
                 >
-                  <img src="/icons/attach100.png" alt="" />
+                  <img src="/icons/attach.png" alt="" />
                 </button>
+                {hasComposerPayload ? (
+                  <button
+                    type="submit"
+                    className="send-button composer-send"
+                    aria-label="Отправить"
+                    title="Отправить"
+                  >
+                    <span className="composer-send-icon" aria-hidden="true">
+                      <img src="/icons/sent.png" alt="" />
+                    </span>
+                  </button>
+                ) : null}
               </div>
             </div>
-            {hasComposerPayload ? (
-              <button
-                type="submit"
-                className="send-button composer-send"
-                aria-label="Отправить"
-                title="Отправить"
-              >
-                <span className="composer-send-icon" aria-hidden="true">
-                  &rarr;
-                </span>
-              </button>
-            ) : null}
           </div>
         </div>
       </form>

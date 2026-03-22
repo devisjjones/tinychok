@@ -16,8 +16,11 @@ import type {
   RealtimeEvent,
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
+  SendManagedChannelPostBody,
   SendDirectMessageBody,
   SendGroupMessageBody,
+  SendGroupThreadCommentBody,
+  SendSubscriptionChannelThreadCommentBody,
   UpdateDialogBody,
   UpdateGroupBody,
   UpdateManagedChannelBody,
@@ -421,6 +424,33 @@ export async function markGroupRead(sessionToken: string, groupId: number) {
   return normalizeMutationResponse(payload)
 }
 
+export async function sendGroupThreadComment(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+  body: SendGroupThreadCommentBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/comments`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function sendManagedChannelPost(
+  sessionToken: string,
+  channelId: number,
+  body: SendManagedChannelPostBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/managed-channels/${channelId}/posts`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function markSubscriptionChannelRead(sessionToken: string, channelId: number) {
   const response = await fetch(
     makeHttpUrl(`/api/subscription-channels/${channelId}/read`),
@@ -438,6 +468,20 @@ export async function updateSubscriptionChannel(
   const response = await fetch(
     makeHttpUrl(`/api/subscription-channels/${channelId}`),
     makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function sendSubscriptionChannelThreadComment(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+  body: SendSubscriptionChannelThreadCommentBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/comments`),
+    makeJsonRequestInit('POST', body, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)

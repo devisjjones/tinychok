@@ -11,6 +11,7 @@ export function loadAccounts() {
   try {
     return (JSON.parse(raw) as Account[]).map((account) => ({
       ...account,
+      soundsDisabled: Boolean(account.soundsDisabled),
       premium: account.premium ?? true,
       premiumExpiresAt: normalizePremiumExpiry(account.premium ?? true, account.premiumExpiresAt),
       blockedContactIds: account.blockedContactIds ?? [],
@@ -30,6 +31,7 @@ export function loadSession() {
     const parsed = JSON.parse(raw) as Session
     return {
       ...parsed,
+      soundsDisabled: Boolean(parsed.soundsDisabled),
       premium: parsed.premium ?? true,
       premiumExpiresAt: normalizePremiumExpiry(parsed.premium ?? true, parsed.premiumExpiresAt),
       blockedContactIds: parsed.blockedContactIds ?? [],

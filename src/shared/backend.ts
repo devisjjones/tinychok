@@ -90,7 +90,10 @@ export type UploadMediaResponse = {
 }
 
 export type UpdateSessionBody = Partial<
-  Pick<Session, 'displayName' | 'surname' | 'nickname' | 'status' | 'blockedContactIds' | 'avatarImage'>
+  Pick<
+    Session,
+    'displayName' | 'surname' | 'nickname' | 'status' | 'blockedContactIds' | 'avatarImage' | 'soundsDisabled'
+  >
 >
 
 export type SendDirectMessageBody = {
@@ -126,13 +129,41 @@ export type SendGroupMessageBody = {
   text: string
 }
 
-export type UpdateGroupBody = Partial<Pick<GroupPreview, 'muted' | 'avatarImage'>>
+export type SendGroupThreadCommentBody = {
+  text: string
+}
+
+export type UpdateGroupBody = Partial<
+  Pick<
+    GroupPreview,
+    | 'muted'
+    | 'avatarImage'
+    | 'creatorIdentifier'
+    | 'title'
+    | 'commentsEnabledForAll'
+    | 'commentsEnabledForPremium'
+    | 'commentBlacklistIdentifiers'
+  >
+>
 
 export type InviteGroupMemberBody = {
   dialogId: number
 }
 
-export type UpdateSubscriptionChannelBody = Partial<Pick<SubscriptionChannel, 'muted'>>
+export type SendSubscriptionChannelThreadCommentBody = {
+  text: string
+}
+
+export type SendManagedChannelPostBody = {
+  text: string
+}
+
+export type UpdateSubscriptionChannelBody = Partial<
+  Pick<
+    SubscriptionChannel,
+    'muted' | 'commentsEnabledForAll' | 'commentsEnabledForPremium' | 'commentBlacklistIdentifiers'
+  >
+>
 
 export type ReportSubscriptionChannelBody = {
   reason: ComplaintReason
@@ -141,6 +172,9 @@ export type ReportSubscriptionChannelBody = {
 export type CreateManagedChannelBody = {
   avatarImage?: string
   avatarTone: string
+  commentBlacklistIdentifiers?: string[]
+  commentsEnabledForAll?: boolean
+  commentsEnabledForPremium?: boolean
   description: string
   directLink: string
   title: string
@@ -150,7 +184,16 @@ export type CreateManagedChannelBody = {
 export type UpdateManagedChannelBody = Partial<
   Pick<
     Channel,
-    'title' | 'directLink' | 'description' | 'visibility' | 'avatarTone' | 'avatarImage' | 'status'
+    | 'title'
+    | 'directLink'
+    | 'description'
+    | 'visibility'
+    | 'avatarTone'
+    | 'avatarImage'
+    | 'status'
+    | 'commentsEnabledForAll'
+    | 'commentsEnabledForPremium'
+    | 'commentBlacklistIdentifiers'
   >
 >
 
@@ -161,6 +204,9 @@ export type CreateManagedChannelResponse = MutationResponse & {
 export type CreateGroupBody = {
   accent?: string
   avatarImage?: string
+  commentBlacklistIdentifiers?: string[]
+  commentsEnabledForAll?: boolean
+  commentsEnabledForPremium?: boolean
   handle?: string
   memberDialogIds: number[]
   title: string

@@ -9,7 +9,15 @@ type SubscriptionChannelRoomProps = {
   messageFeedRef: RefObject<HTMLDivElement | null>
   onBack: () => void
   onOpenChannelActions?: (event: MouseEvent<HTMLButtonElement>) => void
+  onOpenThread: (postId: number) => void
   onPostSelect: (event: MouseEvent<HTMLButtonElement>, postId: number) => void
+  publisher?: {
+    draft: string
+    error?: string
+    isBusy?: boolean
+    onDraftChange: (value: string) => void
+    onSubmit: () => void
+  }
   subscriptionAction?: {
     label: string
     onClick: () => void
@@ -23,7 +31,9 @@ export function SubscriptionChannelRoom({
   messageFeedRef,
   onBack,
   onOpenChannelActions,
+  onOpenThread,
   onPostSelect,
+  publisher,
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
   return (
@@ -79,22 +89,60 @@ export function SubscriptionChannelRoom({
 
         <div className="message-feed" ref={messageFeedRef}>
           {channel.posts.map((post) => (
-            <button
-              key={post.id}
-              type="button"
-              className={
-                activePostId === post.id
-                  ? 'bubble bubble-button channel-post selected'
-                  : 'bubble bubble-button channel-post'
-              }
-              onClick={(event) => onPostSelect(event, post.id)}
-            >
-              <BubbleMessageContent message={post} />
-              <time>{post.time}</time>
-            </button>
+            <div key={post.id} className="threaded-bubble">
+              <button
+                type="button"
+                className={
+                  activePostId === post.id
+                    ? 'bubble bubble-button channel-post selected'
+                    : 'bubble bubble-button channel-post'
+                }
+                onClick={(event) => onPostSelect(event, post.id)}
+              >
+                <BubbleMessageContent message={post} />
+                <time>{post.time}</time>
+              </button>
+              {(post.threadComments?.length ?? 0) > 0 ? (
+                <button type="button" className="thread-pill" onClick={() => onOpenThread(post.id)}>
+                  <img src="/icons/root-50.png" alt="" aria-hidden="true" className="thread-pill-icon" />
+                  <span>{`${post.threadComments?.length ?? 0} комментариев`}</span>
+                </button>
+              ) : null}
+            </div>
           ))}
         </div>
-        {subscriptionAction ? (
+        {publisher ? (
+          <form
+            className="composer"
+            onSubmit={(event) => {
+              event.preventDefault()
+              publisher.onSubmit()
+            }}
+          >
+            <div className="composer-input">
+              <div className="composer-entry">
+                <div className="composer-field">
+                  <textarea
+                    rows={1}
+                    placeholder="Напишите сообщение в канал..."
+                    value={publisher.draft}
+                    onChange={(event) => publisher.onDraftChange(event.target.value)}
+                  />
+                  <div className="composer-tools">
+                    {publisher.draft.trim() ? (
+                      <button type="submit" className="send-button composer-send" disabled={publisher.isBusy}>
+                        <span className="composer-send-icon" aria-hidden="true">
+                          <img src="/icons/sent.png" alt="" />
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+            {publisher.error ? <p className="auth-error">{publisher.error}</p> : null}
+          </form>
+        ) : subscriptionAction ? (
           <div className="channel-room-footer">
             <button
               type="button"

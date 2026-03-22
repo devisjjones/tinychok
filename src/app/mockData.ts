@@ -5,6 +5,7 @@ import type {
   GroupPreview,
   SearchResult,
   SubscriptionChannel,
+  ThreadComment,
 } from './types'
 import { makeDraftChannel } from './utils'
 
@@ -439,8 +440,10 @@ function buildGroupParticipant(chatId: number): GroupParticipant {
 
   return {
     accent: chat.accent,
+    favorite: chat.pinned,
     id: chat.id,
     identifier: chat.phone,
+    nickname: chat.handle.replace(/^@+/u, ''),
     online: chat.online,
     premium: chat.premium,
     status: chat.online ? 'в сети' : chat.lastSeen ?? chat.status,
@@ -450,6 +453,126 @@ function buildGroupParticipant(chatId: number): GroupParticipant {
 
 function buildGroupParticipants(chatIds: number[]) {
   return chatIds.map((chatId) => buildGroupParticipant(chatId))
+}
+
+function buildChannelParticipants() {
+  return initialChats.map((chat) => ({
+    accent: chat.accent,
+    favorite: chat.pinned,
+    id: chat.id,
+    identifier: chat.phone,
+    nickname: chat.handle.replace(/^@+/u, ''),
+    online: chat.online,
+    premium: chat.premium,
+    status: chat.online ? 'в сети' : chat.lastSeen ?? chat.status,
+    title: chat.title,
+  })) satisfies GroupParticipant[]
+}
+
+type SeededCommentMode = 'off' | 'all' | 'premium'
+
+const channelCommentModes: Record<number, SeededCommentMode> = {
+  1: 'all',
+  2: 'premium',
+  3: 'off',
+  4: 'all',
+  5: 'all',
+  6: 'off',
+  7: 'premium',
+  8: 'all',
+  9: 'off',
+  10: 'premium',
+}
+
+const groupCommentModes: Record<number, SeededCommentMode> = {
+  1: 'all',
+  2: 'off',
+  3: 'premium',
+}
+
+function buildThreadCommentFromChat(
+  id: number,
+  chatId: number,
+  text: string,
+  time: string,
+): ThreadComment {
+  const chat = initialChats.find((candidate) => candidate.id === chatId)
+
+  return {
+    author: 'them',
+    authorIdentifier: chat?.phone,
+    displayAuthor: chat?.title ?? 'Участник',
+    id,
+    text,
+    time,
+  }
+}
+
+function buildMyThreadComment(id: number, text: string, time: string): ThreadComment {
+  return {
+    author: 'me',
+    id,
+    text,
+    time,
+  }
+}
+
+function buildChannelThreadComments(
+  channelId: number,
+  title: string,
+  postIndex: number,
+): ThreadComment[] | undefined {
+  const mode = channelCommentModes[channelId] ?? 'off'
+
+  if (mode === 'all') {
+    if (postIndex === 0) {
+      return [
+        buildThreadCommentFromChat(
+          1,
+          2,
+          `Под этот пост удобно собирать короткие уточнения по каналу ${title}.`,
+          '22:21',
+        ),
+        buildMyThreadComment(2, 'Оставим тред как тихую ветку без засорения основной ленты.', '22:24'),
+      ]
+    }
+
+    if (postIndex === 4) {
+      return [
+        buildThreadCommentFromChat(1, 3, 'Проверил: карточка треда читается спокойно и без визуального шума.', '20:53'),
+      ]
+    }
+
+    if (postIndex === 9) {
+      return [
+        buildThreadCommentFromChat(1, 1, 'Хорошо бы держать обсуждение именно под этим сообщением.', '18:58'),
+        buildThreadCommentFromChat(2, 5, 'Да, так основной канал не превращается в чат.', '19:02'),
+        buildMyThreadComment(3, 'Согласен. Для длинных обсуждений тред здесь самый понятный сценарий.', '19:07'),
+      ]
+    }
+  }
+
+  if (mode === 'premium') {
+    if (postIndex === 1) {
+      return [
+        buildThreadCommentFromChat(
+          1,
+          6,
+          `Премиум-комментарии под ${title} уже выглядят как отдельная спокойная дискуссия.`,
+          '21:33',
+        ),
+        buildThreadCommentFromChat(2, 3, 'Нормально: читать могут все, писать только премиум-участники.', '21:39'),
+      ]
+    }
+
+    if (postIndex === 6) {
+      return [
+        buildMyThreadComment(1, 'Этот тред оставлен как fixture для проверки premium-only режима.', '19:41'),
+      ]
+    }
+  }
+
+  return undefined
 }
 
 const testChannelDefinitions = [
@@ -576,23 +699,34 @@ const testChannelPostTemplates = [
   'Тестовый пост #{n}: отдельная задача этого канала — дать стабильную тестовую выдачу для чтения и скролла.',
 ]
 
-function buildTestChannelPosts(title: string) {
-  return testChannelTimes.map((time, index) => ({
-    id: index + 1,
-    text: testChannelPostTemplates[index % testChannelPostTemplates.length]
-      .replace('#{n}', String(index + 1))
-      .concat(` Канал: ${title}.`),
-    time,
-  }))
+function buildTestChannelPosts(channelId: number, title: string) {
+  return testChannelTimes.map((time, index) => {
+    const threadComments = buildChannelThreadComments(channelId, title, index)
+
+    return {
+      id: index + 1,
+      text: testChannelPostTemplates[index % testChannelPostTemplates.length]
+        .replace('#{n}', String(index + 1))
+        .concat(` Канал: ${title}.`),
+      threadComments,
+      time,
+    }
+  })
 }
 
 export const initialSubscribedChannels: SubscriptionChannel[] = testChannelDefinitions.map((channel) => {
-  const posts = buildTestChannelPosts(channel.title)
+  const posts = buildTestChannelPosts(channel.id, channel.title)
+  const seededBlacklist = channel.id === 1 || channel.id === 5 ? ['+79673215453'] : []
+  const commentMode = channelCommentModes[channel.id] ?? 'off'
 
   return {
     ...channel,
+    commentBlacklistIdentifiers: seededBlacklist,
+    commentsEnabledForAll: commentMode === 'all',
+    commentsEnabledForPremium: commentMode === 'premium',
     draft: channel.visibility !== 'public',
     isTestEntity: true,
+    participants: buildChannelParticipants(),
     posts,
     preview: `Тестовый канал Tinychok: ${channel.title}. Внутри ${posts.length} сообщений для проверки чтения и скролла.`,
     time: posts[0]?.time ?? '',
@@ -605,6 +739,9 @@ const initialGroupFixtures: GroupPreview[] = [
     title: 'Ночной круг',
     handle: '@night_circle',
     accent: '#8c5738',
+    commentBlacklistIdentifiers: ['+79673215453'],
+    commentsEnabledForAll: groupCommentModes[1] === 'all',
+    commentsEnabledForPremium: groupCommentModes[1] === 'premium',
     preview: 'Группа для спокойных ночных обсуждений продукта и интерфейса.',
     time: '21:24',
     unread: 4,
@@ -617,6 +754,10 @@ const initialGroupFixtures: GroupPreview[] = [
         displayAuthor: 'Мира',
         groupParticipantId: 1,
         text: 'Соберём в этой группе спокойные обсуждения интерфейса и приватных сценариев.',
+        threadComments: [
+          buildThreadCommentFromChat(1, 2, 'Поддерживаю: основную ленту лучше оставить максимально чистой.', '20:55'),
+          buildMyThreadComment(2, 'Да, детали лучше обсуждать прямо под нужным сообщением.', '20:58'),
+        ],
         time: '20:48',
       },
       {
@@ -631,6 +772,10 @@ const initialGroupFixtures: GroupPreview[] = [
         displayAuthor: 'Лев',
         groupParticipantId: 3,
         text: 'Тогда здесь же проверим, как ведёт себя меню действий у сообщений в групповом потоке.',
+        threadComments: [
+          buildThreadCommentFromChat(1, 6, 'Я бы ещё сразу смотрела на unread и тихие нотификации тредов.', '21:28'),
+          buildMyThreadComment(2, 'И на то, как аккуратно выглядит счётчик комментариев под сообщением.', '21:31'),
+        ],
         time: '21:24',
       },
     ],
@@ -640,6 +785,8 @@ const initialGroupFixtures: GroupPreview[] = [
     title: 'Тихий релиз-комитет',
     handle: '@quiet_release_committee',
     accent: '#6eb6ff',
+    commentsEnabledForAll: groupCommentModes[2] === 'all',
+    commentsEnabledForPremium: groupCommentModes[2] === 'premium',
     preview: 'Смотрим свежие сборки, правим тексты и добираем мелкие баги.',
     time: '19:16',
     unread: 0,
@@ -667,6 +814,8 @@ const initialGroupFixtures: GroupPreview[] = [
     title: 'Сигнальная мастерская',
     handle: '@signal_workshop',
     accent: '#82c9a3',
+    commentsEnabledForAll: groupCommentModes[3] === 'all',
+    commentsEnabledForPremium: groupCommentModes[3] === 'premium',
     preview: 'Внутренняя группа по каналам, уведомлениям и сценариям чтения.',
     time: '17:42',
     unread: 2,
@@ -679,6 +828,10 @@ const initialGroupFixtures: GroupPreview[] = [
         displayAuthor: 'Соня',
         groupParticipantId: 2,
         text: 'Нужно накидать несколько черновых сообщений, чтобы группа ощущалась живой, а не пустой.',
+        threadComments: [
+          buildThreadCommentFromChat(1, 18, 'Оставляю это как fixture для premium-only комментариев в группе.', '17:16'),
+          buildThreadCommentFromChat(2, 3, 'Хорошо: читать могут все, писать могут только премиум-участники.', '17:21'),
+        ],
         time: '17:11',
       },
       {

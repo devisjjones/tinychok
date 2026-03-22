@@ -5,12 +5,25 @@ export type MessageAttachment = {
   size: number
 }
 
+export type ThreadComment = {
+  id: number
+  author: 'me' | 'them'
+  authorIdentifier?: string
+  createdAt?: string
+  deliveryId?: string
+  displayAuthor?: string
+  text: string
+  time: string
+}
+
 export type ChannelPost = {
   id: number
   text: string
   time: string
   createdAt?: string
   attachment?: MessageAttachment
+  threadComments?: ThreadComment[]
+  threadId?: string
 }
 
 export type ChannelMessageSource = {
@@ -34,10 +47,12 @@ export type GroupMessageSource = {
 export type GroupParticipant = {
   id: number
   identifier?: string
+  nickname?: string
   title: string
   accent: string
   online?: boolean
   premium?: boolean
+  favorite?: boolean
   status: string
 }
 
@@ -60,6 +75,8 @@ export type Message = {
   groupParticipantId?: number
   sourceChannel?: ChannelMessageSource
   sourceGroup?: GroupMessageSource
+  threadComments?: ThreadComment[]
+  threadId?: string
 }
 
 export type ReplyTarget = {
@@ -102,6 +119,9 @@ export type SubscriptionChannel = {
   title: string
   handle: string
   isTestEntity?: boolean
+  commentsEnabledForAll?: boolean
+  commentsEnabledForPremium?: boolean
+  commentBlacklistIdentifiers?: string[]
   accent: string
   readers: number
   preview: string
@@ -109,6 +129,7 @@ export type SubscriptionChannel = {
   unread: number
   muted?: boolean
   draft?: boolean
+  participants?: GroupParticipant[]
   visibility: 'private' | 'public' | 'closed'
   posts: ChannelPost[]
 }
@@ -121,6 +142,9 @@ export type GroupPreview = {
   avatarImage?: string
   creatorIdentifier?: string
   isTestEntity?: boolean
+  commentsEnabledForAll?: boolean
+  commentsEnabledForPremium?: boolean
+  commentBlacklistIdentifiers?: string[]
   muted?: boolean
   preview: string
   sharedId?: string
@@ -147,6 +171,9 @@ export type Channel = {
   description: string
   avatarTone: string
   avatarImage?: string
+  commentsEnabledForAll?: boolean
+  commentsEnabledForPremium?: boolean
+  commentBlacklistIdentifiers?: string[]
   status: 'draft' | 'active'
   visibility: 'private' | 'public' | 'closed'
 }
@@ -165,6 +192,7 @@ export type Account = {
   nickname?: string
   status?: string
   avatarImage?: string
+  soundsDisabled?: boolean
   isTestEntity?: boolean
   premium?: boolean
   premiumExpiresAt?: string
@@ -179,6 +207,7 @@ export type Session = {
   nickname?: string
   status?: string
   avatarImage?: string
+  soundsDisabled?: boolean
   premium?: boolean
   premiumExpiresAt?: string
   blockedContactIds?: number[]

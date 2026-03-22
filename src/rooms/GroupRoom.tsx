@@ -19,11 +19,13 @@ type GroupRoomProps = {
   onComposerFocus: () => void
   onDraftChange: (value: string) => void
   onMessageSelect: (event: MouseEvent<HTMLButtonElement>, message: Message) => void
+  onOpenThread: (messageId: number) => void
   onOpenLinkedChannel: (sourceChannel: ChannelMessageSource) => void
   onOpenParticipants: () => void
   onOpenSourceChannel: (message: Message) => void
   onOpenAttachmentPicker: () => void
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
+  composerDisabledNotice?: string | null
   onSubmit: () => void | Promise<void>
 }
 
@@ -42,11 +44,13 @@ export function GroupRoom({
   onComposerFocus,
   onDraftChange,
   onMessageSelect,
+  onOpenThread,
   onOpenLinkedChannel,
   onOpenParticipants,
   onOpenSourceChannel,
   onOpenAttachmentPicker,
   resolveLinkedChannelFromMessage,
+  composerDisabledNotice,
   onSubmit,
 }: GroupRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -177,12 +181,12 @@ export function GroupRoom({
             }
 
             return (
-              <button
-                key={message.id}
-                type="button"
-                className={bubbleClassNames.join(' ')}
-                onClick={(event) => onMessageSelect(event, message)}
-              >
+              <div key={message.id} className={`threaded-bubble${message.author === 'me' ? ' mine' : ''}`}>
+                <button
+                  type="button"
+                  className={bubbleClassNames.join(' ')}
+                  onClick={(event) => onMessageSelect(event, message)}
+                >
                 {message.author === 'me' ? (
                   <span className="bubble-meta">Вы</span>
                 ) : groupParticipant ? (
@@ -225,79 +229,92 @@ export function GroupRoom({
                 {showDeliveryCaption ? (
                   <span className="bubble-delivery-caption">Сообщение не отправлено</span>
                 ) : null}
-                {showDeliveryIndicator ? (
-                  <img
-                    className="bubble-delivery-indicator"
-                    src={
-                      messageFailed
-                        ? '/icons/warning-48.png'
-                        : messagePending
-                          ? '/icons/hourglass-48.png'
-                          : '/icons/double-tick-50.png'
-                    }
-                    alt=""
-                    aria-hidden="true"
-                  />
+                  {showDeliveryIndicator ? (
+                    <img
+                      className="bubble-delivery-indicator"
+                      src={
+                        messageFailed
+                          ? '/icons/warning-48.png'
+                          : messagePending
+                            ? '/icons/hourglass-48.png'
+                            : '/icons/double-tick-50.png'
+                      }
+                      alt=""
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </button>
+                {(message.threadComments?.length ?? 0) > 0 ? (
+                  <button type="button" className="thread-pill" onClick={() => onOpenThread(message.id)}>
+                    <img src="/icons/root-50.png" alt="" aria-hidden="true" className="thread-pill-icon" />
+                    <span>{`${message.threadComments?.length ?? 0} комментариев`}</span>
+                  </button>
                 ) : null}
-              </button>
+              </div>
             )
           })}
         </div>
 
-        <form
-          className="composer"
-          onSubmit={async (event: FormEvent<HTMLFormElement>) => {
-            event.preventDefault()
-            await Promise.resolve(onSubmit())
-            window.requestAnimationFrame(() => {
-              draftInputRef.current?.focus()
-            })
-          }}
-        >
-          <div className="composer-input">
-            <div className="composer-entry">
-              <div className="composer-field">
-                <input
-                  ref={attachmentInputRef}
-                  type="file"
-                  className="composer-attachment-input"
-                  onChange={onAttachmentChange}
-                />
-                <textarea
-                  ref={draftInputRef}
-                  rows={1}
-                  placeholder="Напиши сообщение в группу..."
-                  value={draft}
-                  onFocus={onComposerFocus}
-                  onChange={(event) => onDraftChange(event.target.value)}
-                />
-                <div className="composer-tools">
-                  <button
-                    type="button"
-                    className={attachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}
-                    onClick={onOpenAttachmentPicker}
-                    aria-label="Добавить файл"
-                    title={attachmentName || 'Добавить файл'}
-                  >
-                    <img src="/icons/attach100.png" alt="" />
-                  </button>
+        {composerDisabledNotice ? (
+          <div className="composer composer-disabled">
+            <p className="composer-disabled-note">{composerDisabledNotice}</p>
+          </div>
+        ) : (
+          <form
+            className="composer"
+            onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+              event.preventDefault()
+              await Promise.resolve(onSubmit())
+              window.requestAnimationFrame(() => {
+                draftInputRef.current?.focus()
+              })
+            }}
+          >
+            <div className="composer-input">
+              <div className="composer-entry">
+                <div className="composer-field">
+                  <input
+                    ref={attachmentInputRef}
+                    type="file"
+                    className="composer-attachment-input"
+                    onChange={onAttachmentChange}
+                  />
+                  <textarea
+                    ref={draftInputRef}
+                    rows={1}
+                    placeholder="Напиши сообщение в группу..."
+                    value={draft}
+                    onFocus={onComposerFocus}
+                    onChange={(event) => onDraftChange(event.target.value)}
+                  />
+                  <div className="composer-tools">
+                    <button
+                      type="button"
+                      className={attachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}
+                      onClick={onOpenAttachmentPicker}
+                      aria-label="Добавить файл"
+                      title={attachmentName || 'Добавить файл'}
+                    >
+                      <img src="/icons/attach.png" alt="" />
+                    </button>
+                    {hasComposerPayload ? (
+                      <button
+                        type="submit"
+                        className="send-button composer-send"
+                        aria-label="Отправить"
+                        title="Отправить"
+                      >
+                        <span className="composer-send-icon" aria-hidden="true">
+                          <img src="/icons/sent.png" alt="" />
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
-              {hasComposerPayload ? (
-                <button
-                  type="submit"
-                  className="send-button composer-send"
-                  aria-label="Отправить"
-                  title="Отправить"
-                >
-                  <span className="composer-send-icon" aria-hidden="true">
-                    &rarr;
-                  </span>
-                </button>
-              ) : null}
             </div>
-          </div>
-        </form>
+          </form>
+        )}
       </section>
       {actions}
     </>
