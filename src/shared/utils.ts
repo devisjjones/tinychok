@@ -9,11 +9,13 @@ import {
 import type { Account, Channel, Chat, GroupPreview, Message, Session, SubscriptionChannel } from './types'
 
 export function formatMessagePreview(
-  message: Pick<Message, 'attachment' | 'sourceGroup' | 'text'>,
+  message: Pick<Message, 'attachment' | 'sourceChannel' | 'sourceGroup' | 'text'>,
 ) {
   const text = message.text.trim()
   if (text) return text
+  if (message.sourceChannel?.leadText) return message.sourceChannel.leadText
   if (message.attachment) return `Файл: ${message.attachment.fileName}`
+  if (message.sourceChannel) return `Канал: ${message.sourceChannel.title}`
   if (message.sourceGroup) return `Приглашение в группу: ${message.sourceGroup.title}`
   return 'Пока пусто'
 }
@@ -75,6 +77,30 @@ function parseIsoDate(value?: string) {
 
   const timestamp = Date.parse(value)
   return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function formatLocalDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function getConversationDayKey(createdAt?: string) {
+  const timestamp = parseIsoDate(createdAt)
+  return formatLocalDateKey(timestamp === null ? new Date() : new Date(timestamp))
+}
+
+export function formatConversationDayLabel(createdAt?: string) {
+  const timestamp = parseIsoDate(createdAt)
+  const date = timestamp === null ? new Date() : new Date(timestamp)
+  const formatter = new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+
+  return formatter.format(date)
 }
 
 function getChatLastActivityTimestamp(chat: Chat) {
@@ -166,6 +192,26 @@ export function formatSubscriptionChannelPreview(channel: SubscriptionChannel) {
 
 export function formatSubscriptionChannelReaders(channel: SubscriptionChannel) {
   return `${channel.readers} читателей`
+}
+
+export function formatSubscriptionChannelSubscribers(count: number) {
+  const normalizedCount = Math.max(0, Math.trunc(count))
+  const remainderTen = normalizedCount % 10
+  const remainderHundred = normalizedCount % 100
+
+  if (remainderHundred >= 11 && remainderHundred <= 14) {
+    return `${normalizedCount} подписчиков`
+  }
+
+  if (remainderTen === 1) {
+    return `${normalizedCount} подписчик`
+  }
+
+  if (remainderTen >= 2 && remainderTen <= 4) {
+    return `${normalizedCount} подписчика`
+  }
+
+  return `${normalizedCount} подписчиков`
 }
 
 export function formatSubscriptionChannelTime(channel: SubscriptionChannel) {

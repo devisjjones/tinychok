@@ -9,6 +9,16 @@ import type {
 } from './types'
 import { makeDraftChannel } from './utils'
 
+const fixtureBaseDate = new Date('2026-03-23T00:00:00+03:00')
+
+function buildFixtureCreatedAt(dayOffset: number, time: string) {
+  const [hoursText = '0', minutesText = '0'] = time.split(':')
+  const date = new Date(fixtureBaseDate)
+  date.setDate(date.getDate() - dayOffset)
+  date.setHours(Number(hoursText), Number(minutesText), 0, 0)
+  return date.toISOString()
+}
+
 const initialChatFixtures: Chat[] = [
   {
     id: 1,
@@ -400,6 +410,10 @@ const initialChatFixtures: Chat[] = [
 export const initialChats: Chat[] = initialChatFixtures.map((chat) => ({
   ...chat,
   isTestEntity: true,
+  messages: chat.messages.map((message, messageIndex) => ({
+    ...message,
+    createdAt: buildFixtureCreatedAt((chat.id - 1) * 2 + (chat.messages.length - messageIndex - 1), message.time),
+  })),
   mood: 'Тестовый аккаунт',
   status: chat.status ? `Тестовый аккаунт · ${chat.status}` : 'Тестовый аккаунт',
 }))
@@ -495,12 +509,14 @@ function buildThreadCommentFromChat(
   chatId: number,
   text: string,
   time: string,
+  dayOffset = 0,
 ): ThreadComment {
   const chat = initialChats.find((candidate) => candidate.id === chatId)
 
   return {
     author: 'them',
     authorIdentifier: chat?.phone,
+    createdAt: buildFixtureCreatedAt(dayOffset, time),
     displayAuthor: chat?.title ?? 'Участник',
     id,
     text,
@@ -508,9 +524,10 @@ function buildThreadCommentFromChat(
   }
 }
 
-function buildMyThreadComment(id: number, text: string, time: string): ThreadComment {
+function buildMyThreadComment(id: number, text: string, time: string, dayOffset = 0): ThreadComment {
   return {
     author: 'me',
+    createdAt: buildFixtureCreatedAt(dayOffset, time),
     id,
     text,
     time,
@@ -523,6 +540,7 @@ function buildChannelThreadComments(
   postIndex: number,
 ): ThreadComment[] | undefined {
   const mode = channelCommentModes[channelId] ?? 'off'
+  const dayOffset = (channelId - 1) * 3 + Math.floor(postIndex / 3)
 
   if (mode === 'all') {
     if (postIndex === 0) {
@@ -532,22 +550,29 @@ function buildChannelThreadComments(
           2,
           `Под этот пост удобно собирать короткие уточнения по каналу ${title}.`,
           '22:21',
+          dayOffset,
         ),
-        buildMyThreadComment(2, 'Оставим тред как тихую ветку без засорения основной ленты.', '22:24'),
+        buildMyThreadComment(2, 'Оставим тред как тихую ветку без засорения основной ленты.', '22:24', dayOffset),
       ]
     }
 
     if (postIndex === 4) {
       return [
-        buildThreadCommentFromChat(1, 3, 'Проверил: карточка треда читается спокойно и без визуального шума.', '20:53'),
+        buildThreadCommentFromChat(
+          1,
+          3,
+          'Проверил: карточка треда читается спокойно и без визуального шума.',
+          '20:53',
+          dayOffset,
+        ),
       ]
     }
 
     if (postIndex === 9) {
       return [
-        buildThreadCommentFromChat(1, 1, 'Хорошо бы держать обсуждение именно под этим сообщением.', '18:58'),
-        buildThreadCommentFromChat(2, 5, 'Да, так основной канал не превращается в чат.', '19:02'),
-        buildMyThreadComment(3, 'Согласен. Для длинных обсуждений тред здесь самый понятный сценарий.', '19:07'),
+        buildThreadCommentFromChat(1, 1, 'Хорошо бы держать обсуждение именно под этим сообщением.', '18:58', dayOffset),
+        buildThreadCommentFromChat(2, 5, 'Да, так основной канал не превращается в чат.', '19:02', dayOffset),
+        buildMyThreadComment(3, 'Согласен. Для длинных обсуждений тред здесь самый понятный сценарий.', '19:07', dayOffset),
       ]
     }
   }
@@ -560,14 +585,15 @@ function buildChannelThreadComments(
           6,
           `Премиум-комментарии под ${title} уже выглядят как отдельная спокойная дискуссия.`,
           '21:33',
+          dayOffset,
         ),
-        buildThreadCommentFromChat(2, 3, 'Нормально: читать могут все, писать только премиум-участники.', '21:39'),
+        buildThreadCommentFromChat(2, 3, 'Нормально: читать могут все, писать только премиум-участники.', '21:39', dayOffset),
       ]
     }
 
     if (postIndex === 6) {
       return [
-        buildMyThreadComment(1, 'Этот тред оставлен как fixture для проверки premium-only режима.', '19:41'),
+        buildMyThreadComment(1, 'Этот тред оставлен как fixture для проверки premium-only режима.', '19:41', dayOffset),
       ]
     }
   }
@@ -702,8 +728,10 @@ const testChannelPostTemplates = [
 function buildTestChannelPosts(channelId: number, title: string) {
   return testChannelTimes.map((time, index) => {
     const threadComments = buildChannelThreadComments(channelId, title, index)
+    const dayOffset = (channelId - 1) * 3 + Math.floor(index / 3)
 
     return {
+      createdAt: buildFixtureCreatedAt(dayOffset, time),
       id: index + 1,
       text: testChannelPostTemplates[index % testChannelPostTemplates.length]
         .replace('#{n}', String(index + 1))
@@ -755,8 +783,8 @@ const initialGroupFixtures: GroupPreview[] = [
         groupParticipantId: 1,
         text: 'Соберём в этой группе спокойные обсуждения интерфейса и приватных сценариев.',
         threadComments: [
-          buildThreadCommentFromChat(1, 2, 'Поддерживаю: основную ленту лучше оставить максимально чистой.', '20:55'),
-          buildMyThreadComment(2, 'Да, детали лучше обсуждать прямо под нужным сообщением.', '20:58'),
+          buildThreadCommentFromChat(1, 2, 'Поддерживаю: основную ленту лучше оставить максимально чистой.', '20:55', 1),
+          buildMyThreadComment(2, 'Да, детали лучше обсуждать прямо под нужным сообщением.', '20:58', 1),
         ],
         time: '20:48',
       },
@@ -773,8 +801,8 @@ const initialGroupFixtures: GroupPreview[] = [
         groupParticipantId: 3,
         text: 'Тогда здесь же проверим, как ведёт себя меню действий у сообщений в групповом потоке.',
         threadComments: [
-          buildThreadCommentFromChat(1, 6, 'Я бы ещё сразу смотрела на unread и тихие нотификации тредов.', '21:28'),
-          buildMyThreadComment(2, 'И на то, как аккуратно выглядит счётчик комментариев под сообщением.', '21:31'),
+          buildThreadCommentFromChat(1, 6, 'Я бы ещё сразу смотрела на unread и тихие нотификации тредов.', '21:28', 0),
+          buildMyThreadComment(2, 'И на то, как аккуратно выглядит счётчик комментариев под сообщением.', '21:31', 0),
         ],
         time: '21:24',
       },
@@ -829,8 +857,8 @@ const initialGroupFixtures: GroupPreview[] = [
         groupParticipantId: 2,
         text: 'Нужно накидать несколько черновых сообщений, чтобы группа ощущалась живой, а не пустой.',
         threadComments: [
-          buildThreadCommentFromChat(1, 18, 'Оставляю это как fixture для premium-only комментариев в группе.', '17:16'),
-          buildThreadCommentFromChat(2, 3, 'Хорошо: читать могут все, писать могут только премиум-участники.', '17:21'),
+          buildThreadCommentFromChat(1, 18, 'Оставляю это как fixture для premium-only комментариев в группе.', '17:16', 4),
+          buildThreadCommentFromChat(2, 3, 'Хорошо: читать могут все, писать могут только премиум-участники.', '17:21', 4),
         ],
         time: '17:11',
       },
@@ -849,6 +877,17 @@ const initialGroupFixtures: GroupPreview[] = [
 export const initialGroups: GroupPreview[] = initialGroupFixtures.map((group) => ({
   ...group,
   isTestEntity: true,
+  messages: group.messages.map((message, messageIndex) => ({
+    ...message,
+    createdAt: buildFixtureCreatedAt((group.id - 1) * 2 + (group.messages.length - messageIndex - 1), message.time),
+    threadComments: message.threadComments?.map((comment, commentIndex) => ({
+      ...comment,
+      createdAt:
+        comment.createdAt ??
+        buildFixtureCreatedAt((group.id - 1) * 2 + (group.messages.length - messageIndex - 1), comment.time),
+      id: commentIndex + 1,
+    })),
+  })),
 }))
 
 export const initialChannels: Channel[] = [

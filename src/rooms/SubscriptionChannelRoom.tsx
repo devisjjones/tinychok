@@ -1,9 +1,17 @@
 import type { KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { useEffect, useRef } from 'react'
-import { scrollFeedChildIntoView, shouldSubmitComposerWithEnter } from '../app/utils'
+import { Fragment, useEffect, useRef } from 'react'
+import {
+  formatConversationDayLabel,
+  getConversationDayKey,
+  insertComposerTextAtCursor,
+  scrollFeedChildIntoView,
+  shouldSubmitComposerWithEnter,
+} from '../app/utils'
 import type { ReplyTarget, SubscriptionChannel } from '../app/types'
 import { BubbleMessageContent } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
+import { ConversationDayDivider } from '../components/ConversationDayDivider'
+import { EmojiPicker } from '../components/EmojiPicker'
 import { ThreadedBubble } from '../components/ThreadedBubble'
 
 type SubscriptionChannelRoomProps = {
@@ -12,7 +20,9 @@ type SubscriptionChannelRoomProps = {
   channel: SubscriptionChannel
   messageFeedRef: RefObject<HTMLDivElement | null>
   onBack: () => void
+  visiblePosts: SubscriptionChannel['posts']
   onOpenChannelActions?: (event: MouseEvent<HTMLButtonElement>) => void
+  onOpenSubscribers?: () => void
   onOpenThread: (postId: number) => void
   onPostSelect: (event: MouseEvent<HTMLButtonElement>, postId: number) => void
   onReplyReferenceJump?: (postId: number) => void
@@ -29,6 +39,7 @@ type SubscriptionChannelRoomProps = {
     label: string
     onClick: () => void
   }
+  subscriberCountLabel: string
 }
 
 export function SubscriptionChannelRoom({
@@ -37,11 +48,14 @@ export function SubscriptionChannelRoom({
   channel,
   messageFeedRef,
   onBack,
+  visiblePosts,
   onOpenChannelActions,
+  onOpenSubscribers,
   onOpenThread,
   onPostSelect,
   onReplyReferenceJump,
   publisher,
+  subscriberCountLabel,
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
   const publisherInputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -96,11 +110,15 @@ export function SubscriptionChannelRoom({
             title="Назад"
           >
             <img src="/icons/back.png" alt="" aria-hidden="true" className="room-mobile-back-icon" />
-          </button>
-          <div className="room-id">
-            <span className="avatar large" style={{ backgroundColor: channel.accent }}>
-              {channel.title.slice(0, 1)}
-            </span>
+        </button>
+        <div className="room-id">
+          <span className="avatar large" style={{ backgroundColor: channel.accent }}>
+            {channel.avatarImage ? (
+              <img src={channel.avatarImage} alt="" className="channel-avatar-image" />
+            ) : (
+              channel.title.slice(0, 1)
+            )}
+          </span>
             <div>
               <div className="room-title">
                 <div className="room-title-name">
@@ -115,7 +133,13 @@ export function SubscriptionChannelRoom({
                   </span>
                 </div>
               </div>
-              <p>{`${channel.handle} · ${channel.draft ? 'Черновики канала' : 'Публикации канала'}`}</p>
+              {onOpenSubscribers ? (
+                <button type="button" className="room-members-link" onClick={onOpenSubscribers}>
+                  {subscriberCountLabel}
+                </button>
+              ) : (
+                <p>{subscriberCountLabel}</p>
+              )}
             </div>
           </div>
           {onOpenChannelActions ? (
@@ -132,42 +156,49 @@ export function SubscriptionChannelRoom({
         </header>
 
         <div className="message-feed" ref={messageFeedRef}>
-          {channel.posts.map((post) => {
+          {visiblePosts.map((post, index) => {
+            const previousPost = index > 0 ? visiblePosts[index - 1] : null
+            const postDayKey = getConversationDayKey(post.createdAt)
+            const previousPostDayKey = previousPost ? getConversationDayKey(previousPost.createdAt) : null
             const replyReference = post.replyTo
 
             return (
-              <ThreadedBubble
-                key={post.id}
-                variant="channel"
-                threadCount={post.threadComments?.length ?? 0}
-                onOpenThread={() => onOpenThread(post.id)}
-                bubble={
-                  <AttachedReplyBubble
-                    className="channel"
-                    onReplyClick={
-                      replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
-                        ? () => jumpToPost(replyReference.id)
-                        : undefined
-                    }
-                    replyTo={replyReference}
-                    bubble={
-                      <button
-                        type="button"
-                        data-channel-post-id={post.id}
-                        className={
-                          activePostId === post.id
-                            ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}`
-                            : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}`
-                        }
-                        onClick={(event) => onPostSelect(event, post.id)}
-                      >
-                        <BubbleMessageContent message={post} showReplyInline={false} />
-                        <time>{post.time}</time>
-                      </button>
-                    }
-                  />
-                }
-              />
+              <Fragment key={post.id}>
+                {index === 0 || previousPostDayKey !== postDayKey ? (
+                  <ConversationDayDivider label={formatConversationDayLabel(post.createdAt)} />
+                ) : null}
+                <ThreadedBubble
+                  variant="channel"
+                  threadCount={post.threadComments?.length ?? 0}
+                  onOpenThread={() => onOpenThread(post.id)}
+                  bubble={
+                    <AttachedReplyBubble
+                      className="channel"
+                      onReplyClick={
+                        replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
+                          ? () => jumpToPost(replyReference.id)
+                          : undefined
+                      }
+                      replyTo={replyReference}
+                      bubble={
+                        <button
+                          type="button"
+                          data-channel-post-id={post.id}
+                          className={
+                            activePostId === post.id
+                              ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}`
+                              : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}`
+                          }
+                          onClick={(event) => onPostSelect(event, post.id)}
+                        >
+                          <BubbleMessageContent message={post} showReplyInline={false} />
+                          <time>{post.time}</time>
+                        </button>
+                      }
+                    />
+                  }
+                />
+              </Fragment>
             )
           })}
         </div>
@@ -208,6 +239,16 @@ export function SubscriptionChannelRoom({
                     onKeyDown={handleComposerKeyDown}
                   />
                   <div className="composer-tools">
+                    <EmojiPicker
+                      onSelect={(emoji) =>
+                        insertComposerTextAtCursor(
+                          publisherInputRef.current,
+                          publisher.draft,
+                          emoji,
+                          publisher.onDraftChange,
+                        )
+                      }
+                    />
                     {publisher.draft.trim() ? (
                       <button type="submit" className="send-button composer-send" disabled={publisher.isBusy}>
                         <span className="composer-send-icon" aria-hidden="true">

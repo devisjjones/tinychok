@@ -71,6 +71,7 @@ export type ChannelMessageSource = {
   draft?: boolean
   handle?: string
   id?: number
+  leadText?: string
   title: string
   visibility?: SubscriptionChannel['visibility']
 }
@@ -143,6 +144,8 @@ export type Chat = {
   pinned?: boolean
   premium?: boolean
   pinnedMessageId?: number
+  pinnedMessage?: Message
+  historyHasMore?: boolean
   messages: Message[]
 }
 
@@ -162,6 +165,7 @@ export type SubscriptionChannel = {
   avatarImage?: string
   isTestEntity?: boolean
   latestActivityAt?: string
+  historyHasMore?: boolean
   commentsEnabledForAll?: boolean
   commentsEnabledForPremium?: boolean
   commentBlacklistIdentifiers?: string[]
@@ -186,6 +190,7 @@ export type GroupPreview = {
   creatorIdentifier?: string
   isTestEntity?: boolean
   latestActivityAt?: string
+  historyHasMore?: boolean
   commentsEnabledForAll?: boolean
   commentsEnabledForPremium?: boolean
   commentBlacklistIdentifiers?: string[]

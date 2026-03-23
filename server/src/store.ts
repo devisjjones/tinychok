@@ -36,6 +36,7 @@ import {
   ensureUniqueChannelDirectLink,
   formatAccountName,
   formatNowTime,
+  getConversationDayKey,
   hasActivePremium,
   makePremiumExpiry,
   normalizeIdentifier,
@@ -51,8 +52,11 @@ import type {
   ComplaintReason,
   CreateGroupBody,
   CreateManagedChannelBody,
+  DirectDialogHistoryResponse,
+  GroupHistoryResponse,
   InviteManagedChannelMembersBody,
   InviteGroupMemberBody,
+  ManageSubscriptionChannelSubscriberBody,
   OpenDirectDialogBody,
   ReportContactBody,
   ReportSubscriptionChannelBody,
@@ -65,6 +69,7 @@ import type {
   SendManagedChannelPostBody,
   SendGroupThreadCommentBody,
   SendSubscriptionChannelThreadCommentBody,
+  SubscriptionChannelHistoryResponse,
   UpdateDialogBody,
   UpdateGroupBody,
   UpdateManagedChannelBody,
@@ -350,6 +355,7 @@ function sanitizeSourceChannel(
       typeof sourceChannel?.id === 'number' && Number.isInteger(sourceChannel.id)
         ? sourceChannel.id
         : undefined,
+    leadText: sanitizeMessageText(sourceChannel?.leadText ?? '') || undefined,
     title,
     visibility:
       sourceChannel?.visibility === 'private' ||
@@ -860,6 +866,7 @@ function materializeSubscriptionPost(
 ): Omit<PersistedSubscriptionPost, 'channelId' | 'ownerIdentifier'> {
   return {
     attachment: post.attachment,
+    createdAt: post.createdAt,
     id: post.id,
     replyTo: post.replyTo,
     text: post.text,
@@ -869,12 +876,140 @@ function materializeSubscriptionPost(
   }
 }
 
-function normalizeChats(ownerIdentifier: string, chats: Chat[]) {
+type HistoryTimelineItem = {
+  createdAt?: string
+  id: number
+}
+
+type HistorySliceResult<T> = {
+  hasMore: boolean
+  items: T[]
+}
+
+const minimumHistoryPageSize = 10
+
+function buildHistoryDayGroups<T extends HistoryTimelineItem>(items: T[]) {
+  const groups: Array<{ dayKey: string; end: number; start: number }> = []
+
+  items.forEach((item, index) => {
+    const dayKey = getConversationDayKey(item.createdAt)
+    const previousGroup = groups.at(-1)
+
+    if (!previousGroup || previousGroup.dayKey !== dayKey) {
+      groups.push({
+        dayKey,
+        end: index,
+        start: index,
+      })
+      return
+    }
+
+    previousGroup.end = index
+  })
+
+  return groups
+}
+
+function getInitialHistoryStartGroupIndex<T extends HistoryTimelineItem>(
+  dayGroups: Array<{ dayKey: string; end: number; start: number }>,
+  items: T[],
+) {
+  if (dayGroups.length <= 1) return 0
+
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+
+  const todayKey = getConversationDayKey(today.toISOString())
+  const yesterdayKey = getConversationDayKey(yesterday.toISOString())
+
+  const targetIndexes = dayGroups.reduce<number[]>((indexes, group, index) => {
+    if (group.dayKey === todayKey || group.dayKey === yesterdayKey) {
+      indexes.push(index)
+    }
+
+    return indexes
+  }, [])
+
+  let startGroupIndex =
+    targetIndexes.length > 0
+      ? Math.min(...targetIndexes)
+      : Math.max(dayGroups.length - 2, 0)
+
+  while (
+    startGroupIndex > 0 &&
+    items.length - dayGroups[startGroupIndex].start < minimumHistoryPageSize
+  ) {
+    startGroupIndex -= 1
+  }
+
+  return startGroupIndex
+}
+
+function buildInitialHistorySlice<T extends HistoryTimelineItem>(items: T[]): HistorySliceResult<T> {
+  if (items.length === 0) {
+    return {
+      hasMore: false,
+      items,
+    }
+  }
+
+  const dayGroups = buildHistoryDayGroups(items)
+  const startGroupIndex = getInitialHistoryStartGroupIndex(dayGroups, items)
+
   return {
-    dialogMessages: chats.flatMap((chat) =>
+    hasMore: startGroupIndex > 0,
+    items: items.slice(dayGroups[startGroupIndex].start),
+  }
+}
+
+function buildOlderHistorySlice<T extends HistoryTimelineItem>(
+  items: T[],
+  beforeItemId: number,
+): HistorySliceResult<T> {
+  const beforeItemIndex = items.findIndex((item) => item.id === beforeItemId)
+  if (beforeItemIndex <= 0) {
+    return {
+      hasMore: false,
+      items: [],
+    }
+  }
+
+  const olderItems = items.slice(0, beforeItemIndex)
+  const dayGroups = buildHistoryDayGroups(olderItems)
+
+  if (dayGroups.length === 0) {
+    return {
+      hasMore: false,
+      items: [],
+    }
+  }
+
+  let startGroupIndex = dayGroups.length - 1
+
+  while (
+    startGroupIndex > 0 &&
+    olderItems.length - dayGroups[startGroupIndex].start < minimumHistoryPageSize
+  ) {
+    startGroupIndex -= 1
+  }
+
+  return {
+    hasMore: startGroupIndex > 0,
+    items: olderItems.slice(dayGroups[startGroupIndex].start),
+  }
+}
+
+function normalizeChats(ownerIdentifier: string, chats: Chat[]) {
+  const visibleChats = chats.filter(
+    (chat) => normalizeIdentifier(chat.phone) !== ownerIdentifier,
+  )
+
+  return {
+    dialogMessages: visibleChats.flatMap((chat) =>
       chat.messages.map((message) => toPersistedDialogMessage(ownerIdentifier, chat.id, message)),
     ),
-    dialogs: chats.map((chat) => toPersistedDialog(ownerIdentifier, chat)),
+    dialogs: visibleChats.map((chat) => toPersistedDialog(ownerIdentifier, chat)),
   }
 }
 
@@ -956,21 +1091,42 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
   return nextDatabase
 }
 
-function materializeChats(database: Database, ownerIdentifier: string): Chat[] {
+function materializeFullChats(database: Database, ownerIdentifier: string): Chat[] {
   return database.dialogs
     .filter((dialog) => dialog.ownerIdentifier === ownerIdentifier)
-    .map((dialog) => ({
-      ...materializeDialog(dialog),
-      messages: database.dialogMessages
+    .map((dialog) => {
+      const messages = database.dialogMessages
         .filter(
           (message) =>
             message.ownerIdentifier === ownerIdentifier && message.dialogId === dialog.id,
         )
-        .map((message) => materializeDialogMessage(message)),
-    }))
+        .map((message) => materializeDialogMessage(message))
+      const pinnedMessage =
+        dialog.pinnedMessageId === undefined
+          ? undefined
+          : messages.find((message) => message.id === dialog.pinnedMessageId)
+
+      return {
+        ...materializeDialog(dialog),
+        messages,
+        pinnedMessage,
+      }
+    })
 }
 
-function materializeGroups(database: Database, ownerIdentifier: string): GroupPreview[] {
+function materializeChats(database: Database, ownerIdentifier: string): Chat[] {
+  return materializeFullChats(database, ownerIdentifier).map((chat) => {
+    const historySlice = buildInitialHistorySlice(chat.messages)
+
+    return {
+      ...chat,
+      historyHasMore: historySlice.hasMore,
+      messages: historySlice.items,
+    }
+  })
+}
+
+function materializeFullGroups(database: Database, ownerIdentifier: string): GroupPreview[] {
   return database.groups
     .filter((group) => group.ownerIdentifier === ownerIdentifier)
     .map((group) => {
@@ -994,6 +1150,18 @@ function materializeGroups(database: Database, ownerIdentifier: string): GroupPr
         messages,
       }
     })
+}
+
+function materializeGroups(database: Database, ownerIdentifier: string): GroupPreview[] {
+  return materializeFullGroups(database, ownerIdentifier).map((group) => {
+    const historySlice = buildInitialHistorySlice(group.messages)
+
+    return {
+      ...group,
+      historyHasMore: historySlice.hasMore,
+      messages: historySlice.items,
+    }
+  })
 }
 
 function materializeManagedChannels(database: Database, ownerIdentifier: string): Channel[] {
@@ -1053,7 +1221,7 @@ function materializeSubscriptionParticipants(
     })
 }
 
-function materializeSubscriptionChannels(
+function materializeFullSubscriptionChannels(
   database: Database,
   ownerIdentifier: string,
 ): SubscriptionChannel[] {
@@ -1061,6 +1229,12 @@ function materializeSubscriptionChannels(
     .filter((channel) => channel.ownerIdentifier === ownerIdentifier)
     .map((channel) => {
       const materializedChannel = materializeSubscriptionChannel(channel)
+      const participants = materializeSubscriptionParticipants(database, ownerIdentifier, channel)
+      const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
+      const isManagedChannel = database.managedChannels.some(
+        (managedChannel) =>
+          (sanitizeChannelDirectLink(managedChannel.directLink) || managedChannel.directLink) === normalizedHandle,
+      )
       const posts = database.subscriptionPosts
         .filter(
           (post) => post.ownerIdentifier === ownerIdentifier && post.channelId === channel.id,
@@ -1077,10 +1251,26 @@ function materializeSubscriptionChannels(
       return {
         ...materializedChannel,
         latestActivityAt: posts.at(-1)?.createdAt,
-        participants: materializeSubscriptionParticipants(database, ownerIdentifier, channel),
+        participants,
+        readers: isManagedChannel ? participants.length : materializedChannel.readers,
         posts,
       }
     })
+}
+
+function materializeSubscriptionChannels(
+  database: Database,
+  ownerIdentifier: string,
+): SubscriptionChannel[] {
+  return materializeFullSubscriptionChannels(database, ownerIdentifier).map((channel) => {
+    const historySlice = buildInitialHistorySlice(channel.posts)
+
+    return {
+      ...channel,
+      historyHasMore: historySlice.hasMore,
+      posts: historySlice.items,
+    }
+  })
 }
 
 function compareIsoDateDesc(left?: string, right?: string) {
@@ -1400,6 +1590,80 @@ export class TinychokStore {
     return account ? this.buildSnapshot(account, token) : null
   }
 
+  getDirectDialogHistory(
+    token: string,
+    dialogId: number,
+    beforeMessageId: number,
+  ): DirectDialogHistoryResponse {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const chat = materializeFullChats(this.database, account.identifier).find(
+      (candidate) => candidate.id === dialogId,
+    )
+    if (!chat) {
+      throw new Error('Чат не найден.')
+    }
+
+    const historySlice = buildOlderHistorySlice(chat.messages, beforeMessageId)
+
+    return {
+      dialogId,
+      hasMore: historySlice.hasMore,
+      messages: historySlice.items,
+    }
+  }
+
+  getGroupHistory(token: string, groupId: number, beforeMessageId: number): GroupHistoryResponse {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const group = materializeFullGroups(this.database, account.identifier).find(
+      (candidate) => candidate.id === groupId,
+    )
+    if (!group) {
+      throw new Error('Группа не найдена.')
+    }
+
+    const historySlice = buildOlderHistorySlice(group.messages, beforeMessageId)
+
+    return {
+      groupId,
+      hasMore: historySlice.hasMore,
+      messages: historySlice.items,
+    }
+  }
+
+  getSubscriptionChannelHistory(
+    token: string,
+    channelId: number,
+    beforePostId: number,
+  ): SubscriptionChannelHistoryResponse {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const channel = materializeFullSubscriptionChannels(this.database, account.identifier).find(
+      (candidate) => candidate.id === channelId,
+    )
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+
+    const historySlice = buildOlderHistorySlice(channel.posts, beforePostId)
+
+    return {
+      channelId,
+      hasMore: historySlice.hasMore,
+      posts: historySlice.items,
+    }
+  }
+
   getIdentifierByToken(token: string) {
     return this.database.sessions.find((session) => session.token === token)?.identifier ?? null
   }
@@ -1489,11 +1753,31 @@ export class TinychokStore {
     account.premium = snapshot.session.premium ?? true
     account.premiumExpiresAt = snapshot.session.premiumExpiresAt ?? account.premiumExpiresAt
 
+    const fullChats = materializeFullChats(this.database, account.identifier)
+    const fullGroups = materializeFullGroups(this.database, account.identifier)
+    const fullSubscriptionChannels = materializeFullSubscriptionChannels(this.database, account.identifier)
+
+    const chats = snapshot.chats.map((chat) => ({
+      ...chat,
+      messages: fullChats.find((candidate) => candidate.id === chat.id)?.messages ?? chat.messages,
+      pinnedMessage:
+        fullChats.find((candidate) => candidate.id === chat.id)?.pinnedMessage ?? chat.pinnedMessage,
+    }))
+    const groups = snapshot.groups.map((group) => ({
+      ...group,
+      messages: fullGroups.find((candidate) => candidate.id === group.id)?.messages ?? group.messages,
+    }))
+    const subscriptionChannels = snapshot.subscriptionChannels.map((channel) => ({
+      ...channel,
+      posts:
+        fullSubscriptionChannels.find((candidate) => candidate.id === channel.id)?.posts ?? channel.posts,
+    }))
+
     this.replaceOwnerState(account.identifier, {
       channels: snapshot.channels,
-      chats: snapshot.chats,
-      groups: snapshot.groups,
-      subscriptionChannels: snapshot.subscriptionChannels,
+      chats,
+      groups,
+      subscriptionChannels,
     })
 
     await this.persist()
@@ -2145,6 +2429,7 @@ export class TinychokStore {
     if (channelCopies.length === 0) {
       const ownerCopy: PersistedSubscriptionChannel = {
         accent: channel.avatarTone,
+        avatarImage: channel.avatarImage,
         commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
         commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
         commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
@@ -2163,6 +2448,7 @@ export class TinychokStore {
       }
 
       this.database.subscriptionChannels.push(ownerCopy)
+      this.syncManagedChannelSubscriptionCopies(channel)
       channelCopies = [ownerCopy]
     }
 
@@ -2867,6 +3153,100 @@ export class TinychokStore {
     }
   }
 
+  async removeSubscriptionChannelSubscriber(
+    token: string,
+    channelId: number,
+    payload: ManageSubscriptionChannelSubscriberBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const channel = this.findSubscriptionChannel(account.identifier, channelId)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+
+    const sourceManagedChannel = this.findManagedChannelByHandle(channel.handle)
+    if (!sourceManagedChannel || sourceManagedChannel.ownerIdentifier !== account.identifier) {
+      throw new Error('Только владелец канала может управлять подписчиками.')
+    }
+
+    const targetIdentifier = normalizeIdentifier(payload.identifier)
+    if (!targetIdentifier) {
+      throw new Error('Подписчик не найден.')
+    }
+
+    if (targetIdentifier === account.identifier) {
+      throw new Error('Нельзя удалить владельца канала.')
+    }
+
+    const wasRemoved = this.revokeSubscriptionChannelAccess(sourceManagedChannel.directLink, targetIdentifier)
+    if (!wasRemoved) {
+      throw new Error('Подписчик не найден.')
+    }
+
+    const broadcastIdentifiers = new Set<string>([account.identifier, targetIdentifier])
+    for (const channelCopy of this.syncManagedChannelSubscriptionCopies(sourceManagedChannel)) {
+      broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async blacklistSubscriptionChannelSubscriber(
+    token: string,
+    channelId: number,
+    payload: ManageSubscriptionChannelSubscriberBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const channel = this.findSubscriptionChannel(account.identifier, channelId)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+
+    const sourceManagedChannel = this.findManagedChannelByHandle(channel.handle)
+    if (!sourceManagedChannel || sourceManagedChannel.ownerIdentifier !== account.identifier) {
+      throw new Error('Только владелец канала может управлять подписчиками.')
+    }
+
+    const targetIdentifier = normalizeIdentifier(payload.identifier)
+    if (!targetIdentifier) {
+      throw new Error('Подписчик не найден.')
+    }
+
+    if (targetIdentifier === account.identifier) {
+      throw new Error('Нельзя добавить владельца в чёрный список.')
+    }
+
+    sourceManagedChannel.commentBlacklistIdentifiers = sanitizeIdentifierList([
+      ...(sourceManagedChannel.commentBlacklistIdentifiers ?? []),
+      targetIdentifier,
+    ])
+
+    const broadcastIdentifiers = new Set<string>([account.identifier, targetIdentifier])
+    for (const channelCopy of this.syncManagedChannelSubscriptionCopies(sourceManagedChannel)) {
+      broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async sendSubscriptionChannelThreadComment(
     token: string,
     channelId: number,
@@ -3246,7 +3626,82 @@ export class TinychokStore {
       }
 
       this.ensureSubscriptionChannelCopyForOwner(channel, recipientAccount.identifier)
+      this.deliverDirectChannelInvitation(account, recipientAccount, channel)
       broadcastIdentifiers.add(recipientAccount.identifier)
+    }
+
+    for (const channelCopy of this.syncManagedChannelSubscriptionCopies(channel)) {
+      broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async inviteSubscriptionChannelMembers(
+    token: string,
+    channelId: number,
+    payload: InviteManagedChannelMembersBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const subscriptionChannel = this.findSubscriptionChannel(account.identifier, channelId)
+    if (!subscriptionChannel) {
+      throw new Error('Канал не найден.')
+    }
+
+    const sourceManagedChannel = this.findManagedChannelByHandle(subscriptionChannel.handle)
+    if (!sourceManagedChannel) {
+      throw new Error('Исходный канал не найден.')
+    }
+
+    const uniqueDialogIds = Array.from(
+      new Set(
+        (payload.dialogIds ?? []).filter(
+          (dialogId): dialogId is number => Number.isInteger(dialogId) && dialogId > 0,
+        ),
+      ),
+    )
+
+    if (uniqueDialogIds.length === 0) {
+      throw new Error('Выберите хотя бы один контакт.')
+    }
+
+    const broadcastIdentifiers = new Set<string>([account.identifier, sourceManagedChannel.ownerIdentifier])
+    this.ensureSubscriptionChannelCopyForOwner(sourceManagedChannel, account.identifier)
+
+    for (const dialogId of uniqueDialogIds) {
+      const dialog = this.database.dialogs.find(
+        (candidate) => candidate.ownerIdentifier === account.identifier && candidate.id === dialogId,
+      )
+      if (!dialog) {
+        continue
+      }
+
+      const recipientIdentifier = normalizeIdentifier(dialog.phone)
+      if (!recipientIdentifier || recipientIdentifier === account.identifier) {
+        continue
+      }
+
+      const recipientAccount = this.findAccount(recipientIdentifier)
+      if (!recipientAccount) {
+        continue
+      }
+
+      this.ensureSubscriptionChannelCopyForOwner(sourceManagedChannel, recipientAccount.identifier)
+      this.deliverDirectChannelInvitation(account, recipientAccount, sourceManagedChannel)
+      broadcastIdentifiers.add(recipientAccount.identifier)
+    }
+
+    for (const channelCopy of this.syncManagedChannelSubscriptionCopies(sourceManagedChannel)) {
+      broadcastIdentifiers.add(channelCopy.ownerIdentifier)
     }
 
     await this.persist()
@@ -3771,18 +4226,7 @@ export class TinychokStore {
     )
 
     if (existingCopy) {
-      existingCopy.accent = sourceChannel.avatarTone
-      existingCopy.avatarImage = sourceChannel.avatarImage
-      existingCopy.commentBlacklistIdentifiers = sanitizeIdentifierList(
-        sourceChannel.commentBlacklistIdentifiers,
-      )
-      existingCopy.commentsEnabledForAll = Boolean(sourceChannel.commentsEnabledForAll)
-      existingCopy.commentsEnabledForPremium = Boolean(sourceChannel.commentsEnabledForPremium)
-      existingCopy.draft = sourceChannel.status === 'draft'
-      existingCopy.handle = sourceChannel.directLink
-      existingCopy.preview = existingCopy.preview || sourceChannel.description
-      existingCopy.title = sourceChannel.title
-      existingCopy.visibility = sourceChannel.visibility
+      this.syncManagedChannelSubscriptionCopies(sourceChannel)
       return existingCopy
     }
 
@@ -3807,6 +4251,7 @@ export class TinychokStore {
     }
 
     this.database.subscriptionChannels.push(nextCopy)
+    this.syncManagedChannelSubscriptionCopies(sourceChannel)
     return nextCopy
   }
 
@@ -4094,6 +4539,17 @@ export class TinychokStore {
     }
   }
 
+  private buildChannelInviteSource(channel: PersistedManagedChannel): NonNullable<Message['sourceChannel']> {
+    return {
+      accent: channel.avatarTone,
+      draft: channel.status === 'draft',
+      handle: channel.directLink,
+      leadText: 'Пользователь приглашает вас подписаться на канал:',
+      title: channel.title,
+      visibility: channel.visibility,
+    }
+  }
+
   private findSubscriptionChannel(ownerIdentifier: string, channelId: number) {
     return (
       this.database.subscriptionChannels.find(
@@ -4108,6 +4564,113 @@ export class TinychokStore {
         (channel) => channel.ownerIdentifier === ownerIdentifier && channel.id === channelId,
       ) ?? null
     )
+  }
+
+  private findManagedChannelByHandle(handle: string) {
+    const normalizedHandle = sanitizeChannelDirectLink(handle) || handle
+    return (
+      this.database.managedChannels.find(
+        (channel) =>
+          (sanitizeChannelDirectLink(channel.directLink) || channel.directLink) === normalizedHandle,
+      ) ?? null
+    )
+  }
+
+  private syncManagedChannelSubscriptionCopies(sourceChannel: PersistedManagedChannel) {
+    const normalizedHandle = sanitizeChannelDirectLink(sourceChannel.directLink) || sourceChannel.directLink
+    const copies = this.database.subscriptionChannels.filter(
+      (channel) =>
+        (sanitizeChannelDirectLink(channel.handle) || channel.handle) === normalizedHandle,
+    )
+    const subscriberCount = Math.max(1, new Set(copies.map((copy) => copy.ownerIdentifier)).size)
+
+    for (const copy of copies) {
+      copy.accent = sourceChannel.avatarTone
+      copy.avatarImage = sourceChannel.avatarImage
+      copy.commentBlacklistIdentifiers = sanitizeIdentifierList(sourceChannel.commentBlacklistIdentifiers)
+      copy.commentsEnabledForAll = Boolean(sourceChannel.commentsEnabledForAll)
+      copy.commentsEnabledForPremium = Boolean(sourceChannel.commentsEnabledForPremium)
+      copy.draft = sourceChannel.status === 'draft'
+      copy.handle = sourceChannel.directLink
+      copy.preview = copy.preview || sourceChannel.description
+      copy.readers = subscriberCount
+      copy.title = sourceChannel.title
+      copy.visibility = sourceChannel.visibility
+    }
+
+    return copies
+  }
+
+  private revokeSubscriptionChannelAccess(handle: string, targetIdentifier: string) {
+    const normalizedHandle = sanitizeChannelDirectLink(handle) || handle
+    const targetCopies = this.database.subscriptionChannels.filter(
+      (channel) =>
+        channel.ownerIdentifier === targetIdentifier &&
+        (sanitizeChannelDirectLink(channel.handle) || channel.handle) === normalizedHandle,
+    )
+
+    if (targetCopies.length === 0) {
+      return false
+    }
+
+    const removedChannelIds = new Set(targetCopies.map((copy) => copy.id))
+    this.database.subscriptionChannels = this.database.subscriptionChannels.filter(
+      (channel) => !removedChannelIds.has(channel.id) || channel.ownerIdentifier !== targetIdentifier,
+    )
+    this.database.subscriptionPosts = this.database.subscriptionPosts.filter(
+      (post) => !(post.ownerIdentifier === targetIdentifier && removedChannelIds.has(post.channelId)),
+    )
+    this.database.threadStates = this.database.threadStates.filter(
+      (threadState) =>
+        !(
+          threadState.ownerIdentifier === targetIdentifier &&
+          threadState.threadId.startsWith(`channel:${normalizedHandle}:`)
+        ),
+    )
+
+    return true
+  }
+
+  private deliverDirectChannelInvitation(
+    sender: Account,
+    recipient: Account,
+    channel: PersistedManagedChannel,
+  ) {
+    const senderDialog = this.ensureDialogForContact(sender.identifier, recipient)
+    const recipientDialog = this.ensureDialogForContact(recipient.identifier, sender)
+    const createdAt = new Date().toISOString()
+    const time = formatNowTime()
+    const sourceChannel = this.buildChannelInviteSource(channel)
+
+    this.database.dialogMessages.push({
+      author: 'me',
+      dialogId: senderDialog.id,
+      id: this.getNextDialogMessageId(sender.identifier, senderDialog.id),
+      ownerIdentifier: sender.identifier,
+      sourceChannel,
+      text: '',
+      createdAt,
+      time,
+    })
+
+    this.database.dialogMessages.push({
+      author: 'them',
+      dialogId: recipientDialog.id,
+      id: this.getNextDialogMessageId(recipient.identifier, recipientDialog.id),
+      ownerIdentifier: recipient.identifier,
+      sourceChannel,
+      text: '',
+      createdAt,
+      time,
+    })
+
+    senderDialog.typing = false
+    senderDialog.unread = 0
+    senderDialog.status = 'только что был(а) здесь'
+    recipientDialog.typing = false
+    recipientDialog.unread = recipientDialog.muted ? 0 : recipientDialog.unread + 1
+    this.syncDialogContactProfile(senderDialog, recipient)
+    this.syncDialogContactProfile(recipientDialog, sender)
   }
 
   private refreshDialogsForAccount(account: Account) {
@@ -4443,26 +5006,6 @@ function upsertNonProductionTestAccounts(database: Database) {
 
     const nextPremiumExpiresAt = testAccount.premium ? testAccount.premiumExpiresAt : undefined
 
-    if (existingAccount.displayName !== testAccount.displayName) {
-      existingAccount.displayName = testAccount.displayName
-      didMutate = true
-    }
-    if ((existingAccount.nickname ?? '') !== testAccount.nickname) {
-      existingAccount.nickname = testAccount.nickname
-      didMutate = true
-    }
-    if ((existingAccount.status ?? '') !== testAccount.status) {
-      existingAccount.status = testAccount.status
-      didMutate = true
-    }
-    if ((existingAccount.surname ?? '') !== '') {
-      existingAccount.surname = ''
-      didMutate = true
-    }
-    if (existingAccount.avatarImage !== undefined) {
-      existingAccount.avatarImage = undefined
-      didMutate = true
-    }
     if (existingAccount.isTestEntity !== true) {
       existingAccount.isTestEntity = true
       didMutate = true
@@ -4479,10 +5022,6 @@ function upsertNonProductionTestAccounts(database: Database) {
       existingAccount.createdAt = testAccount.createdAt
       didMutate = true
     }
-    if ((existingAccount.blockedContactIds ?? []).length > 0) {
-      existingAccount.blockedContactIds = []
-      didMutate = true
-    }
   }
 
   return didMutate
@@ -4490,7 +5029,9 @@ function upsertNonProductionTestAccounts(database: Database) {
 
 function ensureOwnerTestDialogs(database: Database, ownerIdentifier: string) {
   const ownerDialogs = database.dialogs.filter((dialog) => dialog.ownerIdentifier === ownerIdentifier)
-  const ownerHasKnownTestDialog = ownerDialogs.some((dialog) => dialog.isTestEntity)
+  const ownerHasKnownTestDialog = ownerDialogs.some(
+    (dialog) => dialog.isTestEntity && normalizeIdentifier(dialog.phone) !== ownerIdentifier,
+  )
   if (ownerHasKnownTestDialog) {
     return false
   }
@@ -4536,15 +5077,135 @@ function ensureOwnerTestSubscriptionChannels(database: Database, ownerIdentifier
   return true
 }
 
+function removeOwnerSelfDialogs(database: Database) {
+  let didMutate = false
+  const removableDialogKeys = new Set<string>()
+
+  for (const dialog of database.dialogs) {
+    if (normalizeIdentifier(dialog.phone) !== dialog.ownerIdentifier) continue
+    removableDialogKeys.add(`${dialog.ownerIdentifier}:${dialog.id}`)
+  }
+
+  if (removableDialogKeys.size === 0) {
+    return false
+  }
+
+  const nextDialogs = database.dialogs.filter(
+    (dialog) => !removableDialogKeys.has(`${dialog.ownerIdentifier}:${dialog.id}`),
+  )
+  if (nextDialogs.length !== database.dialogs.length) {
+    database.dialogs = nextDialogs
+    didMutate = true
+  }
+
+  const nextDialogMessages = database.dialogMessages.filter(
+    (message) => !removableDialogKeys.has(`${message.ownerIdentifier}:${message.dialogId}`),
+  )
+  if (nextDialogMessages.length !== database.dialogMessages.length) {
+    database.dialogMessages = nextDialogMessages
+    didMutate = true
+  }
+
+  return didMutate
+}
+
+function backfillTestFixtureCreatedAt(database: Database) {
+  let didMutate = false
+  const seedChatsByPhone = new Map(
+    initialChats.map((chat) => [normalizeIdentifier(chat.phone), chat] as const),
+  )
+  const seedGroupsByHandle = new Map(
+    initialGroups.map((group) => [group.handle.trim(), group] as const),
+  )
+  const seedChannelsByHandle = new Map(
+    initialSubscribedChannels.map(
+      (channel) => [normalizeChannelHandleForComparison(channel.handle), channel] as const,
+    ),
+  )
+
+  for (const dialog of database.dialogs) {
+    if (!dialog.isTestEntity) continue
+    const seedChat = seedChatsByPhone.get(normalizeIdentifier(dialog.phone))
+    if (!seedChat) continue
+
+    for (const message of database.dialogMessages) {
+      if (message.ownerIdentifier !== dialog.ownerIdentifier || message.dialogId !== dialog.id) continue
+      const seedMessage = seedChat.messages.find((candidate) => candidate.id === message.id)
+      if (!seedMessage?.createdAt || message.createdAt === seedMessage.createdAt) continue
+      message.createdAt = seedMessage.createdAt
+      didMutate = true
+    }
+  }
+
+  for (const group of database.groups) {
+    if (!group.isTestEntity) continue
+    const seedGroup = seedGroupsByHandle.get(group.handle.trim())
+    if (!seedGroup) continue
+
+    for (const message of database.groupMessages) {
+      if (message.ownerIdentifier !== group.ownerIdentifier || message.groupId !== group.id) continue
+      const seedMessage = seedGroup.messages.find((candidate) => candidate.id === message.id)
+      if (!seedMessage) continue
+
+      if (seedMessage.createdAt && message.createdAt !== seedMessage.createdAt) {
+        message.createdAt = seedMessage.createdAt
+        didMutate = true
+      }
+
+      const seedComments = seedMessage.threadComments ?? []
+      const persistedComments = message.threadComments ?? []
+
+      persistedComments.forEach((comment) => {
+        const seedComment = seedComments.find((candidate) => candidate.id === comment.id)
+        if (!seedComment?.createdAt || comment.createdAt === seedComment.createdAt) return
+        comment.createdAt = seedComment.createdAt
+        didMutate = true
+      })
+    }
+  }
+
+  for (const channel of database.subscriptionChannels) {
+    if (!channel.isTestEntity) continue
+    const seedChannel = seedChannelsByHandle.get(normalizeChannelHandleForComparison(channel.handle))
+    if (!seedChannel) continue
+
+    for (const post of database.subscriptionPosts) {
+      if (post.ownerIdentifier !== channel.ownerIdentifier || post.channelId !== channel.id) continue
+      const seedPost = seedChannel.posts.find((candidate) => candidate.id === post.id)
+      if (!seedPost) continue
+
+      if (seedPost.createdAt && post.createdAt !== seedPost.createdAt) {
+        post.createdAt = seedPost.createdAt
+        didMutate = true
+      }
+
+      const seedComments = seedPost.threadComments ?? []
+      const persistedComments = post.threadComments ?? []
+
+      persistedComments.forEach((comment) => {
+        const seedComment = seedComments.find((candidate) => candidate.id === comment.id)
+        if (!seedComment?.createdAt || comment.createdAt === seedComment.createdAt) return
+        comment.createdAt = seedComment.createdAt
+        didMutate = true
+      })
+    }
+  }
+
+  return didMutate
+}
+
 function applyNonProductionFixtures(database: Database) {
   let didMutate = markKnownTestFixtures(database)
   didMutate = upsertNonProductionTestAccounts(database) || didMutate
+  didMutate = removeOwnerSelfDialogs(database) || didMutate
 
   for (const account of database.accounts) {
     didMutate = ensureOwnerTestDialogs(database, account.identifier) || didMutate
     didMutate = ensureOwnerTestGroups(database, account.identifier) || didMutate
     didMutate = ensureOwnerTestSubscriptionChannels(database, account.identifier) || didMutate
   }
+
+  didMutate = backfillTestFixtureCreatedAt(database) || didMutate
 
   return {
     database,

@@ -1,8 +1,15 @@
+@font-face {
+  font-family: "Noto Color Emoji";
+  src: url("/fonts/NotoColorEmoji.ttf") format("truetype");
+  font-display: swap;
+}
+
 :root {
   font-family:
     "Avenir Next",
     "Trebuchet MS",
     "Segoe UI",
+    "Noto Color Emoji",
     sans-serif;
   line-height: 1.5;
   font-weight: 400;

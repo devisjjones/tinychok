@@ -2374,6 +2374,36 @@
   overflow: auto;
 }
 
+.conversation-day-divider {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 2px;
+}
+
+.conversation-day-divider::before,
+.conversation-day-divider::after {
+  content: '';
+  height: 1px;
+  background: rgba(141, 89, 57, 0.14);
+}
+
+.conversation-day-divider span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(141, 89, 57, 0.14);
+  background: rgba(255, 251, 245, 0.82);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .bubble-stack {
   display: inline-flex;
   flex-direction: column;
@@ -2588,6 +2618,12 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+.bubble-forwarded-source-lead {
+  margin: 0 0 8px;
+  color: inherit;
+  opacity: 0.9;
 }
 
 .bubble-forwarded-source-title {
@@ -2892,7 +2928,7 @@
   resize: none;
   min-height: 56px;
   max-height: min(50dvh, 320px);
-  padding: 15px 104px 18px 16px;
+  padding: 15px 148px 18px 16px;
   border-radius: 18px;
   line-height: 1.45;
   overflow-y: auto;
@@ -2907,6 +2943,105 @@
   min-height: 48px;
   align-items: center;
   gap: 8px;
+}
+
+.emoji-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.emoji-picker-trigger-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
+    brightness(93%) contrast(90%);
+}
+
+.emoji-picker-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  width: min(320px, calc(100vw - 48px));
+  max-height: min(340px, 44vh);
+  padding: 14px;
+  border: 1px solid rgba(122, 98, 85, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 251, 245, 0.97);
+  box-shadow: 0 24px 60px rgba(64, 35, 18, 0.16);
+  overflow: auto;
+  z-index: 8;
+}
+
+.emoji-picker-section {
+  display: grid;
+  gap: 10px;
+}
+
+.emoji-picker-section + .emoji-picker-section {
+  margin-top: 12px;
+}
+
+.emoji-picker-section-title {
+  margin: 0;
+  color: rgba(95, 66, 46, 0.72);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.emoji-picker-item {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(77, 58, 46, 0.06);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  transition:
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.emoji-picker-item:hover {
+  transform: translateY(-1px);
+  background: rgba(140, 87, 56, 0.12);
+}
+
+.emoji-picker-item span {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.emoji-picker-expand-button {
+  width: 100%;
+  margin-top: 14px;
+  border: 0;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(140, 87, 56, 0.14);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.emoji-picker-expand-button:hover {
+  transform: translateY(-1px);
+  background: rgba(140, 87, 56, 0.2);
 }
 
 .composer-tool {
@@ -3102,6 +3237,12 @@
   text-align: left;
 }
 
+.room-forward-item:disabled,
+.room-forward-item-disabled {
+  opacity: 0.58;
+  cursor: default;
+}
+
 .group-create-members-list {
   display: grid;
   gap: 10px;
@@ -3268,6 +3409,14 @@
   cursor: default;
 }
 
+.room-participant-item-button {
+  cursor: pointer;
+}
+
+.room-participant-item-button:disabled {
+  cursor: default;
+}
+
 .room-participant-avatar-stack .avatar {
   width: 42px;
   height: 42px;
@@ -3291,6 +3440,23 @@
   color: rgba(95, 66, 46, 0.76);
   font-size: 0.9rem;
   line-height: 1.3;
+}
+
+.room-participant-role {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(140, 87, 56, 0.12);
+  color: rgba(95, 66, 46, 0.9);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.room-report-danger {
+  color: #8f2b1e;
 }
 
 @keyframes pulse {

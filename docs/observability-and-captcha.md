@@ -1,16 +1,25 @@
 # Observability And Captcha
 
-Короткий технический runbook по текущей инфраструктуре аналитики, доставки и captcha в рабочем tree.
+Короткий технический runbook по текущей инфраструктуре аналитики, доставки и captcha по состоянию на последний уже запушенный candidate `55304e7` и локальный batch поверх него.
 
 ## Что уже подготовлено
 
-- backend теперь отдаёт публичный runtime config через `GET /api/client-config`
+- backend отдаёт публичный runtime config через `GET /api/client-config`
 - frontend читает этот config до auth / main flow
-- auth request bodies уже умеют нести `captchaToken`
-- backend auth endpoints уже умеют вызывать server-side captcha verification
+- auth request bodies умеют нести `captchaToken`
+- backend auth endpoints умеют вызывать server-side captcha verification
 - analytics events получили общий shared catalog и единый ingest endpoint
 - frontend analytics работает только при consent `analytics`
-- отправка direct / group / thread messages теперь опирается на `clientDeliveryId` для точной корреляции с backend snapshot
+- отправка direct / group / thread messages опирается на `clientDeliveryId` для точной корреляции с backend snapshot
+
+## Что не меняет текущий локальный batch
+
+Локальный batch поверх `55304e7` не меняет captcha / analytics semantics напрямую, но добавляет новые UI-surface area, которые позже стоит покрыть событиями:
+
+- history lazy loading
+- emoji picker
+- channel subscriber management
+- channel invitation flow
 
 ## Новые backend env vars
 
@@ -46,7 +55,7 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 - добавить реальный frontend widget / adapter для Turnstile
 - пробросить полученный token в auth screen без ручного вмешательства
 - решить UX на refresh / expiry captcha token
-- добавить smoke-test сценарий: `request-code -> verify -> register` при включённой captcha
+- добавить smoke-test сценарий `request-code -> verify -> register` при включённой captcha
 
 ## Что умеет analytics layer сейчас
 
@@ -57,7 +66,7 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 - текущий sink: `log`
 - auth header для analytics-запроса используется, если у клиента уже есть session token
 
-## События, которые уже заведены в catalog
+## Какие события уже есть
 
 - `analytics_consent_granted`
 - `auth_code_request_succeeded`
@@ -84,7 +93,7 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 - `group_settings_saved`
 - `blacklist_add_confirmed`
 
-## Какие события ещё стоит добавить следующим этапом
+## Какие события стоит добавить следующим этапом
 
 Messaging and delivery:
 
@@ -92,6 +101,8 @@ Messaging and delivery:
 - `thread_comment_retry_failed`
 - `message_delivery_confirmed_late`
 - `message_delivery_duplicate_detected`
+- `history_initial_window_loaded`
+- `history_page_loaded`
 
 Realtime and sync:
 
@@ -101,22 +112,21 @@ Realtime and sync:
 - `realtime_reconnect_started`
 - `realtime_reconnect_succeeded`
 
-Moderation and permissions:
-
-- `comment_blocked_by_blacklist`
-- `comment_blocked_by_room_policy`
-- `threads_disabled_hint_shown`
-
 Growth and activation:
 
 - `group_created`
 - `channel_created`
 - `channel_joined`
 - `thread_opened`
+- `channel_invite_sent`
+- `channel_subscriber_removed`
+- `channel_subscriber_blacklisted`
+- `emoji_picker_opened`
+- `emoji_inserted`
 
 ## Что важно для мессенджера прямо сейчас
 
-- `clientDeliveryId` теперь должен считаться обязательной опорой для future send-path work
+- `clientDeliveryId` должен считаться обязательной опорой для future send-path work
 - эвристическую дедупликацию по тексту и времени нужно считать только fallback-механикой
 - перед production-ready rollout аналитики нужен не `log` sink, а нормальный ingestion target
 - перед включением captcha на staging нужен frontend widget, иначе auth будет блокироваться backend-ом

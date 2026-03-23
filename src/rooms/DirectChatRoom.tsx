@@ -5,11 +5,14 @@ import type {
   MouseEvent,
   RefObject,
 } from 'react'
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ChannelMessageSource, Chat, Message, ReplyTarget } from '../app/types'
 import {
+  formatConversationDayLabel,
   formatMessagePreview,
   formatRoomPresence,
+  getConversationDayKey,
+  insertComposerTextAtCursor,
   scrollFeedChildIntoView,
   shouldSubmitComposerWithEnter,
   shouldShowDeliveryCaption,
@@ -19,6 +22,8 @@ import {
   ForwardedChannelHeader,
 } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
+import { ConversationDayDivider } from '../components/ConversationDayDivider'
+import { EmojiPicker } from '../components/EmojiPicker'
 
 type DirectChatRoomProps = {
   activeChat: Chat
@@ -32,6 +37,7 @@ type DirectChatRoomProps = {
   pinnedMessage: Message | null
   quietMode: boolean
   replyTarget: ReplyTarget | null
+  visibleMessages: Message[]
   onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
   onBack: () => void
   onBlockChat: () => void
@@ -68,6 +74,7 @@ export function DirectChatRoom({
   pinnedMessage,
   quietMode,
   replyTarget,
+  visibleMessages,
   onAttachmentChange,
   onBack,
   onBlockChat,
@@ -275,7 +282,10 @@ export function DirectChatRoom({
       ) : null}
 
       <div className="message-feed" ref={messageFeedRef}>
-        {activeChat.messages.map((message) => {
+        {visibleMessages.map((message, index) => {
+          const previousMessage = index > 0 ? visibleMessages[index - 1] : null
+          const messageDayKey = getConversationDayKey(message.createdAt)
+          const previousMessageDayKey = previousMessage ? getConversationDayKey(previousMessage.createdAt) : null
           const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
           const messageDeliveryIssue =
             message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
@@ -321,69 +331,75 @@ export function DirectChatRoom({
           const replyReference = message.replyTo
 
           return (
-            <AttachedReplyBubble
-              key={message.id}
-              mine={message.author === 'me'}
-              onReplyClick={
-                replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
-                  ? () => jumpToMessage(replyReference.id)
-                  : undefined
-              }
-              replyChatTitle={activeChat.title}
-              replyTo={replyReference}
-              bubble={
-                <button
-                  type="button"
-                  data-direct-message-id={message.id}
-                  className={bubbleClassNames.join(' ')}
-                  onClick={(event) => onMessageSelect(event, message)}
-                >
-                  {message.sourceChannel ? (
-                    <>
-                      <ForwardedChannelHeader
-                        sourceChannel={message.sourceChannel}
-                        onClick={() => onOpenSourceChannel(message)}
-                      />
-                      <span className="bubble-meta">Переслано</span>
-                    </>
-                  ) : null}
-                  {message.forwarded && !message.sourceChannel ? (
-                    <span className="bubble-meta">
-                      {message.forwardedAuthorName
-                        ? `Переслано ${message.forwardedAuthorName}`
-                        : 'Переслано'}
-                    </span>
-                  ) : null}
-                  <BubbleMessageContent
-                    linkedChannel={linkedChannel}
-                    message={message}
-                    onOpenLinkedChannel={
-                      linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                    }
-                    replyChatTitle={activeChat.title}
-                    showReplyInline={false}
-                  />
-                  <time>{message.time}</time>
-                  {showDeliveryCaption ? (
-                    <span className="bubble-delivery-caption">Сообщение не отправлено</span>
-                  ) : null}
-                  {showDeliveryIndicator ? (
-                    <img
-                      className="bubble-delivery-indicator"
-                      src={
-                        messageFailed
-                          ? '/icons/warning-48.png'
-                          : messagePending
-                            ? '/icons/hourglass-48.png'
-                            : '/icons/double-tick-50.png'
+            <Fragment key={message.id}>
+              {index === 0 || previousMessageDayKey !== messageDayKey ? (
+                <ConversationDayDivider label={formatConversationDayLabel(message.createdAt)} />
+              ) : null}
+              <AttachedReplyBubble
+                mine={message.author === 'me'}
+                onReplyClick={
+                  replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
+                    ? () => jumpToMessage(replyReference.id)
+                    : undefined
+                }
+                replyChatTitle={activeChat.title}
+                replyTo={replyReference}
+                bubble={
+                  <button
+                    type="button"
+                    data-direct-message-id={message.id}
+                    className={bubbleClassNames.join(' ')}
+                    onClick={(event) => onMessageSelect(event, message)}
+                  >
+                    {message.sourceChannel ? (
+                      <>
+                        <ForwardedChannelHeader
+                          sourceChannel={message.sourceChannel}
+                          onClick={() => onOpenSourceChannel(message)}
+                        />
+                        {!message.sourceChannel.leadText ? (
+                          <span className="bubble-meta">Переслано</span>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {message.forwarded && !message.sourceChannel ? (
+                      <span className="bubble-meta">
+                        {message.forwardedAuthorName
+                          ? `Переслано ${message.forwardedAuthorName}`
+                          : 'Переслано'}
+                      </span>
+                    ) : null}
+                    <BubbleMessageContent
+                      linkedChannel={linkedChannel}
+                      message={message}
+                      onOpenLinkedChannel={
+                        linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
                       }
-                      alt=""
-                      aria-hidden="true"
+                      replyChatTitle={activeChat.title}
+                      showReplyInline={false}
                     />
-                  ) : null}
-                </button>
-              }
-            />
+                    <time>{message.time}</time>
+                    {showDeliveryCaption ? (
+                      <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                    ) : null}
+                    {showDeliveryIndicator ? (
+                      <img
+                        className="bubble-delivery-indicator"
+                        src={
+                          messageFailed
+                            ? '/icons/warning-48.png'
+                            : messagePending
+                              ? '/icons/hourglass-48.png'
+                              : '/icons/double-tick-50.png'
+                        }
+                        alt=""
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                  </button>
+                }
+              />
+            </Fragment>
           )
         })}
 
@@ -439,6 +455,11 @@ export function DirectChatRoom({
                 onKeyDown={handleComposerKeyDown}
               />
               <div className="composer-tools">
+                <EmojiPicker
+                  onSelect={(emoji) =>
+                    insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
+                  }
+                />
                 <button
                   type="button"
                   className={attachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}

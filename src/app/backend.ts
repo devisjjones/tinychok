@@ -6,8 +6,11 @@ import type {
   CreateManagedChannelBody,
   CreateManagedChannelResponse,
   DiscoverySearchResponse,
+  DirectDialogHistoryResponse,
+  GroupHistoryResponse,
   InviteGroupMemberBody,
   InviteManagedChannelMembersBody,
+  ManageSubscriptionChannelSubscriberBody,
   MutationResponse,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
@@ -23,6 +26,7 @@ import type {
   SendGroupMessageBody,
   SendGroupThreadCommentBody,
   SendSubscriptionChannelThreadCommentBody,
+  SubscriptionChannelHistoryResponse,
   UpdateDialogBody,
   UpdateGroupBody,
   UpdateManagedChannelBody,
@@ -105,6 +109,26 @@ function normalizeMessageMedia<T extends AppSnapshot['chats'][number]['messages'
   }
 }
 
+function normalizeDialogMessages(messages: DirectDialogHistoryResponse['messages']) {
+  return messages.map((message) => normalizeMessageMedia(message))
+}
+
+function normalizeGroupMessages(messages: GroupHistoryResponse['messages']) {
+  return messages.map((message) => normalizeMessageMedia(message))
+}
+
+function normalizeChannelPosts(posts: SubscriptionChannelHistoryResponse['posts']) {
+  return posts.map((post) => ({
+    ...post,
+    attachment: post.attachment
+      ? {
+          ...post.attachment,
+          mediaUrl: resolveMediaUrl(post.attachment.mediaUrl),
+        }
+      : undefined,
+  }))
+}
+
 function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
   return {
     ...snapshot,
@@ -120,6 +144,7 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
     })),
     chats: snapshot.chats.map((chat) => ({
       ...chat,
+      pinnedMessage: chat.pinnedMessage ? normalizeMessageMedia(chat.pinnedMessage) : chat.pinnedMessage,
       messages: chat.messages.map((message) => normalizeMessageMedia(message)),
     })),
     groups: snapshot.groups.map((group) => ({
@@ -229,6 +254,75 @@ export async function fetchBootstrap(sessionToken: string) {
 
   const payload = await readJsonResponse<AppSnapshot>(response)
   return normalizeSnapshot(payload)
+}
+
+export async function fetchDirectDialogHistory(
+  sessionToken: string,
+  dialogId: number,
+  beforeMessageId: number,
+) {
+  const requestUrl = new URL(makeHttpUrl(`/api/dialogs/${dialogId}/history`), window.location.origin)
+  requestUrl.searchParams.set('beforeId', String(beforeMessageId))
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  const payload = await readJsonResponse<DirectDialogHistoryResponse>(response)
+
+  return {
+    ...payload,
+    messages: normalizeDialogMessages(payload.messages),
+  }
+}
+
+export async function fetchGroupHistory(
+  sessionToken: string,
+  groupId: number,
+  beforeMessageId: number,
+) {
+  const requestUrl = new URL(makeHttpUrl(`/api/groups/${groupId}/history`), window.location.origin)
+  requestUrl.searchParams.set('beforeId', String(beforeMessageId))
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  const payload = await readJsonResponse<GroupHistoryResponse>(response)
+
+  return {
+    ...payload,
+    messages: normalizeGroupMessages(payload.messages),
+  }
+}
+
+export async function fetchSubscriptionChannelHistory(
+  sessionToken: string,
+  channelId: number,
+  beforePostId: number,
+) {
+  const requestUrl = new URL(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/history`),
+    window.location.origin,
+  )
+  requestUrl.searchParams.set('beforeId', String(beforePostId))
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  const payload = await readJsonResponse<SubscriptionChannelHistoryResponse>(response)
+
+  return {
+    ...payload,
+    posts: normalizeChannelPosts(payload.posts),
+  }
 }
 
 export async function searchDiscoveryResults(sessionToken: string, query: string) {
@@ -666,6 +760,45 @@ export async function inviteManagedChannelMembers(
 ) {
   const response = await fetch(
     makeHttpUrl(`/api/channels/${channelId}/invitations`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function inviteSubscriptionChannelMembers(
+  sessionToken: string,
+  channelId: number,
+  body: InviteManagedChannelMembersBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/invitations`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function removeSubscriptionChannelSubscriber(
+  sessionToken: string,
+  channelId: number,
+  body: ManageSubscriptionChannelSubscriberBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/subscribers/remove`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function blacklistSubscriptionChannelSubscriber(
+  sessionToken: string,
+  channelId: number,
+  body: ManageSubscriptionChannelSubscriberBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/subscribers/blacklist`),
     makeJsonRequestInit('POST', body, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)

@@ -1,4 +1,4 @@
-import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   accountNameMaxFontSize,
   accountNameMinFontSize,
@@ -39,11 +39,15 @@ import {
 import { loadAccounts, loadSession } from './app/storage'
 import { useBlacklistFlow } from './app/useBlacklistFlow'
 import { useGroupSettingsFlow } from './app/useGroupSettingsFlow'
+import { useRoomHistoryWindow } from './app/useRoomHistoryWindow'
 import { useRoomMessageActions } from './app/useRoomMessageActions'
 import { useThreadFlow } from './app/useThreadFlow'
 import {
   ApiError,
   fetchClientRuntimeConfig,
+  fetchDirectDialogHistory,
+  fetchGroupHistory,
+  fetchSubscriptionChannelHistory,
   createGroup as createGroupRequest,
   createManagedChannel as createManagedChannelRequest,
   deleteDialog as deleteDialogRequest,
@@ -51,6 +55,7 @@ import {
   deleteDialogMessage as deleteDialogMessageRequest,
   deleteGroupMessage as deleteGroupMessageRequest,
   deleteGroupThreadComment as deleteGroupThreadCommentRequest,
+  blacklistSubscriptionChannelSubscriber as blacklistSubscriptionChannelSubscriberRequest,
   deleteManagedChannel as deleteManagedChannelRequest,
   deleteManagedChannelPost as deleteManagedChannelPostRequest,
   deleteSubscriptionChannelThreadComment as deleteSubscriptionChannelThreadCommentRequest,
@@ -59,6 +64,7 @@ import {
   fetchBootstrap,
   inviteGroupMember as inviteGroupMemberRequest,
   inviteManagedChannelMembers as inviteManagedChannelMembersRequest,
+  inviteSubscriptionChannelMembers as inviteSubscriptionChannelMembersRequest,
   leaveGroup as leaveGroupRequest,
   leaveSubscriptionChannel as leaveSubscriptionChannelRequest,
   markDialogRead as markDialogReadRequest,
@@ -68,6 +74,7 @@ import {
   openRealtimeConnection,
   reportContact as reportContactRequest,
   reportSubscriptionChannel as reportSubscriptionChannelRequest,
+  removeSubscriptionChannelSubscriber as removeSubscriptionChannelSubscriberRequest,
   registerAccount,
   requestAuthCode,
   saveSnapshot,
@@ -123,9 +130,11 @@ import {
   formatGroupLatestAuthor,
   formatGroupPreview,
   formatGroupTime,
+  insertComposerTextAtCursor,
   formatNowTime,
   formatSessionName,
   formatSubscriptionChannelReaders,
+  formatSubscriptionChannelSubscribers,
   formatSubscriptionChannelTime,
   formatUnreadBadgeCount,
   buildChannelDirectLinkFromTitle,
@@ -153,6 +162,7 @@ import {
   sortGroupsByRecentActivity,
   sortSubscriptionChannelsByRecentActivity,
 } from './app/utils'
+import { EmojiPicker } from './components/EmojiPicker'
 import { AuthScreen } from './screens/AuthScreen'
 import { ConfirmLogoutScreen } from './screens/ConfirmLogoutScreen'
 import { DirectChatRoom } from './rooms/DirectChatRoom'
@@ -313,7 +323,7 @@ function buildPreviewSubscriptionChannelFromManagedChannel(channel: Channel): Su
     participants: [],
     posts: [],
     preview: channel.description,
-    readers: 0,
+    readers: 1,
     time: '',
     title: channel.title,
     unread: 0,
@@ -748,7 +758,7 @@ function App() {
   const [deferredRoomScrollTarget, setDeferredRoomScrollTarget] = useState<
     | {
         id: number
-        kind: 'channel-post'
+        kind: 'channel-post' | 'direct-message' | 'group-message'
       }
     | null
   >(null)
@@ -819,11 +829,19 @@ function App() {
   const [channelShareOpen, setChannelShareOpen] = useState(false)
   const [channelShareBusy, setChannelShareBusy] = useState(false)
   const [channelShareError, setChannelShareError] = useState('')
+  const [channelShareChatIds, setChannelShareChatIds] = useState<number[]>([])
   const [channelReportOpen, setChannelReportOpen] = useState(false)
   const [channelReportBusy, setChannelReportBusy] = useState(false)
   const [channelReportError, setChannelReportError] = useState('')
   const [channelReportSuccessOpen, setChannelReportSuccessOpen] = useState(false)
   const [confirmingLeaveSubscriptionChannelId, setConfirmingLeaveSubscriptionChannelId] = useState<number | null>(null)
+  const [channelSubscribersOpen, setChannelSubscribersOpen] = useState(false)
+  const [channelSubscribersSearchQuery, setChannelSubscribersSearchQuery] = useState('')
+  const [selectedChannelSubscriberIdentifier, setSelectedChannelSubscriberIdentifier] = useState<string | null>(null)
+  const [confirmingRemoveChannelSubscriberIdentifier, setConfirmingRemoveChannelSubscriberIdentifier] = useState<string | null>(null)
+  const [confirmingBlacklistChannelSubscriberIdentifier, setConfirmingBlacklistChannelSubscriberIdentifier] = useState<string | null>(null)
+  const [channelSubscriberActionBusy, setChannelSubscriberActionBusy] = useState(false)
+  const [channelSubscriberActionError, setChannelSubscriberActionError] = useState('')
   const [groupParticipantsOpen, setGroupParticipantsOpen] = useState(false)
   const [groupActionsAnchor, setGroupActionsAnchor] = useState<ActionAnchor | null>(null)
   const [groupInviteOpen, setGroupInviteOpen] = useState(false)
@@ -1062,6 +1080,14 @@ function App() {
     setChannelShareOpen(false)
     setChannelShareBusy(false)
     setChannelShareError('')
+    setChannelShareChatIds([])
+    setChannelSubscribersOpen(false)
+    setChannelSubscribersSearchQuery('')
+    setSelectedChannelSubscriberIdentifier(null)
+    setConfirmingRemoveChannelSubscriberIdentifier(null)
+    setConfirmingBlacklistChannelSubscriberIdentifier(null)
+    setChannelSubscriberActionBusy(false)
+    setChannelSubscriberActionError('')
     setChannelReportOpen(false)
     setChannelReportBusy(false)
     setChannelReportError('')
@@ -1161,15 +1187,9 @@ function App() {
   const pinnedMessage =
     activeChat?.pinnedMessageId === undefined
       ? null
-      : activeChat?.messages.find((message) => message.id === activeChat.pinnedMessageId) ?? null
-  const activeMessage =
-    messageActionMessageId === null
-      ? null
-      : activeChat?.messages.find((message) => message.id === messageActionMessageId) ?? null
-  const forwardingMessage =
-    forwardingMessageId === null
-      ? null
-      : activeChat?.messages.find((message) => message.id === forwardingMessageId) ?? null
+      : activeChat?.pinnedMessage ??
+        activeChat?.messages.find((message) => message.id === activeChat.pinnedMessageId) ??
+        null
   const premiumGiftChat =
     premiumGiftChatId === null ? null : chats.find((chat) => chat.id === premiumGiftChatId) ?? null
   const activeChannel =
@@ -1192,22 +1212,55 @@ function App() {
         ) ?? null
   const isCurrentSubscriptionChannelOwner = ownedCurrentManagedChannel !== null
   const actionableSubscriptionChannel = previewSubscriptionChannel ? null : activeSubscriptionChannel
-  const activeSubscriptionPost =
-    activeSubscriptionPostId === null
+  const currentSubscriptionChannelSubscriberCount = isCurrentSubscriptionChannelOwner
+    ? Math.max(1, currentSubscriptionChannel?.participants?.length ?? 0)
+    : currentSubscriptionChannel?.readers ?? 0
+  const currentSubscriptionChannelSubscriberLabel = formatSubscriptionChannelSubscribers(
+    currentSubscriptionChannelSubscriberCount,
+  )
+  const currentSubscriptionChannelSubscriberIdentifiers = new Set(
+    (currentSubscriptionChannel?.participants ?? [])
+      .map((participant) => normalizeIdentifier(participant.identifier ?? ''))
+      .filter((identifier): identifier is string => Boolean(identifier)),
+  )
+  const filteredCurrentSubscriptionChannelParticipants = (currentSubscriptionChannel?.participants ?? [])
+    .filter((participant) => {
+      if (participant.identifier === session?.identifier) return true
+      const searchQuery = channelSubscribersSearchQuery.trim()
+      if (!searchQuery) return true
+
+      return (
+        matchesExactSearchCandidate(participant.title, searchQuery) ||
+        matchesExactSearchCandidate(participant.nickname ? `@${participant.nickname}` : '', searchQuery) ||
+        matchesExactSearchCandidate(participant.identifier, searchQuery)
+      )
+    })
+    .sort((left, right) => {
+      if (left.identifier === session?.identifier && right.identifier !== session?.identifier) {
+        return -1
+      }
+      if (right.identifier === session?.identifier && left.identifier !== session?.identifier) {
+        return 1
+      }
+      return left.title.localeCompare(right.title, 'ru')
+    })
+  const selectedCurrentSubscriptionChannelSubscriber =
+    selectedChannelSubscriberIdentifier === null
       ? null
-      : currentSubscriptionChannel?.posts.find((post) => post.id === activeSubscriptionPostId) ?? null
+      : currentSubscriptionChannel?.participants?.find(
+          (participant) =>
+            normalizeIdentifier(participant.identifier ?? '') === selectedChannelSubscriberIdentifier,
+        ) ?? null
   const persistedActiveGroup =
     activeGroupId === null ? null : groups.find((group) => group.id === activeGroupId) ?? null
-  const activeGroup = persistedActiveGroup
-    ? {
-        ...persistedActiveGroup,
-        participants: hydrateGroupParticipants(persistedActiveGroup, chats),
-      }
-    : null
-  const activeGroupMessage =
-    activeGroupMessageId === null
-      ? null
-      : activeGroup?.messages.find((message) => message.id === activeGroupMessageId) ?? null
+  const activeGroup = useMemo(() => (
+    persistedActiveGroup
+      ? {
+          ...persistedActiveGroup,
+          participants: hydrateGroupParticipants(persistedActiveGroup, chats),
+        }
+      : null
+  ), [chats, persistedActiveGroup])
   const isActiveGroupCreator =
     activeGroup !== null &&
     session !== null &&
@@ -1268,7 +1321,6 @@ function App() {
     if (!message.displayAuthor) return null
     return group.participants.find((participant) => participant.title === message.displayAuthor) ?? null
   }
-  const activeGroupMessageParticipant = resolveGroupParticipant(activeGroup, activeGroupMessage)
   function resolveThreadCommentParticipant(comment: ThreadComment | null) {
     if (!comment?.authorIdentifier) return null
 
@@ -1300,49 +1352,6 @@ function App() {
 
     return null
   }
-  const activeGroupWriteBlockReason = activeGroup
-    ? (isRoomCommentsBlacklisted(activeGroup, session?.identifier)
-        ? 'Вы не можете отправлять сообщения. Вы в чёрном списке группы.'
-        : null)
-    : null
-  const threadGroupMessage =
-    threadTarget?.kind === 'group' && activeGroup?.id === threadTarget.groupId
-      ? activeGroup.messages.find((message) => message.id === threadTarget.messageId) ?? null
-      : null
-  const threadChannelPost =
-    threadTarget?.kind === 'channel' && currentSubscriptionChannel?.id === threadTarget.channelId
-      ? currentSubscriptionChannel.posts.find((post) => post.id === threadTarget.postId) ?? null
-      : null
-  const activeThreadComments =
-    threadTarget?.kind === 'group'
-      ? threadGroupMessage?.threadComments ?? []
-      : threadTarget?.kind === 'channel'
-        ? threadChannelPost?.threadComments ?? []
-        : []
-  const activeThreadCommentCount = activeThreadComments.length
-  const activeThreadComment =
-    threadCommentActionId === null
-      ? null
-      : activeThreadComments.find((comment) => comment.id === threadCommentActionId) ?? null
-  const activeThreadCommentParticipant = resolveThreadCommentParticipant(activeThreadComment)
-  const activeThreadCommentAlreadyBlacklisted =
-    activeThreadCommentParticipant?.identifier && threadTarget
-      ? threadTarget.kind === 'group'
-        ? activeGroup
-          ? isRoomCommentsBlacklisted(activeGroup, activeThreadCommentParticipant.identifier)
-          : false
-        : currentSubscriptionChannel
-          ? isRoomCommentsBlacklisted(currentSubscriptionChannel, activeThreadCommentParticipant.identifier)
-          : false
-      : false
-  const canBlacklistActiveThreadComment =
-    Boolean(activeThreadCommentParticipant?.identifier) &&
-    activeThreadComment?.author !== 'me' &&
-    ((threadTarget?.kind === 'group' && isActiveGroupCreator) || threadTarget?.kind === 'channel')
-  const activeGroupMessageAlreadyBlacklisted =
-    activeGroup && activeGroupMessageParticipant?.identifier
-      ? isRoomCommentsBlacklisted(activeGroup, activeGroupMessageParticipant.identifier)
-      : false
 
   function handleThreadComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (!threadDraft.trim() || threadBusy) return
@@ -1362,36 +1371,6 @@ function App() {
     event.preventDefault()
     void submitThreadComment()
   }
-  const activeThreadSourceLabel =
-    threadTarget?.kind === 'group'
-      ? activeGroup?.title ?? 'Группа'
-      : currentSubscriptionChannel?.title ?? 'Канал'
-  const activeThreadId =
-    threadTarget?.kind === 'group'
-      ? threadGroupMessage?.threadId
-      : threadTarget?.kind === 'channel'
-        ? threadChannelPost?.threadId
-        : undefined
-  const activeThreadInboxItem = activeThreadId
-    ? threadInbox.find((item) => item.threadId === activeThreadId) ?? null
-    : null
-  const activeThreadSubscribed = activeThreadInboxItem !== null
-  const threadSourceText =
-    activeThreadInboxItem?.kind === 'group' && threadTarget?.kind === 'group'
-      ? activeThreadInboxItem.sourceText
-      : activeThreadInboxItem?.kind === 'channel' && threadTarget?.kind === 'channel'
-        ? activeThreadInboxItem.sourceText
-        : threadTarget?.kind === 'group'
-          ? threadGroupMessage?.text ?? ''
-          : threadChannelPost?.text ?? ''
-  const threadSourceTime =
-    activeThreadInboxItem?.kind === 'group' && threadTarget?.kind === 'group'
-      ? activeThreadInboxItem.sourceTime
-      : activeThreadInboxItem?.kind === 'channel' && threadTarget?.kind === 'channel'
-        ? activeThreadInboxItem.sourceTime
-        : threadTarget?.kind === 'group'
-          ? threadGroupMessage?.time ?? ''
-          : threadChannelPost?.time ?? ''
   const activeThreadBlockReason =
     threadTarget?.kind === 'group'
       ? activeGroup
@@ -1479,6 +1458,193 @@ function App() {
   const isGroupsTopListOpen = topListView === 'groups'
   const isThreadsTopListOpen = topListView === 'threads'
   const isAnyRoomOpen = isChatOpen || isSubscriptionChannelOpen || isGroupOpen
+  const loadOlderDirectMessages = useCallback(async (beforeMessageId: number) => {
+    if (!backendReady || !session?.sessionToken || !activeChat) {
+      return {
+        hasMore: false,
+        items: [],
+      }
+    }
+
+    const response = await fetchDirectDialogHistory(session.sessionToken, activeChat.id, beforeMessageId)
+    return {
+      hasMore: response.hasMore,
+      items: response.messages,
+    }
+  }, [activeChat, backendReady, session?.sessionToken])
+  const loadOlderGroupMessages = useCallback(async (beforeMessageId: number) => {
+    if (!backendReady || !session?.sessionToken || !activeGroup) {
+      return {
+        hasMore: false,
+        items: [],
+      }
+    }
+
+    const response = await fetchGroupHistory(session.sessionToken, activeGroup.id, beforeMessageId)
+    return {
+      hasMore: response.hasMore,
+      items: response.messages,
+    }
+  }, [activeGroup, backendReady, session?.sessionToken])
+  const loadOlderChannelPosts = useCallback(async (beforePostId: number) => {
+    if (!backendReady || !session?.sessionToken || !currentSubscriptionChannel) {
+      return {
+        hasMore: false,
+        items: [],
+      }
+    }
+
+    const response = await fetchSubscriptionChannelHistory(
+      session.sessionToken,
+      currentSubscriptionChannel.id,
+      beforePostId,
+    )
+    return {
+      hasMore: response.hasMore,
+      items: response.posts,
+    }
+  }, [backendReady, currentSubscriptionChannel, session?.sessionToken])
+  const {
+    revealItemById: revealDirectMessageById,
+    visibleItems: visibleDirectMessages,
+  } = useRoomHistoryWindow({
+    feedRef: messageFeedRef,
+    hasOlderHistory: Boolean(activeChat?.historyHasMore),
+    items: activeChat?.messages ?? [],
+    loadOlderPage: !threadTarget && isChatOpen && activeChat ? loadOlderDirectMessages : undefined,
+    roomKey: !threadTarget && isChatOpen && activeChat ? `direct:${activeChat.id}` : null,
+  })
+  const {
+    revealItemById: revealGroupMessageById,
+    visibleItems: visibleGroupMessages,
+  } = useRoomHistoryWindow({
+    feedRef: messageFeedRef,
+    hasOlderHistory: Boolean(activeGroup?.historyHasMore),
+    items: activeGroup?.messages ?? [],
+    loadOlderPage: !threadTarget && isGroupOpen && activeGroup ? loadOlderGroupMessages : undefined,
+    roomKey: !threadTarget && isGroupOpen && activeGroup ? `group:${activeGroup.id}` : null,
+  })
+  const {
+    revealItemById: revealChannelPostById,
+    visibleItems: visibleSubscriptionPosts,
+  } = useRoomHistoryWindow({
+    feedRef: messageFeedRef,
+    hasOlderHistory: Boolean(currentSubscriptionChannel?.historyHasMore),
+    items: currentSubscriptionChannel?.posts ?? [],
+    loadOlderPage:
+      !threadTarget && isSubscriptionChannelOpen && currentSubscriptionChannel
+        ? loadOlderChannelPosts
+        : undefined,
+    roomKey:
+      !threadTarget && isSubscriptionChannelOpen && currentSubscriptionChannel
+        ? `channel:${currentSubscriptionChannel.id}`
+        : null,
+  })
+  const activeVisibleChatMessageCount = visibleDirectMessages.length
+  const activeVisibleGroupMessageCount = visibleGroupMessages.length
+  const activeVisibleSubscriptionChannelPostCount = visibleSubscriptionPosts.length
+  const activeMessage =
+    messageActionMessageId === null
+      ? null
+      : visibleDirectMessages.find((message) => message.id === messageActionMessageId) ??
+        activeChat?.messages.find((message) => message.id === messageActionMessageId) ??
+        null
+  const forwardingMessage =
+    forwardingMessageId === null
+      ? null
+      : visibleDirectMessages.find((message) => message.id === forwardingMessageId) ??
+        activeChat?.messages.find((message) => message.id === forwardingMessageId) ??
+        null
+  const activeSubscriptionPost =
+    activeSubscriptionPostId === null
+      ? null
+      : visibleSubscriptionPosts.find((post) => post.id === activeSubscriptionPostId) ??
+        currentSubscriptionChannel?.posts.find((post) => post.id === activeSubscriptionPostId) ??
+        null
+  const activeGroupMessage =
+    activeGroupMessageId === null
+      ? null
+      : visibleGroupMessages.find((message) => message.id === activeGroupMessageId) ??
+        activeGroup?.messages.find((message) => message.id === activeGroupMessageId) ??
+        null
+  const activeGroupMessageParticipant = resolveGroupParticipant(activeGroup, activeGroupMessage)
+  const activeGroupWriteBlockReason = activeGroup
+    ? (isRoomCommentsBlacklisted(activeGroup, session?.identifier)
+        ? 'Вы не можете отправлять сообщения. Вы в чёрном списке группы.'
+        : null)
+    : null
+  const threadGroupMessage =
+    threadTarget?.kind === 'group' && activeGroup?.id === threadTarget.groupId
+      ? visibleGroupMessages.find((message) => message.id === threadTarget.messageId) ??
+        activeGroup.messages.find((message) => message.id === threadTarget.messageId) ??
+        null
+      : null
+  const threadChannelPost =
+    threadTarget?.kind === 'channel' && currentSubscriptionChannel?.id === threadTarget.channelId
+      ? visibleSubscriptionPosts.find((post) => post.id === threadTarget.postId) ??
+        currentSubscriptionChannel.posts.find((post) => post.id === threadTarget.postId) ??
+        null
+      : null
+  const activeThreadComments =
+    threadTarget?.kind === 'group'
+      ? threadGroupMessage?.threadComments ?? []
+      : threadTarget?.kind === 'channel'
+        ? threadChannelPost?.threadComments ?? []
+        : []
+  const activeThreadCommentCount = activeThreadComments.length
+  const activeThreadComment =
+    threadCommentActionId === null
+      ? null
+      : activeThreadComments.find((comment) => comment.id === threadCommentActionId) ?? null
+  const activeThreadCommentParticipant = resolveThreadCommentParticipant(activeThreadComment)
+  const activeThreadCommentAlreadyBlacklisted =
+    activeThreadCommentParticipant?.identifier && threadTarget
+      ? threadTarget.kind === 'group'
+        ? activeGroup
+          ? isRoomCommentsBlacklisted(activeGroup, activeThreadCommentParticipant.identifier)
+          : false
+        : currentSubscriptionChannel
+          ? isRoomCommentsBlacklisted(currentSubscriptionChannel, activeThreadCommentParticipant.identifier)
+          : false
+      : false
+  const canBlacklistActiveThreadComment =
+    Boolean(activeThreadCommentParticipant?.identifier) &&
+    activeThreadComment?.author !== 'me' &&
+    ((threadTarget?.kind === 'group' && isActiveGroupCreator) || threadTarget?.kind === 'channel')
+  const activeGroupMessageAlreadyBlacklisted =
+    activeGroup && activeGroupMessageParticipant?.identifier
+      ? isRoomCommentsBlacklisted(activeGroup, activeGroupMessageParticipant.identifier)
+      : false
+  const activeThreadSourceLabel =
+    threadTarget?.kind === 'group'
+      ? activeGroup?.title ?? 'Группа'
+      : currentSubscriptionChannel?.title ?? 'Канал'
+  const activeThreadId =
+    threadTarget?.kind === 'group'
+      ? threadGroupMessage?.threadId
+      : threadTarget?.kind === 'channel'
+        ? threadChannelPost?.threadId
+        : undefined
+  const activeThreadInboxItem = activeThreadId
+    ? threadInbox.find((item) => item.threadId === activeThreadId) ?? null
+    : null
+  const activeThreadSubscribed = activeThreadInboxItem !== null
+  const threadSourceText =
+    activeThreadInboxItem?.kind === 'group' && threadTarget?.kind === 'group'
+      ? activeThreadInboxItem.sourceText
+      : activeThreadInboxItem?.kind === 'channel' && threadTarget?.kind === 'channel'
+        ? activeThreadInboxItem.sourceText
+        : threadTarget?.kind === 'group'
+          ? threadGroupMessage?.text ?? ''
+          : threadChannelPost?.text ?? ''
+  const threadSourceTime =
+    activeThreadInboxItem?.kind === 'group' && threadTarget?.kind === 'group'
+      ? activeThreadInboxItem.sourceTime
+      : activeThreadInboxItem?.kind === 'channel' && threadTarget?.kind === 'channel'
+        ? activeThreadInboxItem.sourceTime
+        : threadTarget?.kind === 'group'
+          ? threadGroupMessage?.time ?? ''
+          : threadChannelPost?.time ?? ''
   const visibleRetainedSubscriptionChannelId =
     isChannelsTopListOpen &&
     stageView === 'main' &&
@@ -1595,6 +1761,8 @@ function App() {
     channelInviteChatIds.includes(chat.id),
   )
   const canInviteToManagedChannel = selectedChannelInviteChats.length > 0
+  const selectedChannelShareChats = availableChats.filter((chat) => channelShareChatIds.includes(chat.id))
+  const canInviteToCurrentSubscriptionChannel = selectedChannelShareChats.length > 0
   const blacklistManagerCurrentIdentifiers =
     blacklistManagerTarget?.kind === 'group' && blacklistManagerTarget.scope === 'create'
       ? creatingGroupBlacklistIdentifiers
@@ -1706,22 +1874,43 @@ function App() {
   }, [])
 
   const scrollToDirectMessage = useCallback((messageId: number) => {
+    const didRevealOlderMessages = revealDirectMessageById(messageId)
+
+    if (didRevealOlderMessages) {
+      setDeferredRoomScrollTarget({ id: messageId, kind: 'direct-message' })
+      return
+    }
+
     void window.requestAnimationFrame(() => {
       scrollCurrentFeedToSelector(`[data-direct-message-id="${messageId}"]`)
     })
-  }, [scrollCurrentFeedToSelector])
+  }, [revealDirectMessageById, scrollCurrentFeedToSelector])
 
   const scrollToGroupMessage = useCallback((messageId: number) => {
+    const didRevealOlderMessages = revealGroupMessageById(messageId)
+
+    if (didRevealOlderMessages) {
+      setDeferredRoomScrollTarget({ id: messageId, kind: 'group-message' })
+      return
+    }
+
     void window.requestAnimationFrame(() => {
       scrollCurrentFeedToSelector(`[data-group-message-id="${messageId}"]`)
     })
-  }, [scrollCurrentFeedToSelector])
+  }, [revealGroupMessageById, scrollCurrentFeedToSelector])
 
   const scrollToChannelPost = useCallback((postId: number) => {
+    const didRevealOlderPosts = revealChannelPostById(postId)
+
+    if (didRevealOlderPosts) {
+      setDeferredRoomScrollTarget({ id: postId, kind: 'channel-post' })
+      return
+    }
+
     void window.requestAnimationFrame(() => {
       scrollCurrentFeedToSelector(`[data-channel-post-id="${postId}"]`)
     })
-  }, [scrollCurrentFeedToSelector])
+  }, [revealChannelPostById, scrollCurrentFeedToSelector])
 
   const scrollToThreadComment = useCallback((commentId: number) => {
     void window.requestAnimationFrame(() => {
@@ -1735,6 +1924,10 @@ function App() {
     const frameId = window.requestAnimationFrame(() => {
       if (deferredRoomScrollTarget.kind === 'channel-post') {
         scrollCurrentFeedToSelector(`[data-channel-post-id="${deferredRoomScrollTarget.id}"]`)
+      } else if (deferredRoomScrollTarget.kind === 'direct-message') {
+        scrollCurrentFeedToSelector(`[data-direct-message-id="${deferredRoomScrollTarget.id}"]`)
+      } else if (deferredRoomScrollTarget.kind === 'group-message') {
+        scrollCurrentFeedToSelector(`[data-group-message-id="${deferredRoomScrollTarget.id}"]`)
       }
       setDeferredRoomScrollTarget(null)
     })
@@ -1742,7 +1935,14 @@ function App() {
     return () => {
       window.cancelAnimationFrame(frameId)
     }
-  }, [deferredRoomScrollTarget, scrollCurrentFeedToSelector, threadTarget])
+  }, [
+    activeVisibleChatMessageCount,
+    activeVisibleGroupMessageCount,
+    activeVisibleSubscriptionChannelPostCount,
+    deferredRoomScrollTarget,
+    scrollCurrentFeedToSelector,
+    threadTarget,
+  ])
 
   useEffect(() => {
     if (!threadReplyTarget) return
@@ -1751,6 +1951,14 @@ function App() {
       threadComposerInputRef.current?.focus()
     })
   }, [threadReplyTarget])
+
+  useEffect(() => {
+    if (!threadTarget) return
+
+    window.requestAnimationFrame(() => {
+      threadComposerInputRef.current?.focus()
+    })
+  }, [threadTarget])
 
   useEffect(() => {
     if (!isChannelsView || !channelsPanelRef.current) return
@@ -5519,6 +5727,17 @@ function App() {
     setChannelShareOpen(false)
     setChannelShareBusy(false)
     setChannelShareError('')
+    setChannelShareChatIds([])
+  }
+
+  function closeChannelSubscribersDialog() {
+    setChannelSubscribersOpen(false)
+    setChannelSubscribersSearchQuery('')
+    setSelectedChannelSubscriberIdentifier(null)
+    setConfirmingRemoveChannelSubscriberIdentifier(null)
+    setConfirmingBlacklistChannelSubscriberIdentifier(null)
+    setChannelSubscriberActionBusy(false)
+    setChannelSubscriberActionError('')
   }
 
   function closeChannelReportDialog() {
@@ -5565,36 +5784,110 @@ function App() {
     closeChannelActions()
   }
 
-  async function shareCurrentChannelToChat(chatId: number) {
-    if (!currentSubscriptionChannel) return
+  function toggleChannelShareChat(chatId: number) {
+    setChannelShareChatIds((currentChatIds) =>
+      currentChatIds.includes(chatId)
+        ? currentChatIds.filter((currentId) => currentId !== chatId)
+        : [...currentChatIds, chatId],
+    )
+    setChannelShareError('')
+  }
 
-    const sharedText = sanitizeChannelDirectLink(currentSubscriptionChannel.handle) || currentSubscriptionChannel.handle
-    if (!sharedText) return
+  function buildChannelInvitationSource(
+    channel: Pick<SubscriptionChannel, 'accent' | 'draft' | 'handle' | 'title' | 'visibility'>,
+  ): NonNullable<Message['sourceChannel']> {
+    return {
+      accent: channel.accent,
+      draft: channel.draft,
+      handle: channel.handle,
+      leadText: 'Пользователь приглашает вас подписаться на канал:',
+      title: channel.title,
+      visibility: channel.visibility,
+    }
+  }
+
+  async function inviteCurrentSubscriptionChannelToChats() {
+    if (!currentSubscriptionChannel) return
+    if (!canInviteToCurrentSubscriptionChannel) return
 
     setChannelShareBusy(true)
     setChannelShareError('')
 
     try {
       if (backendReady && session?.sessionToken) {
-        const response = await sendDirectMessageRequest(session.sessionToken, chatId, {
-          markAsRead: chatId === activeChatId,
-          text: sharedText,
-        })
+        const response = await inviteSubscriptionChannelMembersRequest(
+          session.sessionToken,
+          currentSubscriptionChannel.id,
+          {
+            dialogIds: selectedChannelShareChats.map((chat) => chat.id),
+          },
+        )
         applySnapshot(response.snapshot)
       } else {
-        applyLocalDirectMessage(chatId, sharedText, {
-          markAsRead: chatId === activeChatId,
-        })
+        for (const chat of selectedChannelShareChats) {
+          applyLocalDirectMessage(chat.id, '', {
+            markAsRead: chat.id === activeChatId,
+            sourceChannel: buildChannelInvitationSource(currentSubscriptionChannel),
+          })
+        }
       }
 
       closeChannelShareDialog()
       closeChannelActions()
     } catch (error) {
-      console.error('Failed to share channel with contact', error)
+      console.error('Failed to invite contacts to channel', error)
       setChannelShareError(
-        error instanceof Error ? error.message : 'Не удалось отправить ссылку на канал.',
+        error instanceof Error ? error.message : 'Не удалось отправить приглашение в канал.',
       )
       setChannelShareBusy(false)
+    }
+  }
+
+  async function removeCurrentChannelSubscriber(identifier: string) {
+    if (!currentSubscriptionChannel || !backendReady || !session?.sessionToken) return
+
+    setChannelSubscriberActionBusy(true)
+    setChannelSubscriberActionError('')
+
+    try {
+      const response = await removeSubscriptionChannelSubscriberRequest(
+        session.sessionToken,
+        currentSubscriptionChannel.id,
+        { identifier },
+      )
+      applySnapshot(response.snapshot)
+      closeChannelSubscribersDialog()
+      closeChannelActions()
+    } catch (error) {
+      console.error('Failed to remove channel subscriber', error)
+      setChannelSubscriberActionError(
+        error instanceof Error ? error.message : 'Не удалось удалить подписчика.',
+      )
+      setChannelSubscriberActionBusy(false)
+    }
+  }
+
+  async function blacklistCurrentChannelSubscriber(identifier: string) {
+    if (!currentSubscriptionChannel || !backendReady || !session?.sessionToken) return
+
+    setChannelSubscriberActionBusy(true)
+    setChannelSubscriberActionError('')
+
+    try {
+      const response = await blacklistSubscriptionChannelSubscriberRequest(
+        session.sessionToken,
+        currentSubscriptionChannel.id,
+        { identifier },
+      )
+      applySnapshot(response.snapshot)
+      closeChannelSubscribersDialog()
+      closeChannelActions()
+    } catch (error) {
+      console.error('Failed to blacklist channel subscriber', error)
+      setChannelSubscriberActionError(
+        error instanceof Error ? error.message : 'Не удалось добавить подписчика в чёрный список.',
+      )
+      setChannelSubscriberActionBusy(false)
     }
   }
 
@@ -7415,6 +7708,16 @@ function App() {
                     onKeyDown={handleThreadComposerKeyDown}
                   />
                   <div className="composer-tools">
+                    <EmojiPicker
+                      onSelect={(emoji) =>
+                        insertComposerTextAtCursor(
+                          threadComposerInputRef.current,
+                          threadDraft,
+                          emoji,
+                          setThreadDraft,
+                        )
+                      }
+                    />
                     {threadDraft.trim() ? (
                       <button type="submit" className="send-button composer-send" disabled={threadBusy}>
                         <span className="composer-send-icon" aria-hidden="true">
@@ -7638,11 +7941,12 @@ function App() {
                 setChannelShareOpen(true)
                 setChannelShareBusy(false)
                 setChannelShareError('')
+                setChannelShareChatIds([])
                 setChannelReportOpen(false)
                 setChannelReportError('')
               }}
             >
-              Поделиться
+              Пригласить подписаться
             </button>
             <button
               type="button"
@@ -7675,29 +7979,57 @@ function App() {
           <button
             type="button"
             className="room-confirm-scrim"
-            aria-label="Закрыть отправку ссылки на канал"
+            aria-label="Закрыть приглашение в канал"
             onClick={closeChannelShareDialog}
           />
           <div className="room-confirm room-forward room-transfer-list">
-            <p className="room-confirm-copy">{`Кому отправить ссылку на канал ${actionableSubscriptionChannel.title}?`}</p>
+            <p className="room-confirm-copy">{`Кого пригласить подписаться на канал ${actionableSubscriptionChannel.title}?`}</p>
             <div className="room-forward-list">
               {availableChats.length > 0 ? (
-                availableChats.map((chat) => (
-                  <button
-                    key={`channel-share-${chat.id}`}
-                    type="button"
-                    className="room-forward-item"
-                    onClick={() => {
-                      void shareCurrentChannelToChat(chat.id)
-                    }}
-                    disabled={channelShareBusy}
-                  >
-                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {chat.title.slice(0, 1)}
-                    </span>
-                    <span>{chat.title}</span>
-                  </button>
-                ))
+                availableChats.map((chat) => {
+                  const chatIdentifier = normalizeIdentifier(chat.phone)
+                  const alreadySubscribed =
+                    chatIdentifier !== '' && currentSubscriptionChannelSubscriberIdentifiers.has(chatIdentifier)
+                  const isSelected = channelShareChatIds.includes(chat.id)
+
+                  return (
+                    <button
+                      key={`channel-share-${chat.id}`}
+                      type="button"
+                      className={`room-forward-item group-create-member-item${isSelected ? ' active' : ''}${alreadySubscribed ? ' room-forward-item-disabled' : ''}`}
+                      onClick={() => {
+                        if (alreadySubscribed || channelShareBusy) return
+                        toggleChannelShareChat(chat.id)
+                      }}
+                      disabled={channelShareBusy || alreadySubscribed}
+                    >
+                      <span className="chat-avatar-stack">
+                        <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                          {chat.title.slice(0, 1)}
+                        </span>
+                        {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
+                      </span>
+                      <span className="group-create-member-copy">
+                        <strong className="group-create-member-name-row">
+                          <span>{chat.title}</span>
+                        </strong>
+                        <span>
+                          {alreadySubscribed
+                            ? 'Уже подписан(а)'
+                            : chat.handle || chat.phone}
+                        </span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="group-create-member-checkbox"
+                        checked={isSelected || alreadySubscribed}
+                        disabled={alreadySubscribed}
+                        readOnly
+                        tabIndex={-1}
+                      />
+                    </button>
+                  )
+                })
               ) : (
                 <article className="settings-item room-transfer-empty">
                   <p className="settings-text">Контакты не найдены.</p>
@@ -7705,14 +8037,231 @@ function App() {
               )}
             </div>
             {channelShareError ? <p className="auth-error">{channelShareError}</p> : null}
-            <div className="room-confirm-actions room-confirm-actions-single">
+            <div className="room-confirm-actions room-confirm-actions-dual">
               <button
                 type="button"
                 className="room-confirm-button"
                 onClick={closeChannelShareDialog}
                 disabled={channelShareBusy}
               >
-                {channelShareBusy ? 'Отправляем...' : 'Закрыть'}
+                Отмена
+              </button>
+              <button
+                type="button"
+                className={`room-confirm-button room-confirm-button-primary${canInviteToCurrentSubscriptionChannel ? '' : ' disabled'}`}
+                aria-disabled={!canInviteToCurrentSubscriptionChannel}
+                onClick={() => {
+                  if (channelShareBusy || !canInviteToCurrentSubscriptionChannel) return
+                  void inviteCurrentSubscriptionChannelToChats()
+                }}
+                disabled={channelShareBusy}
+              >
+                {channelShareBusy ? 'Приглашаем...' : 'Пригласить'}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {channelSubscribersOpen && currentSubscriptionChannel && isCurrentSubscriptionChannelOwner ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть список подписчиков"
+            onClick={closeChannelSubscribersDialog}
+          />
+          <div className="room-confirm room-forward room-transfer-list room-participants">
+            <p className="room-confirm-copy">{`Подписчики канала ${currentSubscriptionChannel.title}`}</p>
+            <label className="search room-transfer-search">
+              <span className="search-label">Поиск подписчика</span>
+              <input
+                type="search"
+                placeholder="Имя, фамилия или @никнейм"
+                value={channelSubscribersSearchQuery}
+                onChange={(event) => setChannelSubscribersSearchQuery(event.target.value)}
+              />
+            </label>
+            <div className="room-forward-list room-participants-list">
+              {filteredCurrentSubscriptionChannelParticipants.length > 0 ? (
+                filteredCurrentSubscriptionChannelParticipants.map((participant) => {
+                  const isOwner = normalizeIdentifier(participant.identifier ?? '') === session?.identifier
+
+                  return (
+                    <button
+                      key={`channel-subscriber-${participant.identifier ?? participant.id}`}
+                      type="button"
+                      className="room-forward-item room-participant-item room-participant-item-button"
+                      onClick={() => {
+                        if (isOwner) return
+                        setSelectedChannelSubscriberIdentifier(
+                          normalizeIdentifier(participant.identifier ?? '') || null,
+                        )
+                        setChannelSubscriberActionError('')
+                      }}
+                      disabled={isOwner}
+                    >
+                      <span className="chat-avatar-stack room-participant-avatar-stack">
+                        <span className="avatar" style={{ backgroundColor: participant.accent }}>
+                          {participant.title.slice(0, 1)}
+                        </span>
+                        {participant.online ? <span className="presence-dot" aria-label="В сети" /> : null}
+                      </span>
+                      <span className="room-participant-copy">
+                        <span className="room-participant-name-row">
+                          <strong>{participant.title}</strong>
+                          {isOwner ? (
+                            <span className="room-participant-role">Владелец</span>
+                          ) : null}
+                          {participant.premium ? (
+                            <span className="premium-crown chat-crown" aria-label="Премиум">
+                              <img src="/icons/crown64.png" alt="" />
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="room-participant-status">
+                          {participant.nickname ? `@${participant.nickname}` : participant.status}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })
+              ) : (
+                <article className="settings-item room-transfer-empty">
+                  <p className="settings-text">Подходящие подписчики не найдены.</p>
+                </article>
+              )}
+            </div>
+            {channelSubscriberActionError ? <p className="auth-error">{channelSubscriberActionError}</p> : null}
+            <div className="room-confirm-actions room-confirm-actions-single">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={closeChannelSubscribersDialog}
+                disabled={channelSubscriberActionBusy}
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {selectedCurrentSubscriptionChannelSubscriber && currentSubscriptionChannel && isCurrentSubscriptionChannelOwner ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть действия подписчика"
+            onClick={() => {
+              setSelectedChannelSubscriberIdentifier(null)
+              setChannelSubscriberActionError('')
+            }}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">{selectedCurrentSubscriptionChannelSubscriber.title}</p>
+            <div className="room-forward-list room-report-reason-list">
+              <button
+                type="button"
+                className="room-forward-item room-report-reason-item room-report-danger"
+                onClick={() => {
+                  setConfirmingRemoveChannelSubscriberIdentifier(
+                    normalizeIdentifier(selectedCurrentSubscriptionChannelSubscriber.identifier ?? ''),
+                  )
+                }}
+              >
+                <span>Удалить подписчика</span>
+              </button>
+              <button
+                type="button"
+                className="room-forward-item room-report-reason-item room-report-danger"
+                onClick={() => {
+                  setConfirmingBlacklistChannelSubscriberIdentifier(
+                    normalizeIdentifier(selectedCurrentSubscriptionChannelSubscriber.identifier ?? ''),
+                  )
+                }}
+              >
+                <span>В чёрный список</span>
+              </button>
+            </div>
+            <div className="room-confirm-actions room-confirm-actions-single">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => {
+                  setSelectedChannelSubscriberIdentifier(null)
+                  setChannelSubscriberActionError('')
+                }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {confirmingRemoveChannelSubscriberIdentifier && selectedCurrentSubscriptionChannelSubscriber ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть подтверждение удаления подписчика"
+            onClick={() => setConfirmingRemoveChannelSubscriberIdentifier(null)}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">{`Удалить ${selectedCurrentSubscriptionChannelSubscriber.title} из подписчиков канала?`}</p>
+            <div className="room-confirm-actions room-confirm-actions-dual">
+              <button
+                type="button"
+                className="room-confirm-button room-confirm-danger"
+                onClick={() => {
+                  void removeCurrentChannelSubscriber(confirmingRemoveChannelSubscriberIdentifier)
+                }}
+                disabled={channelSubscriberActionBusy}
+              >
+                Удалить
+              </button>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setConfirmingRemoveChannelSubscriberIdentifier(null)}
+                disabled={channelSubscriberActionBusy}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {confirmingBlacklistChannelSubscriberIdentifier && selectedCurrentSubscriptionChannelSubscriber ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть подтверждение чёрного списка подписчика"
+            onClick={() => setConfirmingBlacklistChannelSubscriberIdentifier(null)}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">{`Добавить ${selectedCurrentSubscriptionChannelSubscriber.title} в чёрный список канала?`}</p>
+            <div className="room-confirm-actions room-confirm-actions-dual">
+              <button
+                type="button"
+                className="room-confirm-button room-confirm-danger"
+                onClick={() => {
+                  void blacklistCurrentChannelSubscriber(confirmingBlacklistChannelSubscriberIdentifier)
+                }}
+                disabled={channelSubscriberActionBusy}
+              >
+                В чёрный список
+              </button>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setConfirmingBlacklistChannelSubscriberIdentifier(null)}
+                disabled={channelSubscriberActionBusy}
+              >
+                Отмена
               </button>
             </div>
           </div>
@@ -10018,9 +10567,30 @@ function App() {
                     resetSubscriptionPostActions()
                     setChannelShareOpen(false)
                     setChannelShareError('')
+                    setChannelShareChatIds([])
                     setChannelReportOpen(false)
                     setChannelReportError('')
+                    setChannelSubscribersOpen(false)
+                    setChannelSubscribersSearchQuery('')
+                    setSelectedChannelSubscriberIdentifier(null)
+                    setConfirmingRemoveChannelSubscriberIdentifier(null)
+                    setConfirmingBlacklistChannelSubscriberIdentifier(null)
+                    setChannelSubscriberActionBusy(false)
+                    setChannelSubscriberActionError('')
                     setConfirmingLeaveSubscriptionChannelId(null)
+                  }
+                : undefined
+            }
+            onOpenSubscribers={
+              isCurrentSubscriptionChannelOwner && actionableSubscriptionChannel
+                ? () => {
+                    setChannelSubscribersOpen(true)
+                    setChannelSubscribersSearchQuery('')
+                    setSelectedChannelSubscriberIdentifier(null)
+                    setConfirmingRemoveChannelSubscriberIdentifier(null)
+                    setConfirmingBlacklistChannelSubscriberIdentifier(null)
+                    setChannelSubscriberActionBusy(false)
+                    setChannelSubscriberActionError('')
                   }
                 : undefined
             }
@@ -10030,6 +10600,7 @@ function App() {
               )
             }}
             onReplyReferenceJump={scrollToChannelPost}
+            visiblePosts={visibleSubscriptionPosts}
             publisher={
               ownedCurrentManagedChannel
                 ? {
@@ -10053,6 +10624,7 @@ function App() {
                   }
                 : undefined
             }
+            subscriberCountLabel={currentSubscriptionChannelSubscriberLabel}
           />
         ) : null}
 
@@ -10104,6 +10676,7 @@ function App() {
             onOpenThread={openGroupThread}
             replyTarget={replyTarget}
             resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
+            visibleMessages={visibleGroupMessages}
             onSubmit={sendGroupMessage}
           />
         ) : null}
@@ -10123,6 +10696,7 @@ function App() {
               pinnedMessage={pinnedMessage}
               quietMode={quietMode}
               replyTarget={replyTarget}
+              visibleMessages={visibleDirectMessages}
               onAttachmentChange={handleChatAttachmentChange}
               onBack={closeActiveRoom}
               onBlockChat={() => blockChat(activeChat.id)}

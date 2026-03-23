@@ -11,8 +11,11 @@ import type {
   CreateGroupBody,
   CreateManagedChannelBody,
   DiscoverySearchResponse,
+  DirectDialogHistoryResponse,
+  GroupHistoryResponse,
   InviteGroupMemberBody,
   InviteManagedChannelMembersBody,
+  ManageSubscriptionChannelSubscriberBody,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
   ReportContactBody,
@@ -27,6 +30,7 @@ import type {
   SendManagedChannelPostBody,
   SendGroupThreadCommentBody,
   SendSubscriptionChannelThreadCommentBody,
+  SubscriptionChannelHistoryResponse,
   UpdateDialogBody,
   UpdateGroupBody,
   UpdateManagedChannelBody,
@@ -69,6 +73,17 @@ function getNumericRouteParam(request: FastifyRequest, key: string) {
 
   if (!rawValue || !Number.isInteger(numericValue) || numericValue <= 0) {
     throw new Error('Некорректный идентификатор ресурса.')
+  }
+
+  return numericValue
+}
+
+function getPositiveNumericQueryParam(request: FastifyRequest, key: string) {
+  const rawValue = (request.query as Record<string, string | undefined> | undefined)?.[key]
+  const numericValue = Number(rawValue)
+
+  if (!rawValue || !Number.isInteger(numericValue) || numericValue <= 0) {
+    throw new Error('Некорректный идентификатор истории.')
   }
 
   return numericValue
@@ -275,6 +290,55 @@ app.get('/api/discovery', async (request, reply) => {
   try {
     const results = store.searchAccounts(token, getSearchQuery(request))
     return { results } satisfies DiscoverySearchResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.get('/api/dialogs/:dialogId/history', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const dialogId = getNumericRouteParam(request, 'dialogId')
+    const beforeMessageId = getPositiveNumericQueryParam(request, 'beforeId')
+    return store.getDirectDialogHistory(token, dialogId, beforeMessageId) satisfies DirectDialogHistoryResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.get('/api/groups/:groupId/history', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const beforeMessageId = getPositiveNumericQueryParam(request, 'beforeId')
+    return store.getGroupHistory(token, groupId, beforeMessageId) satisfies GroupHistoryResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.get('/api/subscription-channels/:channelId/history', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const beforePostId = getPositiveNumericQueryParam(request, 'beforeId')
+    return store.getSubscriptionChannelHistory(
+      token,
+      channelId,
+      beforePostId,
+    ) satisfies SubscriptionChannelHistoryResponse
   } catch (error) {
     return sendError(reply, error)
   }
@@ -760,6 +824,57 @@ app.post('/api/channels/:channelId/invitations', async (request, reply) => {
     const channelId = getNumericRouteParam(request, 'channelId')
     const body = parseJsonPayload<InviteManagedChannelMembersBody>(request.body)
     const result = await store.inviteManagedChannelMembers(token, channelId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/subscription-channels/:channelId/invitations', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const body = parseJsonPayload<InviteManagedChannelMembersBody>(request.body)
+    const result = await store.inviteSubscriptionChannelMembers(token, channelId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/subscription-channels/:channelId/subscribers/remove', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const body = parseJsonPayload<ManageSubscriptionChannelSubscriberBody>(request.body)
+    const result = await store.removeSubscriptionChannelSubscriber(token, channelId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/subscription-channels/:channelId/subscribers/blacklist', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const body = parseJsonPayload<ManageSubscriptionChannelSubscriberBody>(request.body)
+    const result = await store.blacklistSubscriptionChannelSubscriber(token, channelId, body)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {

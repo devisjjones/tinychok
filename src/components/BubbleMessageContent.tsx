@@ -21,6 +21,9 @@ export function ForwardedChannelHeader({
 }: ForwardedChannelHeaderProps) {
   return (
     <>
+      {sourceChannel.leadText ? (
+        <p className="bubble-forwarded-source-lead">{sourceChannel.leadText}</p>
+      ) : null}
       {onClick ? (
         <button
           type="button"

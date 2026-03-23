@@ -98,6 +98,24 @@ export type MutationResponse = {
   snapshot: AppSnapshot
 }
 
+export type DirectDialogHistoryResponse = {
+  dialogId: number
+  hasMore: boolean
+  messages: Chat['messages']
+}
+
+export type GroupHistoryResponse = {
+  groupId: number
+  hasMore: boolean
+  messages: GroupPreview['messages']
+}
+
+export type SubscriptionChannelHistoryResponse = {
+  channelId: number
+  hasMore: boolean
+  posts: SubscriptionChannel['posts']
+}
+
 export type OpenDirectDialogResponse = MutationResponse & {
   dialogId: number
 }
@@ -181,6 +199,10 @@ export type InviteGroupMemberBody = {
 
 export type InviteManagedChannelMembersBody = {
   dialogIds: number[]
+}
+
+export type ManageSubscriptionChannelSubscriberBody = {
+  identifier: string
 }
 
 export type SendSubscriptionChannelThreadCommentBody = {
