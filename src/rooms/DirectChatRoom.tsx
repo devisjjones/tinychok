@@ -5,15 +5,20 @@ import type {
   MouseEvent,
   RefObject,
 } from 'react'
-import { useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ChannelMessageSource, Chat, Message, ReplyTarget } from '../app/types'
 import {
   formatMessagePreview,
   formatRoomPresence,
+  scrollFeedChildIntoView,
   shouldSubmitComposerWithEnter,
   shouldShowDeliveryCaption,
 } from '../app/utils'
-import { BubbleMessageContent, ForwardedChannelHeader } from '../components/BubbleMessageContent'
+import {
+  BubbleMessageContent,
+  ForwardedChannelHeader,
+} from '../components/BubbleMessageContent'
+import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 
 type DirectChatRoomProps = {
   activeChat: Chat
@@ -42,6 +47,7 @@ type DirectChatRoomProps = {
   onRequestDeleteContact: () => void
   onRequestDeleteHistory: () => void
   onRequestReportContact: () => void
+  onReplyReferenceJump?: (messageId: number) => void
   onToggleChatMuted: () => void
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   onSubmit: () => void | Promise<void>
@@ -74,6 +80,7 @@ export function DirectChatRoom({
   onOpenAttachmentPicker,
   onOpenPremiumGift,
   onReplyCancel,
+  onReplyReferenceJump,
   onRequestDeleteContact,
   onRequestDeleteHistory,
   onRequestReportContact,
@@ -126,6 +133,25 @@ export function DirectChatRoom({
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
   }, [draft])
 
+  useEffect(() => {
+    if (!replyTarget) return
+
+    window.requestAnimationFrame(() => {
+      draftInputRef.current?.focus()
+    })
+  }, [replyTarget])
+
+  function jumpToMessage(messageId: number) {
+    if (onReplyReferenceJump) {
+      onReplyReferenceJump(messageId)
+      return
+    }
+
+    void window.requestAnimationFrame(() => {
+      scrollFeedChildIntoView(messageFeedRef.current, `[data-direct-message-id="${messageId}"]`)
+    })
+  }
+
   return (
     <section className={pinnedMessage ? 'chat-room has-pinned-message' : 'chat-room'}>
       <header className="room-header">
@@ -136,9 +162,7 @@ export function DirectChatRoom({
           aria-label="Назад"
           title="Назад"
         >
-          <span className="room-mobile-back-icon" aria-hidden="true">
-            &larr;
-          </span>
+          <img src="/icons/back.png" alt="" aria-hidden="true" className="room-mobile-back-icon" />
         </button>
         <div className="room-id">
           <span className="avatar large" style={{ backgroundColor: activeChat.accent }}>
@@ -179,7 +203,7 @@ export function DirectChatRoom({
             onClick={onToggleChatActions}
             aria-label="Меню контакта"
           >
-            ...
+            <img src="/icons/menu.png" alt="" aria-hidden="true" className="room-menu-icon" />
           </button>
           {chatActionsOpen ? (
             <>
@@ -290,56 +314,76 @@ export function DirectChatRoom({
             bubbleClassNames.push('read-by-recipient')
           }
 
+          if (message.replyTo) {
+            bubbleClassNames.push('has-attached-reply')
+          }
+
+          const replyReference = message.replyTo
+
           return (
-            <button
+            <AttachedReplyBubble
               key={message.id}
-              type="button"
-              className={bubbleClassNames.join(' ')}
-              onClick={(event) => onMessageSelect(event, message)}
-            >
-              {message.sourceChannel ? (
-                <>
-                  <ForwardedChannelHeader
-                    sourceChannel={message.sourceChannel}
-                    onClick={() => onOpenSourceChannel(message)}
+              mine={message.author === 'me'}
+              onReplyClick={
+                replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
+                  ? () => jumpToMessage(replyReference.id)
+                  : undefined
+              }
+              replyChatTitle={activeChat.title}
+              replyTo={replyReference}
+              bubble={
+                <button
+                  type="button"
+                  data-direct-message-id={message.id}
+                  className={bubbleClassNames.join(' ')}
+                  onClick={(event) => onMessageSelect(event, message)}
+                >
+                  {message.sourceChannel ? (
+                    <>
+                      <ForwardedChannelHeader
+                        sourceChannel={message.sourceChannel}
+                        onClick={() => onOpenSourceChannel(message)}
+                      />
+                      <span className="bubble-meta">Переслано</span>
+                    </>
+                  ) : null}
+                  {message.forwarded && !message.sourceChannel ? (
+                    <span className="bubble-meta">
+                      {message.forwardedAuthorName
+                        ? `Переслано ${message.forwardedAuthorName}`
+                        : 'Переслано'}
+                    </span>
+                  ) : null}
+                  <BubbleMessageContent
+                    linkedChannel={linkedChannel}
+                    message={message}
+                    onOpenLinkedChannel={
+                      linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                    }
+                    replyChatTitle={activeChat.title}
+                    showReplyInline={false}
                   />
-                  <span className="bubble-meta">Переслано</span>
-                </>
-              ) : null}
-              {message.forwarded && !message.sourceChannel ? (
-                <span className="bubble-meta">
-                  {message.forwardedAuthorName
-                    ? `Переслано ${message.forwardedAuthorName}`
-                    : 'Переслано'}
-                </span>
-              ) : null}
-              <BubbleMessageContent
-                linkedChannel={linkedChannel}
-                message={message}
-                onOpenLinkedChannel={
-                  linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                }
-                replyChatTitle={activeChat.title}
-              />
-              <time>{message.time}</time>
-              {showDeliveryCaption ? (
-                <span className="bubble-delivery-caption">Сообщение не отправлено</span>
-              ) : null}
-              {showDeliveryIndicator ? (
-                <img
-                  className="bubble-delivery-indicator"
-                  src={
-                    messageFailed
-                      ? '/icons/warning-48.png'
-                      : messagePending
-                        ? '/icons/hourglass-48.png'
-                        : '/icons/double-tick-50.png'
-                  }
-                  alt=""
-                  aria-hidden="true"
-                />
-              ) : null}
-            </button>
+                  <time>{message.time}</time>
+                  {showDeliveryCaption ? (
+                    <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                  ) : null}
+                  {showDeliveryIndicator ? (
+                    <img
+                      className="bubble-delivery-indicator"
+                      src={
+                        messageFailed
+                          ? '/icons/warning-48.png'
+                          : messagePending
+                            ? '/icons/hourglass-48.png'
+                            : '/icons/double-tick-50.png'
+                      }
+                      alt=""
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </button>
+              }
+            />
           )
         })}
 
@@ -367,8 +411,14 @@ export function DirectChatRoom({
                 <span className="settings-label">Ответ</span>
                 <p>{replyTarget.text}</p>
               </div>
-              <button type="button" className="soft-button composer-reply-cancel" onClick={onReplyCancel}>
-                Отмена
+              <button
+                type="button"
+                className="soft-button composer-reply-cancel"
+                onClick={onReplyCancel}
+                aria-label="Отменить ответ"
+                title="Отменить ответ"
+              >
+                <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
               </button>
             </div>
           ) : null}

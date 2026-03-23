@@ -1,14 +1,16 @@
 import type {
   Account,
   Channel,
+  ChannelThreadInboxItem,
   Chat,
+  GroupThreadInboxItem,
   GroupPreview,
   MessageAttachment,
   Message,
   SearchResult,
   Session,
   SubscriptionChannel,
-} from '../app/types'
+} from './types'
 
 export type ExistingAccountPreview = Pick<Account, 'displayName' | 'surname'>
 
@@ -18,11 +20,31 @@ export type AppSnapshot = {
   groups: GroupPreview[]
   channels: Channel[]
   subscriptionChannels: SubscriptionChannel[]
+  threadInbox: Array<GroupThreadInboxItem | ChannelThreadInboxItem>
   discoveryResults: SearchResult[]
 }
 
+export type CaptchaProvider = 'disabled' | 'turnstile'
+
+export type AnalyticsProvider = 'disabled' | 'log'
+
 export type RequestCodeBody = {
+  captchaToken?: string
   identifier: string
+}
+
+export type ClientRuntimeConfigResponse = {
+  analytics: {
+    enabled: boolean
+    flushIntervalMs: number
+    maxBatchSize: number
+    provider: AnalyticsProvider
+  }
+  captcha: {
+    enabled: boolean
+    provider: CaptchaProvider
+    siteKey: string | null
+  }
 }
 
 export type DiscoverySearchResponse = {
@@ -36,6 +58,7 @@ export type RequestCodeResponse = {
 }
 
 export type VerifyCodeBody = {
+  captchaToken?: string
   identifier: string
   code: string
 }
@@ -51,6 +74,7 @@ export type VerifyCodeResponse =
     }
 
 export type RegisterBody = {
+  captchaToken?: string
   identifier: string
   code: string
   displayName: string
@@ -98,6 +122,7 @@ export type UpdateSessionBody = Partial<
 
 export type SendDirectMessageBody = {
   attachment?: MessageAttachment
+  clientDeliveryId?: string
   forwarded?: boolean
   forwardedAuthorName?: string
   markAsRead?: boolean
@@ -123,13 +148,17 @@ export type SetDialogPinnedMessageBody = {
 
 export type SendGroupMessageBody = {
   attachment?: MessageAttachment
+  clientDeliveryId?: string
   forwarded?: boolean
   forwardedAuthorName?: string
+  replyTo?: Message['replyTo']
   sourceChannel?: Message['sourceChannel']
   text: string
 }
 
 export type SendGroupThreadCommentBody = {
+  clientDeliveryId?: string
+  replyTo?: Message['replyTo']
   text: string
 }
 
@@ -150,11 +179,22 @@ export type InviteGroupMemberBody = {
   dialogId: number
 }
 
+export type InviteManagedChannelMembersBody = {
+  dialogIds: number[]
+}
+
 export type SendSubscriptionChannelThreadCommentBody = {
+  clientDeliveryId?: string
+  replyTo?: Message['replyTo']
   text: string
 }
 
+export type ThreadSubscriptionResponse = MutationResponse & {
+  threadId: string
+}
+
 export type SendManagedChannelPostBody = {
+  replyTo?: Message['replyTo']
   text: string
 }
 

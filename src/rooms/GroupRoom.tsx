@@ -1,8 +1,17 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { useLayoutEffect, useRef } from 'react'
-import type { ChannelMessageSource, GroupParticipant, GroupPreview, Message } from '../app/types'
-import { formatChannelAvatarLabel, shouldShowDeliveryCaption, shouldSubmitComposerWithEnter } from '../app/utils'
-import { BubbleMessageContent, ForwardedChannelHeader } from '../components/BubbleMessageContent'
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import type { ChannelMessageSource, GroupParticipant, GroupPreview, Message, ReplyTarget } from '../app/types'
+import {
+  formatChannelAvatarLabel,
+  scrollFeedChildIntoView,
+  shouldShowDeliveryCaption,
+  shouldSubmitComposerWithEnter,
+} from '../app/utils'
+import {
+  BubbleMessageContent,
+  ForwardedChannelHeader,
+} from '../components/BubbleMessageContent'
+import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ThreadedBubble } from '../components/ThreadedBubble'
 
 type GroupRoomProps = {
@@ -25,6 +34,9 @@ type GroupRoomProps = {
   onOpenParticipants: () => void
   onOpenSourceChannel: (message: Message) => void
   onOpenAttachmentPicker: () => void
+  onReplyCancel: () => void
+  onReplyReferenceJump?: (messageId: number) => void
+  replyTarget: ReplyTarget | null
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   composerDisabledNotice?: string | null
   onSubmit: () => void | Promise<void>
@@ -50,6 +62,9 @@ export function GroupRoom({
   onOpenParticipants,
   onOpenSourceChannel,
   onOpenAttachmentPicker,
+  onReplyCancel,
+  onReplyReferenceJump,
+  replyTarget,
   resolveLinkedChannelFromMessage,
   composerDisabledNotice,
   onSubmit,
@@ -112,6 +127,25 @@ export function GroupRoom({
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
   }, [draft])
 
+  useEffect(() => {
+    if (!replyTarget) return
+
+    window.requestAnimationFrame(() => {
+      draftInputRef.current?.focus()
+    })
+  }, [replyTarget])
+
+  function jumpToMessage(messageId: number) {
+    if (onReplyReferenceJump) {
+      onReplyReferenceJump(messageId)
+      return
+    }
+
+    void window.requestAnimationFrame(() => {
+      scrollFeedChildIntoView(messageFeedRef.current, `[data-group-message-id="${messageId}"]`)
+    })
+  }
+
   return (
     <>
       <section className="chat-room">
@@ -123,9 +157,7 @@ export function GroupRoom({
             aria-label="Назад"
             title="Назад"
           >
-            <span className="room-mobile-back-icon" aria-hidden="true">
-              &larr;
-            </span>
+            <img src="/icons/back.png" alt="" aria-hidden="true" className="room-mobile-back-icon" />
           </button>
           <div className="room-id">
             <span className="avatar large" style={{ backgroundColor: group.accent }}>
@@ -165,9 +197,7 @@ export function GroupRoom({
             aria-label="Действия группы"
             title="Действия группы"
           >
-            <span className="room-group-actions-dots" aria-hidden="true">
-              ...
-            </span>
+            <img src="/icons/menu.png" alt="" aria-hidden="true" className="room-menu-icon" />
           </button>
         </header>
 
@@ -207,6 +237,12 @@ export function GroupRoom({
               bubbleClassNames.push('delivery-failed')
             }
 
+            if (message.replyTo) {
+              bubbleClassNames.push('has-attached-reply')
+            }
+
+            const replyReference = message.replyTo
+
             return (
               <ThreadedBubble
                 key={message.id}
@@ -214,68 +250,81 @@ export function GroupRoom({
                 threadCount={message.threadComments?.length ?? 0}
                 onOpenThread={() => onOpenThread(message.id)}
                 bubble={
-                  <button
-                    type="button"
-                    className={bubbleClassNames.join(' ')}
-                    onClick={(event) => onMessageSelect(event, message)}
-                  >
-                    {message.author === 'me' ? (
-                      <span className="bubble-meta">Вы</span>
-                    ) : groupParticipant ? (
-                      <div className="bubble-sender">
-                        <span className="bubble-sender-avatar-stack">
-                          <span className="avatar bubble-sender-avatar" style={{ backgroundColor: groupParticipant.accent }}>
-                            {groupParticipant.title.slice(0, 1)}
-                          </span>
-                          {groupParticipant.online ? (
-                            <span className="bubble-sender-presence-dot" aria-label="В сети" />
-                          ) : null}
-                        </span>
-                        <span className="bubble-sender-name">{groupParticipant.title}</span>
-                        {groupParticipant.premium ? (
-                          <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
-                            <img src="/icons/crown64.png" alt="" />
-                          </span>
+                  <AttachedReplyBubble
+                    mine={message.author === 'me'}
+                    onReplyClick={
+                      replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
+                        ? () => jumpToMessage(replyReference.id)
+                        : undefined
+                    }
+                    replyTo={replyReference}
+                    bubble={
+                      <button
+                        type="button"
+                        data-group-message-id={message.id}
+                        className={bubbleClassNames.join(' ')}
+                        onClick={(event) => onMessageSelect(event, message)}
+                      >
+                        {message.author === 'me' ? (
+                          <span className="bubble-meta">Вы</span>
+                        ) : groupParticipant ? (
+                          <div className="bubble-sender">
+                            <span className="bubble-sender-avatar-stack">
+                              <span className="avatar bubble-sender-avatar" style={{ backgroundColor: groupParticipant.accent }}>
+                                {groupParticipant.title.slice(0, 1)}
+                              </span>
+                              {groupParticipant.online ? (
+                                <span className="bubble-sender-presence-dot" aria-label="В сети" />
+                              ) : null}
+                            </span>
+                            <span className="bubble-sender-name">{groupParticipant.title}</span>
+                            {groupParticipant.premium ? (
+                              <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+                                <img src="/icons/crown64.png" alt="" />
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="bubble-meta">{message.displayAuthor ?? 'Участник группы'}</span>
+                        )}
+                        {message.sourceChannel ? (
+                          <>
+                            <ForwardedChannelHeader
+                              sourceChannel={message.sourceChannel}
+                              onClick={() => onOpenSourceChannel(message)}
+                            />
+                            <span className="bubble-meta">Переслано</span>
+                          </>
                         ) : null}
-                      </div>
-                    ) : (
-                      <span className="bubble-meta">{message.displayAuthor ?? 'Участник группы'}</span>
-                    )}
-                    {message.sourceChannel ? (
-                      <>
-                        <ForwardedChannelHeader
-                          sourceChannel={message.sourceChannel}
-                          onClick={() => onOpenSourceChannel(message)}
+                        <BubbleMessageContent
+                          linkedChannel={linkedChannel}
+                          message={message}
+                          onOpenLinkedChannel={
+                            linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                          }
+                          showReplyInline={false}
                         />
-                        <span className="bubble-meta">Переслано</span>
-                      </>
-                    ) : null}
-                    <BubbleMessageContent
-                      linkedChannel={linkedChannel}
-                      message={message}
-                      onOpenLinkedChannel={
-                        linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                      }
-                    />
-                    <time>{message.time}</time>
-                    {showDeliveryCaption ? (
-                      <span className="bubble-delivery-caption">Сообщение не отправлено</span>
-                    ) : null}
-                    {showDeliveryIndicator ? (
-                      <img
-                        className="bubble-delivery-indicator"
-                        src={
-                          messageFailed
-                            ? '/icons/warning-48.png'
-                            : messagePending
-                              ? '/icons/hourglass-48.png'
-                              : '/icons/double-tick-50.png'
-                        }
-                        alt=""
-                        aria-hidden="true"
-                      />
-                    ) : null}
-                  </button>
+                        <time>{message.time}</time>
+                        {showDeliveryCaption ? (
+                          <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                        ) : null}
+                        {showDeliveryIndicator ? (
+                          <img
+                            className="bubble-delivery-indicator"
+                            src={
+                              messageFailed
+                                ? '/icons/warning-48.png'
+                                : messagePending
+                                  ? '/icons/hourglass-48.png'
+                                  : '/icons/double-tick-50.png'
+                            }
+                            alt=""
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                      </button>
+                    }
+                  />
                 }
               />
             )
@@ -295,6 +344,23 @@ export function GroupRoom({
             }}
           >
             <div className="composer-input">
+              {replyTarget ? (
+                <div className="composer-reply">
+                  <div>
+                    <span className="settings-label">Ответ</span>
+                    <p>{replyTarget.text}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="soft-button composer-reply-cancel"
+                    onClick={onReplyCancel}
+                    aria-label="Отменить ответ"
+                    title="Отменить ответ"
+                  >
+                    <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
+                  </button>
+                </div>
+              ) : null}
               <div className="composer-entry">
                 <div className="composer-field">
                   <input

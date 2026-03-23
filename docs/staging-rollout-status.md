@@ -1,6 +1,6 @@
 # Staging Rollout Status
 
-Короткий статус staging-контура по состоянию на `2026-03-22`.
+Короткий статус staging-контура по состоянию на `2026-03-23`.
 
 ## Что уже подтверждено
 
@@ -35,13 +35,24 @@
   - default `soundsDisabled = true` для новых аккаунтов
   - action modal и delete flow для thread comments
   - confirm-popup при добавлении автора комментария / сообщения в blacklist
+  - отдельный раздел `Треды` в верхней панели с badge по unread replies
+  - backend snapshot теперь несёт `threadInbox`
+  - thread subscribe/unsubscribe flow и автоподписка после комментария
+  - server-side unread/read state по тредам через `threadStates`
+- поверх этого follow-up batch в текущем рабочем tree уже собран инженерный batch без staging-подтверждения:
+  - partial refactor `App.tsx` в feature-hooks
+  - ускоренный optimistic delivery для direct / group / thread flows
+  - `clientDeliveryId` в send API для точной backend-correlation
+  - public runtime config endpoint `/api/client-config`
+  - captcha infra layer
+  - analytics infra layer
 - latest deploy sequence `npm ci -> npm run build -> sudo systemctl restart tinychok-staging -> sudo rsync -av --delete dist/ /var/www/tinychok-staging/` был выполнен успешно `2026-03-21`
 - владелец проекта после выкладки подтвердил staging-статус: `Всё работает`
 - для следующих выкладок в репо добавлен скрипт `scripts/deploy-staging.sh`
 
 ## Access guard status
 
-По состоянию на `2026-03-22` доступ к staging уже закрыт так, как и планировалось, и это состояние сохранилось после последней подтверждённой выкладки `1b8df3f`:
+По состоянию на `2026-03-23` доступ к staging уже закрыт так, как и планировалось, и это состояние сохранилось после последней подтверждённой выкладки `1b8df3f`:
 
 - basic auth включен на HTTPS-блоке `nginx` для `staging.tinychok.ru`
 - `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
@@ -203,6 +214,30 @@
 - blacklist UX:
   - перед добавлением в blacklist показывается confirm-popup с именем пользователя
   - если пользователь уже в blacklist, кнопка визуально disabled и показывает локальный hint
+- thread inbox / subscriptions:
+  - в верхней панели появился раздел `Треды`
+  - пользователь видит треды, где уже отвечал, а также треды, на которые подписался вручную
+  - при новых ответах в таких тредах появляется unread badge
+  - в самом треде есть `Подписаться` / `Отписаться`
+  - отправка комментария автоматически подписывает пользователя на тред
+  - открытие треда помечает его как прочитанный
+- refactor / delivery / observability:
+  - из `App.tsx` вынесены `useGroupSettingsFlow`, `usePendingMessageOutbox`, `useThreadFlow`, `useBlacklistFlow`, `useRoomMessageActions`
+  - direct / group / thread send-path ускорены через optimistic local insert
+  - retry interval для pending outbox сокращён до `2000ms`
+  - send API расширен `clientDeliveryId`, чтобы одинаковые сообщения подряд не склеивались эвристически
+  - retry direct / group outbox теперь повторно использует тот же `clientDeliveryId`, а analytics умеет отдельно логировать retry start / retry fail
+  - backend/public config отдаётся через `GET /api/client-config`
+  - auth body теперь поддерживают `captchaToken`
+  - server умеет вызывать captcha verifier и принимать analytics batch
+  - подробный статус вынесен в [docs/observability-and-captcha.md](docs/observability-and-captcha.md)
+
+Для следующего staging smoke-check к уже существующим сценариям надо добавить:
+
+- открыть раздел `Треды` и проверить, что historical replied threads попадают в список
+- убедиться, что новый комментарий в подписанном или уже посещённом треде поднимает badge на `Треды`
+- проверить ручное `Подписаться` / `Отписаться` в thread room
+- проверить, что blacklist не мешает подписке на тред, но по-прежнему запрещает отправку комментария
 
 Если выкладка делается вручную, используется тот же flow:
 
@@ -264,9 +299,10 @@ tinychok-staging-deploy
 - legal pages и mobile composer batch из `1b8df3f`
 - product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1 -> a6be3d3 -> 27646e7 -> 4ad9b0b` ещё не выкатывался на staging и ждёт deploy + smoke-check
 - свежий follow-up batch поверх `4ad9b0b` тоже не выкатывался на staging и должен считаться частью следующего cumulative smoke-check
+- инженерный refactor / delivery / analytics / captcha batch тоже не выкатывался на staging и должен входить в тот же cumulative smoke-check
 
 ## Следующий шаг
 
 Обязательного незакрытого staging rollout шага сейчас нет.
 
-Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что staging-кандидат сейчас представляет собой cumulative stack до `4ad9b0b` плюс follow-up batch поверх него, который ещё ждёт deploy и smoke-check.
+Следующую работу нужно начинать уже от новой продуктовой задачи или нового bugfix, сохраняя подтверждённую staging-точку на `1b8df3f` и понимая, что staging-кандидат сейчас представляет собой cumulative stack до `4ad9b0b` плюс follow-up batch и инженерный infra/refactor batch поверх него, которые ещё ждут deploy и smoke-check.

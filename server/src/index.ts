@@ -7,10 +7,12 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import type WebSocket from 'ws'
 import type {
   AppSnapshot,
+  ClientRuntimeConfigResponse,
   CreateGroupBody,
   CreateManagedChannelBody,
   DiscoverySearchResponse,
   InviteGroupMemberBody,
+  InviteManagedChannelMembersBody,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
   ReportContactBody,
@@ -33,6 +35,9 @@ import type {
   VerifyCodeBody,
 } from '../../src/shared/backend'
 import type { RealtimeEvent } from '../../src/shared/backend'
+import type { AnalyticsBatchBody } from '../../src/shared/analytics'
+import { ingestAnalyticsBatch, parseAnalyticsBatch } from './analytics'
+import { verifyCaptchaOrThrow } from './captcha'
 import { runtimeConfig } from './config'
 import {
   getMediaBackend,
@@ -168,9 +173,28 @@ app.get('/readyz', async () => ({
   status: 'ok',
 }))
 
+app.get('/api/client-config', async () => ({
+  analytics: {
+    enabled: runtimeConfig.analytics.enabled,
+    flushIntervalMs: runtimeConfig.analytics.flushIntervalMs,
+    maxBatchSize: runtimeConfig.analytics.maxBatchSize,
+    provider: runtimeConfig.analytics.provider,
+  },
+  captcha: {
+    enabled: runtimeConfig.auth.captcha.provider !== 'disabled',
+    provider: runtimeConfig.auth.captcha.provider,
+    siteKey: runtimeConfig.auth.captcha.siteKey,
+  },
+}) satisfies ClientRuntimeConfigResponse)
+
 app.post('/api/auth/request-code', async (request, reply) => {
   try {
     const body = parseJsonPayload<RequestCodeBody>(request.body)
+    await verifyCaptchaOrThrow({
+      action: 'auth.request-code',
+      remoteIp: request.ip,
+      token: body.captchaToken,
+    })
     return await store.requestCode(body.identifier ?? '')
   } catch (error) {
     return sendError(reply, error)
@@ -180,6 +204,11 @@ app.post('/api/auth/request-code', async (request, reply) => {
 app.post('/api/auth/verify-code', async (request, reply) => {
   try {
     const body = parseJsonPayload<VerifyCodeBody>(request.body)
+    await verifyCaptchaOrThrow({
+      action: 'auth.verify-code',
+      remoteIp: request.ip,
+      token: body.captchaToken,
+    })
     return await store.verifyCode(body.identifier ?? '', body.code ?? '')
   } catch (error) {
     return sendError(reply, error)
@@ -189,8 +218,35 @@ app.post('/api/auth/verify-code', async (request, reply) => {
 app.post('/api/auth/register', async (request, reply) => {
   try {
     const body = parseJsonPayload<RegisterBody>(request.body)
+    await verifyCaptchaOrThrow({
+      action: 'auth.register',
+      remoteIp: request.ip,
+      token: body.captchaToken,
+    })
     const snapshot = await store.registerAccount(body)
     return { snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/analytics/events', async (request, reply) => {
+  try {
+    const token = getBearerToken(request)
+    const identifier = token ? store.getIdentifierByToken(token) : null
+    const events = parseAnalyticsBatch(request.body as AnalyticsBatchBody)
+
+    if (events.length === 0) {
+      return reply.code(202).send({ accepted: 0 })
+    }
+
+    await ingestAnalyticsBatch(app.log, events, {
+      identifier,
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+    })
+
+    return reply.code(202).send({ accepted: events.length })
   } catch (error) {
     return sendError(reply, error)
   }
@@ -541,6 +597,57 @@ app.delete('/api/groups/:groupId/messages/:messageId/comments/:commentId', async
   }
 })
 
+app.post('/api/groups/:groupId/messages/:messageId/thread-subscription', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const messageId = getNumericRouteParam(request, 'messageId')
+    const result = await store.subscribeToGroupThread(token, groupId, messageId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.delete('/api/groups/:groupId/messages/:messageId/thread-subscription', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const messageId = getNumericRouteParam(request, 'messageId')
+    const result = await store.unsubscribeFromGroupThread(token, groupId, messageId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/groups/:groupId/messages/:messageId/thread-read', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const messageId = getNumericRouteParam(request, 'messageId')
+    const result = await store.markGroupThreadRead(token, groupId, messageId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.post('/api/groups/:groupId/read', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -643,6 +750,23 @@ app.post('/api/channels', async (request, reply) => {
   }
 })
 
+app.post('/api/channels/:channelId/invitations', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const body = parseJsonPayload<InviteManagedChannelMembersBody>(request.body)
+    const result = await store.inviteManagedChannelMembers(token, channelId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.put('/api/channels/:channelId', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -686,6 +810,23 @@ app.post('/api/managed-channels/:channelId/posts', async (request, reply) => {
     const channelId = getNumericRouteParam(request, 'channelId')
     const body = parseJsonPayload<SendManagedChannelPostBody>(request.body)
     const result = await store.sendManagedChannelPost(token, channelId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.delete('/api/managed-channels/:channelId/posts/:postId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const postId = getNumericRouteParam(request, 'postId')
+    const result = await store.deleteManagedChannelPost(token, channelId, postId)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {
@@ -755,6 +896,57 @@ app.delete('/api/subscription-channels/:channelId/posts/:postId/comments/:commen
     const postId = getNumericRouteParam(request, 'postId')
     const commentId = getNumericRouteParam(request, 'commentId')
     const result = await store.deleteSubscriptionChannelThreadComment(token, channelId, postId, commentId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/subscription-channels/:channelId/posts/:postId/thread-subscription', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const postId = getNumericRouteParam(request, 'postId')
+    const result = await store.subscribeToSubscriptionChannelThread(token, channelId, postId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.delete('/api/subscription-channels/:channelId/posts/:postId/thread-subscription', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const postId = getNumericRouteParam(request, 'postId')
+    const result = await store.unsubscribeFromSubscriptionChannelThread(token, channelId, postId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/subscription-channels/:channelId/posts/:postId/thread-read', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const postId = getNumericRouteParam(request, 'postId')
+    const result = await store.markSubscriptionChannelThreadRead(token, channelId, postId)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {

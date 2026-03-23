@@ -37,9 +37,19 @@ type SelectedBubbleOverlayProps =
     }
 
 function getOverlayPosition(anchor: ActionAnchor) {
+  const viewportInset = 16
+  const overlayHeight = Math.max(0, anchor.bottom - anchor.top)
+  const maxHeight = Math.max(120, window.innerHeight - viewportInset * 2)
+  const boundedHeight = Math.min(overlayHeight, maxHeight)
+  const top = Math.min(
+    Math.max(viewportInset, anchor.top),
+    Math.max(viewportInset, window.innerHeight - viewportInset - boundedHeight),
+  )
+
   return {
     left: `${anchor.left}px`,
-    top: `${anchor.top}px`,
+    maxHeight: `${maxHeight}px`,
+    top: `${top}px`,
     width: `${anchor.width}px`,
   }
 }
@@ -54,6 +64,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       >
         <BubbleMessageContent
           message={{ attachment: props.post.attachment, replyTo: undefined, text: props.post.text }}
+          showReplyInline={false}
         />
         <time>{props.post.time}</time>
       </div>
@@ -92,7 +103,15 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         ) : (
           <span className="bubble-meta">{props.comment.displayAuthor ?? 'Участник'}</span>
         )}
-        <span>{props.comment.text}</span>
+        <BubbleMessageContent
+          message={{
+            attachment: undefined,
+            replyTo: props.comment.replyTo,
+            sourceGroup: undefined,
+            text: props.comment.text,
+          }}
+          showReplyInline={false}
+        />
         <time>{props.comment.time}</time>
       </div>
     )
@@ -175,6 +194,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         linkedChannel={props.linkedChannel}
         message={props.message}
         replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
+        showReplyInline={false}
       />
       <time>{props.message.time}</time>
       {showDeliveryCaption ? (

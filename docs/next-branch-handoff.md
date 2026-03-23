@@ -18,7 +18,39 @@
   - у комментариев в тредах появился полноценный action modal как у сообщения, но без `Закрепить`
   - для thread comments добавлено удаление своих комментариев на frontend/backend
   - отправка в blacklist теперь идёт через confirm-popup с именем пользователя
+  - добавлен отдельный top-level раздел `Треды` в верхней панели
+  - thread inbox теперь собирается на backend и приходит в snapshot как `threadInbox`
+  - для тредов добавлены server-side `threadStates`:
+    - автоподписка при отправке комментария
+    - ручная `Подписаться` / `Отписаться` прямо в thread room
+    - unread для новых ответов в тредах, где пользователь участвовал или подписан
+    - mark-as-read при открытии треда
+- поверх этого же follow-up batch в текущем рабочем tree уже есть ещё один инженерный слой без staging-подтверждения:
+  - из `App.tsx` вынесены отдельные feature-hooks:
+    - `useGroupSettingsFlow`
+    - `usePendingMessageOutbox`
+    - `useThreadFlow`
+    - `useBlacklistFlow`
+    - `useRoomMessageActions`
+  - server больше не зависит от `src/app/*`, shared runtime/domain код вынесен в `src/shared/*`
+  - direct / group / thread send-path переведён на более агрессивный optimistic UI
+  - retry tick для pending outbox сокращён до `2000ms`
+  - в send API и локальном merge-path добавлен `clientDeliveryId` для точной корреляции сообщений с backend snapshot
+  - добавлен backend/public runtime config endpoint `GET /api/client-config`
+  - подготовлен captcha infra layer:
+    - `captchaToken` в auth body
+    - server-side verifier abstraction
+    - env-конфиг под Turnstile
+  - подготовлен analytics infra layer:
+    - shared event catalog
+    - consent-aware client batching
+    - server ingest endpoint с текущим `log` sink
 - staging VM по-прежнему нельзя считать актуальной по `HEAD`, пока не будет отдельно задеплоен и проверен весь накопившийся stack после `1b8df3f`
+- текущий рабочий tree теперь дополнительно требует отдельной smoke-проверки thread inbox flow:
+  - badge на кнопке `Треды`
+  - список тредов с unread
+  - `Подписаться` / `Отписаться` в самом треде
+  - автоподписка после отправки комментария
 
 Если продолжать в новой ветке, безопасная точка старта:
 
@@ -44,6 +76,7 @@
 - staging deploy до `1b8df3f` уже подтверждён владельцем проекта
 - commits `1a037b9`, `30a8256`, `2bf7a1e`, `a21f0d1`, `a6be3d3`, `27646e7` и `4ad9b0b` пока в staging не подтверждены
 - свежий follow-up batch поверх `4ad9b0b` тоже пока не выкатывался на staging и должен считаться частью следующего cumulative deploy-кандидата
+- инженерный refactor / delivery / observability batch из текущего рабочего tree тоже пока не выкатывался на staging
 - после `npm ci`, `npm run build`, `sudo systemctl restart tinychok-staging` и `sudo rsync -av --delete dist/ /var/www/tinychok-staging/` владелец проекта подтвердил, что staging работает
 
 ## Последний подтверждённый change batch
@@ -235,6 +268,12 @@ Operational note:
   - добавление в blacklist теперь требует confirm-popup с именем пользователя
   - если пользователь уже в blacklist, destructive-кнопка рендерится в disabled-style
   - при повторном нажатии показывается локальная подсказка рядом с кнопкой
+- architecture / delivery / observability batch:
+  - `App.tsx` частично разрезан на feature hooks, но всё ещё остаётся большим orchestration-файлом
+  - direct / group / thread optimistic delivery ускорены
+  - точная корреляция подтверждений с backend теперь идёт через `clientDeliveryId`
+  - auth path и observability path получили каркас под captcha и аналитику
+  - подробности вынесены в [docs/observability-and-captcha.md](docs/observability-and-captcha.md)
 
 Весь этот stack уже собран локально через `npm run build`, но staging-подтверждения для него ещё нет.
 
@@ -304,6 +343,8 @@ tinychok-staging-deploy
 - `OBJECT_STORAGE_ACCESS_KEY`
 - `OBJECT_STORAGE_SECRET_KEY`
 - пароль `nginx basic auth` для `staging.tinychok.ru`
+- `TINYCHOK_CAPTCHA_SECRET_KEY`
+- любые будущие analytics ingest credentials / tokens
 
 Эти значения уже есть у владельца проекта, но их нельзя писать в git или чат.
 
@@ -312,13 +353,18 @@ tinychok-staging-deploy
 - базовый staging rollout уже закрыт
 - access guard уже включён и после последней выкладки не менялся
 - следующий staging smoke-check уже должен проверять cumulative candidate не до `a6be3d3`, а до `4ad9b0b` плюс свежий follow-up batch поверх него
+- после этого batch-а следующим техническим шагом логично либо:
+  - выносить navigation/screen orchestration из `App.tsx`
+  - либо доводить transport layer до отдельного delivery service с тестами
 - при ручной проверке отдельно прогнать:
   - профиль без autosave и popup сохранения
   - default `Выключить звуки` у нового аккаунта
   - desktop submit по `Enter`
   - thread room, thread-pill, action modal комментария и confirm-popup blacklist
+  - повторную отправку одинаковых коротких сообщений подряд, чтобы проверить `clientDeliveryId`-dedupe
+  - optimistic thread comments при активном websocket
 - текущая подтверждённая staging-точка старта: `1b8df3f`
-- следующий непроверенный deploy-candidate: cumulative stack до `4ad9b0b` плюс свежий follow-up batch поверх него
+- следующий непроверенный deploy-candidate: cumulative stack до `4ad9b0b` плюс свежий follow-up batch и инженерный infra/refactor batch поверх него
 - следующую работу выбирать уже из продуктовых/bugfix задач, а не из базовой staging-инфраструктуры
 - после следующего подтверждённого deploy обновлять этот файл, если commit staging-состояния поменялся
 

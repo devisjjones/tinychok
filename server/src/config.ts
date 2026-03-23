@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 type AppEnvironment = 'development' | 'staging' | 'production'
 type StoreMode = 'file' | 'postgres'
 type MediaBackend = 'local' | 'object-storage'
+type CaptchaProvider = 'disabled' | 'turnstile'
+type AnalyticsProvider = 'disabled' | 'log'
 
 function normalizeBaseUrl(value: string | undefined) {
   const trimmed = value?.trim()
@@ -41,6 +43,14 @@ function readMediaBackend(value: string | undefined): MediaBackend {
   return value === 'object-storage' ? 'object-storage' : 'local'
 }
 
+function readCaptchaProvider(value: string | undefined): CaptchaProvider {
+  return value === 'turnstile' ? 'turnstile' : 'disabled'
+}
+
+function readAnalyticsProvider(value: string | undefined): AnalyticsProvider {
+  return value === 'log' ? 'log' : 'disabled'
+}
+
 function readStringList(value: string | undefined) {
   if (!value) return [] as string[]
 
@@ -56,6 +66,20 @@ export const runtimeConfig = {
   },
   auth: {
     allowedTestPhones: readStringList(process.env.TINYCHOK_ALLOWED_TEST_PHONES),
+    captcha: {
+      provider: readCaptchaProvider(process.env.TINYCHOK_CAPTCHA_PROVIDER),
+      siteKey: process.env.TINYCHOK_CAPTCHA_SITE_KEY?.trim() || null,
+      secretKey: process.env.TINYCHOK_CAPTCHA_SECRET_KEY?.trim() || null,
+      verifyUrl:
+        normalizeBaseUrl(process.env.TINYCHOK_CAPTCHA_VERIFY_URL) ??
+        'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+    },
+  },
+  analytics: {
+    enabled: readBoolean(process.env.TINYCHOK_ANALYTICS_ENABLED, false),
+    flushIntervalMs: readPort(process.env.TINYCHOK_ANALYTICS_FLUSH_INTERVAL_MS, 5000),
+    maxBatchSize: readPort(process.env.TINYCHOK_ANALYTICS_MAX_BATCH_SIZE, 20),
+    provider: readAnalyticsProvider(process.env.TINYCHOK_ANALYTICS_PROVIDER),
   },
   server: {
     host: process.env.HOST ?? '127.0.0.1',

@@ -8,18 +8,20 @@ import {
   managedChannelsPerUserLimit,
   premiumGroupMemberLimit,
   surnameFieldMaxLength,
-} from '../../src/app/constants'
+} from '../../src/shared/constants'
 import {
   discoveryResults,
   initialChannels,
   initialChats,
   initialGroups,
   initialSubscribedChannels,
-} from '../../src/app/mockData'
+} from '../../src/shared/mockData'
 import type {
   Account,
+  ChannelThreadInboxItem,
   Channel,
   Chat,
+  GroupThreadInboxItem,
   GroupParticipant,
   GroupPreview,
   Message,
@@ -27,7 +29,8 @@ import type {
   Session,
   SubscriptionChannel,
   ThreadComment,
-} from '../../src/app/types'
+  ThreadInboxItem,
+} from '../../src/shared/types'
 import {
   buildChannelDirectLinkFromTitle,
   ensureUniqueChannelDirectLink,
@@ -42,12 +45,13 @@ import {
   sanitizeChannelTitle,
   sanitizePersonField,
   sanitizeStatusField,
-} from '../../src/app/utils'
+} from '../../src/shared/utils'
 import type {
   AppSnapshot,
   ComplaintReason,
   CreateGroupBody,
   CreateManagedChannelBody,
+  InviteManagedChannelMembersBody,
   InviteGroupMemberBody,
   OpenDirectDialogBody,
   ReportContactBody,
@@ -104,6 +108,13 @@ type PersistedSubscriptionPost = SubscriptionPost & {
   ownerIdentifier: string
 }
 
+type PersistedThreadState = {
+  lastReadCommentCreatedAt?: string
+  ownerIdentifier: string
+  subscription: 'implicit' | 'subscribed' | 'unsubscribed'
+  threadId: string
+}
+
 type SessionRecord = {
   createdAt: string
   identifier: string
@@ -154,6 +165,7 @@ export type Database = {
   subscriptionChannelReports: SubscriptionChannelReportRecord[]
   subscriptionChannels: PersistedSubscriptionChannel[]
   subscriptionPosts: PersistedSubscriptionPost[]
+  threadStates: PersistedThreadState[]
 }
 
 type LegacyDatabase = {
@@ -210,6 +222,7 @@ function createDefaultDatabase(): Database {
     subscriptionChannelReports: [],
     subscriptionChannels: [],
     subscriptionPosts: [],
+    threadStates: [],
   }
 }
 
@@ -369,6 +382,19 @@ function sanitizeForwardedAuthorName(value?: string) {
   return sanitizePersonField(value ?? '', displayNameFieldMaxLength)
 }
 
+function sanitizeReplyTarget(replyTo?: Message['replyTo']): Message['replyTo'] | undefined {
+  if (!replyTo) return undefined
+
+  const text = sanitizeMessageText(replyTo.text).slice(0, 280)
+  if (!text) return undefined
+
+  return {
+    author: replyTo.author,
+    id: Number.isInteger(replyTo.id) && replyTo.id > 0 ? replyTo.id : 0,
+    text,
+  }
+}
+
 function sanitizeComplaintReason(value: ComplaintReason | undefined) {
   if (value === 'spam' || value === 'fraud' || value === 'very_unpleasant') {
     return value
@@ -510,6 +536,7 @@ function materializeThreadComment(
     deliveryId: comment.deliveryId,
     displayAuthor: comment.displayAuthor,
     id: comment.id,
+    replyTo: sanitizeReplyTarget(comment.replyTo),
     text: sanitizeThreadCommentText(comment.text),
     time: comment.time,
   } satisfies ThreadComment
@@ -772,6 +799,7 @@ function getMessageReadReceiptKey(
     forwarded: Boolean(message.forwarded),
     forwardedAuthorName: message.forwardedAuthorName ?? '',
     replyAuthor: message.replyTo?.author ?? '',
+    replyId: message.replyTo?.id ?? 0,
     replyText: message.replyTo?.text ?? '',
     sourceChannelTitle: message.sourceChannel?.title ?? '',
     sourceGroupTitle: message.sourceGroup?.title ?? '',
@@ -803,6 +831,7 @@ function materializeSubscriptionChannel(
 ): Omit<PersistedSubscriptionChannel, 'ownerIdentifier'> {
   return {
     accent: channel.accent,
+    avatarImage: channel.avatarImage,
     commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
     commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
     commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
@@ -832,6 +861,7 @@ function materializeSubscriptionPost(
   return {
     attachment: post.attachment,
     id: post.id,
+    replyTo: post.replyTo,
     text: post.text,
     threadComments: compactThreadComments(post.threadComments),
     threadId: post.threadId?.trim() || undefined,
@@ -886,6 +916,7 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
   nextDatabase.contactReports = []
   nextDatabase.sessions = value.sessions ?? []
   nextDatabase.subscriptionChannelReports = []
+  nextDatabase.threadStates = []
 
   for (const legacyAccount of value.accounts ?? []) {
     nextDatabase.accounts.push({
@@ -944,9 +975,7 @@ function materializeGroups(database: Database, ownerIdentifier: string): GroupPr
     .filter((group) => group.ownerIdentifier === ownerIdentifier)
     .map((group) => {
       const materializedGroup = materializeGroup(group)
-      return {
-        ...materializedGroup,
-        messages: database.groupMessages
+      const messages = database.groupMessages
         .filter(
           (message) => message.ownerIdentifier === ownerIdentifier && message.groupId === group.id,
         )
@@ -957,7 +986,12 @@ function materializeGroups(database: Database, ownerIdentifier: string): GroupPr
             threadComments: materializedMessage.threadComments ?? [],
             threadId: getGroupMessageThreadId(group, materializedMessage),
           }
-        }),
+        })
+
+      return {
+        ...materializedGroup,
+        latestActivityAt: messages.at(-1)?.createdAt,
+        messages,
       }
     })
 }
@@ -1027,10 +1061,7 @@ function materializeSubscriptionChannels(
     .filter((channel) => channel.ownerIdentifier === ownerIdentifier)
     .map((channel) => {
       const materializedChannel = materializeSubscriptionChannel(channel)
-      return {
-        ...materializedChannel,
-        participants: materializeSubscriptionParticipants(database, ownerIdentifier, channel),
-        posts: database.subscriptionPosts
+      const posts = database.subscriptionPosts
         .filter(
           (post) => post.ownerIdentifier === ownerIdentifier && post.channelId === channel.id,
         )
@@ -1041,9 +1072,193 @@ function materializeSubscriptionChannels(
             threadComments: materializedPost.threadComments ?? [],
             threadId: getSubscriptionPostThreadId(channel, materializedPost),
           }
-        }),
+        })
+
+      return {
+        ...materializedChannel,
+        latestActivityAt: posts.at(-1)?.createdAt,
+        participants: materializeSubscriptionParticipants(database, ownerIdentifier, channel),
+        posts,
       }
     })
+}
+
+function compareIsoDateDesc(left?: string, right?: string) {
+  const leftValue = left ? Date.parse(left) : Number.NEGATIVE_INFINITY
+  const rightValue = right ? Date.parse(right) : Number.NEGATIVE_INFINITY
+  return rightValue - leftValue
+}
+
+function findLatestThreadCommentCreatedAt(comments: ThreadComment[]) {
+  let latestCreatedAt: string | undefined
+
+  for (const comment of comments) {
+    if (!comment.createdAt) continue
+    if (!latestCreatedAt || Date.parse(comment.createdAt) > Date.parse(latestCreatedAt)) {
+      latestCreatedAt = comment.createdAt
+    }
+  }
+
+  return latestCreatedAt
+}
+
+function findLatestOwnThreadCommentCreatedAt(comments: ThreadComment[], ownerIdentifier: string) {
+  let latestCreatedAt: string | undefined
+
+  for (const comment of comments) {
+    if (!comment.createdAt) continue
+    if (normalizeIdentifier(comment.authorIdentifier ?? '') !== ownerIdentifier) continue
+    if (!latestCreatedAt || Date.parse(comment.createdAt) > Date.parse(latestCreatedAt)) {
+      latestCreatedAt = comment.createdAt
+    }
+  }
+
+  return latestCreatedAt
+}
+
+function countUnreadThreadReplies(
+  comments: ThreadComment[],
+  ownerIdentifier: string,
+  lastReadCommentCreatedAt?: string,
+) {
+  if (!lastReadCommentCreatedAt) return 0
+
+  const lastReadAt = Date.parse(lastReadCommentCreatedAt)
+  if (Number.isNaN(lastReadAt)) return 0
+
+  return comments.reduce((count, comment) => {
+    if (!comment.createdAt) return count
+    if (normalizeIdentifier(comment.authorIdentifier ?? '') === ownerIdentifier) return count
+    const createdAt = Date.parse(comment.createdAt)
+    if (Number.isNaN(createdAt) || createdAt <= lastReadAt) return count
+    return count + 1
+  }, 0)
+}
+
+function buildThreadInbox(
+  database: Database,
+  ownerIdentifier: string,
+): ThreadInboxItem[] {
+  const threadStatesById = new Map(
+    database.threadStates
+      .filter((threadState) => threadState.ownerIdentifier === ownerIdentifier)
+      .map((threadState) => [threadState.threadId, threadState] as const),
+  )
+  const itemsByThreadId = new Map<string, ThreadInboxItem>()
+
+  function upsertThreadInboxItem(nextItem: ThreadInboxItem) {
+    const existingItem = itemsByThreadId.get(nextItem.threadId)
+    if (!existingItem) {
+      itemsByThreadId.set(nextItem.threadId, nextItem)
+      return
+    }
+
+    const existingActivityAt = Date.parse(existingItem.latestActivityAt ?? '') || 0
+    const nextActivityAt = Date.parse(nextItem.latestActivityAt ?? '') || 0
+
+    itemsByThreadId.set(
+      nextItem.threadId,
+      nextActivityAt >= existingActivityAt
+        ? {
+            ...nextItem,
+            unreadCount: Math.max(existingItem.unreadCount, nextItem.unreadCount),
+          }
+        : {
+            ...existingItem,
+            unreadCount: Math.max(existingItem.unreadCount, nextItem.unreadCount),
+          },
+    )
+  }
+
+  for (const group of database.groups.filter((candidate) => candidate.ownerIdentifier === ownerIdentifier)) {
+    for (const message of database.groupMessages.filter(
+      (candidate) => candidate.ownerIdentifier === ownerIdentifier && candidate.groupId === group.id,
+    )) {
+      const threadId = getGroupMessageThreadId(group, message)
+      const comments = compactThreadComments(message.threadComments)
+      const threadState = threadStatesById.get(threadId)
+      const hasParticipation = comments.some(
+        (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === ownerIdentifier,
+      )
+      const isSubscribed =
+        threadState?.subscription === 'subscribed' ||
+        (hasParticipation && threadState?.subscription !== 'unsubscribed')
+
+      if (!isSubscribed) continue
+
+      const latestComment = comments.at(-1)
+      const lastReadCommentCreatedAt =
+        threadState?.lastReadCommentCreatedAt ??
+        findLatestOwnThreadCommentCreatedAt(comments, ownerIdentifier)
+      const unreadCount = countUnreadThreadReplies(comments, ownerIdentifier, lastReadCommentCreatedAt)
+
+      upsertThreadInboxItem({
+        commentCount: comments.length,
+        groupAccent: group.accent,
+        groupId: group.id,
+        groupTitle: group.title,
+        kind: 'group',
+        latestActivityAt: latestComment?.createdAt ?? message.createdAt,
+        latestCommentAuthor: latestComment?.displayAuthor,
+        latestCommentText: latestComment?.text ?? 'Пока без комментариев',
+        latestCommentTime: latestComment?.time ?? message.time,
+        messageId: message.id,
+        sourceText: message.text,
+        sourceTime: message.time,
+        subscribed: true,
+        threadId,
+        unreadCount,
+      } satisfies GroupThreadInboxItem)
+    }
+  }
+
+  for (const channel of database.subscriptionChannels.filter(
+    (candidate) => candidate.ownerIdentifier === ownerIdentifier,
+  )) {
+    for (const post of database.subscriptionPosts.filter(
+      (candidate) => candidate.ownerIdentifier === ownerIdentifier && candidate.channelId === channel.id,
+    )) {
+      const threadId = getSubscriptionPostThreadId(channel, post)
+      const comments = compactThreadComments(post.threadComments)
+      const threadState = threadStatesById.get(threadId)
+      const hasParticipation = comments.some(
+        (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === ownerIdentifier,
+      )
+      const isSubscribed =
+        threadState?.subscription === 'subscribed' ||
+        (hasParticipation && threadState?.subscription !== 'unsubscribed')
+
+      if (!isSubscribed) continue
+
+      const latestComment = comments.at(-1)
+      const lastReadCommentCreatedAt =
+        threadState?.lastReadCommentCreatedAt ??
+        findLatestOwnThreadCommentCreatedAt(comments, ownerIdentifier)
+      const unreadCount = countUnreadThreadReplies(comments, ownerIdentifier, lastReadCommentCreatedAt)
+
+      upsertThreadInboxItem({
+        channelAccent: channel.accent,
+        channelId: channel.id,
+        channelTitle: channel.title,
+        commentCount: comments.length,
+        kind: 'channel',
+        latestActivityAt: latestComment?.createdAt ?? post.createdAt,
+        latestCommentAuthor: latestComment?.displayAuthor,
+        latestCommentText: latestComment?.text ?? 'Пока без комментариев',
+        latestCommentTime: latestComment?.time ?? post.time,
+        postId: post.id,
+        sourceText: post.text,
+        sourceTime: post.time,
+        subscribed: true,
+        threadId,
+        unreadCount,
+      } satisfies ChannelThreadInboxItem)
+    }
+  }
+
+  return [...itemsByThreadId.values()].sort((left, right) =>
+    compareIsoDateDesc(left.latestActivityAt, right.latestActivityAt),
+  )
 }
 
 export class TinychokStore {
@@ -1408,15 +1623,10 @@ export class TinychokStore {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
 
-    const senderReplyTo: Message['replyTo'] = payload.replyTo
-      ? {
-          author: payload.replyTo.author,
-          text: sanitizeMessageText(payload.replyTo.text).slice(0, 280),
-        }
-      : undefined
+    const senderReplyTo = sanitizeReplyTarget(payload.replyTo)
     const forwardedAuthorName = sanitizeForwardedAuthorName(payload.forwardedAuthorName)
     const createdAt = new Date().toISOString()
-    const deliveryId = randomUUID()
+    const deliveryId = this.resolveDeliveryId(payload.clientDeliveryId)
     const time = formatNowTime()
     const recipientIdentifier = normalizeIdentifier(dialog.phone)
     const recipientAccount =
@@ -1457,6 +1667,7 @@ export class TinychokStore {
       const recipientReplyTo: Message['replyTo'] = senderReplyTo
         ? {
             author: invertMessageAuthor(senderReplyTo.author),
+            id: senderReplyTo.id,
             text: senderReplyTo.text,
           }
         : undefined
@@ -1752,12 +1963,13 @@ export class TinychokStore {
     const attachment = sanitizeMessageAttachment(payload.attachment)
     const forwardedAuthorName = sanitizeForwardedAuthorName(payload.forwardedAuthorName)
     const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
+    const replyTo = sanitizeReplyTarget(payload.replyTo)
     if (!text && !attachment) {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
 
     const createdAt = new Date().toISOString()
-    const deliveryId = randomUUID()
+    const deliveryId = this.resolveDeliveryId(payload.clientDeliveryId)
     const time = formatNowTime()
     const sharedId = this.getSharedGroupId(group)
     const senderParticipant = group.participants.find(
@@ -1780,6 +1992,7 @@ export class TinychokStore {
           groupCopy.ownerIdentifier === account.identifier ? undefined : senderParticipant.id,
         id: this.getNextGroupMessageId(groupCopy.ownerIdentifier, groupCopy.id),
         ownerIdentifier: groupCopy.ownerIdentifier,
+        replyTo,
         sourceChannel,
         text,
         threadComments: [],
@@ -1825,10 +2038,23 @@ export class TinychokStore {
     if (!text) {
       throw new Error('Комментарий не может быть пустым.')
     }
+    const replyTo = sanitizeReplyTarget(payload.replyTo)
+    const deliveryId = this.resolveDeliveryId(payload.clientDeliveryId)
 
     const sharedId = this.getSharedGroupId(target.group)
     const threadId = getGroupMessageThreadId(target.group, target.message)
-    const broadcastIdentifiers = this.assignCommentToGroupThread(sharedId, threadId, account, text)
+    const broadcastIdentifiers = this.assignCommentToGroupThread(
+      sharedId,
+      threadId,
+      account,
+      text,
+      replyTo,
+      deliveryId,
+    )
+    this.upsertThreadState(account.identifier, threadId, {
+      lastReadCommentCreatedAt: new Date().toISOString(),
+      subscription: 'subscribed',
+    })
 
     await this.persist()
 
@@ -1912,6 +2138,7 @@ export class TinychokStore {
     if (!text) {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
+    const replyTo = sanitizeReplyTarget(payload.replyTo)
 
     let channelCopies = this.listSubscriptionChannelCopiesByHandle(channel.directLink)
 
@@ -1923,7 +2150,7 @@ export class TinychokStore {
         commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
         draft: channel.status === 'draft',
         handle: channel.directLink,
-        id: channel.id,
+        id: this.getNextOwnedId(this.database.subscriptionChannels, account.identifier),
         muted: false,
         ownerIdentifier: account.identifier,
         participants: [],
@@ -1948,6 +2175,7 @@ export class TinychokStore {
         createdAt,
         id: this.getNextSubscriptionPostId(channelCopy.ownerIdentifier, channelCopy.id),
         ownerIdentifier: channelCopy.ownerIdentifier,
+        replyTo,
         text,
         threadComments: [],
         threadId: getSubscriptionPostThreadId(channelCopy, { createdAt, id: 0, text, time }),
@@ -1966,6 +2194,88 @@ export class TinychokStore {
 
     return {
       broadcastIdentifiers: [...new Set(channelCopies.map((channelCopy) => channelCopy.ownerIdentifier))],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async deleteManagedChannelPost(
+    token: string,
+    channelId: number,
+    postId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const managedChannel = this.findManagedChannel(account.identifier, channelId)
+    if (!managedChannel) {
+      throw new Error('Канал не найден.')
+    }
+
+    const ownerCopy = this.listSubscriptionChannelCopiesByHandle(managedChannel.directLink).find(
+      (channel) => channel.ownerIdentifier === account.identifier,
+    )
+    if (!ownerCopy) {
+      throw new Error('Пост не найден.')
+    }
+
+    const ownerPost = this.database.subscriptionPosts.find(
+      (post) =>
+        post.ownerIdentifier === account.identifier &&
+        post.channelId === ownerCopy.id &&
+        post.id === postId,
+    )
+    if (!ownerPost) {
+      throw new Error('Пост не найден.')
+    }
+
+    const targetThreadId = getSubscriptionPostThreadId(ownerCopy, ownerPost)
+    const broadcastIdentifiers = new Set<string>()
+    const channelCopies = this.listSubscriptionChannelCopiesByHandle(managedChannel.directLink)
+
+    for (const channelCopy of channelCopies) {
+      const targetPosts = this.database.subscriptionPosts.filter(
+        (post) =>
+          post.ownerIdentifier === channelCopy.ownerIdentifier &&
+          post.channelId === channelCopy.id &&
+          getSubscriptionPostThreadId(channelCopy, post) === targetThreadId,
+      )
+
+      if (targetPosts.length === 0) {
+        continue
+      }
+
+      this.database.subscriptionPosts = this.database.subscriptionPosts.filter(
+        (post) =>
+          !(
+            post.ownerIdentifier === channelCopy.ownerIdentifier &&
+            post.channelId === channelCopy.id &&
+            getSubscriptionPostThreadId(channelCopy, post) === targetThreadId
+          ),
+      )
+
+      const remainingChannelPosts = this.database.subscriptionPosts
+        .filter(
+          (post) => post.ownerIdentifier === channelCopy.ownerIdentifier && post.channelId === channelCopy.id,
+        )
+        .sort(
+          (left, right) => Date.parse(left.createdAt ?? '') - Date.parse(right.createdAt ?? ''),
+        )
+      const latestPost = remainingChannelPosts.at(-1)
+
+      channelCopy.preview = latestPost?.text.trim() || managedChannel.description
+      channelCopy.time = latestPost?.time ?? ''
+      if (channelCopy.ownerIdentifier !== account.identifier && channelCopy.unread > 0) {
+        channelCopy.unread = Math.max(0, channelCopy.unread - targetPosts.length)
+      }
+      broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -2043,7 +2353,7 @@ export class TinychokStore {
     const previousAvatarImage = group.avatarImage
     const sharedId = this.getSharedGroupId(group)
     const groupCopies = this.listGroupCopies(sharedId)
-    let broadcastIdentifiers = [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))]
+    const broadcastIdentifiers = [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))]
 
     if (payload.muted !== undefined) {
       group.muted = Boolean(payload.muted)
@@ -2414,6 +2724,94 @@ export class TinychokStore {
     }
   }
 
+  async subscribeToGroupThread(
+    token: string,
+    groupId: number,
+    messageId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getGroupMessageById(account.identifier, groupId, messageId)
+    if (!target) {
+      throw new Error('Сообщение группы не найдено.')
+    }
+
+    const threadId = getGroupMessageThreadId(target.group, target.message)
+    this.upsertThreadState(account.identifier, threadId, {
+      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.message.threadComments)),
+      subscription: 'subscribed',
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async unsubscribeFromGroupThread(
+    token: string,
+    groupId: number,
+    messageId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getGroupMessageById(account.identifier, groupId, messageId)
+    if (!target) {
+      throw new Error('Сообщение группы не найдено.')
+    }
+
+    const threadId = getGroupMessageThreadId(target.group, target.message)
+    this.upsertThreadState(account.identifier, threadId, {
+      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.message.threadComments)),
+      subscription: 'unsubscribed',
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async markGroupThreadRead(
+    token: string,
+    groupId: number,
+    messageId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getGroupMessageById(account.identifier, groupId, messageId)
+    if (!target) {
+      throw new Error('Сообщение группы не найдено.')
+    }
+
+    const threadId = getGroupMessageThreadId(target.group, target.message)
+    const existingState = this.getThreadState(account.identifier, threadId)
+    this.upsertThreadState(account.identifier, threadId, {
+      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.message.threadComments)),
+      subscription: existingState?.subscription ?? 'implicit',
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async updateSubscriptionChannel(
     token: string,
     channelId: number,
@@ -2491,6 +2889,8 @@ export class TinychokStore {
     if (!text) {
       throw new Error('Комментарий не может быть пустым.')
     }
+    const replyTo = sanitizeReplyTarget(payload.replyTo)
+    const deliveryId = this.resolveDeliveryId(payload.clientDeliveryId)
 
     const normalizedHandle = sanitizeChannelDirectLink(target.channel.handle) || target.channel.handle
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
@@ -2499,12 +2899,106 @@ export class TinychokStore {
       threadId,
       account,
       text,
+      replyTo,
+      deliveryId,
     )
+    this.upsertThreadState(account.identifier, threadId, {
+      lastReadCommentCreatedAt: new Date().toISOString(),
+      subscription: 'subscribed',
+    })
 
     await this.persist()
 
     return {
       broadcastIdentifiers,
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async subscribeToSubscriptionChannelThread(
+    token: string,
+    channelId: number,
+    postId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getSubscriptionPostById(account.identifier, channelId, postId)
+    if (!target) {
+      throw new Error('Пост канала не найден.')
+    }
+
+    const threadId = getSubscriptionPostThreadId(target.channel, target.post)
+    this.upsertThreadState(account.identifier, threadId, {
+      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.post.threadComments)),
+      subscription: 'subscribed',
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async unsubscribeFromSubscriptionChannelThread(
+    token: string,
+    channelId: number,
+    postId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getSubscriptionPostById(account.identifier, channelId, postId)
+    if (!target) {
+      throw new Error('Пост канала не найден.')
+    }
+
+    const threadId = getSubscriptionPostThreadId(target.channel, target.post)
+    this.upsertThreadState(account.identifier, threadId, {
+      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.post.threadComments)),
+      subscription: 'unsubscribed',
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async markSubscriptionChannelThreadRead(
+    token: string,
+    channelId: number,
+    postId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getSubscriptionPostById(account.identifier, channelId, postId)
+    if (!target) {
+      throw new Error('Пост канала не найден.')
+    }
+
+    const threadId = getSubscriptionPostThreadId(target.channel, target.post)
+    const existingState = this.getThreadState(account.identifier, threadId)
+    this.upsertThreadState(account.identifier, threadId, {
+      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.post.threadComments)),
+      subscription: existingState?.subscription ?? 'implicit',
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -2660,7 +3154,10 @@ export class TinychokStore {
     const title = sanitizeChannelTitle(payload.title) || `Новый канал ${channelNumber}`
     const directLink = ensureUniqueChannelDirectLink(
       sanitizeChannelDirectLink(payload.directLink) || buildChannelDirectLinkFromTitle(title),
-      this.database.managedChannels.map((channel) => channel.directLink),
+      [
+        ...this.database.managedChannels.map((channel) => channel.directLink),
+        ...this.database.subscriptionChannels.map((channel) => channel.handle),
+      ],
       title,
     )
     const description =
@@ -2686,11 +3183,76 @@ export class TinychokStore {
       visibility,
     })
 
+    const createdChannel = this.findManagedChannel(account.identifier, channelId)
+    if (createdChannel) {
+      this.ensureSubscriptionChannelCopyForOwner(createdChannel, account.identifier)
+    }
+
     await this.persist()
 
     return {
       broadcastIdentifiers: [account.identifier],
       channelId,
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async inviteManagedChannelMembers(
+    token: string,
+    channelId: number,
+    payload: InviteManagedChannelMembersBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const channel = this.findManagedChannel(account.identifier, channelId)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+
+    const uniqueDialogIds = Array.from(
+      new Set(
+        (payload.dialogIds ?? []).filter(
+          (dialogId): dialogId is number => Number.isInteger(dialogId) && dialogId > 0,
+        ),
+      ),
+    )
+
+    if (uniqueDialogIds.length === 0) {
+      throw new Error('Выберите хотя бы один контакт.')
+    }
+
+    const broadcastIdentifiers = new Set<string>([account.identifier])
+    this.ensureSubscriptionChannelCopyForOwner(channel, account.identifier)
+
+    for (const dialogId of uniqueDialogIds) {
+      const dialog = this.database.dialogs.find(
+        (candidate) => candidate.ownerIdentifier === account.identifier && candidate.id === dialogId,
+      )
+      if (!dialog) {
+        continue
+      }
+
+      const recipientIdentifier = normalizeIdentifier(dialog.phone)
+      if (!recipientIdentifier || recipientIdentifier === account.identifier) {
+        continue
+      }
+
+      const recipientAccount = this.findAccount(recipientIdentifier)
+      if (!recipientAccount) {
+        continue
+      }
+
+      this.ensureSubscriptionChannelCopyForOwner(channel, recipientAccount.identifier)
+      broadcastIdentifiers.add(recipientAccount.identifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -2724,9 +3286,18 @@ export class TinychokStore {
     if (payload.directLink !== undefined) {
       channel.directLink = ensureUniqueChannelDirectLink(
         sanitizeChannelDirectLink(payload.directLink) || channel.directLink,
-        this.database.managedChannels
-          .filter((candidate) => candidate.id !== channel.id)
-          .map((candidate) => candidate.directLink),
+        [
+          ...this.database.managedChannels
+            .filter((candidate) => candidate.id !== channel.id)
+            .map((candidate) => candidate.directLink),
+          ...this.database.subscriptionChannels
+            .filter(
+              (candidate) =>
+                sanitizeChannelDirectLink(candidate.handle) !==
+                sanitizeChannelDirectLink(channel.directLink),
+            )
+            .map((candidate) => candidate.handle),
+        ],
         channel.title,
       )
     }
@@ -2778,6 +3349,16 @@ export class TinychokStore {
           ),
       ).values(),
     ]
+
+    for (const channelCopy of subscriptionChannelCopies) {
+      channelCopy.accent = channel.avatarTone
+      channelCopy.avatarImage = channel.avatarImage
+      channelCopy.draft = channel.status === 'draft'
+      channelCopy.handle = channel.directLink
+      channelCopy.preview = channelCopy.preview || channel.description
+      channelCopy.title = channel.title
+      channelCopy.visibility = channel.visibility
+    }
 
     if (payload.commentsEnabledForAll !== undefined) {
       for (const channelCopy of subscriptionChannelCopies) {
@@ -2905,8 +3486,12 @@ export class TinychokStore {
       }
 
       const recipientIdentifier = normalizeIdentifier(dialog.phone)
-      if (!recipientIdentifier || recipientIdentifier === account.identifier) {
+      if (!recipientIdentifier) {
         throw new Error('Нельзя добавить этого пользователя в группу.')
+      }
+
+      if (recipientIdentifier === account.identifier) {
+        continue
       }
 
       if (recipientIdentifiers.has(recipientIdentifier)) {
@@ -2920,6 +3505,10 @@ export class TinychokStore {
 
       recipientIdentifiers.add(recipientIdentifier)
       recipientAccounts.push(recipientAccount)
+    }
+
+    if (recipientAccounts.length === 0) {
+      throw new Error('Добавьте хотя бы одного пользователя в группу с вами.')
     }
 
     const memberLimit = getGroupMemberLimit(account)
@@ -3048,6 +3637,7 @@ export class TinychokStore {
         surname: account.surname ?? '',
       } satisfies Session,
       subscriptionChannels: materializeSubscriptionChannels(this.database, account.identifier),
+      threadInbox: buildThreadInbox(this.database, account.identifier),
     }
   }
 
@@ -3069,6 +3659,11 @@ export class TinychokStore {
 
   private findAccount(identifier: string) {
     return this.database.accounts.find((account) => account.identifier === identifier) ?? null
+  }
+
+  private resolveDeliveryId(clientDeliveryId?: string) {
+    const normalizedDeliveryId = clientDeliveryId?.trim()
+    return normalizedDeliveryId || randomUUID()
   }
 
   private getContactReportCount(identifier: string) {
@@ -3164,6 +3759,57 @@ export class TinychokStore {
     )
   }
 
+  private ensureSubscriptionChannelCopyForOwner(
+    sourceChannel: PersistedManagedChannel,
+    ownerIdentifier: string,
+  ) {
+    const normalizedHandle = sanitizeChannelDirectLink(sourceChannel.directLink) || sourceChannel.directLink
+    const existingCopy = this.database.subscriptionChannels.find(
+      (channel) =>
+        channel.ownerIdentifier === ownerIdentifier &&
+        (sanitizeChannelDirectLink(channel.handle) || channel.handle) === normalizedHandle,
+    )
+
+    if (existingCopy) {
+      existingCopy.accent = sourceChannel.avatarTone
+      existingCopy.avatarImage = sourceChannel.avatarImage
+      existingCopy.commentBlacklistIdentifiers = sanitizeIdentifierList(
+        sourceChannel.commentBlacklistIdentifiers,
+      )
+      existingCopy.commentsEnabledForAll = Boolean(sourceChannel.commentsEnabledForAll)
+      existingCopy.commentsEnabledForPremium = Boolean(sourceChannel.commentsEnabledForPremium)
+      existingCopy.draft = sourceChannel.status === 'draft'
+      existingCopy.handle = sourceChannel.directLink
+      existingCopy.preview = existingCopy.preview || sourceChannel.description
+      existingCopy.title = sourceChannel.title
+      existingCopy.visibility = sourceChannel.visibility
+      return existingCopy
+    }
+
+    const nextCopy: PersistedSubscriptionChannel = {
+      accent: sourceChannel.avatarTone,
+      avatarImage: sourceChannel.avatarImage,
+      commentBlacklistIdentifiers: sanitizeIdentifierList(sourceChannel.commentBlacklistIdentifiers),
+      commentsEnabledForAll: Boolean(sourceChannel.commentsEnabledForAll),
+      commentsEnabledForPremium: Boolean(sourceChannel.commentsEnabledForPremium),
+      draft: sourceChannel.status === 'draft',
+      handle: sourceChannel.directLink,
+      id: this.getNextOwnedId(this.database.subscriptionChannels, ownerIdentifier),
+      muted: false,
+      ownerIdentifier,
+      participants: [],
+      preview: sourceChannel.description,
+      readers: 0,
+      time: '',
+      title: sourceChannel.title,
+      unread: 0,
+      visibility: sourceChannel.visibility,
+    }
+
+    this.database.subscriptionChannels.push(nextCopy)
+    return nextCopy
+  }
+
   private getGroupMessageById(ownerIdentifier: string, groupId: number, messageId: number) {
     const group = this.findGroup(ownerIdentifier, groupId)
     if (!group) {
@@ -3198,14 +3844,52 @@ export class TinychokStore {
     return post ? { channel, post } : null
   }
 
-  private buildThreadComment(account: Account, ownerIdentifier: string, text: string): ThreadComment {
+  private getThreadState(ownerIdentifier: string, threadId: string) {
+    return (
+      this.database.threadStates.find(
+        (threadState) =>
+          threadState.ownerIdentifier === ownerIdentifier && threadState.threadId === threadId,
+      ) ?? null
+    )
+  }
+
+  private upsertThreadState(
+    ownerIdentifier: string,
+    threadId: string,
+    nextState: Pick<PersistedThreadState, 'lastReadCommentCreatedAt' | 'subscription'>,
+  ) {
+    const existingState = this.getThreadState(ownerIdentifier, threadId)
+
+    if (existingState) {
+      existingState.lastReadCommentCreatedAt = nextState.lastReadCommentCreatedAt
+      existingState.subscription = nextState.subscription
+      return existingState
+    }
+
+    const createdState: PersistedThreadState = {
+      lastReadCommentCreatedAt: nextState.lastReadCommentCreatedAt,
+      ownerIdentifier,
+      subscription: nextState.subscription,
+      threadId,
+    }
+    this.database.threadStates.push(createdState)
+    return createdState
+  }
+
+  private buildThreadComment(
+    account: Account,
+    ownerIdentifier: string,
+    text: string,
+    deliveryId?: string,
+  ): ThreadComment {
     return {
       author: ownerIdentifier === account.identifier ? 'me' : 'them',
       authorIdentifier: account.identifier,
       createdAt: new Date().toISOString(),
-      deliveryId: randomUUID(),
+      deliveryId: this.resolveDeliveryId(deliveryId),
       displayAuthor: formatAccountName(account) || account.identifier,
       id: 0,
+      replyTo: undefined,
       text,
       time: formatNowTime(),
     }
@@ -3216,6 +3900,8 @@ export class TinychokStore {
     threadId: string,
     authorAccount: Account,
     text: string,
+    replyTo?: Message['replyTo'],
+    deliveryId?: string,
   ) {
     const broadcastIdentifiers = new Set<string>()
     const groupCopies = this.listGroupCopies(sharedId)
@@ -3229,7 +3915,8 @@ export class TinychokStore {
       )
 
       for (const targetMessage of targetMessages) {
-        const nextComment = this.buildThreadComment(authorAccount, groupCopy.ownerIdentifier, text)
+        const nextComment = this.buildThreadComment(authorAccount, groupCopy.ownerIdentifier, text, deliveryId)
+        nextComment.replyTo = replyTo
         const nextComments = [...(targetMessage.threadComments ?? [])]
         nextComment.id = nextComments.reduce((maxId, comment) => Math.max(maxId, comment.id), 0) + 1
         nextComments.push(nextComment)
@@ -3247,6 +3934,8 @@ export class TinychokStore {
     threadId: string,
     authorAccount: Account,
     text: string,
+    replyTo?: Message['replyTo'],
+    deliveryId?: string,
   ) {
     const broadcastIdentifiers = new Set<string>()
     const channelCopies = this.listSubscriptionChannelCopiesByHandle(handle)
@@ -3260,7 +3949,8 @@ export class TinychokStore {
       )
 
       for (const targetPost of targetPosts) {
-        const nextComment = this.buildThreadComment(authorAccount, channelCopy.ownerIdentifier, text)
+        const nextComment = this.buildThreadComment(authorAccount, channelCopy.ownerIdentifier, text, deliveryId)
+        nextComment.replyTo = replyTo
         const nextComments = [...(targetPost.threadComments ?? [])]
         nextComment.id = nextComments.reduce((maxId, comment) => Math.max(maxId, comment.id), 0) + 1
         nextComments.push(nextComment)
@@ -3484,6 +4174,8 @@ export class TinychokStore {
   }
 
   private clearSeededDialogHistoryIfNeeded(dialog: PersistedDialog) {
+    if (dialog.isTestEntity) return
+
     const seedChat = getSeedChatByPhone(dialog.phone)
     if (!seedChat) return
 
@@ -3576,6 +4268,113 @@ function normalizeChannelHandleForComparison(handle: string | undefined) {
   }
 
   return sanitizeChannelDirectLink(trimmed) || trimmed
+}
+
+function getPersistedSubscriptionPostSignature(
+  post: Pick<PersistedSubscriptionPost, 'attachment' | 'createdAt' | 'replyTo' | 'text' | 'time'>,
+) {
+  return JSON.stringify({
+    attachmentFileName: post.attachment?.fileName ?? '',
+    attachmentMimeType: post.attachment?.mimeType ?? '',
+    attachmentSize: post.attachment?.size ?? 0,
+    createdAt: post.createdAt ?? '',
+    replyAuthor: post.replyTo?.author ?? '',
+    replyId: post.replyTo?.id ?? 0,
+    replyText: post.replyTo?.text ?? '',
+    text: post.text,
+    time: post.time,
+  })
+}
+
+function repairSubscriptionChannelIdentityConflicts(database: Database) {
+  let didMutate = false
+  const seedPostSignaturesByHandle = new Map<string, Set<string>>()
+
+  for (const channel of initialSubscribedChannels) {
+    seedPostSignaturesByHandle.set(
+      normalizeChannelHandleForComparison(channel.handle),
+      new Set(channel.posts.map((post) => getPersistedSubscriptionPostSignature(post))),
+    )
+  }
+
+  const ownerIdentifiers = new Set(
+    database.subscriptionChannels.map((channel) => channel.ownerIdentifier),
+  )
+
+  for (const ownerIdentifier of ownerIdentifiers) {
+    const ownerChannels = database.subscriptionChannels.filter(
+      (channel) => channel.ownerIdentifier === ownerIdentifier,
+    )
+    if (ownerChannels.length < 2) continue
+
+    const ownerManagedHandles = new Set(
+      database.managedChannels
+        .filter((channel) => channel.ownerIdentifier === ownerIdentifier)
+        .map((channel) => normalizeChannelHandleForComparison(channel.directLink)),
+    )
+    const channelsById = new Map<number, PersistedSubscriptionChannel[]>()
+
+    for (const channel of ownerChannels) {
+      const bucket = channelsById.get(channel.id)
+      if (bucket) {
+        bucket.push(channel)
+      } else {
+        channelsById.set(channel.id, [channel])
+      }
+    }
+
+    let nextChannelId = ownerChannels.reduce((maxId, channel) => Math.max(maxId, channel.id), 0) + 1
+
+    for (const bucket of channelsById.values()) {
+      if (bucket.length < 2) continue
+
+      const orderedBucket = [...bucket].sort((left, right) => {
+        const leftHandle = normalizeChannelHandleForComparison(left.handle)
+        const rightHandle = normalizeChannelHandleForComparison(right.handle)
+        const leftPriority =
+          (left.isTestEntity ? 0 : 1) + (ownerManagedHandles.has(leftHandle) ? 1 : 0)
+        const rightPriority =
+          (right.isTestEntity ? 0 : 1) + (ownerManagedHandles.has(rightHandle) ? 1 : 0)
+
+        return leftPriority - rightPriority
+      })
+
+      const canonicalChannel = orderedBucket[0]
+      const canonicalHandle = normalizeChannelHandleForComparison(canonicalChannel.handle)
+      const canonicalSeedPostSignatures = canonicalChannel.isTestEntity
+        ? seedPostSignaturesByHandle.get(canonicalHandle) ?? new Set<string>()
+        : null
+
+      for (const channel of orderedBucket.slice(1)) {
+        const previousChannelId = channel.id
+        const nextId = nextChannelId
+        nextChannelId += 1
+        channel.id = nextId
+        didMutate = true
+
+        const channelHandle = normalizeChannelHandleForComparison(channel.handle)
+        if (!ownerManagedHandles.has(channelHandle) || canonicalSeedPostSignatures === null) {
+          continue
+        }
+
+        for (const post of database.subscriptionPosts) {
+          if (post.ownerIdentifier !== ownerIdentifier || post.channelId !== previousChannelId) {
+            continue
+          }
+
+          const postSignature = getPersistedSubscriptionPostSignature(post)
+          if (canonicalSeedPostSignatures.has(postSignature)) {
+            continue
+          }
+
+          post.channelId = nextId
+          didMutate = true
+        }
+      }
+    }
+  }
+
+  return didMutate
 }
 
 function markKnownTestFixtures(database: Database) {
@@ -3742,10 +4541,6 @@ function applyNonProductionFixtures(database: Database) {
   didMutate = upsertNonProductionTestAccounts(database) || didMutate
 
   for (const account of database.accounts) {
-    if (account.isTestEntity) {
-      continue
-    }
-
     didMutate = ensureOwnerTestDialogs(database, account.identifier) || didMutate
     didMutate = ensureOwnerTestGroups(database, account.identifier) || didMutate
     didMutate = ensureOwnerTestSubscriptionChannels(database, account.identifier) || didMutate
@@ -3909,6 +4704,14 @@ function applyProductionFixtureCleanup(database: Database) {
     didMutate = true
   }
 
+  const nextThreadStates = database.threadStates.filter(
+    (threadState) => !testAccountIdentifiers.has(threadState.ownerIdentifier),
+  )
+  if (nextThreadStates.length !== database.threadStates.length) {
+    database.threadStates = nextThreadStates
+    didMutate = true
+  }
+
   return {
     database,
     needsPersistenceRewrite: didMutate,
@@ -3916,6 +4719,10 @@ function applyProductionFixtureCleanup(database: Database) {
 }
 
 function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewrite: boolean) {
+  const dedupePersistedMessages = dedupePersistedMessagesByDeliveryId(database)
+  const ensuredManagedChannelOwnerCopies = ensureManagedChannelOwnerCopies(database)
+  const repairedSubscriptionChannelIdentities = repairSubscriptionChannelIdentityConflicts(database)
+  const dedupeSubscriptionPosts = dedupePersistedSubscriptionPosts(database)
   const nextState =
     runtimeConfig.environment === 'production'
       ? applyProductionFixtureCleanup(database)
@@ -3923,8 +4730,158 @@ function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewri
 
   return {
     database: nextState.database,
-    needsPersistenceRewrite: needsPersistenceRewrite || nextState.needsPersistenceRewrite,
+    needsPersistenceRewrite:
+      needsPersistenceRewrite ||
+      dedupePersistedMessages ||
+      ensuredManagedChannelOwnerCopies ||
+      repairedSubscriptionChannelIdentities ||
+      dedupeSubscriptionPosts ||
+      nextState.needsPersistenceRewrite,
   }
+}
+
+function ensureManagedChannelOwnerCopies(database: Database) {
+  let didMutate = false
+
+  for (const channel of database.managedChannels) {
+    const normalizedHandle = sanitizeChannelDirectLink(channel.directLink) || channel.directLink
+    const existingCopy = database.subscriptionChannels.find(
+      (subscriptionChannel) =>
+        subscriptionChannel.ownerIdentifier === channel.ownerIdentifier &&
+        (sanitizeChannelDirectLink(subscriptionChannel.handle) || subscriptionChannel.handle) ===
+          normalizedHandle,
+    )
+
+    if (existingCopy) {
+      if (existingCopy.accent !== channel.avatarTone) {
+        existingCopy.accent = channel.avatarTone
+        didMutate = true
+      }
+      if (existingCopy.avatarImage !== channel.avatarImage) {
+        existingCopy.avatarImage = channel.avatarImage
+        didMutate = true
+      }
+      if (existingCopy.draft !== (channel.status === 'draft')) {
+        existingCopy.draft = channel.status === 'draft'
+        didMutate = true
+      }
+      if (existingCopy.handle !== channel.directLink) {
+        existingCopy.handle = channel.directLink
+        didMutate = true
+      }
+      if (existingCopy.title !== channel.title) {
+        existingCopy.title = channel.title
+        didMutate = true
+      }
+      if (existingCopy.visibility !== channel.visibility) {
+        existingCopy.visibility = channel.visibility
+        didMutate = true
+      }
+      if (
+        (!existingCopy.preview || existingCopy.preview === 'Пока пусто') &&
+        existingCopy.preview !== channel.description
+      ) {
+        existingCopy.preview = channel.description
+        didMutate = true
+      }
+      continue
+    }
+
+    database.subscriptionChannels.push({
+      accent: channel.avatarTone,
+      avatarImage: channel.avatarImage,
+      commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
+      commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
+      commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
+      draft: channel.status === 'draft',
+      handle: channel.directLink,
+      id:
+        database.subscriptionChannels
+          .filter(
+            (subscriptionChannel) =>
+              subscriptionChannel.ownerIdentifier === channel.ownerIdentifier,
+          )
+          .reduce((maxId, subscriptionChannel) => Math.max(maxId, subscriptionChannel.id), 0) + 1,
+      muted: false,
+      ownerIdentifier: channel.ownerIdentifier,
+      participants: [],
+      preview: channel.description,
+      readers: 0,
+      time: '',
+      title: channel.title,
+      unread: 0,
+      visibility: channel.visibility,
+    })
+    didMutate = true
+  }
+
+  return didMutate
+}
+
+function dedupePersistedMessagesByDeliveryId(database: Database) {
+  let didMutate = false
+  const seenDialogDeliveryIds = new Set<string>()
+  const seenGroupDeliveryIds = new Set<string>()
+
+  const nextDialogMessages = database.dialogMessages.filter((message) => {
+    const deliveryId = message.deliveryId?.trim()
+    if (!deliveryId) return true
+
+    const key = `${message.ownerIdentifier}:${message.dialogId}:${deliveryId}`
+    if (seenDialogDeliveryIds.has(key)) {
+      didMutate = true
+      return false
+    }
+
+    seenDialogDeliveryIds.add(key)
+    return true
+  })
+
+  if (nextDialogMessages.length !== database.dialogMessages.length) {
+    database.dialogMessages = nextDialogMessages
+  }
+
+  const nextGroupMessages = database.groupMessages.filter((message) => {
+    const deliveryId = message.deliveryId?.trim()
+    if (!deliveryId) return true
+
+    const key = `${message.ownerIdentifier}:${message.groupId}:${deliveryId}`
+    if (seenGroupDeliveryIds.has(key)) {
+      didMutate = true
+      return false
+    }
+
+    seenGroupDeliveryIds.add(key)
+    return true
+  })
+
+  if (nextGroupMessages.length !== database.groupMessages.length) {
+    database.groupMessages = nextGroupMessages
+  }
+
+  return didMutate
+}
+
+function dedupePersistedSubscriptionPosts(database: Database) {
+  let didMutate = false
+  const seenPostKeys = new Set<string>()
+
+  const nextSubscriptionPosts = database.subscriptionPosts.filter((post) => {
+    const key = `${post.ownerIdentifier}:${post.channelId}:${getPersistedSubscriptionPostSignature(post)}`
+    if (seenPostKeys.has(key)) {
+      didMutate = true
+      return false
+    }
+
+    seenPostKeys.add(key)
+    return true
+  })
+
+  if (nextSubscriptionPosts.length !== database.subscriptionPosts.length) {
+    database.subscriptionPosts = nextSubscriptionPosts
+  }
+
+  return didMutate
 }
 
 function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
@@ -3949,6 +4906,7 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
       subscriptionChannelReports: normalized.subscriptionChannelReports ?? [],
       subscriptionChannels: normalized.subscriptionChannels ?? [],
       subscriptionPosts: normalized.subscriptionPosts ?? [],
+      threadStates: normalized.threadStates ?? [],
     } satisfies Database,
     false,
   )

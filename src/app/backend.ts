@@ -1,11 +1,13 @@
 import type {
   AppSnapshot,
+  ClientRuntimeConfigResponse,
   CreateGroupBody,
   CreateGroupResponse,
   CreateManagedChannelBody,
   CreateManagedChannelResponse,
   DiscoverySearchResponse,
   InviteGroupMemberBody,
+  InviteManagedChannelMembersBody,
   MutationResponse,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
@@ -127,16 +129,18 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
     })),
     subscriptionChannels: snapshot.subscriptionChannels.map((channel) => ({
       ...channel,
+      avatarImage: channel.avatarImage ? resolveMediaUrl(channel.avatarImage) : channel.avatarImage,
       posts: channel.posts.map((post) => ({
         ...post,
         attachment: post.attachment
           ? {
               ...post.attachment,
               mediaUrl: resolveMediaUrl(post.attachment.mediaUrl),
-            }
+        }
           : undefined,
       })),
     })),
+    threadInbox: snapshot.threadInbox,
   }
 }
 
@@ -144,6 +148,16 @@ function normalizeMutationResponse(response: MutationResponse) {
   return {
     ...response,
     snapshot: normalizeSnapshot(response.snapshot),
+  }
+}
+
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
   }
 }
 
@@ -155,7 +169,7 @@ async function readJsonResponse<T>(response: Response) {
     const message = typeof apiError.message === 'string'
       ? apiError.message
       : 'Не удалось выполнить запрос к серверу.'
-    throw new Error(message)
+    throw new ApiError(message, response.status)
   }
 
   return payload as T
@@ -179,6 +193,11 @@ function makeJsonRequestInit(
 export async function requestAuthCode(body: RequestCodeBody) {
   const response = await fetch(makeHttpUrl('/api/auth/request-code'), makeJsonRequestInit('POST', body))
   return readJsonResponse<RequestCodeResponse>(response)
+}
+
+export async function fetchClientRuntimeConfig() {
+  const response = await fetch(makeHttpUrl('/api/client-config'))
+  return readJsonResponse<ClientRuntimeConfigResponse>(response)
 }
 
 export async function verifyAuthCode(body: VerifyCodeBody) {
@@ -415,6 +434,19 @@ export async function deleteGroupMessage(
   return normalizeMutationResponse(payload)
 }
 
+export async function deleteManagedChannelPost(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/managed-channels/${channelId}/posts/${postId}`),
+    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function markGroupRead(sessionToken: string, groupId: number) {
   const response = await fetch(
     makeHttpUrl(`/api/groups/${groupId}/read`),
@@ -447,6 +479,45 @@ export async function deleteGroupThreadComment(
   const response = await fetch(
     makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/comments/${commentId}`),
     makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function subscribeToGroupThread(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/thread-subscription`),
+    makeJsonRequestInit('POST', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function unsubscribeFromGroupThread(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/thread-subscription`),
+    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function markGroupThreadRead(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/thread-read`),
+    makeJsonRequestInit('POST', undefined, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
@@ -515,6 +586,45 @@ export async function deleteSubscriptionChannelThreadComment(
   return normalizeMutationResponse(payload)
 }
 
+export async function subscribeToSubscriptionChannelThread(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/thread-subscription`),
+    makeJsonRequestInit('POST', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function unsubscribeFromSubscriptionChannelThread(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/thread-subscription`),
+    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function markSubscriptionChannelThreadRead(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/thread-read`),
+    makeJsonRequestInit('POST', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function leaveSubscriptionChannel(sessionToken: string, channelId: number) {
   const response = await fetch(
     makeHttpUrl(`/api/subscription-channels/${channelId}`),
@@ -547,6 +657,19 @@ export async function createManagedChannel(
     ...payload,
     snapshot: normalizeSnapshot(payload.snapshot),
   }
+}
+
+export async function inviteManagedChannelMembers(
+  sessionToken: string,
+  channelId: number,
+  body: InviteManagedChannelMembersBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/channels/${channelId}/invitations`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
 }
 
 export async function updateManagedChannel(

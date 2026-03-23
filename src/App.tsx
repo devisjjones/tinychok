@@ -37,7 +37,13 @@ import {
   initialSubscribedChannels,
 } from './app/mockData'
 import { loadAccounts, loadSession } from './app/storage'
+import { useBlacklistFlow } from './app/useBlacklistFlow'
+import { useGroupSettingsFlow } from './app/useGroupSettingsFlow'
+import { useRoomMessageActions } from './app/useRoomMessageActions'
+import { useThreadFlow } from './app/useThreadFlow'
 import {
+  ApiError,
+  fetchClientRuntimeConfig,
   createGroup as createGroupRequest,
   createManagedChannel as createManagedChannelRequest,
   deleteDialog as deleteDialogRequest,
@@ -46,9 +52,13 @@ import {
   deleteGroupMessage as deleteGroupMessageRequest,
   deleteGroupThreadComment as deleteGroupThreadCommentRequest,
   deleteManagedChannel as deleteManagedChannelRequest,
+  deleteManagedChannelPost as deleteManagedChannelPostRequest,
   deleteSubscriptionChannelThreadComment as deleteSubscriptionChannelThreadCommentRequest,
+  markGroupThreadRead as markGroupThreadReadRequest,
+  markSubscriptionChannelThreadRead as markSubscriptionChannelThreadReadRequest,
   fetchBootstrap,
   inviteGroupMember as inviteGroupMemberRequest,
+  inviteManagedChannelMembers as inviteManagedChannelMembersRequest,
   leaveGroup as leaveGroupRequest,
   leaveSubscriptionChannel as leaveSubscriptionChannelRequest,
   markDialogRead as markDialogReadRequest,
@@ -69,6 +79,10 @@ import {
   sendManagedChannelPost as sendManagedChannelPostRequest,
   sendGroupThreadComment as sendGroupThreadCommentRequest,
   sendSubscriptionChannelThreadComment as sendSubscriptionChannelThreadCommentRequest,
+  subscribeToGroupThread as subscribeToGroupThreadRequest,
+  subscribeToSubscriptionChannelThread as subscribeToSubscriptionChannelThreadRequest,
+  unsubscribeFromGroupThread as unsubscribeFromGroupThreadRequest,
+  unsubscribeFromSubscriptionChannelThread as unsubscribeFromSubscriptionChannelThreadRequest,
   updateDialog as updateDialogRequest,
   updateGroup as updateGroupRequest,
   updateManagedChannel as updateManagedChannelRequest,
@@ -77,6 +91,8 @@ import {
   uploadMediaFile,
   verifyAuthCode,
 } from './app/backend'
+import { configureAnalyticsRuntime, trackAnalyticsEvent } from './app/analytics'
+import type { ClientRuntimeConfigResponse } from './shared/backend'
 import type {
   Account,
   ActionAnchor,
@@ -95,8 +111,10 @@ import type {
   StageView,
   SubscriptionChannel,
   ThreadComment,
+  ThreadInboxItem,
   TopListView,
 } from './app/types'
+import { useCaptcha } from './app/useCaptcha'
 import { scheduleActionAnchor, useAnchoredMenu } from './app/useAnchoredMenu'
 import {
   formatMessagePreview,
@@ -129,8 +147,11 @@ import {
   sanitizeChannelTitle,
   sanitizePersonField,
   sanitizeStatusField,
+  scrollFeedChildIntoView,
   shouldSubmitComposerWithEnter,
   sortChatsByRecentActivity,
+  sortGroupsByRecentActivity,
+  sortSubscriptionChannelsByRecentActivity,
 } from './app/utils'
 import { AuthScreen } from './screens/AuthScreen'
 import { ConfirmLogoutScreen } from './screens/ConfirmLogoutScreen'
@@ -138,9 +159,16 @@ import { DirectChatRoom } from './rooms/DirectChatRoom'
 import { GroupRoom } from './rooms/GroupRoom'
 import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
 import { BubbleMessageContent } from './components/BubbleMessageContent'
+import { AttachedReplyBubble } from './components/AttachedReplyBubble'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { SelectedBubbleOverlay } from './components/SelectedBubbleOverlay'
 import { useCookieConsent } from './app/useCookieConsent'
+import {
+  type PendingAttachmentDraft,
+  type PendingDirectMessage,
+  type PendingGroupMessage,
+  usePendingMessageOutbox,
+} from './app/usePendingMessageOutbox'
 import type {
   AppSnapshot,
   ComplaintReason,
@@ -153,16 +181,6 @@ import type {
   UpdateSessionBody,
 } from './shared/backend'
 import './App.css'
-
-type PendingAttachmentDraft = {
-  file?: File
-  fileName: string
-  mediaUrl?: string
-  mimeType: string
-  size: number
-}
-
-type DeliveryIssue = 'pending' | 'failed'
 
 const deliveryIndicatorIconPaths = [
   '/icons/hourglass-48.png',
@@ -179,33 +197,6 @@ const contactComplaintReasonOptions: Array<{ label: string; value: ComplaintReas
 const blockedAuthNoticeMessage =
   'На ваш аккаунт поступило много жалоб, поэтому вход временно заблокирован. Если произошла ошибка, напишите в поддержку и укажите email: devisjjones@gmail.com'
 
-type PendingDirectMessage = {
-  attachment?: Message['attachment']
-  attachmentDraft?: PendingAttachmentDraft
-  chatId: number
-  createdAt: string
-  localId: number
-  queuedAt: string
-  replyTo?: Message['replyTo']
-  status: DeliveryIssue
-  text: string
-  time: string
-  retryCount: number
-}
-
-type PendingGroupMessage = {
-  attachment?: Message['attachment']
-  attachmentDraft?: PendingAttachmentDraft
-  createdAt: string
-  groupId: number
-  localId: number
-  queuedAt: string
-  status: DeliveryIssue
-  text: string
-  time: string
-  retryCount: number
-}
-
 type ProfileSettingsDraft = Pick<
   Session,
   'displayName' | 'surname' | 'nickname' | 'status' | 'avatarImage' | 'soundsDisabled'
@@ -221,29 +212,8 @@ function getSyntheticChannelId(seed: string) {
   return -Math.max(1, Math.abs(hash))
 }
 
-type StoredAttachmentDraft = Omit<PendingAttachmentDraft, 'file'>
-
-type StoredPendingDirectMessage = Omit<PendingDirectMessage, 'attachmentDraft'> & {
-  attachmentDraft?: StoredAttachmentDraft
-}
-
-type StoredPendingGroupMessage = Omit<PendingGroupMessage, 'attachmentDraft'> & {
-  attachmentDraft?: StoredAttachmentDraft
-}
-
-const DELIVERY_FAILURE_TIMEOUT_MS = 15_000
-const failedDirectMessagesStorageKeyPrefix = 'tinychok.failed-direct'
-const failedGroupMessagesStorageKeyPrefix = 'tinychok.failed-group'
 const jumpSoundPath = '/sfx/jump.wav'
 const takeSoundPath = '/sfx/take.wav'
-
-function getFailedDirectMessagesStorageKey(identifier: string) {
-  return `${failedDirectMessagesStorageKeyPrefix}:${identifier}`
-}
-
-function getFailedGroupMessagesStorageKey(identifier: string) {
-  return `${failedGroupMessagesStorageKeyPrefix}:${identifier}`
-}
 
 function buildProfileSettingsDraft(session: Session): ProfileSettingsDraft {
   return {
@@ -253,95 +223,6 @@ function buildProfileSettingsDraft(session: Session): ProfileSettingsDraft {
     soundsDisabled: Boolean(session.soundsDisabled),
     status: session.status ?? '',
     surname: session.surname ?? '',
-  }
-}
-
-function serializeAttachmentDraft(
-  attachmentDraft?: PendingAttachmentDraft,
-): StoredAttachmentDraft | undefined {
-  if (!attachmentDraft) return undefined
-
-  return {
-    fileName: attachmentDraft.fileName,
-    mediaUrl: attachmentDraft.mediaUrl,
-    mimeType: attachmentDraft.mimeType,
-    size: attachmentDraft.size,
-  }
-}
-
-function deserializeAttachmentDraft(
-  attachmentDraft?: StoredAttachmentDraft,
-): PendingAttachmentDraft | undefined {
-  if (!attachmentDraft) return undefined
-  if (attachmentDraft.mediaUrl?.startsWith('blob:')) return undefined
-
-  return {
-    fileName: attachmentDraft.fileName,
-    mediaUrl: attachmentDraft.mediaUrl,
-    mimeType: attachmentDraft.mimeType,
-    size: attachmentDraft.size,
-  }
-}
-
-function sanitizePersistedAttachment(attachment?: Message['attachment']) {
-  if (!attachment) return undefined
-  if (attachment.mediaUrl.startsWith('blob:')) return undefined
-
-  return {
-    fileName: attachment.fileName,
-    mediaUrl: attachment.mediaUrl,
-    mimeType: attachment.mimeType,
-    size: attachment.size,
-  } satisfies NonNullable<Message['attachment']>
-}
-
-function serializePendingDirectMessages(messages: PendingDirectMessage[]): StoredPendingDirectMessage[] {
-  return messages.map((message) => ({
-    ...message,
-    attachment: sanitizePersistedAttachment(message.attachment),
-    attachmentDraft: serializeAttachmentDraft(message.attachmentDraft),
-  }))
-}
-
-function serializePendingGroupMessages(messages: PendingGroupMessage[]): StoredPendingGroupMessage[] {
-  return messages.map((message) => ({
-    ...message,
-    attachment: sanitizePersistedAttachment(message.attachment),
-    attachmentDraft: serializeAttachmentDraft(message.attachmentDraft),
-  }))
-}
-
-function loadPersistedFailedDirectMessages(identifier: string) {
-  if (typeof window === 'undefined') return [] as PendingDirectMessage[]
-
-  const raw = window.localStorage.getItem(getFailedDirectMessagesStorageKey(identifier))
-  if (!raw) return []
-
-  try {
-    return (JSON.parse(raw) as StoredPendingDirectMessage[]).map((message) => ({
-      ...message,
-      attachment: sanitizePersistedAttachment(message.attachment),
-      attachmentDraft: deserializeAttachmentDraft(message.attachmentDraft),
-    }))
-  } catch {
-    return []
-  }
-}
-
-function loadPersistedFailedGroupMessages(identifier: string) {
-  if (typeof window === 'undefined') return [] as PendingGroupMessage[]
-
-  const raw = window.localStorage.getItem(getFailedGroupMessagesStorageKey(identifier))
-  if (!raw) return []
-
-  try {
-    return (JSON.parse(raw) as StoredPendingGroupMessage[]).map((message) => ({
-      ...message,
-      attachment: sanitizePersistedAttachment(message.attachment),
-      attachmentDraft: deserializeAttachmentDraft(message.attachmentDraft),
-    }))
-  } catch {
-    return []
   }
 }
 
@@ -421,12 +302,14 @@ function hydrateGroupParticipants(group: GroupPreview, chats: Chat[]): GroupPart
 function buildPreviewSubscriptionChannelFromManagedChannel(channel: Channel): SubscriptionChannel {
   return {
     accent: channel.avatarTone,
+    avatarImage: channel.avatarImage,
     commentBlacklistIdentifiers: channel.commentBlacklistIdentifiers ?? [],
     commentsEnabledForAll: channel.commentsEnabledForAll ?? false,
     commentsEnabledForPremium: channel.commentsEnabledForPremium ?? false,
     draft: channel.status === 'draft',
     handle: channel.directLink,
-    id: channel.id,
+    id: getSyntheticChannelId(`managed-preview:${channel.directLink}:${channel.title}`),
+    latestActivityAt: undefined,
     participants: [],
     posts: [],
     preview: channel.description,
@@ -507,18 +390,6 @@ type StockAvatarOption = {
   label: string
 }
 
-type ThreadTarget =
-  | {
-      kind: 'group'
-      groupId: number
-      messageId: number
-    }
-  | {
-      kind: 'channel'
-      channelId: number
-      postId: number
-    }
-
 type BlacklistManagerTarget =
   | {
       kind: 'group'
@@ -538,13 +409,6 @@ type BlacklistManagerTarget =
       kind: 'channel'
       scope: 'existing'
     }
-
-type BlacklistConfirmationTarget = {
-  identifier: string
-  nickname?: string
-  roomKind: 'group' | 'channel'
-  title: string
-}
 
 function formatStockAvatarLabel(filePath: string) {
   const fileName = filePath.split('/').pop() ?? filePath
@@ -588,9 +452,185 @@ const profileAvatarStockOptions = buildStockAvatarOptions(
   }) as Record<string, string>,
 )
 
+const PENDING_MESSAGE_RETRY_INTERVAL_MS = 2000
+const OUTGOING_CONFIRMATION_WINDOW_MS = 30_000
+const defaultClientRuntimeConfig: ClientRuntimeConfigResponse = {
+  analytics: {
+    enabled: false,
+    flushIntervalMs: 5000,
+    maxBatchSize: 20,
+    provider: 'disabled',
+  },
+  captcha: {
+    enabled: false,
+    provider: 'disabled',
+    siteKey: null,
+  },
+}
+
+type PendingGroupThreadComment = {
+  authorIdentifier?: string
+  createdAt: string
+  deliveryId?: string
+  displayAuthor?: string
+  groupId: number
+  localId: number
+  messageId: number
+  replyTo?: Message['replyTo']
+  text: string
+  time: string
+}
+
+type PendingChannelThreadComment = {
+  authorIdentifier?: string
+  channelId: number
+  createdAt: string
+  deliveryId?: string
+  displayAuthor?: string
+  localId: number
+  postId: number
+  replyTo?: Message['replyTo']
+  text: string
+  time: string
+}
+
+function areReplyTargetsEqual(
+  left?: Message['replyTo'] | ThreadComment['replyTo'],
+  right?: Message['replyTo'] | ThreadComment['replyTo'],
+) {
+  if (!left && !right) return true
+  if (!left || !right) return false
+
+  return left.id === right.id && left.author === right.author && left.text === right.text
+}
+
+function areMessageAttachmentsEquivalent(
+  left?: Message['attachment'],
+  right?: Message['attachment'],
+) {
+  if (!left && !right) return true
+  if (!left || !right) return false
+
+  return (
+    left.fileName === right.fileName &&
+    left.mimeType === right.mimeType &&
+    left.size === right.size
+  )
+}
+
+function areOutgoingTimestampsClose(
+  localCreatedAt?: string,
+  confirmedCreatedAt?: string,
+  localTime?: string,
+  confirmedTime?: string,
+) {
+  if (localCreatedAt && confirmedCreatedAt) {
+    return Math.abs(Date.parse(localCreatedAt) - Date.parse(confirmedCreatedAt)) <= OUTGOING_CONFIRMATION_WINDOW_MS
+  }
+
+  if (!localCreatedAt && !confirmedCreatedAt && localTime && confirmedTime) {
+    return localTime === confirmedTime
+  }
+
+  return false
+}
+
+function matchesOutgoingDirectMessage(localMessage: PendingDirectMessage, confirmedMessage: Message) {
+  if (localMessage.deliveryId?.trim() && confirmedMessage.deliveryId?.trim()) {
+    return localMessage.deliveryId === confirmedMessage.deliveryId
+  }
+
+  return (
+    confirmedMessage.author === 'me' &&
+    confirmedMessage.text === localMessage.text &&
+    areReplyTargetsEqual(confirmedMessage.replyTo, localMessage.replyTo) &&
+    areMessageAttachmentsEquivalent(confirmedMessage.attachment, localMessage.attachment) &&
+    areOutgoingTimestampsClose(localMessage.createdAt, confirmedMessage.createdAt, localMessage.time, confirmedMessage.time)
+  )
+}
+
+function matchesOutgoingGroupMessage(localMessage: PendingGroupMessage, confirmedMessage: Message) {
+  if (localMessage.deliveryId?.trim() && confirmedMessage.deliveryId?.trim()) {
+    return localMessage.deliveryId === confirmedMessage.deliveryId
+  }
+
+  return (
+    confirmedMessage.author === 'me' &&
+    confirmedMessage.text === localMessage.text &&
+    areMessageAttachmentsEquivalent(confirmedMessage.attachment, localMessage.attachment) &&
+    areOutgoingTimestampsClose(localMessage.createdAt, confirmedMessage.createdAt, localMessage.time, confirmedMessage.time)
+  )
+}
+
+function matchesOutgoingThreadComment(
+  localComment: PendingGroupThreadComment | PendingChannelThreadComment,
+  confirmedComment: ThreadComment,
+) {
+  if (localComment.deliveryId?.trim() && confirmedComment.deliveryId?.trim()) {
+    return localComment.deliveryId === confirmedComment.deliveryId
+  }
+
+  return (
+    confirmedComment.author === 'me' &&
+    confirmedComment.text === localComment.text &&
+    areReplyTargetsEqual(confirmedComment.replyTo, localComment.replyTo) &&
+    areOutgoingTimestampsClose(localComment.createdAt, confirmedComment.createdAt, localComment.time, confirmedComment.time)
+  )
+}
+
+function filterUnconfirmedOutgoingItems<LocalItem, ConfirmedItem>(
+  localItems: LocalItem[],
+  confirmedItems: ConfirmedItem[],
+  matcher: (localItem: LocalItem, confirmedItem: ConfirmedItem) => boolean,
+) {
+  if (localItems.length === 0 || confirmedItems.length === 0) {
+    return localItems
+  }
+
+  const usedConfirmedIndexes = new Set<number>()
+
+  return localItems.filter((localItem) => {
+    const matchedIndex = confirmedItems.findIndex(
+      (confirmedItem, index) => !usedConfirmedIndexes.has(index) && matcher(localItem, confirmedItem),
+    )
+
+    if (matchedIndex === -1) {
+      return true
+    }
+
+    usedConfirmedIndexes.add(matchedIndex)
+    return false
+  })
+}
+
+function getClientDeliveryId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `client-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function isExpiredSessionError(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.status === 401
+  }
+
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.message === 'Не найдена активная сессия.' ||
+    error.message === 'Сессия устарела. Войдите снова.' ||
+    error.message === 'Сессия не найдена.'
+  )
+}
+
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
   const threadSourceRef = useRef<HTMLDivElement | null>(null)
+  const threadComposerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const channelTitleInputRef = useRef<HTMLInputElement | null>(null)
   const accountNameRef = useRef<HTMLHeadingElement | null>(null)
   const settingsProfileNameRef = useRef<HTMLHeadingElement | null>(null)
@@ -603,10 +643,10 @@ function App() {
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const channelAvatarObjectUrlsRef = useRef(new Set<string>())
   const localMessageAttachmentObjectUrlsRef = useRef(new Set<string>())
-  const pendingDirectMessagesRef = useRef<PendingDirectMessage[]>([])
-  const pendingGroupMessagesRef = useRef<PendingGroupMessage[]>([])
   const nextOptimisticMessageIdRef = useRef(-1)
   const pendingRetryInFlightRef = useRef(false)
+  const pendingGroupThreadCommentsRef = useRef<PendingGroupThreadComment[]>([])
+  const pendingChannelThreadCommentsRef = useRef<PendingChannelThreadComment[]>([])
   const backendSyncTimeoutRef = useRef<number | null>(null)
   const skipNextBackendSyncRef = useRef(false)
   // These refs keep the debounced write-path transparent: text fields update locally first,
@@ -618,12 +658,14 @@ function App() {
     groups: typeof initialGroups
     session: Session | null
     subscriptionChannels: typeof initialSubscribedChannels
+    threadInbox: ThreadInboxItem[]
   }>({
     channels: initialChannels,
     chats: initialChats,
     groups: initialGroups,
     session: loadSession(),
     subscriptionChannels: initialSubscribedChannels,
+    threadInbox: [],
   })
   const channelMutationTimeoutsRef = useRef(new Map<number, number>())
   const pendingChannelPatchesRef = useRef(new Map<number, UpdateManagedChannelBody>())
@@ -644,11 +686,16 @@ function App() {
   const [channelsView, setChannelsView] = useState<ChannelsView>('list')
   const [settingsView, setSettingsView] = useState<SettingsView>('profile')
   const [query, setQuery] = useState('')
+  const [clientRuntimeConfig, setClientRuntimeConfig] = useState<ClientRuntimeConfigResponse>(
+    defaultClientRuntimeConfig,
+  )
   const [chatMessageDrafts, setChatMessageDrafts] = useState<Record<number, string>>({})
   const [groupMessageDrafts, setGroupMessageDrafts] = useState<Record<number, string>>({})
   const [channelPostDrafts, setChannelPostDrafts] = useState<Record<number, string>>({})
   const [chatAttachmentDrafts, setChatAttachmentDrafts] = useState<Record<number, PendingAttachmentDraft | undefined>>({})
   const [groupAttachmentDrafts, setGroupAttachmentDrafts] = useState<Record<number, PendingAttachmentDraft | undefined>>({})
+  const [pendingGroupThreadComments, setPendingGroupThreadComments] = useState<PendingGroupThreadComment[]>([])
+  const [pendingChannelThreadComments, setPendingChannelThreadComments] = useState<PendingChannelThreadComment[]>([])
   const [activeFilter, setActiveFilter] = useState('Все')
   const [searchOpen, setSearchOpen] = useState(false)
   const [quietMode, setQuietMode] = useState(false)
@@ -687,7 +734,6 @@ function App() {
   const [reportContactError, setReportContactError] = useState('')
   const [reportContactSuccessOpen, setReportContactSuccessOpen] = useState(false)
   const [confirmingDeleteMessageId, setConfirmingDeleteMessageId] = useState<number | null>(null)
-  const [confirmingDeleteGroupMessageId, setConfirmingDeleteGroupMessageId] = useState<number | null>(null)
   const [confirmingLeaveGroupId, setConfirmingLeaveGroupId] = useState<number | null>(null)
   const [confirmingDeleteChannelId, setConfirmingDeleteChannelId] = useState<number | null>(null)
   const [managedChannelLimitErrorOpen, setManagedChannelLimitErrorOpen] = useState(false)
@@ -698,6 +744,14 @@ function App() {
   const [channelTransferSearch, setChannelTransferSearch] = useState('')
   const [channelPostBusy, setChannelPostBusy] = useState(false)
   const [channelPostError, setChannelPostError] = useState('')
+  const [channelPostReplyTarget, setChannelPostReplyTarget] = useState<ReplyTarget | null>(null)
+  const [deferredRoomScrollTarget, setDeferredRoomScrollTarget] = useState<
+    | {
+        id: number
+        kind: 'channel-post'
+      }
+    | null
+  >(null)
   const [creatingChannelTitle, setCreatingChannelTitle] = useState('')
   const [creatingChannelDirectLink, setCreatingChannelDirectLink] = useState('')
   const [creatingChannelDirectLinkDirty, setCreatingChannelDirectLinkDirty] = useState(false)
@@ -709,6 +763,9 @@ function App() {
   const [creatingChannelCommentsForAll, setCreatingChannelCommentsForAll] = useState(false)
   const [creatingChannelCommentsForPremium, setCreatingChannelCommentsForPremium] = useState(false)
   const [creatingChannelBlacklistIdentifiers, setCreatingChannelBlacklistIdentifiers] = useState<string[]>([])
+  const [channelInviteChatIds, setChannelInviteChatIds] = useState<number[]>([])
+  const [channelInviteBusy, setChannelInviteBusy] = useState(false)
+  const [channelInviteError, setChannelInviteError] = useState('')
   const [groupCreateOpen, setGroupCreateOpen] = useState(false)
   const [creatingGroupTitle, setCreatingGroupTitle] = useState('')
   const [creatingGroupAccent, setCreatingGroupAccent] = useState(channelAvatarTones[0])
@@ -722,22 +779,8 @@ function App() {
   const [creatingGroupBusy, setCreatingGroupBusy] = useState(false)
   const [creatingGroupError, setCreatingGroupError] = useState('')
   const [creatingGroupSelectionHint, setCreatingGroupSelectionHint] = useState('')
-  const [groupSettingsOpen, setGroupSettingsOpen] = useState(false)
   const [groupManagementOpen, setGroupManagementOpen] = useState(false)
   const [groupTransferOwnerOpen, setGroupTransferOwnerOpen] = useState(false)
-  const [editingGroupTitleValue, setEditingGroupTitleValue] = useState('')
-  const [threadTarget, setThreadTarget] = useState<ThreadTarget | null>(null)
-  const [threadDraft, setThreadDraft] = useState('')
-  const [threadBusy, setThreadBusy] = useState(false)
-  const [threadError, setThreadError] = useState('')
-  const [threadCommentActionId, setThreadCommentActionId] = useState<number | null>(null)
-  const [threadCommentActionAnchor, setThreadCommentActionAnchor] = useState<ActionAnchor | null>(null)
-  const [confirmingDeleteThreadCommentId, setConfirmingDeleteThreadCommentId] = useState<number | null>(null)
-  const [forwardingThreadCommentText, setForwardingThreadCommentText] = useState('')
-  const [confirmingBlacklistTarget, setConfirmingBlacklistTarget] = useState<BlacklistConfirmationTarget | null>(
-    null,
-  )
-  const [blacklistHintTarget, setBlacklistHintTarget] = useState<'group-message' | 'thread-comment' | null>(null)
   const [blacklistManagerTarget, setBlacklistManagerTarget] = useState<BlacklistManagerTarget | null>(null)
   const [blacklistAddMode, setBlacklistAddMode] = useState(false)
   const [blacklistSearchQuery, setBlacklistSearchQuery] = useState('')
@@ -763,6 +806,7 @@ function App() {
   const [topListView, setTopListView] = useState<TopListView>('none')
   const [copyHintText, setCopyHintText] = useState('')
   const [discoveryResults, setDiscoveryResults] = useState(initialDiscoveryResults)
+  const [threadInbox, setThreadInbox] = useState<ThreadInboxItem[]>([])
   const [liveSearchState, setLiveSearchState] = useState<{
     query: string
     results: SearchResult[]
@@ -771,7 +815,6 @@ function App() {
   const [groups, setGroups] = useState(initialGroups)
   const [activeSubscriptionChannelId, setActiveSubscriptionChannelId] = useState<number | null>(null)
   const [previewSubscriptionChannel, setPreviewSubscriptionChannel] = useState<SubscriptionChannel | null>(null)
-  const [activeSubscriptionPostId, setActiveSubscriptionPostId] = useState<number | null>(null)
   const [channelActionsAnchor, setChannelActionsAnchor] = useState<ActionAnchor | null>(null)
   const [channelShareOpen, setChannelShareOpen] = useState(false)
   const [channelShareBusy, setChannelShareBusy] = useState(false)
@@ -781,7 +824,6 @@ function App() {
   const [channelReportError, setChannelReportError] = useState('')
   const [channelReportSuccessOpen, setChannelReportSuccessOpen] = useState(false)
   const [confirmingLeaveSubscriptionChannelId, setConfirmingLeaveSubscriptionChannelId] = useState<number | null>(null)
-  const [activeGroupMessageId, setActiveGroupMessageId] = useState<number | null>(null)
   const [groupParticipantsOpen, setGroupParticipantsOpen] = useState(false)
   const [groupActionsAnchor, setGroupActionsAnchor] = useState<ActionAnchor | null>(null)
   const [groupInviteOpen, setGroupInviteOpen] = useState(false)
@@ -789,17 +831,155 @@ function App() {
   const [groupInviteError, setGroupInviteError] = useState('')
   const [groupInviteLimitNoticeOpen, setGroupInviteLimitNoticeOpen] = useState(false)
   const [groupReportNoticeOpen, setGroupReportNoticeOpen] = useState(false)
-  const [threadsDisabledNotice, setThreadsDisabledNotice] = useState<'group' | 'channel' | null>(null)
-  const [forwardingSubscriptionPostText, setForwardingSubscriptionPostText] = useState('')
-  const [forwardingGroupMessageText, setForwardingGroupMessageText] = useState('')
-  const [pendingDirectMessages, setPendingDirectMessages] = useState<PendingDirectMessage[]>([])
-  const [pendingGroupMessages, setPendingGroupMessages] = useState<PendingGroupMessage[]>([])
-  const [messageActionAnchor, setMessageActionAnchor] = useState<ActionAnchor | null>(null)
-  const [subscriptionPostActionAnchor, setSubscriptionPostActionAnchor] = useState<ActionAnchor | null>(
+  const [threadsDisabledHintTarget, setThreadsDisabledHintTarget] = useState<'group-message' | 'channel-post' | null>(
     null,
   )
-  const [groupMessageActionAnchor, setGroupMessageActionAnchor] = useState<ActionAnchor | null>(null)
+  const [messageActionAnchor, setMessageActionAnchor] = useState<ActionAnchor | null>(null)
   const { cookieConsent, updateCookieConsent } = useCookieConsent()
+  const { captchaRequired, captchaToken, resetCaptcha } = useCaptcha(clientRuntimeConfig.captcha)
+  const {
+    blacklistHintTarget,
+    clearBlacklistHint,
+    closeBlacklistConfirmation,
+    confirmBlacklistTarget: confirmBlacklistTargetFlow,
+    confirmingBlacklistTarget,
+    openBlacklistConfirmation,
+    resetBlacklistFlow,
+    showBlacklistHint,
+  } = useBlacklistFlow()
+  const {
+    clearPendingDirectMessagesForChat,
+    clearPendingMessages,
+    getDirectMessageDeliveryIssue,
+    getGroupMessageDeliveryIssue,
+    hasLocalOutboxMessages,
+    hasPendingOutgoingMessages,
+    markPendingDirectMessageAttemptFailed,
+    markPendingDirectMessageSending,
+    markPendingGroupMessageAttemptFailed,
+    markPendingGroupMessageSending,
+    pendingDirectMessages,
+    pendingDirectMessagesRef,
+    pendingGroupMessages,
+    pendingGroupMessagesRef,
+    queuePendingDirectMessage,
+    queuePendingGroupMessage,
+    removePendingDirectMessage,
+    removePendingGroupMessage,
+    restorePersistedFailedMessages,
+    updatePendingDirectMessage,
+    updatePendingGroupMessage,
+  } = usePendingMessageOutbox(session?.identifier)
+  useEffect(() => {
+    pendingGroupThreadCommentsRef.current = pendingGroupThreadComments
+  }, [pendingGroupThreadComments])
+
+  useEffect(() => {
+    pendingChannelThreadCommentsRef.current = pendingChannelThreadComments
+  }, [pendingChannelThreadComments])
+
+  useEffect(() => {
+    if (session?.sessionToken) return
+
+    setPendingGroupThreadComments([])
+    setPendingChannelThreadComments([])
+  }, [session?.sessionToken])
+
+  const queuePendingGroupThreadComment = useCallback((comment: PendingGroupThreadComment) => {
+    setPendingGroupThreadComments((currentComments) => [...currentComments, comment])
+  }, [])
+
+  const queuePendingChannelThreadComment = useCallback((comment: PendingChannelThreadComment) => {
+    setPendingChannelThreadComments((currentComments) => [...currentComments, comment])
+  }, [])
+
+  const removePendingGroupThreadComment = useCallback((localId: number) => {
+    setPendingGroupThreadComments((currentComments) =>
+      currentComments.filter((comment) => comment.localId !== localId),
+    )
+  }, [])
+
+  const removePendingChannelThreadComment = useCallback((localId: number) => {
+    setPendingChannelThreadComments((currentComments) =>
+      currentComments.filter((comment) => comment.localId !== localId),
+    )
+  }, [])
+  const {
+    closeGroupSettingsDialog,
+    confirmGroupSettingsLeaveOpen,
+    confirmGroupSettingsLeaveWithDiscard,
+    confirmGroupSettingsLeaveWithSave,
+    dismissGroupSettingsLeaveConfirm,
+    groupSettingsBusy,
+    groupSettingsDirty,
+    groupSettingsDraft,
+    groupSettingsError,
+    groupSettingsOpen,
+    openGroupSettingsDialog,
+    requestGroupSettingsLeave,
+    resetGroupSettingsState,
+    saveGroupSettings,
+    updateGroupSettingsDraft,
+  } = useGroupSettingsFlow({
+    activeGroupId,
+    applyGroupSettingsPatch,
+    closeGroupActions,
+    groups,
+    setGroupManagementOpen,
+    setGroupTransferOwnerOpen,
+  })
+  const {
+    activeGroupMessageId,
+    activeSubscriptionPostId,
+    clearSubscriptionPostDeleteConfirmation,
+    clearGroupMessageDeleteConfirmation,
+    clearGroupMessageForwarding,
+    clearSubscriptionPostForwarding,
+    closeGroupMessageActions: closeRoomGroupMessageActions,
+    closeSubscriptionPostActions: closeRoomSubscriptionPostActions,
+    confirmingDeleteSubscriptionPostId,
+    confirmingDeleteGroupMessageId,
+    forwardingGroupMessageText,
+    forwardingSubscriptionPostText,
+    groupMessageActionAnchor,
+    openGroupMessageActions,
+    openSubscriptionPostActions,
+    requestSubscriptionPostDelete,
+    requestGroupMessageDelete,
+    resetGroupMessageActions,
+    resetRoomMessageActions,
+    resetSubscriptionPostActions,
+    startGroupMessageForwarding,
+    startSubscriptionPostForwarding,
+    subscriptionPostActionAnchor,
+  } = useRoomMessageActions()
+  const {
+    clearThreadDeleteConfirmation,
+    clearThreadForwarding,
+    clearThreadReplyTarget,
+    closeThreadCommentActions: closeThreadFlowCommentActions,
+    closeThreadView: closeThreadFlowView,
+    confirmingDeleteThreadCommentId,
+    forwardingThreadCommentText,
+    openThread,
+    openThreadCommentActions: openThreadFlowCommentActions,
+    replyToThreadComment: beginThreadReply,
+    requestThreadCommentDelete: requestThreadCommentDeleteFlow,
+    resetThreadComposer,
+    resetThreadState,
+    setForwardingThreadCommentText,
+    setThreadBusy,
+    setThreadDraft,
+    setThreadError,
+    threadBusy,
+    threadCommentActionAnchor,
+    threadCommentActionId,
+    threadDraft,
+    threadError,
+    threadReplyTarget,
+    threadTarget,
+    threadTargetKind,
+  } = useThreadFlow()
 
   useEffect(() => {
     const preloadedImages = deliveryIndicatorIconPaths.map((path) => {
@@ -814,12 +994,52 @@ function App() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+
+    void fetchClientRuntimeConfig()
+      .then((nextConfig) => {
+        if (!cancelled) {
+          setClientRuntimeConfig(nextConfig)
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return
+        console.error('Failed to fetch client runtime config', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    configureAnalyticsRuntime({
+      consentGranted: cookieConsent === 'analytics',
+      enabled: clientRuntimeConfig.analytics.enabled,
+      flushIntervalMs: clientRuntimeConfig.analytics.flushIntervalMs,
+      maxBatchSize: clientRuntimeConfig.analytics.maxBatchSize,
+      sessionToken: session?.sessionToken ?? null,
+    })
+  }, [
+    clientRuntimeConfig.analytics.enabled,
+    clientRuntimeConfig.analytics.flushIntervalMs,
+    clientRuntimeConfig.analytics.maxBatchSize,
+    cookieConsent,
+    session?.sessionToken,
+  ])
+
+  useEffect(() => {
+    if (cookieConsent !== 'analytics') return
+
+    trackAnalyticsEvent('analytics_consent_granted', {
+      source: 'cookie-banner',
+    })
+  }, [cookieConsent])
+
+  useEffect(() => {
     if (activeGroupId !== null) return
 
-    setGroupSettingsOpen(false)
-    setGroupManagementOpen(false)
-    setGroupTransferOwnerOpen(false)
-    setEditingGroupTitleValue('')
+    resetGroupSettingsState()
     setGroupParticipantsOpen(false)
     setGroupActionsAnchor(null)
     setGroupInviteOpen(false)
@@ -827,15 +1047,13 @@ function App() {
     setGroupInviteError('')
     setGroupInviteLimitNoticeOpen(false)
     setGroupReportNoticeOpen(false)
-    setThreadsDisabledNotice(null)
+    setThreadsDisabledHintTarget(null)
     setConfirmingLeaveGroupId(null)
-    if (threadTarget?.kind === 'group') {
-      setThreadTarget(null)
-      setThreadDraft('')
-      setThreadBusy(false)
-      setThreadError('')
+    if (threadTargetKind === 'group') {
+      resetThreadState()
+      resetBlacklistFlow()
     }
-  }, [activeGroupId])
+  }, [activeGroupId, resetBlacklistFlow, resetGroupSettingsState, resetThreadState, threadTargetKind])
 
   useEffect(() => {
     if (activeSubscriptionChannelId !== null || previewSubscriptionChannel !== null) return
@@ -850,21 +1068,22 @@ function App() {
     setChannelReportSuccessOpen(false)
     setChannelPostBusy(false)
     setChannelPostError('')
-    setThreadsDisabledNotice(null)
+    setChannelPostReplyTarget(null)
+    setThreadsDisabledHintTarget(null)
     setConfirmingLeaveSubscriptionChannelId(null)
-    if (threadTarget?.kind === 'channel') {
-      setThreadTarget(null)
-      setThreadDraft('')
-      setThreadBusy(false)
-      setThreadError('')
+    if (threadTargetKind === 'channel') {
+      resetThreadState()
+      resetBlacklistFlow()
     }
-  }, [activeSubscriptionChannelId, previewSubscriptionChannel])
+  }, [activeSubscriptionChannelId, previewSubscriptionChannel, resetBlacklistFlow, resetThreadState, threadTargetKind])
 
   const blockedContactIds = session?.blockedContactIds ?? []
   const availableChats = sortChatsByRecentActivity(
     chats.filter((chat) => !blockedContactIds.includes(chat.id)),
   )
-  const creatableGroupChats = availableChats
+  const creatableGroupChats = availableChats.filter(
+    (chat) => normalizeIdentifier(chat.phone) !== normalizeIdentifier(session?.identifier ?? ''),
+  )
   const blockedChats = sortChatsByRecentActivity(
     chats.filter((chat) => blockedContactIds.includes(chat.id)),
   )
@@ -1124,6 +1343,7 @@ function App() {
     activeGroup && activeGroupMessageParticipant?.identifier
       ? isRoomCommentsBlacklisted(activeGroup, activeGroupMessageParticipant.identifier)
       : false
+
   function handleThreadComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (!threadDraft.trim() || threadBusy) return
     if (
@@ -1146,6 +1366,32 @@ function App() {
     threadTarget?.kind === 'group'
       ? activeGroup?.title ?? 'Группа'
       : currentSubscriptionChannel?.title ?? 'Канал'
+  const activeThreadId =
+    threadTarget?.kind === 'group'
+      ? threadGroupMessage?.threadId
+      : threadTarget?.kind === 'channel'
+        ? threadChannelPost?.threadId
+        : undefined
+  const activeThreadInboxItem = activeThreadId
+    ? threadInbox.find((item) => item.threadId === activeThreadId) ?? null
+    : null
+  const activeThreadSubscribed = activeThreadInboxItem !== null
+  const threadSourceText =
+    activeThreadInboxItem?.kind === 'group' && threadTarget?.kind === 'group'
+      ? activeThreadInboxItem.sourceText
+      : activeThreadInboxItem?.kind === 'channel' && threadTarget?.kind === 'channel'
+        ? activeThreadInboxItem.sourceText
+        : threadTarget?.kind === 'group'
+          ? threadGroupMessage?.text ?? ''
+          : threadChannelPost?.text ?? ''
+  const threadSourceTime =
+    activeThreadInboxItem?.kind === 'group' && threadTarget?.kind === 'group'
+      ? activeThreadInboxItem.sourceTime
+      : activeThreadInboxItem?.kind === 'channel' && threadTarget?.kind === 'channel'
+        ? activeThreadInboxItem.sourceTime
+        : threadTarget?.kind === 'group'
+          ? threadGroupMessage?.time ?? ''
+          : threadChannelPost?.time ?? ''
   const activeThreadBlockReason =
     threadTarget?.kind === 'group'
       ? activeGroup
@@ -1163,6 +1409,7 @@ function App() {
     channelActionMenuWidth,
     subscriptionMenuFallbackHeight,
   )
+
   const { menuRef: channelActionsMenuRef, style: channelActionsMenuStyle } = useAnchoredMenu(
     channelActionsAnchor,
     channelActionMenuWidth,
@@ -1216,6 +1463,7 @@ function App() {
   })
   const activeChatMessageCount = activeChat?.messages.length ?? 0
   const activeGroupMessageCount = activeGroup?.messages.length ?? 0
+  const activeSubscriptionChannelPostCount = currentSubscriptionChannel?.posts.length ?? 0
   const isSettingsView = stageView === 'settings'
   const isPremiumView = stageView === 'premium'
   const isChannelsView = stageView === 'channels'
@@ -1223,11 +1471,13 @@ function App() {
   const isChannelsListView = isChannelsView && channelsView === 'list'
   const isChannelCreateView = isChannelsView && channelsView === 'create'
   const isChannelDetailView = isChannelsView && channelsView === 'detail'
+  const isChannelInviteView = isChannelsView && channelsView === 'invite'
   const isChatOpen = stageView === 'main' && activeChat !== null
   const isGroupOpen = stageView === 'main' && activeGroup !== null
   const isSubscriptionChannelOpen = stageView === 'main' && currentSubscriptionChannel !== null
   const isChannelsTopListOpen = topListView === 'channels'
   const isGroupsTopListOpen = topListView === 'groups'
+  const isThreadsTopListOpen = topListView === 'threads'
   const isAnyRoomOpen = isChatOpen || isSubscriptionChannelOpen || isGroupOpen
   const visibleRetainedSubscriptionChannelId =
     isChannelsTopListOpen &&
@@ -1251,14 +1501,45 @@ function App() {
       : activeFilter === '★'
       ? moveUnreadItemsFirst(visibleChats, visibleRetainedFavoriteChatId)
       : visibleChats
+  const managedPreviewChannels = channels
+    .filter(
+      (managedChannel) =>
+        !subscriptionChannels.some(
+          (subscriptionChannel) =>
+            sanitizeChannelDirectLink(subscriptionChannel.handle) ===
+            sanitizeChannelDirectLink(managedChannel.directLink),
+        ),
+    )
+    .map((managedChannel) => buildPreviewSubscriptionChannelFromManagedChannel(managedChannel))
+  const listedSubscriptionChannels = sortSubscriptionChannelsByRecentActivity([
+    ...managedPreviewChannels,
+    ...subscriptionChannels,
+  ])
   const orderedSubscriptionChannels = sortByUnreadEnabled
-    ? moveUnreadItemsFirst(subscriptionChannels, visibleRetainedSubscriptionChannelId)
-    : subscriptionChannels
+    ? moveUnreadItemsFirst(listedSubscriptionChannels, visibleRetainedSubscriptionChannelId)
+    : listedSubscriptionChannels
+  const sortedGroups = sortGroupsByRecentActivity(groups)
   const orderedGroups = sortByUnreadEnabled
-    ? moveUnreadItemsFirst(groups, visibleRetainedGroupId)
-    : groups
+    ? moveUnreadItemsFirst(sortedGroups, visibleRetainedGroupId)
+    : sortedGroups
+  const orderedThreadInbox = [...threadInbox].sort((left, right) => {
+    if (!sortByUnreadEnabled) {
+      const rightDate = Date.parse(right.latestActivityAt ?? '') || 0
+      const leftDate = Date.parse(left.latestActivityAt ?? '') || 0
+      return rightDate - leftDate
+    }
+
+    if ((left.unreadCount > 0) !== (right.unreadCount > 0)) {
+      return left.unreadCount > 0 ? -1 : 1
+    }
+
+    const rightDate = Date.parse(right.latestActivityAt ?? '') || 0
+    const leftDate = Date.parse(left.latestActivityAt ?? '') || 0
+    return rightDate - leftDate
+  })
   const totalChannelNotifications = subscriptionChannels.reduce((sum, channel) => sum + channel.unread, 0)
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
+  const totalThreadNotifications = threadInbox.reduce((sum, item) => sum + item.unreadCount, 0)
   const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
   const profilePreviewSession =
     session && profileSettingsDraft
@@ -1289,6 +1570,31 @@ function App() {
     creatingGroupMemberChatIds.includes(chat.id),
   )
   const canCreateGroup = selectedGroupCreateChats.length > 0
+  const activeManagedChannelParticipantIdentifiers = new Set(
+    activeChannel
+      ? (
+          subscriptionChannels.find(
+            (channel) =>
+              sanitizeChannelDirectLink(channel.handle) ===
+              sanitizeChannelDirectLink(activeChannel.directLink),
+          )?.participants ?? []
+        )
+          .map((participant) => normalizeIdentifier(participant.identifier ?? ''))
+          .filter(Boolean)
+      : [],
+  )
+  const inviteableManagedChannelChats = activeChannel
+    ? availableChats.filter((chat) => {
+        const chatIdentifier = normalizeIdentifier(chat.phone)
+        if (!chatIdentifier) return false
+        if (session && chatIdentifier === session.identifier) return false
+        return !activeManagedChannelParticipantIdentifiers.has(chatIdentifier)
+      })
+    : []
+  const selectedChannelInviteChats = inviteableManagedChannelChats.filter((chat) =>
+    channelInviteChatIds.includes(chat.id),
+  )
+  const canInviteToManagedChannel = selectedChannelInviteChats.length > 0
   const blacklistManagerCurrentIdentifiers =
     blacklistManagerTarget?.kind === 'group' && blacklistManagerTarget.scope === 'create'
       ? creatingGroupBlacklistIdentifiers
@@ -1358,47 +1664,6 @@ function App() {
       : cookieConsent === 'necessary'
       ? 'Вы приняли только необходимые cookie'
       : 'Выбор ещё не сохранён'
-  const pendingDirectMessageIds = new Set(
-    pendingDirectMessages
-      .filter((message) => message.status === 'pending')
-      .map((message) => message.localId),
-  )
-  const failedDirectMessageIds = new Set(
-    pendingDirectMessages
-      .filter((message) => message.status === 'failed')
-      .map((message) => message.localId),
-  )
-  const pendingGroupMessageIds = new Set(
-    pendingGroupMessages
-      .filter((message) => message.status === 'pending')
-      .map((message) => message.localId),
-  )
-  const failedGroupMessageIds = new Set(
-    pendingGroupMessages
-      .filter((message) => message.status === 'failed')
-      .map((message) => message.localId),
-  )
-  const hasPendingOutgoingMessages =
-    pendingDirectMessages.some((message) => message.status === 'pending') ||
-    pendingGroupMessages.some((message) => message.status === 'pending')
-  const hasLocalOutboxMessages =
-    pendingDirectMessages.length > 0 || pendingGroupMessages.length > 0
-  function getDirectMessageDeliveryIssue(messageId: number): DeliveryIssue | null {
-    return failedDirectMessageIds.has(messageId)
-      ? 'failed'
-      : pendingDirectMessageIds.has(messageId)
-        ? 'pending'
-        : null
-  }
-
-  function getGroupMessageDeliveryIssue(messageId: number): DeliveryIssue | null {
-    return failedGroupMessageIds.has(messageId)
-      ? 'failed'
-      : pendingGroupMessageIds.has(messageId)
-        ? 'pending'
-        : null
-  }
-
   const activeMessageDeliveryIssue =
     activeMessage?.author === 'me' ? getDirectMessageDeliveryIssue(activeMessage.id) : null
   const activeGroupMessageDeliveryIssue =
@@ -1419,6 +1684,7 @@ function App() {
     activeGroupId,
     activeGroupMessageCount,
     activeSubscriptionChannelId,
+    activeSubscriptionChannelPostCount,
     activeThreadCommentCount,
     isChatOpen,
     isGroupOpen,
@@ -1434,6 +1700,57 @@ function App() {
       messageFeedRef.current.scrollTop = messageFeedRef.current.scrollHeight
     })
   }, [activeThreadCommentCount, threadTarget])
+
+  const scrollCurrentFeedToSelector = useCallback((selector: string) => {
+    return scrollFeedChildIntoView(messageFeedRef.current, selector)
+  }, [])
+
+  const scrollToDirectMessage = useCallback((messageId: number) => {
+    void window.requestAnimationFrame(() => {
+      scrollCurrentFeedToSelector(`[data-direct-message-id="${messageId}"]`)
+    })
+  }, [scrollCurrentFeedToSelector])
+
+  const scrollToGroupMessage = useCallback((messageId: number) => {
+    void window.requestAnimationFrame(() => {
+      scrollCurrentFeedToSelector(`[data-group-message-id="${messageId}"]`)
+    })
+  }, [scrollCurrentFeedToSelector])
+
+  const scrollToChannelPost = useCallback((postId: number) => {
+    void window.requestAnimationFrame(() => {
+      scrollCurrentFeedToSelector(`[data-channel-post-id="${postId}"]`)
+    })
+  }, [scrollCurrentFeedToSelector])
+
+  const scrollToThreadComment = useCallback((commentId: number) => {
+    void window.requestAnimationFrame(() => {
+      scrollCurrentFeedToSelector(`[data-thread-comment-id="${commentId}"]`)
+    })
+  }, [scrollCurrentFeedToSelector])
+
+  useEffect(() => {
+    if (!deferredRoomScrollTarget || threadTarget) return
+
+    const frameId = window.requestAnimationFrame(() => {
+      if (deferredRoomScrollTarget.kind === 'channel-post') {
+        scrollCurrentFeedToSelector(`[data-channel-post-id="${deferredRoomScrollTarget.id}"]`)
+      }
+      setDeferredRoomScrollTarget(null)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [deferredRoomScrollTarget, scrollCurrentFeedToSelector, threadTarget])
+
+  useEffect(() => {
+    if (!threadReplyTarget) return
+
+    window.requestAnimationFrame(() => {
+      threadComposerInputRef.current?.focus()
+    })
+  }, [threadReplyTarget])
 
   useEffect(() => {
     if (!isChannelsView || !channelsPanelRef.current) return
@@ -1451,71 +1768,12 @@ function App() {
       localAttachmentObjectUrls.forEach((url) => URL.revokeObjectURL(url))
       localAttachmentObjectUrls.clear()
     }
-  }, [])
-
-  useEffect(() => {
-    pendingDirectMessagesRef.current = pendingDirectMessages
-  }, [pendingDirectMessages])
-
-  useEffect(() => {
-    pendingGroupMessagesRef.current = pendingGroupMessages
-  }, [pendingGroupMessages])
+  }, [pendingDirectMessagesRef])
 
   useEffect(() => {
     if (!session?.identifier) return
-
-    setPendingDirectMessages((currentMessages) => {
-      const pendingMessages = currentMessages.filter((message) => message.status === 'pending')
-      const failedMessages = loadPersistedFailedDirectMessages(session.identifier)
-
-      return [
-        ...pendingMessages,
-        ...failedMessages.filter(
-          (failedMessage) => !pendingMessages.some((message) => message.localId === failedMessage.localId),
-        ),
-      ]
-    })
-
-    setPendingGroupMessages((currentMessages) => {
-      const pendingMessages = currentMessages.filter((message) => message.status === 'pending')
-      const failedMessages = loadPersistedFailedGroupMessages(session.identifier)
-
-      return [
-        ...pendingMessages,
-        ...failedMessages.filter(
-          (failedMessage) => !pendingMessages.some((message) => message.localId === failedMessage.localId),
-        ),
-      ]
-    })
-  }, [session?.identifier])
-
-  useEffect(() => {
-    if (!session?.identifier || typeof window === 'undefined') return
-
-    const failedMessages = pendingDirectMessages.filter((message) => message.status === 'failed')
-    const storageKey = getFailedDirectMessagesStorageKey(session.identifier)
-
-    if (failedMessages.length === 0) {
-      window.localStorage.removeItem(storageKey)
-      return
-    }
-
-    window.localStorage.setItem(storageKey, JSON.stringify(serializePendingDirectMessages(failedMessages)))
-  }, [pendingDirectMessages, session?.identifier])
-
-  useEffect(() => {
-    if (!session?.identifier || typeof window === 'undefined') return
-
-    const failedMessages = pendingGroupMessages.filter((message) => message.status === 'failed')
-    const storageKey = getFailedGroupMessagesStorageKey(session.identifier)
-
-    if (failedMessages.length === 0) {
-      window.localStorage.removeItem(storageKey)
-      return
-    }
-
-    window.localStorage.setItem(storageKey, JSON.stringify(serializePendingGroupMessages(failedMessages)))
-  }, [pendingGroupMessages, session?.identifier])
+    restorePersistedFailedMessages(session.identifier)
+  }, [restorePersistedFailedMessages, session?.identifier])
 
   useEffect(() => {
     if (!copyHintText) return
@@ -1641,15 +1899,7 @@ function App() {
     setProfileSettingsDraft(buildProfileSettingsDraft(session))
     setProfileSettingsBusy(false)
     setProfileSettingsError('')
-  }, [
-    session?.identifier,
-    session?.displayName,
-    session?.surname,
-    session?.nickname,
-    session?.status,
-    session?.avatarImage,
-    session?.soundsDisabled,
-  ])
+  }, [session])
 
   const persistSession = useCallback((nextSession: Session | null) => {
     setSession(nextSession)
@@ -1713,6 +1963,50 @@ function App() {
     window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
   }, [persistSession])
 
+  const logout = useCallback(() => {
+    persistSession(null)
+    setBackendReady(false)
+    setIdentifier('')
+    setDisplayName('')
+    setSmsCode('')
+    setAuthStep('phone')
+    setAuthExistingAccount(null)
+    setChatMessageDrafts({})
+    setGroupMessageDrafts({})
+    setChannelPostDrafts({})
+    setChatAttachmentDrafts({})
+    setGroupAttachmentDrafts({})
+    setChannelPostBusy(false)
+    setChannelPostError('')
+    setChannelPostReplyTarget(null)
+    setConfirmingLogout(false)
+    setChatActionsOpen(false)
+    setBlockedActionChatId(null)
+    setPremiumGiftChatId(null)
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    setReplyTarget(null)
+    setConfirmingDeleteHistoryChatId(null)
+    setConfirmingDeleteContactChatId(null)
+    setConfirmingDeleteMessageId(null)
+    setConfirmingDeleteChannelId(null)
+    setTransferringChannelId(null)
+    setChannelTransferTargetChatId(null)
+    setChannelTransferCode('')
+    setChannelTransferError('')
+    setTopListView('none')
+    setRetainedAllChatId(null)
+    setRetainedFavoriteChatId(null)
+    setRetainedSubscriptionChannelId(null)
+    setRetainedGroupId(null)
+    setThreadInbox([])
+    setActiveSubscriptionChannelId(null)
+    setActiveGroupId(null)
+    resetRoomMessageActions()
+    clearPendingMessages()
+    setMessageActionAnchor(null)
+  }, [clearPendingMessages, persistSession, resetRoomMessageActions])
+
   const playAudioCue = useCallback((path: string) => {
     if (typeof window === 'undefined' || quietMode || session?.soundsDisabled) return
 
@@ -1747,7 +2041,12 @@ function App() {
       if (!queuedMessagesForChat || queuedMessagesForChat.length === 0) return chat
 
       const existingIds = new Set(chat.messages.map((message) => message.id))
-      const localMessages = queuedMessagesForChat
+      const unconfirmedQueuedMessages = filterUnconfirmedOutgoingItems(
+        queuedMessagesForChat,
+        chat.messages,
+        matchesOutgoingDirectMessage,
+      )
+      const localMessages = unconfirmedQueuedMessages
         .filter((message) => !existingIds.has(message.localId))
         .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
         .map((message) => ({
@@ -1767,7 +2066,7 @@ function App() {
         messages: [...chat.messages, ...localMessages],
       }
     })
-  }, [])
+  }, [pendingDirectMessagesRef])
 
   const mergeGroupOutboxMessagesIntoGroups = useCallback((snapshotGroups: AppSnapshot['groups']) => {
     const queuedMessages = pendingGroupMessagesRef.current
@@ -1787,7 +2086,12 @@ function App() {
       if (!queuedMessagesForGroup || queuedMessagesForGroup.length === 0) return group
 
       const existingIds = new Set(group.messages.map((message) => message.id))
-      const localMessages = queuedMessagesForGroup
+      const unconfirmedQueuedMessages = filterUnconfirmedOutgoingItems(
+        queuedMessagesForGroup,
+        group.messages,
+        matchesOutgoingGroupMessage,
+      )
+      const localMessages = unconfirmedQueuedMessages
         .filter((message) => !existingIds.has(message.localId))
         .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
         .map((message) => ({
@@ -1806,18 +2110,140 @@ function App() {
         messages: [...group.messages, ...localMessages],
       }
     })
-  }, [])
+  }, [pendingGroupMessagesRef])
+
+  const mergePendingGroupThreadCommentsIntoGroups = useCallback((snapshotGroups: AppSnapshot['groups']) => {
+    const queuedComments = pendingGroupThreadCommentsRef.current
+
+    if (queuedComments.length === 0) return snapshotGroups
+
+    const queuedCommentsByMessageKey = new Map<string, PendingGroupThreadComment[]>()
+
+    queuedComments.forEach((comment) => {
+      const messageKey = `${comment.groupId}:${comment.messageId}`
+      const messageComments = queuedCommentsByMessageKey.get(messageKey) ?? []
+      messageComments.push(comment)
+      queuedCommentsByMessageKey.set(messageKey, messageComments)
+    })
+
+    return snapshotGroups.map((group) => ({
+      ...group,
+      messages: group.messages.map((message) => {
+        const messageKey = `${group.id}:${message.id}`
+        const queuedCommentsForMessage = queuedCommentsByMessageKey.get(messageKey)
+
+        if (!queuedCommentsForMessage || queuedCommentsForMessage.length === 0) {
+          return message
+        }
+
+        const existingComments = message.threadComments ?? []
+        const existingIds = new Set(existingComments.map((comment) => comment.id))
+        const unconfirmedQueuedComments = filterUnconfirmedOutgoingItems(
+          queuedCommentsForMessage,
+          existingComments,
+          matchesOutgoingThreadComment,
+        )
+        const localComments = unconfirmedQueuedComments
+          .filter((comment) => !existingIds.has(comment.localId))
+          .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+          .map((comment) => ({
+            author: 'me' as const,
+            authorIdentifier: comment.authorIdentifier,
+            createdAt: comment.createdAt,
+            displayAuthor: comment.displayAuthor,
+            id: comment.localId,
+            replyTo: comment.replyTo,
+            text: comment.text,
+            time: comment.time,
+          }))
+
+        if (localComments.length === 0) {
+          return message
+        }
+
+        return {
+          ...message,
+          threadComments: [...existingComments, ...localComments],
+        }
+      }),
+    }))
+  }, [pendingGroupThreadCommentsRef])
+
+  const mergePendingChannelThreadCommentsIntoChannels = useCallback((
+    snapshotChannels: AppSnapshot['subscriptionChannels'],
+  ) => {
+    const queuedComments = pendingChannelThreadCommentsRef.current
+
+    if (queuedComments.length === 0) return snapshotChannels
+
+    const queuedCommentsByPostKey = new Map<string, PendingChannelThreadComment[]>()
+
+    queuedComments.forEach((comment) => {
+      const postKey = `${comment.channelId}:${comment.postId}`
+      const postComments = queuedCommentsByPostKey.get(postKey) ?? []
+      postComments.push(comment)
+      queuedCommentsByPostKey.set(postKey, postComments)
+    })
+
+    return snapshotChannels.map((channel) => ({
+      ...channel,
+      posts: channel.posts.map((post) => {
+        const postKey = `${channel.id}:${post.id}`
+        const queuedCommentsForPost = queuedCommentsByPostKey.get(postKey)
+
+        if (!queuedCommentsForPost || queuedCommentsForPost.length === 0) {
+          return post
+        }
+
+        const existingComments = post.threadComments ?? []
+        const existingIds = new Set(existingComments.map((comment) => comment.id))
+        const unconfirmedQueuedComments = filterUnconfirmedOutgoingItems(
+          queuedCommentsForPost,
+          existingComments,
+          matchesOutgoingThreadComment,
+        )
+        const localComments = unconfirmedQueuedComments
+          .filter((comment) => !existingIds.has(comment.localId))
+          .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+          .map((comment) => ({
+            author: 'me' as const,
+            authorIdentifier: comment.authorIdentifier,
+            createdAt: comment.createdAt,
+            displayAuthor: comment.displayAuthor,
+            id: comment.localId,
+            replyTo: comment.replyTo,
+            text: comment.text,
+            time: comment.time,
+          }))
+
+        if (localComments.length === 0) {
+          return post
+        }
+
+        return {
+          ...post,
+          threadComments: [...existingComments, ...localComments],
+        }
+      }),
+    }))
+  }, [pendingChannelThreadCommentsRef])
 
   const applySnapshot = useCallback((snapshot: AppSnapshot) => {
     const mergedChats = mergeDirectOutboxMessagesIntoChats(snapshot.chats)
-    const mergedGroups = mergeGroupOutboxMessagesIntoGroups(snapshot.groups)
+    const mergedGroups = mergePendingGroupThreadCommentsIntoGroups(
+      mergeGroupOutboxMessagesIntoGroups(snapshot.groups),
+    )
+    const mergedSubscriptionChannels = mergePendingChannelThreadCommentsIntoChannels(
+      snapshot.subscriptionChannels,
+    )
 
     skipNextBackendSyncRef.current = true
     setChats(mergedChats)
     setChannels(snapshot.channels)
     setDiscoveryResults(snapshot.discoveryResults)
     setGroups(mergedGroups)
-    setSubscriptionChannels(snapshot.subscriptionChannels)
+    setSubscriptionChannels(mergedSubscriptionChannels)
+    setThreadInbox(snapshot.threadInbox)
     setActiveChatId((currentChatId) =>
       currentChatId !== null && mergedChats.some((chat) => chat.id === currentChatId)
         ? currentChatId
@@ -1830,7 +2256,7 @@ function App() {
     )
     setActiveSubscriptionChannelId((currentChannelId) =>
       currentChannelId !== null &&
-      snapshot.subscriptionChannels.some((channel) => channel.id === currentChannelId)
+      mergedSubscriptionChannels.some((channel) => channel.id === currentChannelId)
         ? currentChannelId
         : null,
     )
@@ -1840,7 +2266,13 @@ function App() {
         : snapshot.channels[0]?.id ?? null,
       )
     syncSession(snapshot.session)
-  }, [mergeDirectOutboxMessagesIntoChats, mergeGroupOutboxMessagesIntoGroups, syncSession])
+  }, [
+    mergeDirectOutboxMessagesIntoChats,
+    mergeGroupOutboxMessagesIntoGroups,
+    mergePendingChannelThreadCommentsIntoChannels,
+    mergePendingGroupThreadCommentsIntoGroups,
+    syncSession,
+  ])
 
   useEffect(() => {
     if (!session) {
@@ -1855,8 +2287,9 @@ function App() {
       groups,
       session,
       subscriptionChannels,
+      threadInbox,
     }
-  }, [channels, chats, discoveryResults, groups, session, subscriptionChannels])
+  }, [channels, chats, discoveryResults, groups, session, subscriptionChannels, threadInbox])
 
   const fallbackSaveCurrentSnapshot = useCallback(async (reason: string) => {
     if (
@@ -1877,7 +2310,7 @@ function App() {
     } catch (error) {
       console.error(`Failed to fallback snapshot sync after ${reason}`, error)
     }
-  }, [applySnapshot])
+  }, [applySnapshot, pendingDirectMessagesRef, pendingGroupMessagesRef])
 
   const scheduleManagedChannelMutation = useCallback(
     (channelId: number, patch: UpdateManagedChannelBody) => {
@@ -1947,6 +2380,11 @@ function App() {
       } catch (error) {
         if (cancelled) return
         console.error('Failed to bootstrap Tinychok backend', error)
+        if (isExpiredSessionError(error)) {
+          logout()
+          setAuthError('Сессия устарела. Войдите снова.')
+          return
+        }
         setBackendReady(false)
       }
     })()
@@ -1954,7 +2392,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [applySnapshot, session?.sessionToken])
+  }, [applySnapshot, logout, session?.sessionToken])
 
   useEffect(() => {
     if (!searchOpen || topListView !== 'none') {
@@ -2000,6 +2438,18 @@ function App() {
       applySnapshot(event.snapshot)
     })
 
+    socket.addEventListener('open', () => {
+      trackAnalyticsEvent('realtime_connected', {})
+    })
+
+    socket.addEventListener('error', () => {
+      trackAnalyticsEvent('realtime_error', {})
+    })
+
+    socket.addEventListener('close', () => {
+      trackAnalyticsEvent('realtime_disconnected', {})
+    })
+
     return () => {
       socket.close()
     }
@@ -2013,6 +2463,7 @@ function App() {
     const channelsChanged = previousSlices.channels !== channels
     const subscriptionChannelsChanged =
       previousSlices.subscriptionChannels !== subscriptionChannels
+    const threadInboxChanged = previousSlices.threadInbox !== threadInbox
 
     previousSnapshotSlicesRef.current = {
       channels,
@@ -2020,6 +2471,7 @@ function App() {
       groups,
       session,
       subscriptionChannels,
+      threadInbox,
     }
 
     if (!backendReady || !session?.sessionToken) return
@@ -2029,10 +2481,22 @@ function App() {
       return
     }
 
+    if (
+      threadInboxChanged &&
+      !chatsChanged &&
+      !groupsChanged &&
+      !sessionChanged &&
+      !channelsChanged &&
+      !subscriptionChannelsChanged
+    ) {
+      return
+    }
+
     const onlySessionAndChannelChanged =
       !chatsChanged &&
       !groupsChanged &&
       !subscriptionChannelsChanged &&
+      !threadInboxChanged &&
       (sessionChanged || channelsChanged)
 
     if (onlySessionAndChannelChanged) {
@@ -2061,6 +2525,7 @@ function App() {
       groups,
       session,
       subscriptionChannels,
+      threadInbox,
     }
 
     backendSyncTimeoutRef.current = window.setTimeout(() => {
@@ -2085,6 +2550,7 @@ function App() {
     hasPendingOutgoingMessages,
     session,
     subscriptionChannels,
+    threadInbox,
   ])
 
   useEffect(() => {
@@ -2127,13 +2593,22 @@ function App() {
     }
 
     try {
-      const response = await requestAuthCode({ identifier: normalized })
+      const response = await requestAuthCode({ captchaToken: captchaToken ?? undefined, identifier: normalized })
       setIdentifier(normalized)
       setAuthExistingAccount(response.existingAccount)
       setAuthError('')
       setAuthStep('code')
+      trackAnalyticsEvent('auth_code_request_succeeded', {
+        captchaRequired,
+        existingAccount: Boolean(response.existingAccount),
+      })
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Не удалось запросить код.')
+      const message = error instanceof Error ? error.message : 'Не удалось запросить код.'
+      setAuthError(message)
+      trackAnalyticsEvent('auth_code_request_failed', {
+        captchaRequired,
+        reason: message,
+      })
     }
   }
 
@@ -2148,6 +2623,7 @@ function App() {
 
     try {
       const response = await verifyAuthCode({
+        captchaToken: captchaToken ?? undefined,
         code: trimmedCode,
         identifier: normalized,
       })
@@ -2156,22 +2632,37 @@ function App() {
         applySnapshot(response.snapshot)
         setBackendReady(true)
         setAuthError('')
+        resetCaptcha()
+        trackAnalyticsEvent('auth_code_verify_succeeded', {
+          outcome: 'authenticated',
+        })
         return
       }
 
       setAuthExistingAccount(null)
       setAuthError('')
       setAuthStep('profile')
+      trackAnalyticsEvent('auth_code_verify_succeeded', {
+        outcome: 'needs-profile',
+      })
     } catch (error) {
       const nextMessage = error instanceof Error ? error.message : 'Не удалось подтвердить код.'
 
       if (nextMessage === blockedAuthNoticeMessage) {
         setAuthBlockedNoticeOpen(true)
         setAuthError('')
+        trackAnalyticsEvent('auth_code_verify_failed', {
+          blocked: true,
+          reason: nextMessage,
+        })
         return
       }
 
       setAuthError(nextMessage)
+      trackAnalyticsEvent('auth_code_verify_failed', {
+        blocked: false,
+        reason: nextMessage,
+      })
     }
   }
 
@@ -2186,6 +2677,7 @@ function App() {
 
     try {
       const response = await registerAccount({
+        captchaToken: captchaToken ?? undefined,
         code: smsCode.trim(),
         displayName: trimmedName,
         identifier: normalized,
@@ -2193,57 +2685,15 @@ function App() {
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthError('')
+      resetCaptcha()
+      trackAnalyticsEvent('auth_registration_succeeded', {})
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Не удалось завершить регистрацию.')
+      const message = error instanceof Error ? error.message : 'Не удалось завершить регистрацию.'
+      setAuthError(message)
+      trackAnalyticsEvent('auth_registration_failed', {
+        reason: message,
+      })
     }
-  }
-
-  function logout() {
-    persistSession(null)
-    setBackendReady(false)
-    setIdentifier('')
-    setDisplayName('')
-    setSmsCode('')
-    setAuthStep('phone')
-    setAuthExistingAccount(null)
-    setChatMessageDrafts({})
-    setGroupMessageDrafts({})
-    setChannelPostDrafts({})
-    setChatAttachmentDrafts({})
-    setGroupAttachmentDrafts({})
-    setChannelPostBusy(false)
-    setChannelPostError('')
-    setConfirmingLogout(false)
-    setChatActionsOpen(false)
-    setBlockedActionChatId(null)
-    setPremiumGiftChatId(null)
-    setMessageActionMessageId(null)
-    setForwardingMessageId(null)
-    setReplyTarget(null)
-    setConfirmingDeleteHistoryChatId(null)
-    setConfirmingDeleteContactChatId(null)
-    setConfirmingDeleteMessageId(null)
-    setConfirmingDeleteChannelId(null)
-    setTransferringChannelId(null)
-    setChannelTransferTargetChatId(null)
-    setChannelTransferCode('')
-    setChannelTransferError('')
-    setTopListView('none')
-    setRetainedAllChatId(null)
-    setRetainedFavoriteChatId(null)
-    setRetainedSubscriptionChannelId(null)
-    setRetainedGroupId(null)
-    setActiveSubscriptionChannelId(null)
-    setActiveSubscriptionPostId(null)
-    setActiveGroupId(null)
-    setActiveGroupMessageId(null)
-    setForwardingSubscriptionPostText('')
-    setForwardingGroupMessageText('')
-    setPendingDirectMessages([])
-    setPendingGroupMessages([])
-    setMessageActionAnchor(null)
-    setSubscriptionPostActionAnchor(null)
-    setGroupMessageActionAnchor(null)
   }
 
   function getNextOptimisticMessageId() {
@@ -2272,84 +2722,6 @@ function App() {
       ...currentAttachments,
       [groupId]: undefined,
     }))
-  }
-
-  function queuePendingDirectMessage(message: PendingDirectMessage) {
-    setPendingDirectMessages((currentMessages) => [...currentMessages, message])
-  }
-
-  function queuePendingGroupMessage(message: PendingGroupMessage) {
-    setPendingGroupMessages((currentMessages) => [...currentMessages, message])
-  }
-
-  function updatePendingDirectMessage(
-    localId: number,
-    updater: (message: PendingDirectMessage) => PendingDirectMessage,
-  ) {
-    setPendingDirectMessages((currentMessages) =>
-      currentMessages.map((message) => (message.localId === localId ? updater(message) : message)),
-    )
-  }
-
-  function updatePendingGroupMessage(
-    localId: number,
-    updater: (message: PendingGroupMessage) => PendingGroupMessage,
-  ) {
-    setPendingGroupMessages((currentMessages) =>
-      currentMessages.map((message) => (message.localId === localId ? updater(message) : message)),
-    )
-  }
-
-  function removePendingDirectMessage(localId: number) {
-    setPendingDirectMessages((currentMessages) =>
-      currentMessages.filter((message) => message.localId !== localId),
-    )
-  }
-
-  function removePendingGroupMessage(localId: number) {
-    setPendingGroupMessages((currentMessages) =>
-      currentMessages.filter((message) => message.localId !== localId),
-    )
-  }
-
-  function clearPendingDirectMessagesForChat(chatId: number) {
-    setPendingDirectMessages((currentMessages) =>
-      currentMessages.filter((message) => message.chatId !== chatId),
-    )
-  }
-
-  function markPendingDirectMessageAttemptFailed(localId: number) {
-    const failureTimestamp = new Date().toISOString()
-
-    updatePendingDirectMessage(localId, (message) => {
-      const shouldFail =
-        Date.now() - Date.parse(message.queuedAt) >= DELIVERY_FAILURE_TIMEOUT_MS
-
-      return {
-        ...message,
-        retryCount: message.retryCount + 1,
-        status: shouldFail ? 'failed' : 'pending',
-      }
-    })
-
-    return failureTimestamp
-  }
-
-  function markPendingGroupMessageAttemptFailed(localId: number) {
-    const failureTimestamp = new Date().toISOString()
-
-    updatePendingGroupMessage(localId, (message) => {
-      const shouldFail =
-        Date.now() - Date.parse(message.queuedAt) >= DELIVERY_FAILURE_TIMEOUT_MS
-
-      return {
-        ...message,
-        retryCount: message.retryCount + 1,
-        status: shouldFail ? 'failed' : 'pending',
-      }
-    })
-
-    return failureTimestamp
   }
 
   function applyLocalDialogRead(chatId: number) {
@@ -2391,12 +2763,126 @@ function App() {
     )
   }
 
+  function buildThreadInboxItemFromTarget(target: {
+    kind: 'group'
+    groupId: number
+    messageId: number
+  } | {
+    kind: 'channel'
+    channelId: number
+    postId: number
+  }) {
+    if (target.kind === 'group') {
+      const group = groups.find((candidate) => candidate.id === target.groupId)
+      const message = group?.messages.find((candidate) => candidate.id === target.messageId)
+      if (!group || !message?.threadId) return null
+
+      const comments = message.threadComments ?? []
+      const latestComment = comments.at(-1)
+
+      return {
+        commentCount: comments.length,
+        groupAccent: group.accent,
+        groupId: group.id,
+        groupTitle: group.title,
+        kind: 'group' as const,
+        latestActivityAt: latestComment?.createdAt ?? message.createdAt,
+        latestCommentAuthor: latestComment?.displayAuthor,
+        latestCommentText: latestComment?.text ?? 'Пока без комментариев',
+        latestCommentTime: latestComment?.time ?? message.time,
+        messageId: message.id,
+        sourceText: message.text,
+        sourceTime: message.time,
+        subscribed: true,
+        threadId: message.threadId,
+        unreadCount: 0,
+      } satisfies ThreadInboxItem
+    }
+
+    const channel = subscriptionChannels.find((candidate) => candidate.id === target.channelId)
+    const post = channel?.posts.find((candidate) => candidate.id === target.postId)
+    if (!channel || !post?.threadId) return null
+
+    const comments = post.threadComments ?? []
+    const latestComment = comments.at(-1)
+
+    return {
+      channelAccent: channel.accent,
+      channelId: channel.id,
+      channelTitle: channel.title,
+      commentCount: comments.length,
+      kind: 'channel' as const,
+      latestActivityAt: latestComment?.createdAt ?? post.createdAt,
+      latestCommentAuthor: latestComment?.displayAuthor,
+      latestCommentText: latestComment?.text ?? 'Пока без комментариев',
+      latestCommentTime: latestComment?.time ?? post.time,
+      postId: post.id,
+      sourceText: post.text,
+      sourceTime: post.time,
+      subscribed: true,
+      threadId: post.threadId,
+      unreadCount: 0,
+    } satisfies ThreadInboxItem
+  }
+
+  function applyLocalThreadRead(threadId: string) {
+    setThreadInbox((currentThreadInbox) =>
+      currentThreadInbox.map((item) =>
+        item.threadId === threadId
+          ? {
+              ...item,
+              unreadCount: 0,
+            }
+          : item,
+      ),
+    )
+  }
+
+  function applyLocalThreadSubscription(
+    target: {
+      kind: 'group'
+      groupId: number
+      messageId: number
+    } | {
+      kind: 'channel'
+      channelId: number
+      postId: number
+    },
+  ) {
+    const nextItem = buildThreadInboxItemFromTarget(target)
+    if (!nextItem) return
+
+    setThreadInbox((currentThreadInbox) => {
+      const existingItem = currentThreadInbox.find((item) => item.threadId === nextItem.threadId)
+      if (existingItem) {
+        return currentThreadInbox.map((item) =>
+          item.threadId === nextItem.threadId
+            ? {
+                ...item,
+                ...nextItem,
+                subscribed: true,
+              }
+            : item,
+        )
+      }
+
+      return [nextItem, ...currentThreadInbox]
+    })
+  }
+
+  function applyLocalThreadUnsubscription(threadId: string) {
+    setThreadInbox((currentThreadInbox) =>
+      currentThreadInbox.filter((item) => item.threadId !== threadId),
+    )
+  }
+
   function applyLocalDirectMessage(
     chatId: number,
     text: string,
     options?: {
       attachment?: Message['attachment']
       createdAt?: string
+      deliveryId?: string
       forwarded?: boolean
       forwardedAuthorName?: string
       localId?: number
@@ -2432,6 +2918,7 @@ function App() {
               sourceGroup: options?.sourceGroup,
               text,
               createdAt,
+              deliveryId: options?.deliveryId,
               time,
             },
           ],
@@ -2459,9 +2946,11 @@ function App() {
     options?: {
       attachment?: Message['attachment']
       createdAt?: string
+      deliveryId?: string
       forwarded?: boolean
       forwardedAuthorName?: string
       localId?: number
+      replyTo?: Message['replyTo']
       sourceChannel?: Message['sourceChannel']
       time?: string
     },
@@ -2474,6 +2963,7 @@ function App() {
         group.id === groupId
           ? {
               ...group,
+              latestActivityAt: createdAt,
               preview:
                 text || (options?.attachment ? `Файл: ${options.attachment.fileName}` : group.preview),
               time,
@@ -2485,8 +2975,10 @@ function App() {
                   id: options?.localId ?? Date.now() + group.id,
                   author: 'me',
                   createdAt,
+                  deliveryId: options?.deliveryId,
                   forwarded: options?.forwarded,
                   forwardedAuthorName: options?.forwardedAuthorName,
+                  replyTo: options?.replyTo,
                   sourceChannel: options?.sourceChannel,
                   text,
                   threadComments: [],
@@ -2512,9 +3004,22 @@ function App() {
     )
   }
 
-  function applyLocalGroupThreadComment(groupId: number, messageId: number, text: string) {
-    const createdAt = new Date().toISOString()
-    const time = formatNowTime()
+  function applyLocalGroupThreadComment(
+    groupId: number,
+    messageId: number,
+    text: string,
+    replyTo?: Message['replyTo'],
+    options?: {
+      authorIdentifier?: string
+      createdAt?: string
+      deliveryId?: string
+      displayAuthor?: string
+      localId?: number
+      time?: string
+    },
+  ) {
+    const createdAt = options?.createdAt ?? new Date().toISOString()
+    const time = options?.time ?? formatNowTime()
 
     setGroups((currentGroups) =>
       currentGroups.map((group) =>
@@ -2531,10 +3036,12 @@ function App() {
                         ...(message.threadComments ?? []),
                         {
                           author: 'me',
-                          authorIdentifier: session?.identifier,
+                          authorIdentifier: options?.authorIdentifier ?? session?.identifier,
                           createdAt,
-                          displayAuthor: sessionName,
-                          id: (message.threadComments ?? []).length + 1,
+                          deliveryId: options?.deliveryId,
+                          displayAuthor: options?.displayAuthor ?? sessionName,
+                          id: options?.localId ?? (message.threadComments ?? []).length + 1,
+                          replyTo,
                           text,
                           time,
                         } satisfies ThreadComment,
@@ -2546,9 +3053,22 @@ function App() {
     )
   }
 
-  function applyLocalSubscriptionThreadComment(channelId: number, postId: number, text: string) {
-    const createdAt = new Date().toISOString()
-    const time = formatNowTime()
+  function applyLocalSubscriptionThreadComment(
+    channelId: number,
+    postId: number,
+    text: string,
+    replyTo?: Message['replyTo'],
+    options?: {
+      authorIdentifier?: string
+      createdAt?: string
+      deliveryId?: string
+      displayAuthor?: string
+      localId?: number
+      time?: string
+    },
+  ) {
+    const createdAt = options?.createdAt ?? new Date().toISOString()
+    const time = options?.time ?? formatNowTime()
 
     setSubscriptionChannels((currentChannels) =>
       currentChannels.map((channel) =>
@@ -2565,10 +3085,12 @@ function App() {
                         ...(post.threadComments ?? []),
                         {
                           author: 'me',
-                          authorIdentifier: session?.identifier,
+                          authorIdentifier: options?.authorIdentifier ?? session?.identifier,
                           createdAt,
-                          displayAuthor: sessionName,
-                          id: (post.threadComments ?? []).length + 1,
+                          deliveryId: options?.deliveryId,
+                          displayAuthor: options?.displayAuthor ?? sessionName,
+                          id: options?.localId ?? (post.threadComments ?? []).length + 1,
+                          replyTo,
                           text,
                           time,
                         } satisfies ThreadComment,
@@ -2626,6 +3148,13 @@ function App() {
     const nextPost = {
       createdAt,
       id: Date.now(),
+      replyTo: channelPostReplyTarget
+        ? {
+            author: channelPostReplyTarget.author,
+            id: channelPostReplyTarget.id,
+            text: channelPostReplyTarget.text,
+          }
+        : undefined,
       text,
       threadComments: [],
       time,
@@ -2644,6 +3173,7 @@ function App() {
               commentsEnabledForAll: managedChannel.commentsEnabledForAll ?? channel.commentsEnabledForAll,
               commentsEnabledForPremium:
                 managedChannel.commentsEnabledForPremium ?? channel.commentsEnabledForPremium,
+              latestActivityAt: createdAt,
               posts: [...channel.posts, nextPost],
               preview: text,
               time,
@@ -2667,12 +3197,76 @@ function App() {
               managedChannel.commentsEnabledForAll ?? currentChannel.commentsEnabledForAll,
             commentsEnabledForPremium:
               managedChannel.commentsEnabledForPremium ?? currentChannel.commentsEnabledForPremium,
+            latestActivityAt: createdAt,
             posts: [...currentChannel.posts, nextPost],
             preview: text,
             time,
             unread: 0,
           }
         : currentChannel
+    })
+  }
+
+  function applyLocalDeleteManagedChannelPost(channelId: number, postId: number) {
+    const managedChannel =
+      channels.find((channel) => channel.id === channelId) ??
+      (activeChannelId === channelId ? activeChannel : null) ??
+      ownedCurrentManagedChannel ??
+      null
+    const managedChannelHandle = sanitizeChannelDirectLink(managedChannel?.directLink ?? '')
+    const managedChannelDescription =
+      managedChannel?.description ?? previewSubscriptionChannel?.preview ?? 'Пока пусто'
+
+    setSubscriptionChannels((currentChannels) =>
+      currentChannels.map((channel) => {
+        const matchesManagedChannel =
+          channel.id === channelId ||
+          (managedChannelHandle !== '' &&
+            sanitizeChannelDirectLink(channel.handle) === managedChannelHandle)
+
+        if (!matchesManagedChannel) {
+          return channel
+        }
+
+        const nextPosts = channel.posts.filter((post) => post.id !== postId)
+        const latestPost = nextPosts.at(-1)
+
+        return {
+          ...channel,
+          latestActivityAt: latestPost?.createdAt,
+          posts: nextPosts,
+          preview: latestPost ? formatMessagePreview(latestPost) : managedChannelDescription,
+          time: latestPost?.time ?? '',
+          unread:
+            channel.id === channelId
+              ? channel.unread
+              : Math.max(0, channel.unread - (channel.posts.length === nextPosts.length ? 0 : 1)),
+        }
+      }),
+    )
+
+    setPreviewSubscriptionChannel((currentChannel) => {
+      if (!currentChannel) return currentChannel
+
+      const matchesManagedChannel =
+        currentChannel.id === channelId ||
+        (managedChannelHandle !== '' &&
+          sanitizeChannelDirectLink(currentChannel.handle) === managedChannelHandle)
+
+      if (!matchesManagedChannel) {
+        return currentChannel
+      }
+
+      const nextPosts = currentChannel.posts.filter((post) => post.id !== postId)
+      const latestPost = nextPosts.at(-1)
+
+      return {
+        ...currentChannel,
+        latestActivityAt: latestPost?.createdAt,
+        posts: nextPosts,
+        preview: latestPost ? formatMessagePreview(latestPost) : managedChannelDescription,
+        time: latestPost?.time ?? '',
+      }
     })
   }
 
@@ -2880,9 +3474,7 @@ function App() {
         sanitizeChannelDirectLink(currentSubscriptionChannel?.handle ?? '') === deletedHandle)
     ) {
       setActiveSubscriptionChannelId(null)
-      setActiveSubscriptionPostId(null)
-      setSubscriptionPostActionAnchor(null)
-      setForwardingSubscriptionPostText('')
+      resetSubscriptionPostActions()
     }
   }
 
@@ -3276,6 +3868,116 @@ function App() {
     }
   }
 
+  const syncActiveThreadRead = useCallback(async (
+    target: {
+      kind: 'group'
+      groupId: number
+      messageId: number
+      threadId: string
+    } | {
+      kind: 'channel'
+      channelId: number
+      postId: number
+      threadId: string
+    },
+  ) => {
+    applyLocalThreadRead(target.threadId)
+
+    if (!backendReady || !session?.sessionToken) {
+      return
+    }
+
+    try {
+      const response =
+        target.kind === 'group'
+          ? await markGroupThreadReadRequest(session.sessionToken, target.groupId, target.messageId)
+          : await markSubscriptionChannelThreadReadRequest(
+              session.sessionToken,
+              target.channelId,
+              target.postId,
+            )
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to mark thread as read', error)
+    }
+  }, [applySnapshot, backendReady, session?.sessionToken])
+
+  useEffect(() => {
+    if (!threadTarget || !activeThreadId) return
+
+    void syncActiveThreadRead(
+      threadTarget.kind === 'group'
+        ? {
+            groupId: threadTarget.groupId,
+            kind: 'group',
+            messageId: threadTarget.messageId,
+            threadId: activeThreadId,
+          }
+        : {
+            channelId: threadTarget.channelId,
+            kind: 'channel',
+            postId: threadTarget.postId,
+            threadId: activeThreadId,
+          },
+    )
+  }, [activeThreadId, syncActiveThreadRead, threadTarget])
+
+  async function toggleThreadSubscription(subscribe: boolean) {
+    if (!threadTarget || !activeThreadId) return
+
+    const fallbackTarget =
+      threadTarget.kind === 'group'
+        ? {
+            groupId: threadTarget.groupId,
+            kind: 'group' as const,
+            messageId: threadTarget.messageId,
+          }
+        : {
+            channelId: threadTarget.channelId,
+            kind: 'channel' as const,
+            postId: threadTarget.postId,
+          }
+
+    if (!backendReady || !session?.sessionToken) {
+      if (subscribe) {
+        applyLocalThreadSubscription(fallbackTarget)
+      } else {
+        applyLocalThreadUnsubscription(activeThreadId)
+      }
+      return
+    }
+
+    try {
+      const response =
+        threadTarget.kind === 'group'
+          ? subscribe
+            ? await subscribeToGroupThreadRequest(
+                session.sessionToken,
+                threadTarget.groupId,
+                threadTarget.messageId,
+              )
+            : await unsubscribeFromGroupThreadRequest(
+                session.sessionToken,
+                threadTarget.groupId,
+                threadTarget.messageId,
+              )
+          : subscribe
+            ? await subscribeToSubscriptionChannelThreadRequest(
+                session.sessionToken,
+                threadTarget.channelId,
+                threadTarget.postId,
+              )
+            : await unsubscribeFromSubscriptionChannelThreadRequest(
+                session.sessionToken,
+                threadTarget.channelId,
+                threadTarget.postId,
+              )
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to toggle thread subscription', error)
+    }
+  }
+
   async function sendMessage() {
     if (!activeChat) return
 
@@ -3285,6 +3987,7 @@ function App() {
     const replyTo = replyTarget
       ? {
           author: replyTarget.author,
+          id: replyTarget.id,
           text: replyTarget.text,
         }
       : undefined
@@ -3295,54 +3998,58 @@ function App() {
     playSendSound()
 
     const localId = getNextOptimisticMessageId()
+    const deliveryId = getClientDeliveryId()
     const createdAt = new Date().toISOString()
     const time = formatNowTime()
+    const pendingMessage: PendingDirectMessage = {
+      attachment,
+      attachmentDraft,
+      chatId,
+      createdAt,
+      deliveryId,
+      localId,
+      queuedAt: createdAt,
+      replyTo,
+      retryCount: 0,
+      status: backendReady && session?.sessionToken ? 'sending' : 'pending',
+      text,
+      time,
+    }
+
+    applyLocalDirectMessage(chatId, text, { attachment, createdAt, deliveryId, localId, replyTo, time })
+    queuePendingDirectMessage(pendingMessage)
+    clearChatComposer(chatId)
+    setReplyTarget(null)
 
     if (backendReady && session?.sessionToken) {
       try {
         const response = await sendDirectMessageRequest(session.sessionToken, chatId, {
           attachment,
+          clientDeliveryId: deliveryId,
           markAsRead: true,
           replyTo,
           text,
         })
+        removePendingDirectMessage(localId)
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent('direct_message_send_succeeded', {
+          hasAttachment: Boolean(attachment),
+          hasReply: Boolean(replyTo),
+        })
       } catch (error) {
         console.error('Failed to send direct message', error)
-        applyLocalDirectMessage(chatId, text, { attachment, createdAt, localId, replyTo, time })
-        queuePendingDirectMessage({
-          attachment,
-          attachmentDraft,
-          chatId,
-          createdAt,
-          localId,
-          queuedAt: createdAt,
-          replyTo,
-          retryCount: 0,
-          status: 'pending',
-          text,
-          time,
+        if (isExpiredSessionError(error)) {
+          logout()
+          setAuthError('Сессия устарела. Войдите снова.')
+          return
+        }
+        markPendingDirectMessageAttemptFailed(localId)
+        trackAnalyticsEvent('direct_message_send_failed', {
+          hasAttachment: Boolean(attachment),
+          hasReply: Boolean(replyTo),
         })
       }
-    } else {
-      applyLocalDirectMessage(chatId, text, { attachment, createdAt, localId, replyTo, time })
-      queuePendingDirectMessage({
-        attachment,
-        attachmentDraft,
-        chatId,
-        createdAt,
-        localId,
-        queuedAt: createdAt,
-        replyTo,
-        retryCount: 0,
-        status: 'pending',
-        text,
-        time,
-      })
     }
-
-    clearChatComposer(chatId)
-    setReplyTarget(null)
   }
 
   function updateChatDraft(chatId: number, value: string) {
@@ -3374,56 +4081,73 @@ function App() {
     const groupId = activeGroup.id
     const text = (groupMessageDrafts[groupId] ?? '').trim()
     const attachmentDraft = groupAttachmentDrafts[groupId]
+    const replyTo = replyTarget
+      ? {
+          author: replyTarget.author,
+          id: replyTarget.id,
+          text: replyTarget.text,
+        }
+      : undefined
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
     if (!text && !attachment) return
 
     playSendSound()
 
     const localId = getNextOptimisticMessageId()
+    const deliveryId = getClientDeliveryId()
     const createdAt = new Date().toISOString()
     const time = formatNowTime()
+    const pendingMessage: PendingGroupMessage = {
+      attachment,
+      attachmentDraft,
+      createdAt,
+      deliveryId,
+      groupId,
+      localId,
+      queuedAt: createdAt,
+      replyTo,
+      retryCount: 0,
+      status: backendReady && session?.sessionToken ? 'sending' : 'pending',
+      text,
+      time,
+    }
+
+    applyLocalGroupMessage(groupId, text, { attachment, createdAt, deliveryId, localId, replyTo, time })
+    queuePendingGroupMessage(pendingMessage)
+    clearGroupComposer(groupId)
+    setReplyTarget(null)
+    closeGroupMessageActions()
 
     if (backendReady && session?.sessionToken) {
       try {
         const response = await sendGroupMessageRequest(session.sessionToken, groupId, {
           attachment,
+          clientDeliveryId: deliveryId,
+          replyTo,
           text,
         })
+        removePendingGroupMessage(localId)
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent('group_message_send_succeeded', {
+          groupId,
+          hasAttachment: Boolean(attachment),
+          hasReply: Boolean(replyTo),
+        })
       } catch (error) {
         console.error('Failed to send group message', error)
-        applyLocalGroupMessage(groupId, text, { attachment, createdAt, localId, time })
-        queuePendingGroupMessage({
-          attachment,
-          attachmentDraft,
-          createdAt,
+        if (isExpiredSessionError(error)) {
+          logout()
+          setAuthError('Сессия устарела. Войдите снова.')
+          return
+        }
+        markPendingGroupMessageAttemptFailed(localId)
+        trackAnalyticsEvent('group_message_send_failed', {
           groupId,
-          localId,
-          queuedAt: createdAt,
-          retryCount: 0,
-          status: 'pending',
-          text,
-          time,
+          hasAttachment: Boolean(attachment),
+          hasReply: Boolean(replyTo),
         })
       }
-    } else {
-      applyLocalGroupMessage(groupId, text, { attachment, createdAt, localId, time })
-      queuePendingGroupMessage({
-        attachment,
-        attachmentDraft,
-        createdAt,
-        groupId,
-        localId,
-        queuedAt: createdAt,
-        retryCount: 0,
-        status: 'pending',
-        text,
-        time,
-      })
     }
-
-    clearGroupComposer(groupId)
-    closeGroupMessageActions()
   }
 
   async function sendManagedChannelPost() {
@@ -3431,13 +4155,20 @@ function App() {
 
     const text = (channelPostDrafts[currentSubscriptionChannel.id] ?? '').trim()
     if (!text) return
+    const replyTo = channelPostReplyTarget
+      ? {
+          author: channelPostReplyTarget.author,
+          id: channelPostReplyTarget.id,
+          text: channelPostReplyTarget.text,
+        }
+      : undefined
 
     playSendSound()
 
     setChannelPostBusy(true)
     setChannelPostError('')
 
-    const requestBody: SendManagedChannelPostBody = { text }
+    const requestBody: SendManagedChannelPostBody = { replyTo, text }
 
     if (backendReady && session?.sessionToken) {
       try {
@@ -3447,6 +4178,9 @@ function App() {
           requestBody,
         )
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent('channel_post_send_succeeded', {
+          channelId: ownedCurrentManagedChannel.id,
+        })
 
         if (previewSubscriptionChannel) {
           const matchedChannel = response.snapshot.subscriptionChannels.find(
@@ -3462,8 +4196,16 @@ function App() {
         }
       } catch (error) {
         console.error('Failed to send managed channel post', error)
+        if (isExpiredSessionError(error)) {
+          logout()
+          setAuthError('Сессия устарела. Войдите снова.')
+          return
+        }
         setChannelPostError(error instanceof Error ? error.message : 'Не удалось отправить сообщение.')
         setChannelPostBusy(false)
+        trackAnalyticsEvent('channel_post_send_failed', {
+          channelId: ownedCurrentManagedChannel.id,
+        })
         return
       }
     } else {
@@ -3474,6 +4216,7 @@ function App() {
       ...currentDrafts,
       [currentSubscriptionChannel.id]: '',
     }))
+    setChannelPostReplyTarget(null)
     setChannelPostBusy(false)
   }
 
@@ -3524,7 +4267,6 @@ function App() {
     setActiveChatId(null)
     setActiveSubscriptionChannelId(null)
     setPreviewSubscriptionChannel(null)
-    setActiveSubscriptionPostId(null)
     setChannelActionsAnchor(null)
     setChannelShareOpen(false)
     setChannelShareBusy(false)
@@ -3537,11 +4279,7 @@ function App() {
     setChannelPostError('')
     setConfirmingLeaveSubscriptionChannelId(null)
     setActiveGroupId(null)
-    setActiveGroupMessageId(null)
-    setGroupSettingsOpen(false)
-    setGroupManagementOpen(false)
-    setGroupTransferOwnerOpen(false)
-    setEditingGroupTitleValue('')
+    resetGroupSettingsState()
     setGroupParticipantsOpen(false)
     setGroupActionsAnchor(null)
     setGroupInviteOpen(false)
@@ -3549,7 +4287,7 @@ function App() {
     setGroupInviteError('')
     setGroupInviteLimitNoticeOpen(false)
     setGroupReportNoticeOpen(false)
-    setThreadsDisabledNotice(null)
+    setThreadsDisabledHintTarget(null)
     setConfirmingLeaveGroupId(null)
     setMessageActionMessageId(null)
     setForwardingMessageId(null)
@@ -3562,26 +4300,14 @@ function App() {
     setConfirmingDeleteHistoryChatId(null)
     setConfirmingDeleteContactChatId(null)
     setConfirmingDeleteMessageId(null)
-    setConfirmingDeleteGroupMessageId(null)
-    setForwardingSubscriptionPostText('')
-    setForwardingGroupMessageText('')
-    setThreadTarget(null)
-    setThreadDraft('')
-    setThreadBusy(false)
-    setThreadError('')
-    setThreadCommentActionId(null)
-    setThreadCommentActionAnchor(null)
-    setConfirmingDeleteThreadCommentId(null)
-    setForwardingThreadCommentText('')
-    setConfirmingBlacklistTarget(null)
-    setBlacklistHintTarget(null)
-    setThreadsDisabledNotice(null)
+    resetRoomMessageActions()
+    resetThreadState()
+    resetBlacklistFlow()
+    setThreadsDisabledHintTarget(null)
     setBlacklistManagerTarget(null)
     setBlacklistAddMode(false)
     setBlacklistSearchQuery('')
     setMessageActionAnchor(null)
-    setSubscriptionPostActionAnchor(null)
-    setGroupMessageActionAnchor(null)
   }
 
   const flushPendingMessages = useCallback(async () => {
@@ -3596,10 +4322,21 @@ function App() {
 
     pendingRetryInFlightRef.current = true
 
+    let attemptedDirectMessage: PendingDirectMessage | null = null
+    let attemptedGroupMessage: PendingGroupMessage | null = null
+
     try {
       const nextDirectMessage = pendingDirectMessages.find((message) => message.status === 'pending')
 
       if (nextDirectMessage) {
+        attemptedDirectMessage = nextDirectMessage
+        markPendingDirectMessageSending(nextDirectMessage.localId)
+        trackAnalyticsEvent('direct_message_retry_started', {
+          hasAttachment: Boolean(nextDirectMessage.attachment || nextDirectMessage.attachmentDraft),
+          hasReply: Boolean(nextDirectMessage.replyTo),
+          retryCount: nextDirectMessage.retryCount + 1,
+        })
+
         const resolvedAttachment = await resolvePendingAttachmentForSend(
           session.sessionToken,
           nextDirectMessage.attachmentDraft,
@@ -3618,6 +4355,7 @@ function App() {
 
         const response = await sendDirectMessageRequest(session.sessionToken, nextDirectMessage.chatId, {
           attachment: resolvedAttachment.attachment,
+          clientDeliveryId: nextDirectMessage.deliveryId,
           markAsRead: true,
           replyTo: nextDirectMessage.replyTo,
           text: nextDirectMessage.text,
@@ -3631,6 +4369,15 @@ function App() {
       const nextGroupMessage = pendingGroupMessages.find((message) => message.status === 'pending')
 
       if (!nextGroupMessage) return
+
+      attemptedGroupMessage = nextGroupMessage
+      markPendingGroupMessageSending(nextGroupMessage.localId)
+      trackAnalyticsEvent('group_message_retry_started', {
+        groupId: nextGroupMessage.groupId,
+        hasAttachment: Boolean(nextGroupMessage.attachment || nextGroupMessage.attachmentDraft),
+        hasReply: Boolean(nextGroupMessage.replyTo),
+        retryCount: nextGroupMessage.retryCount + 1,
+      })
 
       const resolvedAttachment = await resolvePendingAttachmentForSend(
         session.sessionToken,
@@ -3650,6 +4397,8 @@ function App() {
 
       const response = await sendGroupMessageRequest(session.sessionToken, nextGroupMessage.groupId, {
         attachment: resolvedAttachment.attachment,
+        clientDeliveryId: nextGroupMessage.deliveryId,
+        replyTo: nextGroupMessage.replyTo,
         text: nextGroupMessage.text,
       })
 
@@ -3657,15 +4406,27 @@ function App() {
       applySnapshot(response.snapshot)
     } catch (error) {
       console.error('Failed to retry pending outgoing message', error)
-      const nextDirectMessage = pendingDirectMessages.find((message) => message.status === 'pending')
-
-      if (nextDirectMessage) {
-        markPendingDirectMessageAttemptFailed(nextDirectMessage.localId)
+      if (isExpiredSessionError(error)) {
+        logout()
+        setAuthError('Сессия устарела. Войдите снова.')
+        return
+      }
+      if (attemptedDirectMessage) {
+        markPendingDirectMessageAttemptFailed(attemptedDirectMessage.localId)
+        trackAnalyticsEvent('direct_message_retry_failed', {
+          hasAttachment: Boolean(attemptedDirectMessage.attachment || attemptedDirectMessage.attachmentDraft),
+          hasReply: Boolean(attemptedDirectMessage.replyTo),
+          retryCount: attemptedDirectMessage.retryCount + 1,
+        })
       } else {
-        const nextGroupMessage = pendingGroupMessages.find((message) => message.status === 'pending')
-
-        if (nextGroupMessage) {
-          markPendingGroupMessageAttemptFailed(nextGroupMessage.localId)
+        if (attemptedGroupMessage) {
+          markPendingGroupMessageAttemptFailed(attemptedGroupMessage.localId)
+          trackAnalyticsEvent('group_message_retry_failed', {
+            groupId: attemptedGroupMessage.groupId,
+            hasAttachment: Boolean(attemptedGroupMessage.attachment || attemptedGroupMessage.attachmentDraft),
+            hasReply: Boolean(attemptedGroupMessage.replyTo),
+            retryCount: attemptedGroupMessage.retryCount + 1,
+          })
         }
       }
     } finally {
@@ -3676,9 +4437,14 @@ function App() {
     backendReady,
     hasPendingOutgoingMessages,
     markPendingDirectMessageAttemptFailed,
+    markPendingDirectMessageSending,
     markPendingGroupMessageAttemptFailed,
+    markPendingGroupMessageSending,
     pendingDirectMessages,
     pendingGroupMessages,
+    logout,
+    removePendingDirectMessage,
+    removePendingGroupMessage,
     session?.sessionToken,
     updatePendingDirectMessage,
     updatePendingGroupMessage,
@@ -3693,7 +4459,7 @@ function App() {
 
     tryFlushPendingMessages()
 
-    const retryIntervalId = window.setInterval(tryFlushPendingMessages, 4000)
+    const retryIntervalId = window.setInterval(tryFlushPendingMessages, PENDING_MESSAGE_RETRY_INTERVAL_MS)
     window.addEventListener('online', tryFlushPendingMessages)
 
     return () => {
@@ -3701,6 +4467,58 @@ function App() {
       window.removeEventListener('online', tryFlushPendingMessages)
     }
   }, [backendReady, flushPendingMessages, hasPendingOutgoingMessages, session?.sessionToken])
+
+  function openThreadInboxItem(item: ThreadInboxItem) {
+    setStageView('main')
+    setRetainedAllChatId(null)
+    setRetainedFavoriteChatId(null)
+    setRetainedGroupId(null)
+    setRetainedSubscriptionChannelId(null)
+    setActiveChatId(null)
+    setSearchOpen(false)
+    setTopListView('threads')
+    resetRoomMessageActions()
+    setMessageActionAnchor(null)
+    setPreviewSubscriptionChannel(null)
+    setChannelPostReplyTarget(null)
+
+    if (item.kind === 'group') {
+      setActiveSubscriptionChannelId(null)
+      resetSubscriptionPostActions()
+      setActiveGroupId(item.groupId)
+      setGroupInviteOpen(false)
+      setGroupInviteBusy(false)
+      setGroupInviteError('')
+      setGroupInviteLimitNoticeOpen(false)
+      setGroupReportNoticeOpen(false)
+      setConfirmingLeaveGroupId(null)
+      setGroupActionsAnchor(null)
+      window.requestAnimationFrame(() => {
+        openThread({ groupId: item.groupId, kind: 'group', messageId: item.messageId })
+      })
+      void syncGroupRead(item.groupId)
+      return
+    }
+
+    setActiveGroupId(null)
+    resetGroupMessageActions()
+    setChannelActionsAnchor(null)
+    setChannelShareOpen(false)
+    setChannelShareBusy(false)
+    setChannelShareError('')
+    setChannelReportOpen(false)
+    setChannelReportBusy(false)
+    setChannelReportError('')
+    setChannelReportSuccessOpen(false)
+    setConfirmingLeaveSubscriptionChannelId(null)
+    setActiveSubscriptionChannelId(item.channelId)
+    setChannelPostReplyTarget(null)
+    resetSubscriptionPostActions()
+    window.requestAnimationFrame(() => {
+      openThread({ channelId: item.channelId, kind: 'channel', postId: item.postId })
+    })
+    void syncSubscriptionChannelRead(item.channelId)
+  }
 
   function openSubscriptionChannel(channelId: number) {
     const shouldRetainSubscriptionChannelInList =
@@ -3717,13 +4535,12 @@ function App() {
     setRetainedGroupId(null)
     setActiveChatId(null)
     setActiveGroupId(null)
-    setActiveGroupMessageId(null)
-    setForwardingGroupMessageText('')
-    setGroupMessageActionAnchor(null)
+    resetGroupMessageActions()
     setRetainedSubscriptionChannelId(shouldRetainSubscriptionChannelInList ? channelId : null)
     setPreviewSubscriptionChannel(null)
     setActiveSubscriptionChannelId(channelId)
-    setActiveSubscriptionPostId(null)
+    setChannelPostReplyTarget(null)
+    resetSubscriptionPostActions()
     setChannelActionsAnchor(null)
     setChannelShareOpen(false)
     setChannelShareBusy(false)
@@ -3733,11 +4550,43 @@ function App() {
     setChannelReportError('')
     setChannelReportSuccessOpen(false)
     setConfirmingLeaveSubscriptionChannelId(null)
-    setForwardingSubscriptionPostText('')
-    setSubscriptionPostActionAnchor(null)
     setTopListView('channels')
     setSearchOpen(false)
     void syncSubscriptionChannelRead(channelId)
+  }
+
+  function openSubscriptionChannelCard(channel: SubscriptionChannel) {
+    const existingChannel = subscriptionChannels.find((candidate) => candidate.id === channel.id)
+    if (existingChannel) {
+      openSubscriptionChannel(existingChannel.id)
+      return
+    }
+
+    const matchingManagedChannel = channels.find(
+      (managedChannel) =>
+        sanitizeChannelDirectLink(managedChannel.directLink) ===
+        sanitizeChannelDirectLink(channel.handle),
+    )
+
+    if (matchingManagedChannel) {
+      setStageView('main')
+      setRetainedAllChatId(null)
+      setRetainedFavoriteChatId(null)
+      setRetainedGroupId(null)
+      setRetainedSubscriptionChannelId(null)
+      setActiveChatId(null)
+      setActiveGroupId(null)
+      resetGroupMessageActions()
+      setPreviewSubscriptionChannel(buildPreviewSubscriptionChannelFromManagedChannel(matchingManagedChannel))
+      setActiveSubscriptionChannelId(null)
+      setChannelPostReplyTarget(null)
+      resetSubscriptionPostActions()
+      setTopListView('channels')
+      setSearchOpen(false)
+      return
+    }
+
+    openSubscriptionChannel(channel.id)
   }
 
   function buildPreviewSubscriptionChannel(
@@ -3749,6 +4598,7 @@ function App() {
       draft: sourceChannel.draft,
       handle: sourceChannel.handle ?? '@channel_preview',
       id: sourceChannel.id ?? getSyntheticChannelId(sourceChannel.title),
+      latestActivityAt: previewPost?.createdAt,
       posts: previewPost ? [previewPost] : [],
       preview: previewPost?.text ?? '',
       readers: 0,
@@ -3799,16 +4649,13 @@ function App() {
         setRetainedSubscriptionChannelId(null)
         setActiveChatId(null)
         setActiveGroupId(null)
-        setActiveGroupMessageId(null)
         setMessageActionMessageId(null)
         setForwardingMessageId(null)
-        setForwardingGroupMessageText('')
-        setGroupMessageActionAnchor(null)
+        resetGroupMessageActions()
         setPreviewSubscriptionChannel(buildPreviewSubscriptionChannelFromManagedChannel(managedChannel))
         setActiveSubscriptionChannelId(null)
-        setActiveSubscriptionPostId(null)
-        setForwardingSubscriptionPostText('')
-        setSubscriptionPostActionAnchor(null)
+        setChannelPostReplyTarget(null)
+        resetSubscriptionPostActions()
         setTopListView('channels')
         setSearchOpen(false)
         return
@@ -3822,16 +4669,13 @@ function App() {
     setRetainedSubscriptionChannelId(null)
     setActiveChatId(null)
     setActiveGroupId(null)
-    setActiveGroupMessageId(null)
     setMessageActionMessageId(null)
     setForwardingMessageId(null)
-    setForwardingGroupMessageText('')
-    setGroupMessageActionAnchor(null)
+    resetGroupMessageActions()
     setPreviewSubscriptionChannel(buildPreviewSubscriptionChannel(sourceChannel, previewPost))
     setActiveSubscriptionChannelId(null)
-    setActiveSubscriptionPostId(null)
-    setForwardingSubscriptionPostText('')
-    setSubscriptionPostActionAnchor(null)
+    setChannelPostReplyTarget(null)
+    resetSubscriptionPostActions()
     setTopListView('channels')
     setSearchOpen(false)
   }
@@ -3881,23 +4725,19 @@ function App() {
     setActiveChatId(null)
     setPreviewSubscriptionChannel(null)
     setActiveSubscriptionChannelId(null)
-    setActiveSubscriptionPostId(null)
-    setForwardingSubscriptionPostText('')
-    setSubscriptionPostActionAnchor(null)
+    resetSubscriptionPostActions()
     setTopListView('groups')
     setSearchOpen(false)
     setRetainedGroupId(shouldRetainGroupInList ? groupId : null)
     setActiveGroupId(groupId)
-    setActiveGroupMessageId(null)
     setGroupInviteOpen(false)
     setGroupInviteBusy(false)
     setGroupInviteError('')
     setGroupInviteLimitNoticeOpen(false)
     setGroupReportNoticeOpen(false)
     setConfirmingLeaveGroupId(null)
-    setForwardingGroupMessageText('')
+    resetGroupMessageActions()
     setGroupActionsAnchor(null)
-    setGroupMessageActionAnchor(null)
     void syncGroupRead(groupId)
   }
 
@@ -3950,23 +4790,6 @@ function App() {
     closeGroupActions()
     setGroupInviteError('')
     setGroupInviteOpen(true)
-  }
-
-  function openGroupSettingsDialog() {
-    if (!activeGroup) return
-
-    setEditingGroupTitleValue(activeGroup.title)
-    setGroupSettingsOpen(true)
-    setGroupManagementOpen(false)
-    setGroupTransferOwnerOpen(false)
-    closeGroupActions()
-  }
-
-  function closeGroupSettingsDialog() {
-    setGroupSettingsOpen(false)
-    setGroupManagementOpen(false)
-    setGroupTransferOwnerOpen(false)
-    setEditingGroupTitleValue('')
   }
 
   async function inviteChatToActiveGroup(chatId: number) {
@@ -4084,18 +4907,42 @@ function App() {
     setBlacklistSearchQuery('')
   }
 
-  async function applyGroupSettingsPatch(groupId: number, patch: UpdateGroupBody) {
+  async function applyGroupSettingsPatch(
+    groupId: number,
+    patch: UpdateGroupBody,
+    options?: { strict?: boolean },
+  ) {
+    const optimisticGroupPatch: Partial<GroupPreview> = {
+      ...(patch.commentsEnabledForAll !== undefined
+        ? { commentsEnabledForAll: patch.commentsEnabledForAll }
+        : {}),
+      ...(patch.commentsEnabledForPremium !== undefined
+        ? { commentsEnabledForPremium: patch.commentsEnabledForPremium }
+        : {}),
+      ...(patch.commentBlacklistIdentifiers !== undefined
+        ? { commentBlacklistIdentifiers: patch.commentBlacklistIdentifiers }
+        : {}),
+    }
+
+    if (!options?.strict && Object.keys(optimisticGroupPatch).length > 0) {
+      applyLocalGroupPatch(groupId, optimisticGroupPatch)
+    }
+
     if (backendReady && session?.sessionToken) {
       try {
         const response = await updateGroupRequest(session.sessionToken, groupId, patch)
         applySnapshot(response.snapshot)
-        return
+        return true
       } catch (error) {
         console.error('Failed to update group settings', error)
+        if (options?.strict) {
+          throw error
+        }
       }
     }
 
     applyLocalGroupPatch(groupId, patch)
+    return true
   }
 
   async function applySubscriptionChannelPatch(
@@ -4164,41 +5011,108 @@ function App() {
 
   function openGroupThread(messageId: number) {
     if (!activeGroup) return
-    setThreadTarget({ groupId: activeGroup.id, kind: 'group', messageId })
-    setThreadDraft('')
-    setThreadError('')
-    setThreadBusy(false)
-    setActiveGroupMessageId(null)
-    setGroupMessageActionAnchor(null)
+    openThread({ groupId: activeGroup.id, kind: 'group', messageId })
+    resetGroupMessageActions()
   }
 
   function openChannelThread(postId: number) {
     if (!currentSubscriptionChannel) return
-    setThreadTarget({ channelId: currentSubscriptionChannel.id, kind: 'channel', postId })
-    setThreadDraft('')
-    setThreadError('')
-    setThreadBusy(false)
-    setActiveSubscriptionPostId(null)
-    setSubscriptionPostActionAnchor(null)
+    openThread({ channelId: currentSubscriptionChannel.id, kind: 'channel', postId })
+    resetSubscriptionPostActions()
   }
 
-  function closeThreadView() {
-    setThreadTarget(null)
-    setThreadDraft('')
-    setThreadBusy(false)
-    setThreadError('')
-    setThreadCommentActionId(null)
-    setThreadCommentActionAnchor(null)
-    setConfirmingBlacklistTarget(null)
-    setBlacklistHintTarget(null)
-  }
+  const closeThreadView = useCallback(() => {
+    closeThreadFlowView()
+    resetBlacklistFlow()
+  }, [closeThreadFlowView, resetBlacklistFlow])
 
   async function submitThreadComment() {
     const text = threadDraft.trim()
     if (!text || !threadTarget) return
+    const replyTo = threadReplyTarget
+      ? {
+          author: threadReplyTarget.author,
+          id: threadReplyTarget.id,
+          text: threadReplyTarget.text,
+        }
+      : undefined
 
     playSendSound()
 
+    const localId = getNextOptimisticMessageId()
+    const deliveryId = getClientDeliveryId()
+    const createdAt = new Date().toISOString()
+    const time = formatNowTime()
+
+    const pendingGroupThreadComment =
+      threadTarget.kind === 'group'
+        ? ({
+            authorIdentifier: session?.identifier,
+            createdAt,
+            deliveryId,
+            displayAuthor: sessionName,
+            groupId: threadTarget.groupId,
+            localId,
+            messageId: threadTarget.messageId,
+            replyTo,
+            text,
+            time,
+          } satisfies PendingGroupThreadComment)
+        : null
+
+    const pendingChannelThreadComment =
+      threadTarget.kind === 'channel'
+        ? ({
+            authorIdentifier: session?.identifier,
+            channelId: threadTarget.channelId,
+            createdAt,
+            deliveryId,
+            displayAuthor: sessionName,
+            localId,
+            postId: threadTarget.postId,
+            replyTo,
+            text,
+            time,
+          } satisfies PendingChannelThreadComment)
+        : null
+
+    if (threadTarget.kind === 'group') {
+      applyLocalGroupThreadComment(threadTarget.groupId, threadTarget.messageId, text, replyTo, {
+        authorIdentifier: session?.identifier,
+        createdAt,
+        deliveryId,
+        displayAuthor: sessionName,
+        localId,
+        time,
+      })
+      applyLocalThreadSubscription({
+        groupId: threadTarget.groupId,
+        kind: 'group',
+        messageId: threadTarget.messageId,
+      })
+      if (backendReady && session?.sessionToken && pendingGroupThreadComment) {
+        queuePendingGroupThreadComment(pendingGroupThreadComment)
+      }
+    } else {
+      applyLocalSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, text, replyTo, {
+        authorIdentifier: session?.identifier,
+        createdAt,
+        deliveryId,
+        displayAuthor: sessionName,
+        localId,
+        time,
+      })
+      applyLocalThreadSubscription({
+        channelId: threadTarget.channelId,
+        kind: 'channel',
+        postId: threadTarget.postId,
+      })
+      if (backendReady && session?.sessionToken && pendingChannelThreadComment) {
+        queuePendingChannelThreadComment(pendingChannelThreadComment)
+      }
+    }
+
+    resetThreadComposer()
     setThreadBusy(true)
     setThreadError('')
 
@@ -4209,11 +5123,13 @@ function App() {
             session.sessionToken,
             threadTarget.groupId,
             threadTarget.messageId,
-            { text },
+            { clientDeliveryId: deliveryId, replyTo, text },
           )
+          removePendingGroupThreadComment(localId)
           applySnapshot(response.snapshot)
-        } else {
-          applyLocalGroupThreadComment(threadTarget.groupId, threadTarget.messageId, text)
+          trackAnalyticsEvent('thread_comment_send_succeeded', {
+            roomKind: 'group',
+          })
         }
       } else {
         if (backendReady && session?.sessionToken) {
@@ -4221,20 +5137,36 @@ function App() {
             session.sessionToken,
             threadTarget.channelId,
             threadTarget.postId,
-            { text },
+            { clientDeliveryId: deliveryId, replyTo, text },
           )
+          removePendingChannelThreadComment(localId)
           applySnapshot(response.snapshot)
-        } else {
-          applyLocalSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, text)
+          trackAnalyticsEvent('thread_comment_send_succeeded', {
+            roomKind: 'channel',
+          })
         }
       }
 
-      setThreadDraft('')
       setThreadBusy(false)
     } catch (error) {
       console.error('Failed to send thread comment', error)
+      if (isExpiredSessionError(error)) {
+        logout()
+        setAuthError('Сессия устарела. Войдите снова.')
+        return
+      }
+      if (threadTarget.kind === 'group') {
+        removePendingGroupThreadComment(localId)
+        applyLocalDeleteGroupThreadComment(threadTarget.groupId, threadTarget.messageId, localId)
+      } else {
+        removePendingChannelThreadComment(localId)
+        applyLocalDeleteSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, localId)
+      }
       setThreadBusy(false)
       setThreadError(error instanceof Error ? error.message : 'Не удалось отправить комментарий.')
+      trackAnalyticsEvent('thread_comment_send_failed', {
+        roomKind: threadTarget.kind,
+      })
     }
   }
 
@@ -4268,18 +5200,23 @@ function App() {
     }
   }
 
-  function openBlacklistConfirmation(target: BlacklistConfirmationTarget) {
-    setConfirmingBlacklistTarget(target)
-  }
-
-  function closeBlacklistConfirmation() {
-    setConfirmingBlacklistTarget(null)
-  }
-
   function confirmBlacklistTarget() {
-    if (!confirmingBlacklistTarget) return
-    addMessageAuthorToCurrentRoomBlacklist(confirmingBlacklistTarget.identifier, confirmingBlacklistTarget.roomKind)
-    setConfirmingBlacklistTarget(null)
+    const target = confirmBlacklistTargetFlow()
+    if (!target) return
+
+    addMessageAuthorToCurrentRoomBlacklist(target.identifier, target.roomKind)
+    trackAnalyticsEvent('blacklist_add_confirmed', {
+      roomKind: target.roomKind,
+    })
+  }
+
+  async function handleSaveGroupSettings() {
+    const saved = await saveGroupSettings()
+    if (!saved || !activeGroup) return
+
+    trackAnalyticsEvent('group_settings_saved', {
+      groupId: activeGroup.id,
+    })
   }
 
   function openChat(chatId: number) {
@@ -4317,14 +5254,9 @@ function App() {
     setRetainedGroupId(null)
     setPreviewSubscriptionChannel(null)
     setActiveSubscriptionChannelId(null)
-    setActiveSubscriptionPostId(null)
     setActiveGroupId(null)
-    setActiveGroupMessageId(null)
-    setForwardingSubscriptionPostText('')
-    setForwardingGroupMessageText('')
+    resetRoomMessageActions()
     setMessageActionAnchor(null)
-    setSubscriptionPostActionAnchor(null)
-    setGroupMessageActionAnchor(null)
     setBottomSection('chats')
     setActiveChatId(chatId)
     void syncDialogRead(chatId)
@@ -4820,6 +5752,11 @@ function App() {
     setMessageActionMessageId(null)
   }
 
+  function replyToThreadComment(comment: ThreadComment) {
+    beginThreadReply(comment)
+    clearBlacklistHint()
+  }
+
   async function pinMessage(chatId: number, messageId: number) {
     if (backendReady && session?.sessionToken) {
       try {
@@ -4988,9 +5925,8 @@ function App() {
   }
 
   function closeThreadCommentActions() {
-    setThreadCommentActionId(null)
-    setThreadCommentActionAnchor(null)
-    setBlacklistHintTarget(null)
+    closeThreadFlowCommentActions()
+    clearBlacklistHint()
   }
 
   async function deleteGroupMessage(groupId: number, messageId: number) {
@@ -5006,10 +5942,27 @@ function App() {
       applyLocalDeleteGroupMessage(groupId, messageId)
     }
 
-    setActiveGroupMessageId(null)
-    setForwardingGroupMessageText('')
-    setConfirmingDeleteGroupMessageId(null)
-    setGroupMessageActionAnchor(null)
+    resetGroupMessageActions()
+  }
+
+  async function deleteManagedChannelPost(channelId: number, postId: number) {
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await deleteManagedChannelPostRequest(session.sessionToken, channelId, postId)
+        applySnapshot(response.snapshot)
+      } catch (error) {
+        console.error('Failed to delete managed channel post', error)
+        applyLocalDeleteManagedChannelPost(channelId, postId)
+      }
+    } else {
+      applyLocalDeleteManagedChannelPost(channelId, postId)
+    }
+
+    if (channelPostReplyTarget?.id === postId) {
+      setChannelPostReplyTarget(null)
+    }
+
+    resetSubscriptionPostActions()
   }
 
   async function deleteMessage(chatId: number, messageId: number) {
@@ -5074,8 +6027,8 @@ function App() {
       }
     }
 
-    setConfirmingDeleteThreadCommentId(null)
-    setForwardingThreadCommentText('')
+    clearThreadDeleteConfirmation()
+    clearThreadForwarding()
     closeThreadCommentActions()
   }
 
@@ -5093,6 +6046,12 @@ function App() {
     setCreatingChannelBlacklistIdentifiers([])
   }
 
+  function resetChannelInviteState() {
+    setChannelInviteChatIds([])
+    setChannelInviteBusy(false)
+    setChannelInviteError('')
+  }
+
   function openChannelsView(nextView: ChannelsView = 'list') {
     setChannelManagementOpenId(null)
     setRetainedAllChatId(null)
@@ -5104,12 +6063,9 @@ function App() {
     setTopListView('none')
     setActiveSubscriptionChannelId(null)
     setPreviewSubscriptionChannel(null)
-    setActiveSubscriptionPostId(null)
     setActiveGroupId(null)
-    setActiveGroupMessageId(null)
     setGroupParticipantsOpen(false)
-    setForwardingSubscriptionPostText('')
-    setForwardingGroupMessageText('')
+    resetRoomMessageActions()
     setConfirmingLogout(false)
     setPremiumGiftChatId(null)
     setChatActionsOpen(false)
@@ -5120,18 +6076,19 @@ function App() {
     setConfirmingDeleteHistoryChatId(null)
     setConfirmingDeleteContactChatId(null)
     setConfirmingDeleteMessageId(null)
-    setConfirmingDeleteGroupMessageId(null)
     setConfirmingDeleteChannelId(null)
     setTransferringChannelId(null)
     setChannelTransferTargetChatId(null)
     setChannelTransferCode('')
     setChannelTransferError('')
     setMessageActionAnchor(null)
-    setSubscriptionPostActionAnchor(null)
-    setGroupMessageActionAnchor(null)
+    if (nextView !== 'invite') {
+      resetChannelInviteState()
+    }
   }
 
   function openChannelsListView() {
+    setActiveChannelId(null)
     openChannelsView('list')
   }
 
@@ -5721,8 +6678,10 @@ function App() {
         } satisfies CreateManagedChannelBody)
         applySnapshot(response.snapshot)
         setCreatingChannelAvatarDraft(null)
+        resetChannelInviteState()
         setActiveChannelId(response.channelId)
-        openChannelsView('detail')
+        setChannelManagementOpenId(null)
+        openChannelsView('invite')
         return
       } catch (error) {
         if (
@@ -5768,9 +6727,57 @@ function App() {
     }
 
     setChannels((currentChannels) => [...currentChannels, nextChannel])
+    setSubscriptionChannels((currentChannels) => [
+      buildPreviewSubscriptionChannelFromManagedChannel(nextChannel),
+      ...currentChannels,
+    ])
     setCreatingChannelAvatarDraft(null)
+    resetChannelInviteState()
     setActiveChannelId(nextId)
-    openChannelsView('detail')
+    setChannelManagementOpenId(null)
+    openChannelsView('invite')
+  }
+
+  function toggleManagedChannelInviteChat(chatId: number) {
+    setChannelInviteChatIds((currentChatIds) =>
+      currentChatIds.includes(chatId)
+        ? currentChatIds.filter((currentId) => currentId !== chatId)
+        : [...currentChatIds, chatId],
+    )
+    setChannelInviteError('')
+  }
+
+  async function inviteMembersToActiveManagedChannel() {
+    if (!activeChannel) return
+    if (!canInviteToManagedChannel) return
+
+    const selectedDialogIds = selectedChannelInviteChats.map((chat) => chat.id)
+    setChannelInviteBusy(true)
+    setChannelInviteError('')
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await inviteManagedChannelMembersRequest(session.sessionToken, activeChannel.id, {
+          dialogIds: selectedDialogIds,
+        })
+        applySnapshot(response.snapshot)
+        resetChannelInviteState()
+        setActiveChannelId(null)
+        openChannelsView('list')
+        return
+      } catch (error) {
+        console.error('Failed to invite members to channel', error)
+        setChannelInviteError(
+          error instanceof Error ? error.message : 'Не удалось пригласить контакты в канал.',
+        )
+        setChannelInviteBusy(false)
+        return
+      }
+    }
+
+    resetChannelInviteState()
+    setActiveChannelId(null)
+    openChannelsView('list')
   }
 
   function closeChannelTransfer() {
@@ -5782,17 +6789,14 @@ function App() {
   }
 
   function closeSubscriptionPostActions() {
-    setActiveSubscriptionPostId(null)
-    setForwardingSubscriptionPostText('')
-    setSubscriptionPostActionAnchor(null)
+    closeRoomSubscriptionPostActions()
+    setThreadsDisabledHintTarget(null)
   }
 
   function closeGroupMessageActions() {
-    setActiveGroupMessageId(null)
-    setForwardingGroupMessageText('')
-    setConfirmingDeleteGroupMessageId(null)
-    setGroupMessageActionAnchor(null)
-    setBlacklistHintTarget(null)
+    closeRoomGroupMessageActions()
+    clearBlacklistHint()
+    setThreadsDisabledHintTarget(null)
   }
 
   async function deleteChannel(channelId: number) {
@@ -5975,6 +6979,22 @@ function App() {
             className="message-menu"
             style={subscriptionPostMenuStyle}
           >
+            {isCurrentSubscriptionChannelOwner ? (
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => {
+                  setChannelPostReplyTarget({
+                    author: 'me',
+                    id: activeSubscriptionPost.id,
+                    text: formatMessagePreview(activeSubscriptionPost),
+                  })
+                  closeSubscriptionPostActions()
+                }}
+              >
+                Ответить
+              </button>
+            ) : null}
             <button
               type="button"
               className={`message-menu-item${
@@ -5983,8 +7003,7 @@ function App() {
               aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
               onClick={() => {
                 if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
-                  setThreadsDisabledNotice('channel')
-                  closeSubscriptionPostActions()
+                  setThreadsDisabledHintTarget('channel-post')
                   return
                 }
 
@@ -5993,6 +7012,22 @@ function App() {
             >
               Прокомментировать
             </button>
+            {threadsDisabledHintTarget === 'channel-post' ? (
+              <p className="settings-text message-menu-note">
+                {getThreadsDisabledNoticeText('channel')}
+              </p>
+            ) : null}
+            {isCurrentSubscriptionChannelOwner ? (
+              <button
+                type="button"
+                className="message-menu-item danger"
+                onClick={() => {
+                  requestSubscriptionPostDelete(activeSubscriptionPost.id)
+                }}
+              >
+                Удалить
+              </button>
+            ) : null}
           </div>
         ) : null
       ) : forwardingSubscriptionPostText ? (
@@ -6073,7 +7108,7 @@ function App() {
           <button
             type="button"
             className="room-confirm-button"
-            onClick={() => setForwardingSubscriptionPostText('')}
+            onClick={clearSubscriptionPostForwarding}
           >
             Назад
           </button>
@@ -6084,10 +7119,26 @@ function App() {
           className="message-menu"
           style={subscriptionPostMenuStyle}
         >
+          {isCurrentSubscriptionChannelOwner ? (
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => {
+                setChannelPostReplyTarget({
+                  author: 'me',
+                  id: activeSubscriptionPost.id,
+                  text: formatMessagePreview(activeSubscriptionPost),
+                })
+                closeSubscriptionPostActions()
+              }}
+            >
+              Ответить
+            </button>
+          ) : null}
           <button
             type="button"
             className="message-menu-item"
-            onClick={() => setForwardingSubscriptionPostText(formatMessagePreview(activeSubscriptionPost))}
+            onClick={() => startSubscriptionPostForwarding(formatMessagePreview(activeSubscriptionPost))}
           >
             Переслать
           </button>
@@ -6102,21 +7153,38 @@ function App() {
             Скопировать
           </button>
           {currentSubscriptionChannel ? (
+            <>
+              <button
+                type="button"
+                className={`message-menu-item${hasRoomThreadsEnabled(currentSubscriptionChannel) ? '' : ' disabled'}`}
+                aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
+                onClick={() => {
+                  if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
+                    setThreadsDisabledHintTarget('channel-post')
+                    return
+                  }
+
+                  openChannelThread(activeSubscriptionPost.id)
+                }}
+              >
+                Прокомментировать
+              </button>
+              {threadsDisabledHintTarget === 'channel-post' ? (
+                <p className="settings-text message-menu-note">
+                  {getThreadsDisabledNoticeText('channel')}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+          {isCurrentSubscriptionChannelOwner ? (
             <button
               type="button"
-              className={`message-menu-item${hasRoomThreadsEnabled(currentSubscriptionChannel) ? '' : ' disabled'}`}
-              aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
+              className="message-menu-item danger"
               onClick={() => {
-                if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
-                  setThreadsDisabledNotice('channel')
-                  closeSubscriptionPostActions()
-                  return
-                }
-
-                openChannelThread(activeSubscriptionPost.id)
+                requestSubscriptionPostDelete(activeSubscriptionPost.id)
               }}
             >
-              Прокомментировать
+              Удалить
             </button>
           ) : null}
         </div>
@@ -6135,36 +7203,98 @@ function App() {
             aria-label="Назад"
             title="Назад"
           >
-            <span className="room-mobile-back-icon" aria-hidden="true">
-              &larr;
-            </span>
+            <img src="/icons/back.png" alt="" aria-hidden="true" className="room-mobile-back-icon" />
           </button>
           <div className="room-id">
             <div>
               <div className="room-title">
                 <div className="room-title-name">
-                  <h3>{`Тред: ${activeThreadSourceLabel}`}</h3>
+                  <h3>{`Комментарии: ${activeThreadSourceLabel}`}</h3>
+                  <span className="chat-star room-thread-entity-icon" aria-hidden="true">
+                    <img
+                      src={
+                        threadTarget.kind === 'group'
+                          ? '/icons/group100.png'
+                          : '/icons/news100.svg'
+                      }
+                      alt=""
+                    />
+                  </span>
                 </div>
               </div>
-              <p>Комментарии к выбранному сообщению</p>
             </div>
           </div>
+          {activeThreadId ? (
+            <button
+              type="button"
+              className="soft-button room-thread-subscribe"
+              onClick={() => {
+                void toggleThreadSubscription(!activeThreadSubscribed)
+              }}
+            >
+              <img src="/icons/root-50.png" alt="" aria-hidden="true" className="room-thread-subscribe-icon" />
+              {activeThreadSubscribed ? 'Отписаться' : 'Подписаться'}
+            </button>
+          ) : null}
         </header>
 
         <div className="room-thread-source" ref={threadSourceRef}>
           {threadTarget.kind === 'group' && threadGroupMessage ? (
-            <article className={`bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}`}>
-              <BubbleMessageContent
-                linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
-                message={threadGroupMessage}
-              />
-              <time>{threadGroupMessage.time}</time>
-            </article>
+            <AttachedReplyBubble
+              mine={threadGroupMessage.author === 'me'}
+              replyTo={threadGroupMessage.replyTo}
+              bubble={
+                <article
+                  className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}`}
+                >
+                  <BubbleMessageContent
+                    linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
+                    message={{
+                      ...threadGroupMessage,
+                      text: threadSourceText,
+                    }}
+                    showReplyInline={false}
+                  />
+                  <time>{threadSourceTime}</time>
+                </article>
+              }
+            />
           ) : threadTarget.kind === 'channel' && threadChannelPost ? (
-            <article className="bubble channel-post">
-              <BubbleMessageContent message={threadChannelPost} />
-              <time>{threadChannelPost.time}</time>
-            </article>
+            <AttachedReplyBubble
+              className="channel"
+              onReplyClick={(() => {
+                const replyReference = threadChannelPost.replyTo
+                const replyReferenceId = replyReference?.id
+
+                return replyReference &&
+                  typeof replyReferenceId === 'number' &&
+                  Number.isInteger(replyReferenceId) &&
+                  replyReferenceId > 0
+                  ? () => {
+                      setDeferredRoomScrollTarget({
+                        id: replyReferenceId,
+                        kind: 'channel-post',
+                      })
+                      closeThreadView()
+                    }
+                  : undefined
+              })()}
+              replyTo={threadChannelPost.replyTo}
+              bubble={
+                <article
+                  className={`bubble channel-post room-thread-source-bubble${threadChannelPost.replyTo ? ' has-attached-reply' : ''}`}
+                >
+                  <BubbleMessageContent
+                    message={{
+                      ...threadChannelPost,
+                      text: threadSourceText,
+                    }}
+                    showReplyInline={false}
+                  />
+                  <time>{threadSourceTime}</time>
+                </article>
+              }
+            />
           ) : null}
         </div>
 
@@ -6173,49 +7303,69 @@ function App() {
             activeThreadComments.map((comment) => {
               const participant = resolveThreadCommentParticipant(comment)
               const mine = comment.author === 'me'
+              const replyReference = comment.replyTo
 
               return (
-                <button
+                <AttachedReplyBubble
                   key={`thread-comment-${comment.id}`}
-                  type="button"
-                  className={`bubble bubble-button${mine ? ' mine' : ''}`}
-                  onClick={(event) => {
-                    setThreadCommentActionId(comment.id)
-                    scheduleActionAnchor(
-                      event.currentTarget,
-                      mine ? 'end' : 'start',
-                      setThreadCommentActionAnchor,
-                    )
-                  }}
-                >
-                  {mine ? (
-                    <span className="bubble-meta">Вы</span>
-                  ) : participant ? (
-                    <div className="bubble-sender">
-                      <span className="bubble-sender-avatar-stack">
-                        <span
-                          className="avatar bubble-sender-avatar"
-                          style={{ backgroundColor: participant.accent }}
-                        >
-                          {participant.title.slice(0, 1)}
-                        </span>
-                        {participant.online ? (
-                          <span className="bubble-sender-presence-dot" aria-label="В сети" />
-                        ) : null}
-                      </span>
-                      <span className="bubble-sender-name">{participant.title}</span>
-                      {participant.premium ? (
-                        <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
-                          <img src="/icons/crown64.png" alt="" />
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
-                  )}
-                  <span>{comment.text}</span>
-                  <time>{comment.time}</time>
-                </button>
+                  mine={mine}
+                  onReplyClick={
+                    replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
+                      ? () => scrollToThreadComment(replyReference.id)
+                      : undefined
+                  }
+                  replyTo={replyReference}
+                  bubble={
+                    <button
+                      type="button"
+                      data-thread-comment-id={comment.id}
+                      className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}`}
+                      onClick={(event) => {
+                        scheduleActionAnchor(
+                          event.currentTarget,
+                          mine ? 'end' : 'start',
+                          (anchor) => openThreadFlowCommentActions(comment.id, anchor),
+                        )
+                      }}
+                    >
+                      {mine ? (
+                        <span className="bubble-meta">Вы</span>
+                      ) : participant ? (
+                        <div className="bubble-sender">
+                          <span className="bubble-sender-avatar-stack">
+                            <span
+                              className="avatar bubble-sender-avatar"
+                              style={{ backgroundColor: participant.accent }}
+                            >
+                              {participant.title.slice(0, 1)}
+                            </span>
+                            {participant.online ? (
+                              <span className="bubble-sender-presence-dot" aria-label="В сети" />
+                            ) : null}
+                          </span>
+                          <span className="bubble-sender-name">{participant.title}</span>
+                          {participant.premium ? (
+                            <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+                              <img src="/icons/crown64.png" alt="" />
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
+                      )}
+                      <BubbleMessageContent
+                        message={{
+                          attachment: undefined,
+                          replyTo: comment.replyTo,
+                          sourceGroup: undefined,
+                          text: comment.text,
+                        }}
+                        showReplyInline={false}
+                      />
+                      <time>{comment.time}</time>
+                    </button>
+                  }
+                />
               )
             })
           ) : null}
@@ -6237,9 +7387,27 @@ function App() {
               <p className="room-thread-empty-copy">Будьте первым, кто оставит комментарий</p>
             ) : null}
             <div className="composer-input">
+              {threadReplyTarget ? (
+                <div className="composer-reply">
+                  <div>
+                    <span className="settings-label">Ответ</span>
+                    <p>{threadReplyTarget.text}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="soft-button composer-reply-cancel"
+                    onClick={clearThreadReplyTarget}
+                    aria-label="Отменить ответ"
+                    title="Отменить ответ"
+                  >
+                    <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
+                  </button>
+                </div>
+              ) : null}
               <div className="composer-entry">
                 <div className="composer-field">
                   <textarea
+                    ref={threadComposerInputRef}
                     rows={1}
                     placeholder="Напишите комментарий..."
                     value={threadDraft}
@@ -6270,7 +7438,7 @@ function App() {
             aria-label="Закрыть действия с комментарием"
             onClick={() => {
               closeThreadCommentActions()
-              setForwardingThreadCommentText('')
+              clearThreadForwarding()
             }}
           />
           {threadCommentActionAnchor && !forwardingThreadCommentText ? (
@@ -6299,7 +7467,7 @@ function App() {
                             ? sessionName
                             : activeThreadCommentParticipant?.title ?? activeThreadComment.displayAuthor,
                       })
-                      setForwardingThreadCommentText('')
+                      clearThreadForwarding()
                       closeThreadCommentActions()
                     }}
                   >
@@ -6313,7 +7481,7 @@ function App() {
               <button
                 type="button"
                 className="room-confirm-button"
-                onClick={() => setForwardingThreadCommentText('')}
+                onClick={clearThreadForwarding}
               >
                 Назад
               </button>
@@ -6324,6 +7492,13 @@ function App() {
               className="message-menu"
               style={threadCommentMenuStyle}
             >
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => replyToThreadComment(activeThreadComment)}
+              >
+                Ответить
+              </button>
               <button
                 type="button"
                 className="message-menu-item"
@@ -6346,8 +7521,7 @@ function App() {
                   type="button"
                   className="message-menu-item danger"
                   onClick={() => {
-                    setConfirmingDeleteThreadCommentId(activeThreadComment.id)
-                    closeThreadCommentActions()
+                    requestThreadCommentDeleteFlow(activeThreadComment.id)
                   }}
                 >
                   Удалить
@@ -6360,7 +7534,7 @@ function App() {
                     aria-disabled={activeThreadCommentAlreadyBlacklisted}
                     onClick={() => {
                       if (activeThreadCommentAlreadyBlacklisted) {
-                        setBlacklistHintTarget('thread-comment')
+                        showBlacklistHint('thread-comment')
                         return
                       }
                       if (!activeThreadCommentParticipant?.identifier) return
@@ -6390,7 +7564,7 @@ function App() {
             type="button"
             className="room-confirm-scrim"
             aria-label="Закрыть подтверждение удаления комментария"
-            onClick={() => setConfirmingDeleteThreadCommentId(null)}
+            onClick={clearThreadDeleteConfirmation}
           />
           <div className="room-confirm room-confirm-compact">
             <p className="room-confirm-copy">Удалить свой комментарий?</p>
@@ -6407,7 +7581,7 @@ function App() {
               <button
                 type="button"
                 className="room-confirm-button"
-                onClick={() => setConfirmingDeleteThreadCommentId(null)}
+                onClick={clearThreadDeleteConfirmation}
               >
                 Отмена
               </button>
@@ -6451,7 +7625,7 @@ function App() {
               onClick={() => {
                 void toggleSubscriptionChannelMuted(
                   actionableSubscriptionChannel.id,
-                  !Boolean(actionableSubscriptionChannel.muted),
+                  !actionableSubscriptionChannel.muted,
                 )
               }}
             >
@@ -6699,7 +7873,7 @@ function App() {
           <button
             type="button"
             className="room-confirm-button"
-            onClick={() => setForwardingGroupMessageText('')}
+            onClick={clearGroupMessageForwarding}
           >
             Назад
           </button>
@@ -6732,7 +7906,17 @@ function App() {
               <button
                 type="button"
                 className="message-menu-item"
-                onClick={() => setForwardingGroupMessageText(formatMessagePreview(activeGroupMessage))}
+                onClick={() => {
+                  replyToMessage(activeGroupMessage)
+                  closeGroupMessageActions()
+                }}
+              >
+                Ответить
+              </button>
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => startGroupMessageForwarding(formatMessagePreview(activeGroupMessage))}
               >
                 Переслать
               </button>
@@ -6747,22 +7931,28 @@ function App() {
                 Скопировать
               </button>
               {activeGroup ? (
-                <button
-                  type="button"
-                  className={`message-menu-item${hasRoomThreadsEnabled(activeGroup) ? '' : ' disabled'}`}
-                  aria-disabled={!hasRoomThreadsEnabled(activeGroup)}
-                  onClick={() => {
-                    if (!hasRoomThreadsEnabled(activeGroup)) {
-                      setThreadsDisabledNotice('group')
-                      closeGroupMessageActions()
-                      return
-                    }
+                <>
+                  <button
+                    type="button"
+                    className={`message-menu-item${hasRoomThreadsEnabled(activeGroup) ? '' : ' disabled'}`}
+                    aria-disabled={!hasRoomThreadsEnabled(activeGroup)}
+                    onClick={() => {
+                      if (!hasRoomThreadsEnabled(activeGroup)) {
+                        setThreadsDisabledHintTarget('group-message')
+                        return
+                      }
 
-                    openGroupThread(activeGroupMessage.id)
-                  }}
-                >
-                  Прокомментировать
-                </button>
+                      openGroupThread(activeGroupMessage.id)
+                    }}
+                  >
+                    Прокомментировать
+                  </button>
+                  {threadsDisabledHintTarget === 'group-message' ? (
+                    <p className="settings-text message-menu-note">
+                      {getThreadsDisabledNoticeText('group')}
+                    </p>
+                  ) : null}
+                </>
               ) : null}
               {isActiveGroupCreator &&
               activeGroupMessage.author !== 'me' &&
@@ -6774,7 +7964,7 @@ function App() {
                     aria-disabled={activeGroupMessageAlreadyBlacklisted}
                     onClick={() => {
                       if (activeGroupMessageAlreadyBlacklisted) {
-                        setBlacklistHintTarget('group-message')
+                        showBlacklistHint('group-message')
                         return
                       }
                       if (!activeGroupMessageParticipant?.identifier) return
@@ -6784,8 +7974,7 @@ function App() {
                         roomKind: 'group',
                         title: activeGroupMessageParticipant.title,
                       })
-                      setActiveGroupMessageId(null)
-                      setGroupMessageActionAnchor(null)
+                      resetGroupMessageActions()
                     }}
                   >
                     В чёрный список
@@ -6799,11 +7988,7 @@ function App() {
                 <button
                   type="button"
                   className="message-menu-item danger"
-                  onClick={() => {
-                    setConfirmingDeleteGroupMessageId(activeGroupMessage.id)
-                    setActiveGroupMessageId(null)
-                    setGroupMessageActionAnchor(null)
-                  }}
+                  onClick={() => requestGroupMessageDelete(activeGroupMessage.id)}
                 >
                   Удалить
                 </button>
@@ -6853,7 +8038,7 @@ function App() {
               type="button"
               className="message-menu-item"
               onClick={() => {
-                void toggleGroupMuted(activeGroup.id, !Boolean(activeGroup.muted))
+                void toggleGroupMuted(activeGroup.id, !activeGroup.muted)
               }}
             >
               {activeGroup.muted ? 'Включить уведомления' : 'Заглушить'}
@@ -7070,7 +8255,7 @@ function App() {
           type="button"
           className="room-confirm-scrim"
           aria-label="Закрыть подтверждение удаления сообщения группы"
-          onClick={() => setConfirmingDeleteGroupMessageId(null)}
+          onClick={clearGroupMessageDeleteConfirmation}
         />
         <div className="room-confirm room-confirm-compact">
           <p className="room-confirm-copy">Удалить своё сообщение в группе?</p>
@@ -7087,7 +8272,7 @@ function App() {
             <button
               type="button"
               className="room-confirm-button"
-              onClick={() => setConfirmingDeleteGroupMessageId(null)}
+              onClick={clearGroupMessageDeleteConfirmation}
             >
               Отмена
             </button>
@@ -7159,9 +8344,7 @@ function App() {
                   setTopListView('none')
                   setActiveSubscriptionChannelId(null)
                   setActiveGroupId(null)
-                  setActiveGroupMessageId(null)
-                  setForwardingGroupMessageText('')
-                  setGroupMessageActionAnchor(null)
+                  resetGroupMessageActions()
                   return
                 }
 
@@ -7174,9 +8357,7 @@ function App() {
                 setTopListView('none')
                 setActiveSubscriptionChannelId(null)
                 setActiveGroupId(null)
-                setActiveGroupMessageId(null)
-                setForwardingGroupMessageText('')
-                setGroupMessageActionAnchor(null)
+                resetGroupMessageActions()
               }}
             >
               {filter === '★' ? (
@@ -7213,11 +8394,8 @@ function App() {
               setTopListView('channels')
               setActiveChatId(null)
               setActiveSubscriptionChannelId(null)
-              setActiveSubscriptionPostId(null)
               setActiveGroupId(null)
-              setActiveGroupMessageId(null)
-              setForwardingGroupMessageText('')
-              setGroupMessageActionAnchor(null)
+              resetRoomMessageActions()
               setSearchOpen(false)
               setQuery('')
             }}
@@ -7246,11 +8424,8 @@ function App() {
               setTopListView('groups')
               setActiveChatId(null)
               setActiveSubscriptionChannelId(null)
-              setActiveSubscriptionPostId(null)
               setActiveGroupId(null)
-              setActiveGroupMessageId(null)
-              setForwardingGroupMessageText('')
-              setGroupMessageActionAnchor(null)
+              resetRoomMessageActions()
               setSearchOpen(false)
               setQuery('')
             }}
@@ -7261,6 +8436,37 @@ function App() {
             {!quietMode && totalGroupNotifications > 0 ? (
               <span className={totalGroupNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'}>
                 {formatUnreadBadgeCount(totalGroupNotifications)}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className={isThreadsTopListOpen ? 'filter active filter-icon-only' : 'filter filter-icon-only'}
+            onClick={() => {
+              setRetainedAllChatId(null)
+              setRetainedFavoriteChatId(null)
+              setRetainedSubscriptionChannelId(null)
+              setRetainedGroupId(null)
+              setTopListView('threads')
+              setActiveChatId(null)
+              setActiveSubscriptionChannelId(null)
+              setActiveGroupId(null)
+              resetRoomMessageActions()
+              resetThreadState()
+              setSearchOpen(false)
+              setQuery('')
+            }}
+            aria-label="Треды"
+            title="Треды"
+          >
+            <img className="filter-icon" src="/icons/root-50.png" alt="" />
+            {!quietMode && totalThreadNotifications > 0 ? (
+              <span
+                className={
+                  totalThreadNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'
+                }
+              >
+                {formatUnreadBadgeCount(totalThreadNotifications)}
               </span>
             ) : null}
           </button>
@@ -7375,11 +8581,15 @@ function App() {
                 className={[
                   'chat-card',
                   'chat-card-compact',
-                  channel.id === activeSubscriptionChannelId ? 'active' : '',
+                  channel.id === activeSubscriptionChannelId ||
+                  sanitizeChannelDirectLink(channel.handle) ===
+                    sanitizeChannelDirectLink(currentSubscriptionChannel?.handle ?? '')
+                    ? 'active'
+                    : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
-                onClick={() => openSubscriptionChannel(channel.id)}
+                onClick={() => openSubscriptionChannelCard(channel)}
               >
                 <span className="avatar" style={{ backgroundColor: channel.accent }}>
                   {channel.title.slice(0, 1)}
@@ -7493,6 +8703,79 @@ function App() {
               })()
             ))}
           </div>
+        ) : isThreadsTopListOpen ? (
+          <div className="chat-list">
+            {orderedThreadInbox.length > 0 ? (
+              orderedThreadInbox.map((item) => (
+                <button
+                  key={item.threadId}
+                  type="button"
+                  className={[
+                    'chat-card',
+                    'chat-card-compact',
+                    activeThreadId === item.threadId ? 'active' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => openThreadInboxItem(item)}
+                >
+                  <span
+                    className="avatar"
+                    style={{
+                      backgroundColor: item.kind === 'group' ? item.groupAccent : item.channelAccent,
+                    }}
+                  >
+                    {item.kind === 'group' ? item.groupTitle.slice(0, 1) : item.channelTitle.slice(0, 1)}
+                  </span>
+                  <span className="chat-copy">
+                    <span className="chat-topline">
+                      <span className="chat-name-row">
+                        <strong className="chat-name-text">
+                          {item.kind === 'group' ? item.groupTitle : item.channelTitle}
+                        </strong>
+                        <span className="chat-star">
+                          <img
+                            src={item.kind === 'group' ? '/icons/group100.png' : '/icons/news100.svg'}
+                            alt=""
+                          />
+                        </span>
+                      </span>
+                      {!quietMode && item.unreadCount > 0 ? (
+                        <span
+                          className={
+                            item.unreadCount > 9
+                              ? 'chat-topline-badge chat-topline-badge-wide'
+                              : 'chat-topline-badge'
+                          }
+                        >
+                          {formatUnreadBadgeCount(item.unreadCount)}
+                        </span>
+                      ) : (
+                        <span className="chat-topline-meta">{item.latestCommentTime}</span>
+                      )}
+                    </span>
+                    <span className="chat-handle">
+                      {item.commentCount > 0
+                        ? `${item.commentCount} комментариев`
+                        : 'Подписка на тред'}
+                    </span>
+                    <span className="chat-preview thread-inbox-preview">
+                      {item.sourceText || item.latestCommentText}
+                    </span>
+                  </span>
+                </button>
+              ))
+            ) : (
+              <article className="chat-card search-card">
+                <span className="chat-copy">
+                  <strong>Тредов пока нет</strong>
+                  <span className="chat-handle">
+                    Ответьте в любом треде или подпишитесь на него, чтобы он появился здесь.
+                  </span>
+                </span>
+              </article>
+            )}
+          </div>
         ) : (
           <div className="chat-list">
             {orderedVisibleChats.map((chat) => (
@@ -7583,9 +8866,7 @@ function App() {
               setRetainedGroupId(null)
               setActiveFilter('Все')
               setActiveGroupId(null)
-              setActiveGroupMessageId(null)
-              setForwardingGroupMessageText('')
-              setGroupMessageActionAnchor(null)
+              resetGroupMessageActions()
             }}
             aria-label="Чаты"
           >
@@ -7610,9 +8891,7 @@ function App() {
               setRetainedGroupId(null)
               setActiveFilter('Все')
               setActiveGroupId(null)
-              setActiveGroupMessageId(null)
-              setForwardingGroupMessageText('')
-              setGroupMessageActionAnchor(null)
+              resetGroupMessageActions()
             }}
             aria-label="Контакты"
           >
@@ -7634,9 +8913,7 @@ function App() {
               setRetainedGroupId(null)
               setActiveFilter('Поиск')
               setActiveGroupId(null)
-              setActiveGroupMessageId(null)
-              setForwardingGroupMessageText('')
-              setGroupMessageActionAnchor(null)
+              resetGroupMessageActions()
             }}
             aria-label="Поиск"
           >
@@ -7664,9 +8941,7 @@ function App() {
                 setConfirmingLogout(false)
                 setPremiumGiftChatId(null)
                 setActiveGroupId(null)
-                setActiveGroupMessageId(null)
-                setForwardingGroupMessageText('')
-                setGroupMessageActionAnchor(null)
+                resetGroupMessageActions()
               }}
               aria-label="Премиум"
             >
@@ -7685,9 +8960,7 @@ function App() {
               setSettingsView('profile')
               setConfirmingLogout(false)
               setActiveGroupId(null)
-              setActiveGroupMessageId(null)
-              setForwardingGroupMessageText('')
-              setGroupMessageActionAnchor(null)
+              resetGroupMessageActions()
             }}
             aria-label="Настройки"
           >
@@ -8074,8 +9347,8 @@ function App() {
                 )}
                 <p className="settings-copy">
                   {premiumGiftChat
-                    ? 'В Тайничке нет рекламы, поэтому, совершая покупку, вы помогаете обслуживать серверы.'
-                    : 'В Тайничке нет рекламы, поэтому, совершая покупку, вы помогаете обслуживать серверы.'}
+                    ? 'В Тайничке нет рекламы, поэтому, совершая покупку, вы помогаете обслуживать прожорливые серверы.'
+                    : 'В Тайничке нет рекламы, поэтому, совершая покупку, вы помогаете обслуживать прожорливые серверы.'}
                 </p>
                 {!premiumGiftChat && sessionHasPremium && premiumDaysLeft !== null ? (
                   <p className="premium-gift-contact">
@@ -8357,6 +9630,122 @@ function App() {
           </section>
         ) : null}
 
+        {isChannelInviteView ? (
+          <section className="channels-view">
+            <div ref={channelsPanelRef} className="settings-panel channels-detail-panel">
+              {activeChannel ? (
+                <>
+                  <div className="channels-screen-header">
+                    <p className="eyebrow">Каналы</p>
+                    <h2>{`Пригласить в канал "${activeChannel.title}"`}</h2>
+                    <p className="settings-copy">
+                      Выберите контакты, которым сразу открыть доступ к этому каналу.
+                    </p>
+                  </div>
+
+                  <div className="channels-fields">
+                    <article className="settings-item">
+                      <span className="settings-label">Контакты</span>
+                      <div className="group-create-members-list">
+                        {inviteableManagedChannelChats.length > 0 ? (
+                          inviteableManagedChannelChats.map((chat) => {
+                            const isSelected = channelInviteChatIds.includes(chat.id)
+
+                            return (
+                              <button
+                                key={`channel-invite-${chat.id}`}
+                                type="button"
+                                className={`room-forward-item group-create-member-item${isSelected ? ' active' : ''}`}
+                                onClick={() => toggleManagedChannelInviteChat(chat.id)}
+                                disabled={channelInviteBusy}
+                              >
+                                <span className="chat-avatar-stack">
+                                  <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                                    {chat.title.slice(0, 1)}
+                                  </span>
+                                  {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
+                                </span>
+                                <span className="group-create-member-copy">
+                                  <strong className="group-create-member-name-row">
+                                    <span>{chat.title}</span>
+                                    {chat.premium ? (
+                                      <span className="premium-crown chat-crown" aria-label="Премиум">
+                                        <img src="/icons/crown64.png" alt="" />
+                                      </span>
+                                    ) : null}
+                                    {chat.pinned ? (
+                                      <span className="chat-star" aria-label="Избранный контакт">
+                                        <img src="/icons/star100.png" alt="" />
+                                      </span>
+                                    ) : null}
+                                  </strong>
+                                  <span>{chat.handle || chat.phone}</span>
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  className="group-create-member-checkbox"
+                                  checked={isSelected}
+                                  readOnly
+                                  tabIndex={-1}
+                                />
+                              </button>
+                            )
+                          })
+                        ) : (
+                          <article className="settings-item room-transfer-empty">
+                            <p className="settings-text">
+                              Сейчас нет доступных контактов для приглашения в этот канал.
+                            </p>
+                          </article>
+                        )}
+                      </div>
+                    </article>
+                  </div>
+
+                  {channelInviteError ? <p className="auth-error">{channelInviteError}</p> : null}
+
+                  <div className="settings-actions channels-create-actions">
+                    <button
+                      type="button"
+                      className="soft-button"
+                      onClick={openChannelsListView}
+                      disabled={channelInviteBusy}
+                    >
+                      Отмена
+                    </button>
+                    <button
+                      type="button"
+                      className={`send-button channels-create-submit${canInviteToManagedChannel ? '' : ' disabled'}`}
+                      aria-disabled={!canInviteToManagedChannel}
+                      onClick={() => {
+                        if (channelInviteBusy || !canInviteToManagedChannel) return
+                        void inviteMembersToActiveManagedChannel()
+                      }}
+                    >
+                      {channelInviteBusy ? 'Приглашаем...' : 'Пригласить'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="channels-screen-header">
+                    <p className="eyebrow">Каналы</p>
+                    <h2>Канал не найден</h2>
+                    <p className="settings-copy">
+                      Не удалось подготовить экран приглашения. Вернитесь к списку каналов.
+                    </p>
+                  </div>
+                  <div className="settings-actions channels-create-actions">
+                    <button type="button" className="soft-button" onClick={openChannelsListView}>
+                      Назад
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+        ) : null}
+
         {isChannelDetailView ? (
           <section className="channels-view">
             <div ref={channelsPanelRef} className="settings-panel channels-detail-panel">
@@ -8626,9 +10015,7 @@ function App() {
               actionableSubscriptionChannel
                 ? (event) => {
                     scheduleActionAnchor(event.currentTarget, 'end', setChannelActionsAnchor)
-                    setActiveSubscriptionPostId(null)
-                    setForwardingSubscriptionPostText('')
-                    setSubscriptionPostActionAnchor(null)
+                    resetSubscriptionPostActions()
                     setChannelShareOpen(false)
                     setChannelShareError('')
                     setChannelReportOpen(false)
@@ -8638,10 +10025,11 @@ function App() {
                 : undefined
             }
             onPostSelect={(event, postId) => {
-              setActiveSubscriptionPostId(postId)
-              scheduleActionAnchor(event.currentTarget, 'start', setSubscriptionPostActionAnchor)
-              setForwardingSubscriptionPostText('')
+              scheduleActionAnchor(event.currentTarget, 'start', (anchor) =>
+                openSubscriptionPostActions(postId, anchor),
+              )
             }}
+            onReplyReferenceJump={scrollToChannelPost}
             publisher={
               ownedCurrentManagedChannel
                 ? {
@@ -8649,6 +10037,8 @@ function App() {
                     error: channelPostError,
                     isBusy: channelPostBusy,
                     onDraftChange: (value) => updateChannelPostDraft(currentSubscriptionChannel!.id, value),
+                    onReplyCancel: () => setChannelPostReplyTarget(null),
+                    replyTarget: channelPostReplyTarget,
                     onSubmit: () => {
                       void sendManagedChannelPost()
                     },
@@ -8684,9 +10074,7 @@ function App() {
             onAttachmentChange={handleGroupAttachmentChange}
             onOpenGroupActions={(event) => {
               scheduleActionAnchor(event.currentTarget, 'end', setGroupActionsAnchor)
-              setActiveGroupMessageId(null)
-              setForwardingGroupMessageText('')
-              setGroupMessageActionAnchor(null)
+              resetGroupMessageActions()
               setGroupInviteOpen(false)
               setGroupInviteError('')
               setGroupInviteLimitNoticeOpen(false)
@@ -8701,19 +10089,20 @@ function App() {
             composerDisabledNotice={activeGroupWriteBlockReason}
             onDraftChange={(value) => updateGroupDraft(activeGroup.id, value)}
             onMessageSelect={(event, message) => {
-              setActiveGroupMessageId(message.id)
               scheduleActionAnchor(
                 event.currentTarget,
                 message.author === 'me' ? 'end' : 'start',
-                setGroupMessageActionAnchor,
+                (anchor) => openGroupMessageActions(message.id, anchor),
               )
-              setForwardingGroupMessageText('')
             }}
             onOpenLinkedChannel={openSourceChannel}
             onOpenParticipants={() => setGroupParticipantsOpen(true)}
+            onReplyCancel={() => setReplyTarget(null)}
+            onReplyReferenceJump={scrollToGroupMessage}
             onOpenSourceChannel={openSourceChannelFromMessage}
             onOpenAttachmentPicker={openGroupAttachmentPicker}
             onOpenThread={openGroupThread}
+            replyTarget={replyTarget}
             resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
             onSubmit={sendGroupMessage}
           />
@@ -8760,6 +10149,7 @@ function App() {
                 setChatActionsOpen(false)
               }}
               onReplyCancel={() => setReplyTarget(null)}
+              onReplyReferenceJump={scrollToDirectMessage}
               onRequestReportContact={() => {
                 setReportingChatId(activeChat.id)
                 setReportContactBusy(false)
@@ -8767,7 +10157,7 @@ function App() {
                 setChatActionsOpen(false)
               }}
               onToggleChatMuted={() => {
-                void toggleChatMuted(activeChat.id, !Boolean(activeChat.muted))
+                void toggleChatMuted(activeChat.id, !activeChat.muted)
               }}
               onRequestDeleteContact={() => {
                 setConfirmingDeleteContactChatId(activeChat.id)
@@ -9134,6 +10524,38 @@ function App() {
                   type="button"
                   className="room-confirm-button"
                   onClick={() => setConfirmingDeleteChannelId(null)}
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {confirmingDeleteSubscriptionPostId !== null && ownedCurrentManagedChannel ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть подтверждение удаления поста канала"
+              onClick={clearSubscriptionPostDeleteConfirmation}
+            />
+            <div className="room-confirm room-confirm-compact">
+              <p className="room-confirm-copy">Удалить этот пост в канале?</p>
+              <div className="room-confirm-actions room-confirm-actions-dual">
+                <button
+                  type="button"
+                  className="room-confirm-button room-confirm-danger"
+                  onClick={() => {
+                    void deleteManagedChannelPost(ownedCurrentManagedChannel.id, confirmingDeleteSubscriptionPostId)
+                  }}
+                >
+                  Удалить
+                </button>
+                <button
+                  type="button"
+                  className="room-confirm-button"
+                  onClick={clearSubscriptionPostDeleteConfirmation}
                 >
                   Отмена
                 </button>
@@ -9895,7 +11317,7 @@ function App() {
             type="button"
             className="room-confirm-scrim"
             aria-label="Закрыть настройки группы"
-            onClick={closeGroupSettingsDialog}
+            onClick={() => requestGroupSettingsLeave('close')}
           />
           <div className="room-confirm room-group-create">
             <p className="room-confirm-copy">Настройки группы</p>
@@ -9906,9 +11328,11 @@ function App() {
                   type="text"
                   className="settings-input"
                   maxLength={groupTitleMaxLength}
-                  value={editingGroupTitleValue}
+                  value={groupSettingsDraft?.title ?? ''}
                   onChange={(event) =>
-                    setEditingGroupTitleValue(event.target.value.slice(0, groupTitleMaxLength))
+                    updateGroupSettingsDraft({
+                      title: event.target.value.slice(0, groupTitleMaxLength),
+                    })
                   }
                 />
               </article>
@@ -9918,13 +11342,16 @@ function App() {
                   <input
                     type="radio"
                     name={`group-comments-${activeGroup.id}`}
-                    checked={!activeGroup.commentsEnabledForAll && !activeGroup.commentsEnabledForPremium}
-                    onChange={() => {
-                      void applyGroupSettingsPatch(activeGroup.id, {
+                    checked={
+                      !groupSettingsDraft?.commentsEnabledForAll &&
+                      !groupSettingsDraft?.commentsEnabledForPremium
+                    }
+                    onChange={() =>
+                      updateGroupSettingsDraft({
                         commentsEnabledForAll: false,
                         commentsEnabledForPremium: false,
                       })
-                    }}
+                    }
                   />
                   <span>Комментарии выключены</span>
                 </label>
@@ -9932,13 +11359,13 @@ function App() {
                   <input
                     type="radio"
                     name={`group-comments-${activeGroup.id}`}
-                    checked={Boolean(activeGroup.commentsEnabledForAll)}
-                    onChange={() => {
-                      void applyGroupSettingsPatch(activeGroup.id, {
+                    checked={Boolean(groupSettingsDraft?.commentsEnabledForAll)}
+                    onChange={() =>
+                      updateGroupSettingsDraft({
                         commentsEnabledForAll: true,
                         commentsEnabledForPremium: false,
                       })
-                    }}
+                    }
                   />
                   <span>Включить комментарии для всех юзеров</span>
                 </label>
@@ -9946,13 +11373,13 @@ function App() {
                   <input
                     type="radio"
                     name={`group-comments-${activeGroup.id}`}
-                    checked={Boolean(activeGroup.commentsEnabledForPremium)}
-                    onChange={() => {
-                      void applyGroupSettingsPatch(activeGroup.id, {
+                    checked={Boolean(groupSettingsDraft?.commentsEnabledForPremium)}
+                    onChange={() =>
+                      updateGroupSettingsDraft({
                         commentsEnabledForAll: false,
                         commentsEnabledForPremium: true,
                       })
-                    }}
+                    }
                   />
                   <span>Включить комментарии только для премиум юзеров</span>
                 </label>
@@ -9967,31 +11394,69 @@ function App() {
                 </button>
               </article>
             </div>
+            {groupSettingsError ? <p className="auth-error">{groupSettingsError}</p> : null}
+            {groupSettingsDirty ? (
+              <div className="room-confirm-actions room-confirm-actions-single">
+                <button
+                  type="button"
+                  className="room-confirm-button room-confirm-button-primary"
+                  disabled={groupSettingsBusy}
+                  onClick={() => {
+                    void handleSaveGroupSettings()
+                  }}
+                >
+                  Сохранить
+                </button>
+              </div>
+            ) : null}
             <div className="room-confirm-actions room-confirm-actions-dual">
               {isActiveGroupCreator ? (
                 <button
                   type="button"
                   className="room-confirm-button"
-                  onClick={() => {
-                    setGroupManagementOpen(true)
-                    setGroupTransferOwnerOpen(false)
-                  }}
+                  onClick={() => requestGroupSettingsLeave('management')}
                 >
                   Управление группой
                 </button>
               ) : null}
-              <button type="button" className="room-confirm-button" onClick={closeGroupSettingsDialog}>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => requestGroupSettingsLeave('close')}
+              >
                 Закрыть
               </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+      {confirmGroupSettingsLeaveOpen ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть подтверждение сохранения настроек группы"
+            onClick={dismissGroupSettingsLeaveConfirm}
+          />
+          <div className="room-confirm room-confirm-compact">
+            <p className="room-confirm-copy">Изменённые настройки группы не сохранены. Сохранить их?</p>
+            <div className="room-confirm-actions room-confirm-actions-dual">
               <button
                 type="button"
                 className="room-confirm-button room-confirm-button-primary"
+                disabled={groupSettingsBusy}
                 onClick={() => {
-                  void applyGroupSettingsPatch(activeGroup.id, { title: editingGroupTitleValue })
-                  closeGroupSettingsDialog()
+                  void confirmGroupSettingsLeaveWithSave()
                 }}
               >
                 Сохранить
+              </button>
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={confirmGroupSettingsLeaveWithDiscard}
+              >
+                Отмена
               </button>
             </div>
           </div>
@@ -10239,28 +11704,6 @@ function App() {
                 </div>
               </>
             )}
-          </div>
-        </>
-      ) : null}
-      {threadsDisabledNotice ? (
-        <>
-          <button
-            type="button"
-            className="room-confirm-scrim"
-            aria-label="Закрыть предупреждение о тредах"
-            onClick={() => setThreadsDisabledNotice(null)}
-          />
-          <div className="room-confirm room-confirm-compact">
-            <p className="room-confirm-copy">{getThreadsDisabledNoticeText(threadsDisabledNotice)}</p>
-            <div className="room-confirm-actions room-confirm-actions-single">
-              <button
-                type="button"
-                className="room-confirm-button"
-                onClick={() => setThreadsDisabledNotice(null)}
-              >
-                Понятно
-              </button>
-            </div>
           </div>
         </>
       ) : null}

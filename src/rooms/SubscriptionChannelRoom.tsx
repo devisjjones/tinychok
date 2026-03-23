@@ -1,7 +1,9 @@
 import type { KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { shouldSubmitComposerWithEnter } from '../app/utils'
-import type { SubscriptionChannel } from '../app/types'
+import { useEffect, useRef } from 'react'
+import { scrollFeedChildIntoView, shouldSubmitComposerWithEnter } from '../app/utils'
+import type { ReplyTarget, SubscriptionChannel } from '../app/types'
 import { BubbleMessageContent } from '../components/BubbleMessageContent'
+import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ThreadedBubble } from '../components/ThreadedBubble'
 
 type SubscriptionChannelRoomProps = {
@@ -13,11 +15,14 @@ type SubscriptionChannelRoomProps = {
   onOpenChannelActions?: (event: MouseEvent<HTMLButtonElement>) => void
   onOpenThread: (postId: number) => void
   onPostSelect: (event: MouseEvent<HTMLButtonElement>, postId: number) => void
+  onReplyReferenceJump?: (postId: number) => void
   publisher?: {
     draft: string
     error?: string
     isBusy?: boolean
+    onReplyCancel: () => void
     onDraftChange: (value: string) => void
+    replyTarget: ReplyTarget | null
     onSubmit: () => void
   }
   subscriptionAction?: {
@@ -35,9 +40,12 @@ export function SubscriptionChannelRoom({
   onOpenChannelActions,
   onOpenThread,
   onPostSelect,
+  onReplyReferenceJump,
   publisher,
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
+  const publisherInputRef = useRef<HTMLTextAreaElement | null>(null)
+
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (!publisher || !publisher.draft.trim() || publisher.isBusy) return
     if (
@@ -57,6 +65,25 @@ export function SubscriptionChannelRoom({
     publisher.onSubmit()
   }
 
+  function jumpToPost(postId: number) {
+    if (onReplyReferenceJump) {
+      onReplyReferenceJump(postId)
+      return
+    }
+
+    void window.requestAnimationFrame(() => {
+      scrollFeedChildIntoView(messageFeedRef.current, `[data-channel-post-id="${postId}"]`)
+    })
+  }
+
+  useEffect(() => {
+    if (!publisher?.replyTarget) return
+
+    window.requestAnimationFrame(() => {
+      publisherInputRef.current?.focus()
+    })
+  }, [publisher?.replyTarget])
+
   return (
     <>
       <section className="chat-room channel-room">
@@ -68,9 +95,7 @@ export function SubscriptionChannelRoom({
             aria-label="Назад"
             title="Назад"
           >
-            <span className="room-mobile-back-icon" aria-hidden="true">
-              &larr;
-            </span>
+            <img src="/icons/back.png" alt="" aria-hidden="true" className="room-mobile-back-icon" />
           </button>
           <div className="room-id">
             <span className="avatar large" style={{ backgroundColor: channel.accent }}>
@@ -101,36 +126,50 @@ export function SubscriptionChannelRoom({
               aria-label="Действия канала"
               title="Действия канала"
             >
-              <span className="room-group-actions-dots" aria-hidden="true">
-                ...
-              </span>
+              <img src="/icons/menu.png" alt="" aria-hidden="true" className="room-menu-icon" />
             </button>
           ) : null}
         </header>
 
         <div className="message-feed" ref={messageFeedRef}>
-          {channel.posts.map((post) => (
-            <ThreadedBubble
-              key={post.id}
-              variant="channel"
-              threadCount={post.threadComments?.length ?? 0}
-              onOpenThread={() => onOpenThread(post.id)}
-              bubble={
-                <button
-                  type="button"
-                  className={
-                    activePostId === post.id
-                      ? 'bubble bubble-button channel-post selected'
-                      : 'bubble bubble-button channel-post'
-                  }
-                  onClick={(event) => onPostSelect(event, post.id)}
-                >
-                  <BubbleMessageContent message={post} />
-                  <time>{post.time}</time>
-                </button>
-              }
-            />
-          ))}
+          {channel.posts.map((post) => {
+            const replyReference = post.replyTo
+
+            return (
+              <ThreadedBubble
+                key={post.id}
+                variant="channel"
+                threadCount={post.threadComments?.length ?? 0}
+                onOpenThread={() => onOpenThread(post.id)}
+                bubble={
+                  <AttachedReplyBubble
+                    className="channel"
+                    onReplyClick={
+                      replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
+                        ? () => jumpToPost(replyReference.id)
+                        : undefined
+                    }
+                    replyTo={replyReference}
+                    bubble={
+                      <button
+                        type="button"
+                        data-channel-post-id={post.id}
+                        className={
+                          activePostId === post.id
+                            ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}`
+                            : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}`
+                        }
+                        onClick={(event) => onPostSelect(event, post.id)}
+                      >
+                        <BubbleMessageContent message={post} showReplyInline={false} />
+                        <time>{post.time}</time>
+                      </button>
+                    }
+                  />
+                }
+              />
+            )
+          })}
         </div>
         {publisher ? (
           <form
@@ -141,9 +180,27 @@ export function SubscriptionChannelRoom({
             }}
           >
             <div className="composer-input">
+              {publisher.replyTarget ? (
+                <div className="composer-reply">
+                  <div>
+                    <span className="settings-label">Ответ</span>
+                    <p>{publisher.replyTarget.text}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="soft-button composer-reply-cancel"
+                    onClick={publisher.onReplyCancel}
+                    aria-label="Отменить ответ"
+                    title="Отменить ответ"
+                  >
+                    <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
+                  </button>
+                </div>
+              ) : null}
               <div className="composer-entry">
                 <div className="composer-field">
                   <textarea
+                    ref={publisherInputRef}
                     rows={1}
                     placeholder="Напишите сообщение в канал..."
                     value={publisher.draft}

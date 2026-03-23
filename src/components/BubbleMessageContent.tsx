@@ -7,6 +7,7 @@ type BubbleMessageContentProps = {
   linkedChannel?: ChannelMessageSource | null
   onOpenLinkedChannel?: () => void
   replyChatTitle?: string
+  showReplyInline?: boolean
 }
 
 type ForwardedChannelHeaderProps = {
@@ -67,10 +68,11 @@ export function BubbleMessageContent({
   message,
   onOpenLinkedChannel,
   replyChatTitle,
+  showReplyInline = true,
 }: BubbleMessageContentProps) {
   return (
     <>
-      {message.replyTo ? (
+      {showReplyInline && message.replyTo ? (
         <div className="bubble-reply">
           <span>
             {replyChatTitle
@@ -124,5 +126,45 @@ export function BubbleMessageContent({
         <p>{message.text}</p>
       ) : null}
     </>
+  )
+}
+
+type ReplyReferenceBlockProps = {
+  mine?: boolean
+  onClick?: () => void
+  replyChatTitle?: string
+  replyTo: NonNullable<Message['replyTo']>
+}
+
+export function ReplyReferenceBlock({
+  mine = false,
+  onClick,
+  replyChatTitle,
+  replyTo,
+}: ReplyReferenceBlockProps) {
+  const authorLabel = replyChatTitle
+    ? formatMessageAuthor(replyTo.author, replyChatTitle)
+    : replyTo.author === 'me'
+      ? 'Вы'
+      : 'Собеседник'
+
+  const className = mine
+    ? 'bubble-reply-reference bubble-reply-reference-button mine'
+    : 'bubble-reply-reference bubble-reply-reference-button'
+
+  if (onClick) {
+    return (
+      <button type="button" className={className} onClick={onClick} title={replyTo.text}>
+        <span className="bubble-reply-reference-label">{authorLabel}</span>
+        <span className="bubble-reply-reference-copy">{replyTo.text}</span>
+      </button>
+    )
+  }
+
+  return (
+    <div className={mine ? 'bubble-reply-reference mine' : 'bubble-reply-reference'} title={replyTo.text}>
+      <span className="bubble-reply-reference-label">{authorLabel}</span>
+      <span className="bubble-reply-reference-copy">{replyTo.text}</span>
+    </div>
   )
 }

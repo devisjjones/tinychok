@@ -2,7 +2,7 @@
 
 ## Current applied state
 
-По состоянию на `2026-03-22` это уже включено на staging и осталось включённым после последнего подтверждённого deploy commit `1b8df3f`:
+По состоянию на `2026-03-23` это уже включено на staging и осталось включённым после последнего подтверждённого deploy commit `1b8df3f`:
 
 - basic auth включен на HTTPS-блоке `nginx` для `https://staging.tinychok.ru`
 - `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
@@ -10,6 +10,8 @@
 - пароль хранится только на VM и не должен попадать в чат или git
 - allowlist тестовых телефонов уже добавлен в `/home/devis/tinychok/.env` через `TINYCHOK_ALLOWED_TEST_PHONES`
 - последняя подтверждённая выкладка frontend/backend через `npm ci`, `npm run build`, `systemctl restart` и `rsync` на commit `1b8df3f` не отключала эти ограничения
+- в текущем рабочем tree уже есть captcha infra layer, но он пока не включён на staging и не заменяет `basic auth` или phone allowlist
+- в текущем рабочем tree также уже есть thread inbox / thread subscription layer, но он никак не ослабляет access guard и не должен влиять на basic auth или allowlist
 
 Самый простой и практичный режим для текущего staging:
 
@@ -108,6 +110,8 @@ curl -s https://api.staging.tinychok.ru/healthz
 
 - в `origin/codex/staging-deploy` уже лежит более новый непроверенный cumulative stack до `4ad9b0b`
 - поверх `4ad9b0b` в текущем рабочем branch state уже есть follow-up UI batch, но он тоже не должен менять `basic auth` или `allowlist`
+- поверх follow-up batch в текущем tree уже есть infra layer под captcha и analytics, но он не должен менять access guard сам по себе
+- даже после будущего включения captcha staging всё равно должен оставаться закрыт через `basic auth` и `TINYCHOK_ALLOWED_TEST_PHONES`
 - после следующего deploy эти ограничения всё равно нужно быстро перепроверить
 - минимальная post-deploy проверка остаётся такой же:
 
@@ -128,3 +132,12 @@ curl -s https://api.staging.tinychok.ru/healthz
 - это не production security
 - это просто нормальная защита staging от случайных людей и лишнего шума
 - для следующего уровня уже нужны VPN, Cloudflare Access или полноценные invite flows
+- captcha в будущем может добавить bot-friction на auth, но не должна считаться заменой существующих staging-замков
+
+## Какие секреты нельзя писать в чат или git
+
+- пароль `basic auth`
+- содержимое `htpasswd`
+- `TINYCHOK_ALLOWED_TEST_PHONES`
+- `TINYCHOK_CAPTCHA_SECRET_KEY`
+- любые будущие внешние analytics credentials / ingest tokens
