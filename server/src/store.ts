@@ -1757,21 +1757,41 @@ export class TinychokStore {
     const fullGroups = materializeFullGroups(this.database, account.identifier)
     const fullSubscriptionChannels = materializeFullSubscriptionChannels(this.database, account.identifier)
 
-    const chats = snapshot.chats.map((chat) => ({
-      ...chat,
-      messages: fullChats.find((candidate) => candidate.id === chat.id)?.messages ?? chat.messages,
-      pinnedMessage:
-        fullChats.find((candidate) => candidate.id === chat.id)?.pinnedMessage ?? chat.pinnedMessage,
-    }))
-    const groups = snapshot.groups.map((group) => ({
-      ...group,
-      messages: fullGroups.find((candidate) => candidate.id === group.id)?.messages ?? group.messages,
-    }))
-    const subscriptionChannels = snapshot.subscriptionChannels.map((channel) => ({
-      ...channel,
-      posts:
-        fullSubscriptionChannels.find((candidate) => candidate.id === channel.id)?.posts ?? channel.posts,
-    }))
+    const fullChatsById = new Map(fullChats.map((chat) => [chat.id, chat] as const))
+    const fullGroupsById = new Map(fullGroups.map((group) => [group.id, group] as const))
+    const fullSubscriptionChannelsById = new Map(
+      fullSubscriptionChannels.map((channel) => [channel.id, channel] as const),
+    )
+
+    const chats = snapshot.chats.map((chat) => {
+      const persistedChat = fullChatsById.get(chat.id)
+
+      return {
+        ...chat,
+        // Message history must stay server-authoritative. Client snapshot sync is allowed
+        // to update room metadata, but it must not resurrect deleted messages from stale UI state.
+        messages: persistedChat?.messages ?? [],
+        pinnedMessage: persistedChat?.pinnedMessage,
+      }
+    })
+    const groups = snapshot.groups.map((group) => {
+      const persistedGroup = fullGroupsById.get(group.id)
+
+      return {
+        ...group,
+        // Group timelines and thread comments are persisted through dedicated mutations only.
+        messages: persistedGroup?.messages ?? [],
+      }
+    })
+    const subscriptionChannels = snapshot.subscriptionChannels.map((channel) => {
+      const persistedChannel = fullSubscriptionChannelsById.get(channel.id)
+
+      return {
+        ...channel,
+        // Channel posts and thread comments must never be restored from a stale client snapshot.
+        posts: persistedChannel?.posts ?? [],
+      }
+    })
 
     this.replaceOwnerState(account.identifier, {
       channels: snapshot.channels,
