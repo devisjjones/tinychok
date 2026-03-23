@@ -527,7 +527,7 @@ app.put('/api/dialogs/:dialogId/pinned-message', async (request, reply) => {
   }
 })
 
-app.delete('/api/dialogs/:dialogId/messages/:messageId', async (request, reply) => {
+async function handleDeleteDialogMessage(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -542,9 +542,12 @@ app.delete('/api/dialogs/:dialogId/messages/:messageId', async (request, reply) 
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
 
-app.delete('/api/dialogs/:dialogId/history', async (request, reply) => {
+app.delete('/api/dialogs/:dialogId/messages/:messageId', handleDeleteDialogMessage)
+app.post('/api/dialogs/:dialogId/messages/:messageId', handleDeleteDialogMessage)
+
+async function handleDeleteDialogHistory(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -558,9 +561,12 @@ app.delete('/api/dialogs/:dialogId/history', async (request, reply) => {
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
 
-app.delete('/api/dialogs/:dialogId', async (request, reply) => {
+app.delete('/api/dialogs/:dialogId/history', handleDeleteDialogHistory)
+app.post('/api/dialogs/:dialogId/history', handleDeleteDialogHistory)
+
+async function handleDeleteDialog(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -574,7 +580,10 @@ app.delete('/api/dialogs/:dialogId', async (request, reply) => {
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
+
+app.delete('/api/dialogs/:dialogId', handleDeleteDialog)
+app.post('/api/dialogs/:dialogId', handleDeleteDialog)
 
 app.post('/api/dialogs/:dialogId/read', async (request, reply) => {
   const token = getBearerToken(request)
@@ -646,7 +655,7 @@ app.post('/api/groups/:groupId/messages/:messageId/comments', async (request, re
   }
 })
 
-app.delete('/api/groups/:groupId/messages/:messageId/comments/:commentId', async (request, reply) => {
+async function handleDeleteGroupThreadComment(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -662,7 +671,10 @@ app.delete('/api/groups/:groupId/messages/:messageId/comments/:commentId', async
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
+
+app.delete('/api/groups/:groupId/messages/:messageId/comments/:commentId', handleDeleteGroupThreadComment)
+app.post('/api/groups/:groupId/messages/:messageId/comments/:commentId', handleDeleteGroupThreadComment)
 
 app.post('/api/groups/:groupId/messages/:messageId/thread-subscription', async (request, reply) => {
   const token = getBearerToken(request)
@@ -765,7 +777,7 @@ app.post('/api/groups/:groupId/invite', async (request, reply) => {
   }
 })
 
-app.delete('/api/groups/:groupId/membership', async (request, reply) => {
+async function handleLeaveGroup(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -779,9 +791,12 @@ app.delete('/api/groups/:groupId/membership', async (request, reply) => {
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
 
-app.delete('/api/groups/:groupId/messages/:messageId', async (request, reply) => {
+app.delete('/api/groups/:groupId/membership', handleLeaveGroup)
+app.post('/api/groups/:groupId/membership', handleLeaveGroup)
+
+async function handleDeleteGroupMessage(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -796,7 +811,10 @@ app.delete('/api/groups/:groupId/messages/:messageId', async (request, reply) =>
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
+
+app.delete('/api/groups/:groupId/messages/:messageId', handleDeleteGroupMessage)
+app.post('/api/groups/:groupId/messages/:messageId', handleDeleteGroupMessage)
 
 app.post('/api/channels', async (request, reply) => {
   const token = getBearerToken(request)
@@ -902,7 +920,7 @@ app.put('/api/channels/:channelId', async (request, reply) => {
   }
 })
 
-app.delete('/api/channels/:channelId', async (request, reply) => {
+async function handleDeleteManagedChannel(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -916,7 +934,10 @@ app.delete('/api/channels/:channelId', async (request, reply) => {
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
+
+app.delete('/api/channels/:channelId', handleDeleteManagedChannel)
+app.post('/api/channels/:channelId', handleDeleteManagedChannel)
 
 app.post('/api/managed-channels/:channelId/posts', async (request, reply) => {
   const token = getBearerToken(request)
@@ -935,7 +956,7 @@ app.post('/api/managed-channels/:channelId/posts', async (request, reply) => {
   }
 })
 
-app.delete('/api/managed-channels/:channelId/posts/:postId', async (request, reply) => {
+async function handleDeleteManagedChannelPost(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -950,7 +971,10 @@ app.delete('/api/managed-channels/:channelId/posts/:postId', async (request, rep
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
+
+app.delete('/api/managed-channels/:channelId/posts/:postId', handleDeleteManagedChannelPost)
+app.post('/api/managed-channels/:channelId/posts/:postId', handleDeleteManagedChannelPost)
 
 app.post('/api/subscription-channels/:channelId/read', async (request, reply) => {
   const token = getBearerToken(request)
@@ -1003,7 +1027,7 @@ app.post('/api/subscription-channels/:channelId/posts/:postId/comments', async (
   }
 })
 
-app.delete('/api/subscription-channels/:channelId/posts/:postId/comments/:commentId', async (request, reply) => {
+async function handleDeleteSubscriptionChannelThreadComment(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -1019,7 +1043,10 @@ app.delete('/api/subscription-channels/:channelId/posts/:postId/comments/:commen
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
+
+app.delete('/api/subscription-channels/:channelId/posts/:postId/comments/:commentId', handleDeleteSubscriptionChannelThreadComment)
+app.post('/api/subscription-channels/:channelId/posts/:postId/comments/:commentId', handleDeleteSubscriptionChannelThreadComment)
 
 app.post('/api/subscription-channels/:channelId/posts/:postId/thread-subscription', async (request, reply) => {
   const token = getBearerToken(request)
@@ -1072,7 +1099,7 @@ app.post('/api/subscription-channels/:channelId/posts/:postId/thread-read', asyn
   }
 })
 
-app.delete('/api/subscription-channels/:channelId', async (request, reply) => {
+async function handleDeleteSubscriptionChannel(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -1086,7 +1113,10 @@ app.delete('/api/subscription-channels/:channelId', async (request, reply) => {
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
+
+app.delete('/api/subscription-channels/:channelId', handleDeleteSubscriptionChannel)
+app.post('/api/subscription-channels/:channelId', handleDeleteSubscriptionChannel)
 
 app.post('/api/subscription-channels/:channelId/report', async (request, reply) => {
   const token = getBearerToken(request)

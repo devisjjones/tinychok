@@ -223,6 +223,23 @@ function isRetryableSessionUpdateFallbackError(error: unknown) {
   return error instanceof TypeError || (error instanceof Error && /failed to fetch/i.test(error.message))
 }
 
+async function readMutationWithDeletePostFallback(
+  pathname: string,
+  sessionToken: string,
+) {
+  try {
+    const response = await fetch(makeHttpUrl(pathname), makeJsonRequestInit('DELETE', undefined, sessionToken))
+    return await readJsonResponse<MutationResponse>(response)
+  } catch (error) {
+    if (!isRetryableSessionUpdateFallbackError(error)) {
+      throw error
+    }
+
+    const response = await fetch(makeHttpUrl(pathname), makeJsonRequestInit('POST', undefined, sessionToken))
+    return await readJsonResponse<MutationResponse>(response)
+  }
+}
+
 export async function requestAuthCode(body: RequestCodeBody) {
   const response = await fetch(makeHttpUrl('/api/auth/request-code'), makeJsonRequestInit('POST', body))
   return readJsonResponse<RequestCodeResponse>(response)
@@ -485,29 +502,20 @@ export async function deleteDialogMessage(
   dialogId: number,
   messageId: number,
 ) {
-  const response = await fetch(
-    makeHttpUrl(`/api/dialogs/${dialogId}/messages/${messageId}`),
-    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  const payload = await readMutationWithDeletePostFallback(
+    `/api/dialogs/${dialogId}/messages/${messageId}`,
+    sessionToken,
   )
-  const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
 }
 
 export async function deleteDialogHistory(sessionToken: string, dialogId: number) {
-  const response = await fetch(
-    makeHttpUrl(`/api/dialogs/${dialogId}/history`),
-    makeJsonRequestInit('DELETE', undefined, sessionToken),
-  )
-  const payload = await readJsonResponse<MutationResponse>(response)
+  const payload = await readMutationWithDeletePostFallback(`/api/dialogs/${dialogId}/history`, sessionToken)
   return normalizeMutationResponse(payload)
 }
 
 export async function deleteDialog(sessionToken: string, dialogId: number) {
-  const response = await fetch(
-    makeHttpUrl(`/api/dialogs/${dialogId}`),
-    makeJsonRequestInit('DELETE', undefined, sessionToken),
-  )
-  const payload = await readJsonResponse<MutationResponse>(response)
+  const payload = await readMutationWithDeletePostFallback(`/api/dialogs/${dialogId}`, sessionToken)
   return normalizeMutationResponse(payload)
 }
 
@@ -538,11 +546,10 @@ export async function deleteGroupMessage(
   groupId: number,
   messageId: number,
 ) {
-  const response = await fetch(
-    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}`),
-    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  const payload = await readMutationWithDeletePostFallback(
+    `/api/groups/${groupId}/messages/${messageId}`,
+    sessionToken,
   )
-  const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
 }
 
@@ -551,11 +558,10 @@ export async function deleteManagedChannelPost(
   channelId: number,
   postId: number,
 ) {
-  const response = await fetch(
-    makeHttpUrl(`/api/managed-channels/${channelId}/posts/${postId}`),
-    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  const payload = await readMutationWithDeletePostFallback(
+    `/api/managed-channels/${channelId}/posts/${postId}`,
+    sessionToken,
   )
-  const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
 }
 
@@ -588,11 +594,10 @@ export async function deleteGroupThreadComment(
   messageId: number,
   commentId: number,
 ) {
-  const response = await fetch(
-    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/comments/${commentId}`),
-    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  const payload = await readMutationWithDeletePostFallback(
+    `/api/groups/${groupId}/messages/${messageId}/comments/${commentId}`,
+    sessionToken,
   )
-  const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
 }
 
@@ -690,11 +695,10 @@ export async function deleteSubscriptionChannelThreadComment(
   postId: number,
   commentId: number,
 ) {
-  const response = await fetch(
-    makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/comments/${commentId}`),
-    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  const payload = await readMutationWithDeletePostFallback(
+    `/api/subscription-channels/${channelId}/posts/${postId}/comments/${commentId}`,
+    sessionToken,
   )
-  const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
 }
 
