@@ -457,7 +457,7 @@ app.post('/api/media', async (request, reply) => {
   }
 })
 
-app.put('/api/session', async (request, reply) => {
+async function handleSessionUpdate(request: FastifyRequest, reply: FastifyReply) {
   const token = getBearerToken(request)
   if (!token) {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
@@ -471,7 +471,10 @@ app.put('/api/session', async (request, reply) => {
   } catch (error) {
     return sendError(reply, error)
   }
-})
+}
+
+app.put('/api/session', handleSessionUpdate)
+app.post('/api/session', handleSessionUpdate)
 
 app.post('/api/dialogs/:dialogId/messages', async (request, reply) => {
   const token = getBearerToken(request)

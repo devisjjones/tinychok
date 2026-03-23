@@ -215,6 +215,14 @@ function makeJsonRequestInit(
   }
 }
 
+function isRetryableSessionUpdateFallbackError(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.status === 404 || error.status === 405 || error.status === 501
+  }
+
+  return error instanceof TypeError || (error instanceof Error && /failed to fetch/i.test(error.message))
+}
+
 export async function requestAuthCode(body: RequestCodeBody) {
   const response = await fetch(makeHttpUrl('/api/auth/request-code'), makeJsonRequestInit('POST', body))
   return readJsonResponse<RequestCodeResponse>(response)
@@ -354,9 +362,19 @@ export async function saveSnapshot(sessionToken: string, snapshot: AppSnapshot) 
 }
 
 export async function updateSession(sessionToken: string, body: UpdateSessionBody) {
-  const response = await fetch(makeHttpUrl('/api/session'), makeJsonRequestInit('PUT', body, sessionToken))
-  const payload = await readJsonResponse<MutationResponse>(response)
-  return normalizeMutationResponse(payload)
+  try {
+    const response = await fetch(makeHttpUrl('/api/session'), makeJsonRequestInit('PUT', body, sessionToken))
+    const payload = await readJsonResponse<MutationResponse>(response)
+    return normalizeMutationResponse(payload)
+  } catch (error) {
+    if (!isRetryableSessionUpdateFallbackError(error)) {
+      throw error
+    }
+
+    const response = await fetch(makeHttpUrl('/api/session'), makeJsonRequestInit('POST', body, sessionToken))
+    const payload = await readJsonResponse<MutationResponse>(response)
+    return normalizeMutationResponse(payload)
+  }
 }
 
 export async function uploadMediaFile(
