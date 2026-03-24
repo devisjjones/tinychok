@@ -23,6 +23,14 @@ export const channelAvatarUploadAcceptedMimeTypes = [
   'image/jpeg',
   'image/png',
 ] as const
+export const messageAttachmentUploadMaxSizeBytes = 20 * 1024 * 1024
+export const messagePhotoAcceptedMimeTypes = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+] as const
+export const messagePhotoMaxDimensionPx = 1600
+export const messagePhotoCompressionTargetBytes = 1_600_000
 export const chatActionMenuWidth = 320
 export const chatActionMenuHeight = 290
 export const quickFilters = ['Все', '★']

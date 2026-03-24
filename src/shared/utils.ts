@@ -58,6 +58,11 @@ export function formatAttachmentSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} МБ`
 }
 
+export function formatAttachmentImageDimensions(width?: number, height?: number) {
+  if (!width || !height) return 'фото'
+  return `${width}×${height}`
+}
+
 export function formatUnreadBadgeCount(count: number) {
   if (count > 99) return '99+'
   return String(Math.max(0, count))

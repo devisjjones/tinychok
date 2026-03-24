@@ -7,9 +7,11 @@ export type PendingMessageStatus = 'sending' | DeliveryIssue
 export type PendingAttachmentDraft = {
   file?: File
   fileName: string
+  height?: number
   mediaUrl?: string
   mimeType: string
   size: number
+  width?: number
 }
 
 export type PendingDirectMessage = {
@@ -71,9 +73,11 @@ function serializeAttachmentDraft(
 
   return {
     fileName: attachmentDraft.fileName,
+    height: attachmentDraft.height,
     mediaUrl: attachmentDraft.mediaUrl,
     mimeType: attachmentDraft.mimeType,
     size: attachmentDraft.size,
+    width: attachmentDraft.width,
   }
 }
 
@@ -85,9 +89,11 @@ function deserializeAttachmentDraft(
 
   return {
     fileName: attachmentDraft.fileName,
+    height: attachmentDraft.height,
     mediaUrl: attachmentDraft.mediaUrl,
     mimeType: attachmentDraft.mimeType,
     size: attachmentDraft.size,
+    width: attachmentDraft.width,
   }
 }
 
@@ -97,9 +103,11 @@ function sanitizePersistedAttachment(attachment?: Message['attachment']) {
 
   return {
     fileName: attachment.fileName,
+    height: attachment.height,
     mediaUrl: attachment.mediaUrl,
     mimeType: attachment.mimeType,
     size: attachment.size,
+    width: attachment.width,
   } satisfies NonNullable<Message['attachment']>
 }
 

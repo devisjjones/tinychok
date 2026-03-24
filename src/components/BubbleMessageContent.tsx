@@ -1,10 +1,16 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { ChannelMessageSource, Message } from '../app/types'
-import { formatAttachmentSize, formatMessageAuthor, isImageMimeType } from '../app/utils'
+import {
+  formatAttachmentImageDimensions,
+  formatAttachmentSize,
+  formatMessageAuthor,
+  isImageMimeType,
+} from '../app/utils'
 
 type BubbleMessageContentProps = {
   message: Pick<Message, 'attachment' | 'replyTo' | 'sourceGroup' | 'text'>
   linkedChannel?: ChannelMessageSource | null
+  onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
   onOpenLinkedChannel?: () => void
   replyChatTitle?: string
   showReplyInline?: boolean
@@ -69,10 +75,49 @@ export function ForwardedChannelHeader({
 export function BubbleMessageContent({
   linkedChannel,
   message,
+  onOpenAttachment,
   onOpenLinkedChannel,
   replyChatTitle,
   showReplyInline = true,
 }: BubbleMessageContentProps) {
+  const attachmentNode = message.attachment ? (
+    isImageMimeType(message.attachment.mimeType) ? (
+      <div
+        className="bubble-attachment bubble-attachment-photo bubble-attachment-button"
+        onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
+          event.stopPropagation()
+          onOpenAttachment?.(message.attachment!)
+        }}
+      >
+        <img
+          src={message.attachment.mediaUrl}
+          alt={message.attachment.fileName}
+          className="bubble-attachment-image"
+        />
+        <div className="bubble-attachment-photo-meta">
+          <span>
+            {formatAttachmentSize(message.attachment.size)}
+            {`, ${formatAttachmentImageDimensions(message.attachment.width, message.attachment.height)}`}
+          </span>
+        </div>
+      </div>
+    ) : (
+      <div
+        className="bubble-attachment bubble-attachment-link"
+        onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
+          event.stopPropagation()
+          window.open(message.attachment?.mediaUrl, '_blank', 'noopener,noreferrer')
+        }}
+      >
+        <span className="bubble-attachment-badge">Файл</span>
+        <div className="bubble-attachment-copy">
+          <strong>{message.attachment.fileName}</strong>
+          <span>{formatAttachmentSize(message.attachment.size)}</span>
+        </div>
+      </div>
+    )
+  ) : null
+
   return (
     <>
       {showReplyInline && message.replyTo ? (
@@ -87,23 +132,7 @@ export function BubbleMessageContent({
           <p>{message.replyTo.text}</p>
         </div>
       ) : null}
-      {message.attachment ? (
-        <div className="bubble-attachment">
-          {isImageMimeType(message.attachment.mimeType) ? (
-            <img
-              src={message.attachment.mediaUrl}
-              alt={message.attachment.fileName}
-              className="bubble-attachment-image"
-            />
-          ) : (
-            <span className="bubble-attachment-badge">Файл</span>
-          )}
-          <div className="bubble-attachment-copy">
-            <strong>{message.attachment.fileName}</strong>
-            <span>{formatAttachmentSize(message.attachment.size)}</span>
-          </div>
-        </div>
-      ) : null}
+      {attachmentNode}
       {linkedChannel ? (
         <ForwardedChannelHeader sourceChannel={linkedChannel} onClick={onOpenLinkedChannel} />
       ) : message.sourceGroup ? (

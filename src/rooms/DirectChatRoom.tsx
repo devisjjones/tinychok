@@ -6,6 +6,7 @@ import type {
   RefObject,
 } from 'react'
 import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
+import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import type { ChannelMessageSource, Chat, Message, ReplyTarget } from '../app/types'
 import {
   formatConversationDayLabel,
@@ -13,6 +14,7 @@ import {
   formatRoomPresence,
   getConversationDayKey,
   insertComposerTextAtCursor,
+  isImageMimeType,
   scrollFeedChildIntoView,
   shouldSubmitComposerWithEnter,
   shouldShowDeliveryCaption,
@@ -22,18 +24,22 @@ import {
   ForwardedChannelHeader,
 } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
+import { ComposerAttachmentPreview } from '../components/ComposerAttachmentPreview'
+import { ComposerAttachmentPicker } from '../components/ComposerAttachmentPicker'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { EmojiPicker } from '../components/EmojiPicker'
 
 type DirectChatRoomProps = {
   activeChat: Chat
   activeMessageId: number | null
+  attachmentDraft?: ComposerAttachmentDraft
   attachmentInputRef: RefObject<HTMLInputElement | null>
   attachmentName: string
   chatActionsOpen: boolean
   draft: string
   getMessageDeliveryIssue: (messageId: number) => 'pending' | 'failed' | null
   messageFeedRef: RefObject<HTMLDivElement | null>
+  onAttachmentClear: () => void
   pinnedMessage: Message | null
   quietMode: boolean
   replyTarget: ReplyTarget | null
@@ -45,16 +51,20 @@ type DirectChatRoomProps = {
   onCreateGroup: () => void
   onDraftChange: (value: string) => void
   onMessageSelect: (event: MouseEvent<HTMLButtonElement>, message: Message) => void
+  onOpenAttachment: (attachment: NonNullable<Message['attachment']>) => void
   onOpenLinkedChannel: (sourceChannel: ChannelMessageSource) => void
   onOpenSourceChannel: (message: Message) => void
-  onOpenAttachmentPicker: () => void
+  onOpenAttachmentPicker: (mode: 'file' | 'photo') => void
   onOpenPremiumGift: () => void
+  onOpenPremiumUpsell?: () => void
   onReplyCancel: () => void
   onRequestDeleteContact: () => void
   onRequestDeleteHistory: () => void
   onRequestReportContact: () => void
   onReplyReferenceJump?: (messageId: number) => void
+  onToggleSendOriginal?: () => void
   onToggleChatMuted: () => void
+  premiumUnlocked?: boolean
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   onSubmit: () => void | Promise<void>
   onToggleChatActions: () => void
@@ -65,12 +75,14 @@ type DirectChatRoomProps = {
 export function DirectChatRoom({
   activeChat,
   activeMessageId,
+  attachmentDraft,
   attachmentInputRef,
   attachmentName,
   chatActionsOpen,
   draft,
   getMessageDeliveryIssue,
   messageFeedRef,
+  onAttachmentClear,
   pinnedMessage,
   quietMode,
   replyTarget,
@@ -82,16 +94,20 @@ export function DirectChatRoom({
   onCreateGroup,
   onDraftChange,
   onMessageSelect,
+  onOpenAttachment,
   onOpenLinkedChannel,
   onOpenSourceChannel,
   onOpenAttachmentPicker,
   onOpenPremiumGift,
+  onOpenPremiumUpsell,
   onReplyCancel,
   onReplyReferenceJump,
   onRequestDeleteContact,
   onRequestDeleteHistory,
   onRequestReportContact,
+  onToggleSendOriginal,
   onToggleChatMuted,
+  premiumUnlocked = false,
   resolveLinkedChannelFromMessage,
   onSubmit,
   onToggleChatActions,
@@ -99,7 +115,13 @@ export function DirectChatRoom({
   onUnpinMessage,
 }: DirectChatRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
-  const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentName)
+  const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
+  const canSubmitComposer = attachmentDraft ? attachmentDraft.status === 'ready' : draft.trim().length > 0
+  const composerPlaceholder = attachmentDraft
+    ? isImageMimeType(attachmentDraft.mimeType)
+      ? 'Добавьте подпись к фотографии...'
+      : 'Добавьте подпись к файлу...'
+    : 'Напиши сообщение в тайник...'
 
   async function submitComposer() {
     await Promise.resolve(onSubmit())
@@ -109,7 +131,7 @@ export function DirectChatRoom({
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (!hasComposerPayload) return
+    if (!canSubmitComposer) return
     if (
       !shouldSubmitComposerWithEnter({
         key: event.key,
@@ -372,6 +394,7 @@ export function DirectChatRoom({
                     <BubbleMessageContent
                       linkedChannel={linkedChannel}
                       message={message}
+                      onOpenAttachment={onOpenAttachment}
                       onOpenLinkedChannel={
                         linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
                       }
@@ -440,6 +463,15 @@ export function DirectChatRoom({
           ) : null}
           <div className="composer-entry">
             <div className="composer-field">
+              {attachmentDraft ? (
+                <ComposerAttachmentPreview
+                  attachmentDraft={attachmentDraft}
+                  onClear={onAttachmentClear}
+                  onOpenPremiumUpsell={onOpenPremiumUpsell}
+                  onToggleSendOriginal={onToggleSendOriginal}
+                  premiumUnlocked={premiumUnlocked}
+                />
+              ) : null}
               <input
                 ref={attachmentInputRef}
                 type="file"
@@ -449,7 +481,7 @@ export function DirectChatRoom({
               <textarea
                 ref={draftInputRef}
                 rows={1}
-                placeholder="Напиши сообщение в тайник..."
+                placeholder={composerPlaceholder}
                 value={draft}
                 onChange={(event) => onDraftChange(event.target.value)}
                 onKeyDown={handleComposerKeyDown}
@@ -460,19 +492,15 @@ export function DirectChatRoom({
                     insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
                   }
                 />
-                <button
-                  type="button"
-                  className={attachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}
-                  onClick={onOpenAttachmentPicker}
-                  aria-label="Добавить файл"
-                  title={attachmentName || 'Добавить файл'}
-                >
-                  <img src="/icons/attach.png" alt="" />
-                </button>
+                <ComposerAttachmentPicker
+                  attachmentName={attachmentName}
+                  onSelectMode={onOpenAttachmentPicker}
+                />
                 {hasComposerPayload ? (
                   <button
                     type="submit"
                     className="send-button composer-send"
+                    disabled={!canSubmitComposer}
                     aria-label="Отправить"
                     title="Отправить"
                   >

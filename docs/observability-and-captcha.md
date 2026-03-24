@@ -1,6 +1,6 @@
 # Observability And Captcha
 
-Короткий технический runbook по текущей инфраструктуре аналитики, доставки и captcha по состоянию на последний уже запушенный candidate `55304e7` и локальный batch поверх него.
+Короткий технический runbook по текущей инфраструктуре аналитики, доставки и captcha по состоянию на последний уже запушенный candidate `80346d7` и текущий локальный photo / attachment batch поверх него.
 
 ## Что уже подготовлено
 
@@ -11,15 +11,20 @@
 - analytics events получили общий shared catalog и единый ingest endpoint
 - frontend analytics работает только при consent `analytics`
 - отправка direct / group / thread messages опирается на `clientDeliveryId` для точной корреляции с backend snapshot
+- timeline data в snapshot sync должны считаться server-authoritative и не должны восстанавливаться из stale client state
 
 ## Что не меняет текущий локальный batch
 
-Локальный batch поверх `55304e7` не меняет captcha / analytics semantics напрямую, но добавляет новые UI-surface area, которые позже стоит покрыть событиями:
+Текущий локальный batch не меняет captcha semantics напрямую, но добавляет новые UI-surface area, которые позже стоит покрыть событиями:
 
 - history lazy loading
 - emoji picker
 - channel subscriber management
 - channel invitation flow
+- photo attachment compose preview
+- premium toggle `Отправить без сжатия`
+- image upload validation / processing
+- fullscreen image viewer
 
 ## Новые backend env vars
 
@@ -103,6 +108,8 @@ Messaging and delivery:
 - `message_delivery_duplicate_detected`
 - `history_initial_window_loaded`
 - `history_page_loaded`
+- `delete_request_fell_back_to_post`
+- `delete_request_failed_after_fallback`
 
 Realtime and sync:
 
@@ -123,6 +130,15 @@ Growth and activation:
 - `channel_subscriber_blacklisted`
 - `emoji_picker_opened`
 - `emoji_inserted`
+- `photo_attachment_selected`
+- `photo_attachment_processing_succeeded`
+- `photo_attachment_processing_failed`
+- `photo_attachment_removed`
+- `photo_send_original_toggled`
+- `photo_send_original_paywall_opened`
+- `photo_upload_succeeded`
+- `photo_upload_failed`
+- `image_viewer_opened`
 
 ## Что важно для мессенджера прямо сейчас
 

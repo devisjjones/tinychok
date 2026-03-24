@@ -175,6 +175,7 @@ export type SendGroupMessageBody = {
 }
 
 export type SendGroupThreadCommentBody = {
+  attachment?: MessageAttachment
   clientDeliveryId?: string
   replyTo?: Message['replyTo']
   text: string
@@ -206,6 +207,7 @@ export type ManageSubscriptionChannelSubscriberBody = {
 }
 
 export type SendSubscriptionChannelThreadCommentBody = {
+  attachment?: MessageAttachment
   clientDeliveryId?: string
   replyTo?: Message['replyTo']
   text: string
@@ -216,6 +218,7 @@ export type ThreadSubscriptionResponse = MutationResponse & {
 }
 
 export type SendManagedChannelPostBody = {
+  attachment?: MessageAttachment
   replyTo?: Message['replyTo']
   text: string
 }

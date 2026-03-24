@@ -5,12 +5,12 @@
 ## Git state
 
 - рабочая ветка: `codex/staging-deploy`
-- последний уже запушенный commit в `origin/codex/staging-deploy`: `55304e7`
-- commit message: `Add thread inbox and polish messaging flows`
+- последний уже запушенный commit в `origin/codex/staging-deploy`: `80346d7`
+- commit message: `Add staging-safe delete fallbacks`
 - последняя подтверждённая staging-выкладка: `1b8df3f`
 - подтверждённый staging message: `Polish mobile composer and refresh staging docs`
-- текущий staging-кандидат для следующего push/deploy: локальный cumulative batch поверх `55304e7`
-- рабочее дерево сейчас не чистое: в нём лежат product/server/docs правки из текущего batch
+- текущий staging-кандидат для следующего deploy: текущий `HEAD` ветки `codex/staging-deploy` после photo / attachment batch
+- рабочее дерево перед следующим commit / push уже не чистое: в нём лежит image attachment batch и актуализация docs
 - `public/svf/` по-прежнему не должен попадать в commit / push / deploy
 
 ## Что уже подтверждено по staging
@@ -23,7 +23,7 @@
 - `staging.tinychok.ru` закрыт через `nginx basic auth`
 - backend staging ограничен allowlist-ом телефонов через `TINYCHOK_ALLOWED_TEST_PHONES`
 - последняя подтверждённая staging-выкладка всё ещё `1b8df3f`
-- весь stack после `1b8df3f`, включая `55304e7` и текущий локальный batch поверх него, пока не подтверждён на staging
+- весь stack после `1b8df3f`, включая `55304e7`, `f0ebbd1`, `ca1459e`, `4b7cc5c` и `80346d7`, пока не подтверждён на staging
 
 ## Что уже было в `55304e7`
 
@@ -33,7 +33,7 @@
 - инженерный batch по refactor / optimistic delivery / `clientDeliveryId`
 - infra layer под analytics и captcha
 
-## Что добавляет текущий локальный batch поверх `55304e7`
+## Что уже добавлено поверх `55304e7`
 
 - server-driven history window:
   - при входе в direct / group / channel не показывается вся история сразу
@@ -61,6 +61,24 @@
   - по умолчанию открывается компактный позитивный набор
   - внизу picker есть широкая кнопка `Весь набор`
   - полный набор рендерится локальным `Noto Color Emoji`
+- profile save staging fix:
+  - `PUT /api/session` получил staging-safe fallback через `POST /api/session`
+  - это закрывает transport-level `Failed to fetch` при сохранении настроек аккаунта за reverse proxy
+- delete consistency fixes:
+  - server-side `saveSnapshot` больше не имеет права возвращать timeline data из stale client snapshot
+  - сообщения / посты / комментарии должны оставаться server-authoritative
+  - delete-path на клиенте теперь умеет fallback `DELETE -> POST`
+  - backend принимает `POST`-aliases для delete endpoint-ов
+  - это было добавлено именно после staging-бага, где удалённые сообщения возвращались после повторного входа в комнату
+- photo / attachment batch:
+  - composer attachment flow переписан под локальный preview до отправки
+  - image upload больше не происходит в момент выбора файла: сначала локальный draft, потом upload только в send-path
+  - клиент сжимает `jpeg/png/webp` перед отправкой: длинная сторона до `1600px`, re-encode в `webp`, fallback в `jpeg`
+  - premium-переключатель `Отправить без сжатия` открывает existing premium upsell для non-premium и для premium отправляет original file
+  - photo preview и image viewer работают в direct / group / channel / thread
+  - server-side media validation дополнительно проверяет image mime и сигнатуры `jpeg/png/webp`
+  - image message bubble теперь разделён на верхний photo-block и нижний info/text block
+  - в metadata фото теперь хранятся `width/height`, чтобы в UI можно было показывать `вес, размер фото`
 
 ## Что нужно отдельно smoke-check-нуть на следующем staging deploy
 
@@ -83,6 +101,23 @@
   - direct / group / channel / thread composer
   - compact set
   - `Весь набор`
+- photo attachments:
+  - direct / group / channel / thread composer
+  - preview до отправки
+  - remove вложения до отправки
+  - отправка `только фото`
+  - отправка `текст + фото`
+  - non-premium tap по `Отправить без сжатия`
+  - premium upload original без сжатия
+  - fullscreen image viewer
+  - unsupported image format / oversized file дают понятную ошибку
+- delete flow:
+  - удалить сообщение в личке
+  - удалить сообщение в группе
+  - удалить пост в канале
+  - удалить комментарий в треде
+  - после каждого удаления выйти из комнаты и зайти снова
+  - убедиться, что сообщение не возвращается после повторного входа и reload
 
 ## Рекомендованная точка старта для новой ветки
 

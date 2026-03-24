@@ -5,6 +5,7 @@ import { BubbleMessageContent, ForwardedChannelHeader } from './BubbleMessageCon
 type SelectedBubbleOverlayProps =
   | {
       anchor: ActionAnchor
+      onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
       kind: 'direct'
       deliveryIssue?: 'pending' | 'failed'
       linkedChannel?: NonNullable<Message['sourceChannel']> | null
@@ -19,12 +20,14 @@ type SelectedBubbleOverlayProps =
       linkedChannel?: NonNullable<Message['sourceChannel']> | null
       message: Message
       mine: boolean
+      onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
       participant?: GroupParticipant | null
     }
   | {
       anchor: ActionAnchor
       kind: 'channel'
       channelTitle: string
+      onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
       post: ChannelPost
       draft: boolean
     }
@@ -33,6 +36,7 @@ type SelectedBubbleOverlayProps =
       kind: 'thread-comment'
       comment: ThreadComment
       mine: boolean
+      onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
       participant?: GroupParticipant | null
     }
 
@@ -64,6 +68,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       >
         <BubbleMessageContent
           message={{ attachment: props.post.attachment, replyTo: undefined, text: props.post.text }}
+          onOpenAttachment={props.onOpenAttachment}
           showReplyInline={false}
         />
         <time>{props.post.time}</time>
@@ -105,11 +110,12 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         )}
         <BubbleMessageContent
           message={{
-            attachment: undefined,
+            attachment: props.comment.attachment,
             replyTo: props.comment.replyTo,
             sourceGroup: undefined,
             text: props.comment.text,
           }}
+          onOpenAttachment={props.onOpenAttachment}
           showReplyInline={false}
         />
         <time>{props.comment.time}</time>
@@ -195,6 +201,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       <BubbleMessageContent
         linkedChannel={props.linkedChannel}
         message={props.message}
+        onOpenAttachment={props.onOpenAttachment}
         replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
         showReplyInline={false}
       />

@@ -12,10 +12,10 @@
 
 ## Что важно для текущего branch state
 
-- последний уже запушенный candidate: `55304e7`
-- поверх него локально уже подготовлен ещё один batch
-- `55304e7` и текущий локальный batch содержат thread inbox, delivery fixes, analytics / captcha groundwork, history window, owner flows канала и emoji picker
-- ни `55304e7`, ни текущий локальный batch не должны менять `basic auth` или `allowlist`
+- последний уже запушенный candidate: `80346d7`
+- `80346d7` уже включает thread inbox, delivery fixes, analytics / captcha groundwork, history window, owner flows канала, emoji picker, profile save fallback и delete hardening
+- локальный текущий `HEAD` уже добавляет photo / attachment pipeline поверх `80346d7`, но access guard semantics от этого не меняются
+- ни `80346d7`, ни предыдущие commits поверх `1b8df3f` не должны менять `basic auth` или `allowlist`
 - даже после будущего включения captcha staging всё равно должен оставаться закрыт через `basic auth` и `TINYCHOK_ALLOWED_TEST_PHONES`
 
 ## Почему нужны оба замка
@@ -54,6 +54,11 @@ curl -s https://api.staging.tinychok.ru/healthz
 ```
 
 Если frontend открывается без basic auth или неподдерживаемый номер снова может пройти auth, значит проблема уже не в UI, а в `nginx` или staging `.env`.
+
+Photo / attachment batch тоже не должен требовать ослабления guard-а:
+
+- image upload идёт через уже существующий авторизованный `POST /api/media`
+- новый photo flow не должен обходить `Authorization` и не должен открывать публичный upload endpoint без сессии
 
 ## Какие секреты нельзя писать в чат или git
 

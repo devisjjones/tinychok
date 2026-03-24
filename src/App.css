@@ -2653,12 +2653,22 @@
   margin-bottom: 8px;
 }
 
+.bubble-attachment-photo {
+  gap: 0;
+  margin: -16px -18px 12px;
+}
+
+.bubble-attachment-button,
+.bubble-attachment-link {
+  cursor: pointer;
+}
+
 .bubble-attachment-image {
-  width: min(240px, 100%);
-  max-height: 220px;
+  width: 100%;
+  max-height: min(360px, 62vw);
   object-fit: cover;
   display: block;
-  border-radius: 18px;
+  border-radius: 24px 24px 0 0;
 }
 
 .bubble-attachment-badge {
@@ -2670,6 +2680,16 @@
   font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+}
+
+.bubble-attachment-photo-meta {
+  padding: 12px 18px 0;
+}
+
+.bubble-attachment-photo-meta span {
+  display: block;
+  font-size: 0.82rem;
+  opacity: 0.72;
 }
 
 .bubble-attachment-copy {
@@ -2686,6 +2706,140 @@
 .bubble-attachment-copy span {
   font-size: 0.82rem;
   opacity: 0.72;
+}
+
+.composer-attachment-preview {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(77, 58, 46, 0.08);
+}
+
+.composer-attachment-preview-image {
+  width: 88px;
+  min-width: 88px;
+  height: auto;
+  min-height: 88px;
+  border-radius: 14px;
+  object-fit: cover;
+  display: block;
+  align-self: stretch;
+  flex: 0 0 auto;
+}
+
+.composer-attachment-preview-file-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  min-height: 88px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: rgba(140, 87, 56, 0.16);
+  color: rgba(95, 66, 46, 0.88);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  flex: 0 0 auto;
+}
+
+.composer-attachment-preview-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.composer-attachment-preview-copy strong,
+.composer-attachment-preview-copy span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment-preview-copy strong {
+  color: var(--ink);
+}
+
+.composer-attachment-preview-copy span {
+  color: rgba(95, 66, 46, 0.72);
+}
+
+.composer-attachment-preview-status.error {
+  color: rgba(170, 71, 52, 0.92);
+}
+
+.composer-attachment-premium-toggle {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 7px 11px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(125, 86, 52, 0.12);
+  color: rgba(95, 66, 46, 0.92);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+}
+
+.composer-attachment-premium-toggle:hover {
+  background: rgba(125, 86, 52, 0.18);
+}
+
+.composer-attachment-premium-toggle.locked {
+  opacity: 0.82;
+}
+
+.composer-attachment-premium-toggle.active {
+  background: rgba(125, 86, 52, 0.22);
+  color: rgba(77, 54, 38, 0.96);
+}
+
+.composer-attachment-premium-crown {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.composer-attachment-premium-crown img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.composer-attachment-preview-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(180, 78, 61, 0.12);
+}
+
+.composer-attachment-preview-clear:hover {
+  background: rgba(180, 78, 61, 0.18);
+}
+
+.composer-attachment-preview-clear-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(32%) sepia(26%) saturate(1752%) hue-rotate(334deg) brightness(101%) contrast(90%);
 }
 
 .bubble-reply {
@@ -2945,6 +3099,60 @@
   gap: 8px;
 }
 
+.composer-attachment-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.composer-attachment-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  width: min(280px, calc(100vw - 48px));
+  padding: 10px;
+  border: 1px solid rgba(122, 98, 85, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 251, 245, 0.97);
+  box-shadow: 0 24px 60px rgba(64, 35, 18, 0.16);
+  display: grid;
+  gap: 8px;
+  z-index: 8;
+}
+
+.composer-attachment-option {
+  width: 100%;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(77, 58, 46, 0.06);
+  padding: 14px 16px;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  transition:
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.composer-attachment-option:hover {
+  transform: translateY(-1px);
+  background: rgba(140, 87, 56, 0.12);
+}
+
+.composer-attachment-option strong {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.composer-attachment-option span {
+  color: rgba(95, 66, 46, 0.72);
+  font-size: 0.88rem;
+  line-height: 1.3;
+}
+
 .emoji-picker {
   position: relative;
   display: inline-flex;
@@ -2978,6 +3186,64 @@
 .emoji-picker-section {
   display: grid;
   gap: 10px;
+}
+
+.media-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(25, 14, 10, 0.86);
+  backdrop-filter: blur(8px);
+}
+
+.media-viewer-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 248, 242, 0.12);
+  cursor: pointer;
+}
+
+.media-viewer-close img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(96%) sepia(8%) saturate(399%) hue-rotate(322deg) brightness(107%) contrast(99%);
+}
+
+.media-viewer-figure {
+  margin: 0;
+  max-width: min(92vw, 1100px);
+  max-height: min(88vh, 900px);
+  display: grid;
+  gap: 12px;
+  cursor: zoom-out;
+}
+
+.media-viewer-image {
+  max-width: 100%;
+  max-height: calc(88vh - 40px);
+  display: block;
+  object-fit: contain;
+  border-radius: 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.media-viewer-caption {
+  text-align: center;
+  color: rgba(255, 248, 242, 0.92);
+  font-size: 0.95rem;
 }
 
 .emoji-picker-section + .emoji-picker-section {

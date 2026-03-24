@@ -37,6 +37,14 @@ import {
   initialSubscribedChannels,
 } from './app/mockData'
 import { loadAccounts, loadSession } from './app/storage'
+import {
+  buildComposerAttachmentDraft,
+  buildPendingAttachmentDraft,
+  createPreparingComposerAttachmentDraft,
+  releaseComposerAttachmentDraft,
+  setComposerAttachmentSendOriginal,
+  type ComposerAttachmentDraft,
+} from './app/composerAttachments'
 import { useBlacklistFlow } from './app/useBlacklistFlow'
 import { useGroupSettingsFlow } from './app/useGroupSettingsFlow'
 import { useRoomHistoryWindow } from './app/useRoomHistoryWindow'
@@ -111,6 +119,7 @@ import type {
   GroupPreview,
   GroupParticipant,
   Message,
+  MessageAttachment,
   ReplyTarget,
   SearchResult,
   Session,
@@ -171,6 +180,9 @@ import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
 import { BubbleMessageContent } from './components/BubbleMessageContent'
 import { AttachedReplyBubble } from './components/AttachedReplyBubble'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
+import { ComposerAttachmentPicker } from './components/ComposerAttachmentPicker'
+import { ComposerAttachmentPreview } from './components/ComposerAttachmentPreview'
+import { MediaViewerOverlay } from './components/MediaViewerOverlay'
 import { SelectedBubbleOverlay } from './components/SelectedBubbleOverlay'
 import { useCookieConsent } from './app/useCookieConsent'
 import {
@@ -479,6 +491,8 @@ const defaultClientRuntimeConfig: ClientRuntimeConfigResponse = {
 }
 
 type PendingGroupThreadComment = {
+  attachment?: Message['attachment']
+  attachmentDraft?: PendingAttachmentDraft
   authorIdentifier?: string
   createdAt: string
   deliveryId?: string
@@ -492,6 +506,8 @@ type PendingGroupThreadComment = {
 }
 
 type PendingChannelThreadComment = {
+  attachment?: Message['attachment']
+  attachmentDraft?: PendingAttachmentDraft
   authorIdentifier?: string
   channelId: number
   createdAt: string
@@ -583,6 +599,7 @@ function matchesOutgoingThreadComment(
   return (
     confirmedComment.author === 'me' &&
     confirmedComment.text === localComment.text &&
+    areMessageAttachmentsEquivalent(confirmedComment.attachment, localComment.attachment) &&
     areReplyTargetsEqual(confirmedComment.replyTo, localComment.replyTo) &&
     areOutgoingTimestampsClose(localComment.createdAt, confirmedComment.createdAt, localComment.time, confirmedComment.time)
   )
@@ -647,12 +664,18 @@ function App() {
   const accountStatusRef = useRef<HTMLParagraphElement | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const groupAttachmentInputRef = useRef<HTMLInputElement | null>(null)
+  const channelAttachmentInputRef = useRef<HTMLInputElement | null>(null)
+  const threadAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const channelsPanelRef = useRef<HTMLDivElement | null>(null)
   const channelAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const groupAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const channelAvatarObjectUrlsRef = useRef(new Set<string>())
   const localMessageAttachmentObjectUrlsRef = useRef(new Set<string>())
+  const chatAttachmentSelectionTokenRef = useRef(0)
+  const groupAttachmentSelectionTokenRef = useRef(0)
+  const channelAttachmentSelectionTokenRef = useRef(0)
+  const threadAttachmentSelectionTokenRef = useRef(0)
   const nextOptimisticMessageIdRef = useRef(-1)
   const pendingRetryInFlightRef = useRef(false)
   const pendingGroupThreadCommentsRef = useRef<PendingGroupThreadComment[]>([])
@@ -702,8 +725,11 @@ function App() {
   const [chatMessageDrafts, setChatMessageDrafts] = useState<Record<number, string>>({})
   const [groupMessageDrafts, setGroupMessageDrafts] = useState<Record<number, string>>({})
   const [channelPostDrafts, setChannelPostDrafts] = useState<Record<number, string>>({})
-  const [chatAttachmentDrafts, setChatAttachmentDrafts] = useState<Record<number, PendingAttachmentDraft | undefined>>({})
-  const [groupAttachmentDrafts, setGroupAttachmentDrafts] = useState<Record<number, PendingAttachmentDraft | undefined>>({})
+  const [chatAttachmentDrafts, setChatAttachmentDrafts] = useState<Record<number, ComposerAttachmentDraft | undefined>>({})
+  const [groupAttachmentDrafts, setGroupAttachmentDrafts] = useState<Record<number, ComposerAttachmentDraft | undefined>>({})
+  const [channelAttachmentDrafts, setChannelAttachmentDrafts] = useState<Record<number, ComposerAttachmentDraft | undefined>>({})
+  const [threadAttachmentDraft, setThreadAttachmentDraft] = useState<ComposerAttachmentDraft | undefined>(undefined)
+  const [mediaViewerAttachment, setMediaViewerAttachment] = useState<MessageAttachment | null>(null)
   const [pendingGroupThreadComments, setPendingGroupThreadComments] = useState<PendingGroupThreadComment[]>([])
   const [pendingChannelThreadComments, setPendingChannelThreadComments] = useState<PendingChannelThreadComment[]>([])
   const [activeFilter, setActiveFilter] = useState('Все')
@@ -1354,7 +1380,13 @@ function App() {
   }
 
   function handleThreadComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (!threadDraft.trim() || threadBusy) return
+    if (
+      threadBusy ||
+      (!threadAttachmentDraft && !threadDraft.trim()) ||
+      (threadAttachmentDraft ? threadAttachmentDraft.status !== 'ready' : false)
+    ) {
+      return
+    }
     if (
       !shouldSubmitComposerWithEnter({
         key: event.key,
@@ -1707,6 +1739,9 @@ function App() {
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
   const totalThreadNotifications = threadInbox.reduce((sum, item) => sum + item.unreadCount, 0)
   const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
+  const openPremiumUpsell = useCallback(() => {
+    setStageView('premium')
+  }, [])
   const profilePreviewSession =
     session && profileSettingsDraft
       ? {
@@ -2172,6 +2207,10 @@ function App() {
   }, [persistSession])
 
   const logout = useCallback(() => {
+    Object.values(chatAttachmentDrafts).forEach((draft) => releaseComposerAttachmentDraft(draft))
+    Object.values(groupAttachmentDrafts).forEach((draft) => releaseComposerAttachmentDraft(draft))
+    Object.values(channelAttachmentDrafts).forEach((draft) => releaseComposerAttachmentDraft(draft))
+    releaseComposerAttachmentDraft(threadAttachmentDraft)
     persistSession(null)
     setBackendReady(false)
     setIdentifier('')
@@ -2184,6 +2223,8 @@ function App() {
     setChannelPostDrafts({})
     setChatAttachmentDrafts({})
     setGroupAttachmentDrafts({})
+    setChannelAttachmentDrafts({})
+    setThreadAttachmentDraft(undefined)
     setChannelPostBusy(false)
     setChannelPostError('')
     setChannelPostReplyTarget(null)
@@ -2213,7 +2254,15 @@ function App() {
     resetRoomMessageActions()
     clearPendingMessages()
     setMessageActionAnchor(null)
-  }, [clearPendingMessages, persistSession, resetRoomMessageActions])
+  }, [
+    channelAttachmentDrafts,
+    chatAttachmentDrafts,
+    clearPendingMessages,
+    groupAttachmentDrafts,
+    persistSession,
+    resetRoomMessageActions,
+    threadAttachmentDraft,
+  ])
 
   const playAudioCue = useCallback((path: string) => {
     if (typeof window === 'undefined' || quietMode || session?.soundsDisabled) return
@@ -2355,6 +2404,7 @@ function App() {
           .filter((comment) => !existingIds.has(comment.localId))
           .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
           .map((comment) => ({
+            attachment: comment.attachment,
             author: 'me' as const,
             authorIdentifier: comment.authorIdentifier,
             createdAt: comment.createdAt,
@@ -2414,6 +2464,7 @@ function App() {
           .filter((comment) => !existingIds.has(comment.localId))
           .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
           .map((comment) => ({
+            attachment: comment.attachment,
             author: 'me' as const,
             authorIdentifier: comment.authorIdentifier,
             createdAt: comment.createdAt,
@@ -2915,10 +2966,7 @@ function App() {
       ...currentDrafts,
       [chatId]: '',
     }))
-    setChatAttachmentDrafts((currentAttachments) => ({
-      ...currentAttachments,
-      [chatId]: undefined,
-    }))
+    clearChatAttachmentDraft(chatId)
   }
 
   function clearGroupComposer(groupId: number) {
@@ -2926,10 +2974,62 @@ function App() {
       ...currentDrafts,
       [groupId]: '',
     }))
-    setGroupAttachmentDrafts((currentAttachments) => ({
-      ...currentAttachments,
-      [groupId]: undefined,
-    }))
+    clearGroupAttachmentDraft(groupId)
+  }
+
+  function clearChatAttachmentDraft(chatId: number) {
+    chatAttachmentSelectionTokenRef.current += 1
+    setChatAttachmentDrafts((currentAttachments) => {
+      const currentDraft = currentAttachments[chatId]
+      releaseComposerAttachmentDraft(currentDraft)
+
+      return {
+        ...currentAttachments,
+        [chatId]: undefined,
+      }
+    })
+  }
+
+  function clearGroupAttachmentDraft(groupId: number) {
+    groupAttachmentSelectionTokenRef.current += 1
+    setGroupAttachmentDrafts((currentAttachments) => {
+      const currentDraft = currentAttachments[groupId]
+      releaseComposerAttachmentDraft(currentDraft)
+
+      return {
+        ...currentAttachments,
+        [groupId]: undefined,
+      }
+    })
+  }
+
+  function clearChannelAttachmentDraft(channelId: number) {
+    channelAttachmentSelectionTokenRef.current += 1
+    setChannelAttachmentDrafts((currentAttachments) => {
+      const currentDraft = currentAttachments[channelId]
+      releaseComposerAttachmentDraft(currentDraft)
+
+      return {
+        ...currentAttachments,
+        [channelId]: undefined,
+      }
+    })
+  }
+
+  function clearThreadAttachmentDraft() {
+    threadAttachmentSelectionTokenRef.current += 1
+    setThreadAttachmentDraft((currentDraft) => {
+      releaseComposerAttachmentDraft(currentDraft)
+      return undefined
+    })
+  }
+
+  function openMediaViewer(attachment: MessageAttachment) {
+    setMediaViewerAttachment(attachment)
+  }
+
+  function closeMediaViewer() {
+    setMediaViewerAttachment(null)
   }
 
   function applyLocalDialogRead(chatId: number) {
@@ -3218,6 +3318,7 @@ function App() {
     text: string,
     replyTo?: Message['replyTo'],
     options?: {
+      attachment?: Message['attachment']
       authorIdentifier?: string
       createdAt?: string
       deliveryId?: string
@@ -3243,6 +3344,7 @@ function App() {
                       threadComments: [
                         ...(message.threadComments ?? []),
                         {
+                          attachment: options?.attachment,
                           author: 'me',
                           authorIdentifier: options?.authorIdentifier ?? session?.identifier,
                           createdAt,
@@ -3267,6 +3369,7 @@ function App() {
     text: string,
     replyTo?: Message['replyTo'],
     options?: {
+      attachment?: Message['attachment']
       authorIdentifier?: string
       createdAt?: string
       deliveryId?: string
@@ -3292,6 +3395,7 @@ function App() {
                       threadComments: [
                         ...(post.threadComments ?? []),
                         {
+                          attachment: options?.attachment,
                           author: 'me',
                           authorIdentifier: options?.authorIdentifier ?? session?.identifier,
                           createdAt,
@@ -3350,19 +3454,31 @@ function App() {
     )
   }
 
-  function applyLocalManagedChannelPost(managedChannel: Channel, text: string) {
-    const createdAt = new Date().toISOString()
-    const time = formatNowTime()
+  function applyLocalManagedChannelPost(
+    managedChannel: Channel,
+    text: string,
+    options?: {
+      attachment?: Message['attachment']
+      createdAt?: string
+      replyTo?: Message['replyTo']
+      time?: string
+    },
+  ) {
+    const createdAt = options?.createdAt ?? new Date().toISOString()
+    const time = options?.time ?? formatNowTime()
     const nextPost = {
+      attachment: options?.attachment,
       createdAt,
       id: Date.now(),
-      replyTo: channelPostReplyTarget
-        ? {
-            author: channelPostReplyTarget.author,
-            id: channelPostReplyTarget.id,
-            text: channelPostReplyTarget.text,
-          }
-        : undefined,
+      replyTo:
+        options?.replyTo ??
+        (channelPostReplyTarget
+          ? {
+              author: channelPostReplyTarget.author,
+              id: channelPostReplyTarget.id,
+              text: channelPostReplyTarget.text,
+            }
+          : undefined),
       text,
       threadComments: [],
       time,
@@ -3383,7 +3499,7 @@ function App() {
                 managedChannel.commentsEnabledForPremium ?? channel.commentsEnabledForPremium,
               latestActivityAt: createdAt,
               posts: [...channel.posts, nextPost],
-              preview: text,
+              preview: text || (options?.attachment ? `Файл: ${options.attachment.fileName}` : channel.preview),
               time,
               unread: 0,
             }
@@ -3502,21 +3618,32 @@ function App() {
       return nextDrafts
     })
     setChatAttachmentDrafts((currentAttachments) => {
+      releaseComposerAttachmentDraft(currentAttachments[chatId])
       const nextAttachments = { ...currentAttachments }
       delete nextAttachments[chatId]
       return nextAttachments
     })
   }
 
-  function buildMessageAttachmentFromDraft(attachmentDraft?: PendingAttachmentDraft) {
+  function buildMessageAttachmentFromDraft(attachmentDraft?: {
+    file?: File
+    fileName: string
+    height?: number
+    mediaUrl?: string
+    mimeType: string
+    size: number
+    width?: number
+  }) {
     if (!attachmentDraft) return undefined
 
     if (attachmentDraft.mediaUrl) {
       return {
         fileName: attachmentDraft.fileName,
+        height: attachmentDraft.height,
         mediaUrl: attachmentDraft.mediaUrl,
         mimeType: attachmentDraft.mimeType,
         size: attachmentDraft.size,
+        width: attachmentDraft.width,
       } satisfies NonNullable<Message['attachment']>
     }
 
@@ -3527,9 +3654,11 @@ function App() {
 
     return {
       fileName: attachmentDraft.fileName,
+      height: attachmentDraft.height,
       mediaUrl: localMediaUrl,
       mimeType: attachmentDraft.mimeType,
       size: attachmentDraft.size,
+      width: attachmentDraft.width,
     } satisfies NonNullable<Message['attachment']>
   }
 
@@ -3548,9 +3677,11 @@ function App() {
       return {
         attachment: {
           fileName: attachmentDraft.fileName,
+          height: attachmentDraft.height,
           mediaUrl: attachmentDraft.mediaUrl,
           mimeType: attachmentDraft.mimeType,
           size: attachmentDraft.size,
+          width: attachmentDraft.width,
         } satisfies NonNullable<Message['attachment']>,
         attachmentDraft,
       }
@@ -3564,16 +3695,20 @@ function App() {
 
     return {
       attachment: {
-        fileName: uploadedMedia.fileName,
+        fileName: attachmentDraft.fileName,
+        height: attachmentDraft.height,
         mediaUrl: uploadedMedia.mediaUrl,
         mimeType: uploadedMedia.mimeType,
         size: uploadedMedia.size,
+        width: attachmentDraft.width,
       } satisfies NonNullable<Message['attachment']>,
       attachmentDraft: {
-        fileName: uploadedMedia.fileName,
+        fileName: attachmentDraft.fileName,
+        height: attachmentDraft.height,
         mediaUrl: uploadedMedia.mediaUrl,
         mimeType: uploadedMedia.mimeType,
         size: uploadedMedia.size,
+        width: attachmentDraft.width,
       } satisfies PendingAttachmentDraft,
     }
   }
@@ -3591,29 +3726,60 @@ function App() {
     )
   }
 
-  async function createPendingAttachmentDraft(file: File) {
-    // Chat and group composers share the same upload contract, so one helper keeps
-    // the draft -> upload -> final message attachment path explicit in one place.
-    if (backendReady && session?.sessionToken) {
-      try {
-        const uploadedMedia = await uploadMediaFile(session.sessionToken, file, 'attachment')
-        return {
-          fileName: uploadedMedia.fileName,
-          mediaUrl: uploadedMedia.mediaUrl,
-          mimeType: uploadedMedia.mimeType,
-          size: uploadedMedia.size,
-        } satisfies PendingAttachmentDraft
-      } catch (error) {
-        console.error('Failed to upload attachment draft', error)
-      }
-    }
+  async function createComposerDraft(file: File, options?: { previewUrl?: string }) {
+    return await buildComposerAttachmentDraft(file, options)
+  }
 
-    return {
-      file,
-      fileName: file.name,
-      mimeType: file.type || 'application/octet-stream',
-      size: file.size,
-    } satisfies PendingAttachmentDraft
+  function toggleChatAttachmentSendOriginal(chatId: number) {
+    setChatAttachmentDrafts((currentAttachments) => {
+      const currentDraft = currentAttachments[chatId]
+      if (!currentDraft || currentDraft.kind !== 'image' || currentDraft.status !== 'ready') {
+        return currentAttachments
+      }
+
+      return {
+        ...currentAttachments,
+        [chatId]: setComposerAttachmentSendOriginal(currentDraft, !currentDraft.sendOriginal),
+      }
+    })
+  }
+
+  function toggleGroupAttachmentSendOriginal(groupId: number) {
+    setGroupAttachmentDrafts((currentAttachments) => {
+      const currentDraft = currentAttachments[groupId]
+      if (!currentDraft || currentDraft.kind !== 'image' || currentDraft.status !== 'ready') {
+        return currentAttachments
+      }
+
+      return {
+        ...currentAttachments,
+        [groupId]: setComposerAttachmentSendOriginal(currentDraft, !currentDraft.sendOriginal),
+      }
+    })
+  }
+
+  function toggleChannelAttachmentSendOriginal(channelId: number) {
+    setChannelAttachmentDrafts((currentAttachments) => {
+      const currentDraft = currentAttachments[channelId]
+      if (!currentDraft || currentDraft.kind !== 'image' || currentDraft.status !== 'ready') {
+        return currentAttachments
+      }
+
+      return {
+        ...currentAttachments,
+        [channelId]: setComposerAttachmentSendOriginal(currentDraft, !currentDraft.sendOriginal),
+      }
+    })
+  }
+
+  function toggleThreadAttachmentSendOriginal() {
+    setThreadAttachmentDraft((currentDraft) => {
+      if (!currentDraft || currentDraft.kind !== 'image' || currentDraft.status !== 'ready') {
+        return currentDraft
+      }
+
+      return setComposerAttachmentSendOriginal(currentDraft, !currentDraft.sendOriginal)
+    })
   }
 
   function applyLocalDeleteContact(chatId: number) {
@@ -4192,6 +4358,7 @@ function App() {
     const chatId = activeChat.id
     const text = (chatMessageDrafts[chatId] ?? '').trim()
     const attachmentDraft = chatAttachmentDrafts[chatId]
+    if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = replyTarget
       ? {
           author: replyTarget.author,
@@ -4211,7 +4378,7 @@ function App() {
     const time = formatNowTime()
     const pendingMessage: PendingDirectMessage = {
       attachment,
-      attachmentDraft,
+      attachmentDraft: buildPendingAttachmentDraft(attachmentDraft),
       chatId,
       createdAt,
       deliveryId,
@@ -4231,8 +4398,24 @@ function App() {
 
     if (backendReady && session?.sessionToken) {
       try {
+        const resolvedAttachment = await resolvePendingAttachmentForSend(
+          session.sessionToken,
+          pendingMessage.attachmentDraft,
+        )
+
+        if (
+          resolvedAttachment.attachmentDraft?.mediaUrl &&
+          resolvedAttachment.attachmentDraft.mediaUrl !== pendingMessage.attachmentDraft?.mediaUrl
+        ) {
+          updatePendingDirectMessage(localId, (message) => ({
+            ...message,
+            attachment: resolvedAttachment.attachment,
+            attachmentDraft: resolvedAttachment.attachmentDraft,
+          }))
+        }
+
         const response = await sendDirectMessageRequest(session.sessionToken, chatId, {
-          attachment,
+          attachment: resolvedAttachment.attachment,
           clientDeliveryId: deliveryId,
           markAsRead: true,
           replyTo,
@@ -4289,6 +4472,7 @@ function App() {
     const groupId = activeGroup.id
     const text = (groupMessageDrafts[groupId] ?? '').trim()
     const attachmentDraft = groupAttachmentDrafts[groupId]
+    if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = replyTarget
       ? {
           author: replyTarget.author,
@@ -4307,7 +4491,7 @@ function App() {
     const time = formatNowTime()
     const pendingMessage: PendingGroupMessage = {
       attachment,
-      attachmentDraft,
+      attachmentDraft: buildPendingAttachmentDraft(attachmentDraft),
       createdAt,
       deliveryId,
       groupId,
@@ -4328,8 +4512,24 @@ function App() {
 
     if (backendReady && session?.sessionToken) {
       try {
+        const resolvedAttachment = await resolvePendingAttachmentForSend(
+          session.sessionToken,
+          pendingMessage.attachmentDraft,
+        )
+
+        if (
+          resolvedAttachment.attachmentDraft?.mediaUrl &&
+          resolvedAttachment.attachmentDraft.mediaUrl !== pendingMessage.attachmentDraft?.mediaUrl
+        ) {
+          updatePendingGroupMessage(localId, (message) => ({
+            ...message,
+            attachment: resolvedAttachment.attachment,
+            attachmentDraft: resolvedAttachment.attachmentDraft,
+          }))
+        }
+
         const response = await sendGroupMessageRequest(session.sessionToken, groupId, {
-          attachment,
+          attachment: resolvedAttachment.attachment,
           clientDeliveryId: deliveryId,
           replyTo,
           text,
@@ -4362,7 +4562,10 @@ function App() {
     if (!ownedCurrentManagedChannel || !currentSubscriptionChannel) return
 
     const text = (channelPostDrafts[currentSubscriptionChannel.id] ?? '').trim()
-    if (!text) return
+    const attachmentDraft = channelAttachmentDrafts[currentSubscriptionChannel.id]
+    if (attachmentDraft && attachmentDraft.status !== 'ready') return
+    const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
+    if (!text && !attachment) return
     const replyTo = channelPostReplyTarget
       ? {
           author: channelPostReplyTarget.author,
@@ -4376,10 +4579,17 @@ function App() {
     setChannelPostBusy(true)
     setChannelPostError('')
 
-    const requestBody: SendManagedChannelPostBody = { replyTo, text }
-
     if (backendReady && session?.sessionToken) {
       try {
+        const resolvedAttachment = await resolvePendingAttachmentForSend(
+          session.sessionToken,
+          buildPendingAttachmentDraft(attachmentDraft),
+        )
+        const requestBody: SendManagedChannelPostBody = {
+          attachment: resolvedAttachment.attachment,
+          replyTo,
+          text,
+        }
         const response = await sendManagedChannelPostRequest(
           session.sessionToken,
           ownedCurrentManagedChannel.id,
@@ -4402,6 +4612,12 @@ function App() {
             setPreviewSubscriptionChannel(matchedChannel)
           }
         }
+        setChannelPostDrafts((currentDrafts) => ({
+          ...currentDrafts,
+          [currentSubscriptionChannel.id]: '',
+        }))
+        clearChannelAttachmentDraft(currentSubscriptionChannel.id)
+        setChannelPostReplyTarget(null)
       } catch (error) {
         console.error('Failed to send managed channel post', error)
         if (isExpiredSessionError(error)) {
@@ -4417,19 +4633,25 @@ function App() {
         return
       }
     } else {
-      applyLocalManagedChannelPost(ownedCurrentManagedChannel, text)
+      applyLocalManagedChannelPost(ownedCurrentManagedChannel, text, {
+        attachment,
+        replyTo,
+      })
+      setChannelPostDrafts((currentDrafts) => ({
+        ...currentDrafts,
+        [currentSubscriptionChannel.id]: '',
+      }))
+      clearChannelAttachmentDraft(currentSubscriptionChannel.id)
+      setChannelPostReplyTarget(null)
     }
-
-    setChannelPostDrafts((currentDrafts) => ({
-      ...currentDrafts,
-      [currentSubscriptionChannel.id]: '',
-    }))
-    setChannelPostReplyTarget(null)
     setChannelPostBusy(false)
   }
 
-  function openAttachmentPicker() {
-    attachmentInputRef.current?.click()
+  function openAttachmentPicker(mode: 'file' | 'photo') {
+    if (!attachmentInputRef.current) return
+
+    attachmentInputRef.current.accept = mode === 'photo' ? 'image/*' : ''
+    attachmentInputRef.current.click()
   }
 
   async function handleChatAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
@@ -4437,21 +4659,44 @@ function App() {
 
     if (!file || !activeChat) {
       event.target.value = ''
+      event.target.accept = ''
       return
     }
 
-    const nextAttachmentDraft = await createPendingAttachmentDraft(file)
-    setChatAttachmentDrafts((currentAttachments) => ({
-      ...currentAttachments,
-      [activeChat.id]: nextAttachmentDraft,
-    }))
+    const chatId = activeChat.id
+    const selectionToken = ++chatAttachmentSelectionTokenRef.current
+    const preparingDraft = createPreparingComposerAttachmentDraft(file)
+    setChatAttachmentDrafts((currentAttachments) => {
+      releaseComposerAttachmentDraft(currentAttachments[chatId])
+      return {
+        ...currentAttachments,
+        [chatId]: preparingDraft,
+      }
+    })
+
+    const nextAttachmentDraft = await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl })
+    setChatAttachmentDrafts((currentAttachments) => {
+      if (selectionToken !== chatAttachmentSelectionTokenRef.current) {
+        releaseComposerAttachmentDraft(nextAttachmentDraft)
+        return currentAttachments
+      }
+
+      return {
+        ...currentAttachments,
+        [chatId]: nextAttachmentDraft,
+      }
+    })
 
     // Reset the native file input so selecting the same file again still fires onChange.
     event.target.value = ''
+    event.target.accept = ''
   }
 
-  function openGroupAttachmentPicker() {
-    groupAttachmentInputRef.current?.click()
+  function openGroupAttachmentPicker(mode: 'file' | 'photo') {
+    if (!groupAttachmentInputRef.current) return
+
+    groupAttachmentInputRef.current.accept = mode === 'photo' ? 'image/*' : ''
+    groupAttachmentInputRef.current.click()
   }
 
   async function handleGroupAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
@@ -4459,16 +4704,117 @@ function App() {
 
     if (!file || !activeGroup) {
       event.target.value = ''
+      event.target.accept = ''
       return
     }
 
-    const nextAttachmentDraft = await createPendingAttachmentDraft(file)
-    setGroupAttachmentDrafts((currentAttachments) => ({
-      ...currentAttachments,
-      [activeGroup.id]: nextAttachmentDraft,
-    }))
+    const groupId = activeGroup.id
+    const selectionToken = ++groupAttachmentSelectionTokenRef.current
+    const preparingDraft = createPreparingComposerAttachmentDraft(file)
+    setGroupAttachmentDrafts((currentAttachments) => {
+      releaseComposerAttachmentDraft(currentAttachments[groupId])
+      return {
+        ...currentAttachments,
+        [groupId]: preparingDraft,
+      }
+    })
+
+    const nextAttachmentDraft = await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl })
+    setGroupAttachmentDrafts((currentAttachments) => {
+      if (selectionToken !== groupAttachmentSelectionTokenRef.current) {
+        releaseComposerAttachmentDraft(nextAttachmentDraft)
+        return currentAttachments
+      }
+
+      return {
+        ...currentAttachments,
+        [groupId]: nextAttachmentDraft,
+      }
+    })
 
     event.target.value = ''
+    event.target.accept = ''
+  }
+
+  function openChannelAttachmentPicker(mode: 'file' | 'photo') {
+    if (!channelAttachmentInputRef.current) return
+
+    channelAttachmentInputRef.current.accept = mode === 'photo' ? 'image/*' : ''
+    channelAttachmentInputRef.current.click()
+  }
+
+  async function handleChannelAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+
+    if (!file || !currentSubscriptionChannel) {
+      event.target.value = ''
+      event.target.accept = ''
+      return
+    }
+
+    const channelId = currentSubscriptionChannel.id
+    const selectionToken = ++channelAttachmentSelectionTokenRef.current
+    const preparingDraft = createPreparingComposerAttachmentDraft(file)
+    setChannelAttachmentDrafts((currentAttachments) => {
+      releaseComposerAttachmentDraft(currentAttachments[channelId])
+      return {
+        ...currentAttachments,
+        [channelId]: preparingDraft,
+      }
+    })
+
+    const nextAttachmentDraft = await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl })
+    setChannelAttachmentDrafts((currentAttachments) => {
+      if (selectionToken !== channelAttachmentSelectionTokenRef.current) {
+        releaseComposerAttachmentDraft(nextAttachmentDraft)
+        return currentAttachments
+      }
+
+      return {
+        ...currentAttachments,
+        [channelId]: nextAttachmentDraft,
+      }
+    })
+
+    event.target.value = ''
+    event.target.accept = ''
+  }
+
+  function openThreadAttachmentPicker(mode: 'file' | 'photo') {
+    if (!threadAttachmentInputRef.current) return
+
+    threadAttachmentInputRef.current.accept = mode === 'photo' ? 'image/*' : ''
+    threadAttachmentInputRef.current.click()
+  }
+
+  async function handleThreadAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+
+    if (!file || !threadTarget) {
+      event.target.value = ''
+      event.target.accept = ''
+      return
+    }
+
+    const selectionToken = ++threadAttachmentSelectionTokenRef.current
+    const preparingDraft = createPreparingComposerAttachmentDraft(file)
+    setThreadAttachmentDraft((currentDraft) => {
+      releaseComposerAttachmentDraft(currentDraft)
+      return preparingDraft
+    })
+
+    const nextAttachmentDraft = await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl })
+    setThreadAttachmentDraft((currentDraft) => {
+      if (selectionToken !== threadAttachmentSelectionTokenRef.current) {
+        releaseComposerAttachmentDraft(nextAttachmentDraft)
+        return currentDraft
+      }
+
+      return nextAttachmentDraft
+    })
+
+    event.target.value = ''
+    event.target.accept = ''
   }
 
   function closeActiveRoom() {
@@ -5219,24 +5565,29 @@ function App() {
 
   function openGroupThread(messageId: number) {
     if (!activeGroup) return
+    clearThreadAttachmentDraft()
     openThread({ groupId: activeGroup.id, kind: 'group', messageId })
     resetGroupMessageActions()
   }
 
   function openChannelThread(postId: number) {
     if (!currentSubscriptionChannel) return
+    clearThreadAttachmentDraft()
     openThread({ channelId: currentSubscriptionChannel.id, kind: 'channel', postId })
     resetSubscriptionPostActions()
   }
 
   const closeThreadView = useCallback(() => {
+    clearThreadAttachmentDraft()
     closeThreadFlowView()
     resetBlacklistFlow()
   }, [closeThreadFlowView, resetBlacklistFlow])
 
   async function submitThreadComment() {
     const text = threadDraft.trim()
-    if (!text || !threadTarget) return
+    const attachmentDraft = threadAttachmentDraft
+    if (!threadTarget) return
+    if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = threadReplyTarget
       ? {
           author: threadReplyTarget.author,
@@ -5244,6 +5595,9 @@ function App() {
           text: threadReplyTarget.text,
         }
       : undefined
+    const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
+
+    if (!text && !attachment) return
 
     playSendSound()
 
@@ -5255,6 +5609,8 @@ function App() {
     const pendingGroupThreadComment =
       threadTarget.kind === 'group'
         ? ({
+            attachment,
+            attachmentDraft: buildPendingAttachmentDraft(attachmentDraft),
             authorIdentifier: session?.identifier,
             createdAt,
             deliveryId,
@@ -5271,6 +5627,8 @@ function App() {
     const pendingChannelThreadComment =
       threadTarget.kind === 'channel'
         ? ({
+            attachment,
+            attachmentDraft: buildPendingAttachmentDraft(attachmentDraft),
             authorIdentifier: session?.identifier,
             channelId: threadTarget.channelId,
             createdAt,
@@ -5286,6 +5644,7 @@ function App() {
 
     if (threadTarget.kind === 'group') {
       applyLocalGroupThreadComment(threadTarget.groupId, threadTarget.messageId, text, replyTo, {
+        attachment,
         authorIdentifier: session?.identifier,
         createdAt,
         deliveryId,
@@ -5303,6 +5662,7 @@ function App() {
       }
     } else {
       applyLocalSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, text, replyTo, {
+        attachment,
         authorIdentifier: session?.identifier,
         createdAt,
         deliveryId,
@@ -5321,17 +5681,28 @@ function App() {
     }
 
     resetThreadComposer()
+    clearThreadAttachmentDraft()
     setThreadBusy(true)
     setThreadError('')
 
     try {
       if (threadTarget.kind === 'group') {
         if (backendReady && session?.sessionToken) {
+          const resolvedAttachment = await resolvePendingAttachmentForSend(
+            session.sessionToken,
+            pendingGroupThreadComment?.attachmentDraft,
+          )
+
           const response = await sendGroupThreadCommentRequest(
             session.sessionToken,
             threadTarget.groupId,
             threadTarget.messageId,
-            { clientDeliveryId: deliveryId, replyTo, text },
+            {
+              attachment: resolvedAttachment.attachment,
+              clientDeliveryId: deliveryId,
+              replyTo,
+              text,
+            },
           )
           removePendingGroupThreadComment(localId)
           applySnapshot(response.snapshot)
@@ -5341,11 +5712,21 @@ function App() {
         }
       } else {
         if (backendReady && session?.sessionToken) {
+          const resolvedAttachment = await resolvePendingAttachmentForSend(
+            session.sessionToken,
+            pendingChannelThreadComment?.attachmentDraft,
+          )
+
           const response = await sendSubscriptionChannelThreadCommentRequest(
             session.sessionToken,
             threadTarget.channelId,
             threadTarget.postId,
-            { clientDeliveryId: deliveryId, replyTo, text },
+            {
+              attachment: resolvedAttachment.attachment,
+              clientDeliveryId: deliveryId,
+              replyTo,
+              text,
+            },
           )
           removePendingChannelThreadComment(localId)
           applySnapshot(response.snapshot)
@@ -7261,6 +7642,7 @@ function App() {
           anchor={subscriptionPostActionAnchor}
           channelTitle={currentSubscriptionChannel?.title ?? ''}
           kind="channel"
+          onOpenAttachment={openMediaViewer}
           post={activeSubscriptionPost}
           draft={Boolean(currentSubscriptionChannel?.draft)}
         />
@@ -7546,6 +7928,7 @@ function App() {
                       ...threadGroupMessage,
                       text: threadSourceText,
                     }}
+                    onOpenAttachment={openMediaViewer}
                     showReplyInline={false}
                   />
                   <time>{threadSourceTime}</time>
@@ -7582,6 +7965,7 @@ function App() {
                       ...threadChannelPost,
                       text: threadSourceText,
                     }}
+                    onOpenAttachment={openMediaViewer}
                     showReplyInline={false}
                   />
                   <time>{threadSourceTime}</time>
@@ -7648,11 +8032,12 @@ function App() {
                       )}
                       <BubbleMessageContent
                         message={{
-                          attachment: undefined,
+                          attachment: comment.attachment,
                           replyTo: comment.replyTo,
                           sourceGroup: undefined,
                           text: comment.text,
                         }}
+                        onOpenAttachment={openMediaViewer}
                         showReplyInline={false}
                       />
                       <time>{comment.time}</time>
@@ -7699,10 +8084,31 @@ function App() {
               ) : null}
               <div className="composer-entry">
                 <div className="composer-field">
+                  {threadAttachmentDraft ? (
+                    <ComposerAttachmentPreview
+                      attachmentDraft={threadAttachmentDraft}
+                      onClear={clearThreadAttachmentDraft}
+                      onOpenPremiumUpsell={openPremiumUpsell}
+                      onToggleSendOriginal={toggleThreadAttachmentSendOriginal}
+                      premiumUnlocked={sessionHasPremium}
+                    />
+                  ) : null}
+                  <input
+                    ref={threadAttachmentInputRef}
+                    type="file"
+                    className="composer-attachment-input"
+                    onChange={handleThreadAttachmentChange}
+                  />
                   <textarea
                     ref={threadComposerInputRef}
                     rows={1}
-                    placeholder="Напишите комментарий..."
+                    placeholder={
+                      threadAttachmentDraft
+                        ? threadAttachmentDraft.mimeType.startsWith('image/')
+                          ? 'Добавьте подпись к фотографии...'
+                          : 'Добавьте подпись к файлу...'
+                        : 'Напишите комментарий...'
+                    }
                     value={threadDraft}
                     onChange={(event) => setThreadDraft(event.target.value)}
                     onKeyDown={handleThreadComposerKeyDown}
@@ -7718,8 +8124,21 @@ function App() {
                         )
                       }
                     />
-                    {threadDraft.trim() ? (
-                      <button type="submit" className="send-button composer-send" disabled={threadBusy}>
+                    <ComposerAttachmentPicker
+                      attachmentName={threadAttachmentDraft?.fileName ?? ''}
+                      onSelectMode={openThreadAttachmentPicker}
+                    />
+                    {threadDraft.trim() || threadAttachmentDraft ? (
+                      <button
+                        type="submit"
+                        className="send-button composer-send"
+                        disabled={
+                          threadBusy ||
+                          (threadAttachmentDraft
+                            ? threadAttachmentDraft.status !== 'ready'
+                            : !threadDraft.trim())
+                        }
+                      >
                         <span className="composer-send-icon" aria-hidden="true">
                           <img src="/icons/sent.png" alt="" />
                         </span>
@@ -7750,6 +8169,7 @@ function App() {
               kind="thread-comment"
               comment={activeThreadComment}
               mine={activeThreadComment.author === 'me'}
+              onOpenAttachment={openMediaViewer}
               participant={activeThreadCommentParticipant}
             />
           ) : null}
@@ -8387,6 +8807,7 @@ function App() {
           linkedChannel={activeGroupMessage ? resolveEmbeddedChannelFromMessage(activeGroupMessage) : null}
           message={activeGroupMessage}
           mine={activeGroupMessage.author === 'me'}
+          onOpenAttachment={openMediaViewer}
           participant={activeGroupMessageParticipant}
         />
       ) : null}
@@ -10604,11 +11025,21 @@ function App() {
             publisher={
               ownedCurrentManagedChannel
                 ? {
+                    attachmentDraft: channelAttachmentDrafts[currentSubscriptionChannel!.id],
+                    attachmentInputRef: channelAttachmentInputRef,
+                    attachmentName: channelAttachmentDrafts[currentSubscriptionChannel!.id]?.fileName ?? '',
                     draft: channelPostDrafts[currentSubscriptionChannel!.id] ?? '',
                     error: channelPostError,
                     isBusy: channelPostBusy,
+                    onAttachmentChange: handleChannelAttachmentChange,
+                    onAttachmentClear: () => clearChannelAttachmentDraft(currentSubscriptionChannel!.id),
                     onDraftChange: (value) => updateChannelPostDraft(currentSubscriptionChannel!.id, value),
+                    onOpenAttachmentPicker: openChannelAttachmentPicker,
+                    onOpenPremiumUpsell: openPremiumUpsell,
                     onReplyCancel: () => setChannelPostReplyTarget(null),
+                    onToggleSendOriginal: () =>
+                      toggleChannelAttachmentSendOriginal(currentSubscriptionChannel!.id),
+                    premiumUnlocked: sessionHasPremium,
                     replyTarget: channelPostReplyTarget,
                     onSubmit: () => {
                       void sendManagedChannelPost()
@@ -10625,6 +11056,7 @@ function App() {
                 : undefined
             }
             subscriberCountLabel={currentSubscriptionChannelSubscriberLabel}
+            onOpenAttachment={openMediaViewer}
           />
         ) : null}
 
@@ -10637,6 +11069,7 @@ function App() {
               </>
             }
             activeMessageId={forwardingGroupMessageText ? null : activeGroupMessageId}
+            attachmentDraft={groupAttachmentDrafts[activeGroup.id]}
             attachmentInputRef={groupAttachmentInputRef}
             attachmentName={groupAttachmentDrafts[activeGroup.id]?.fileName ?? ''}
             draft={groupMessageDrafts[activeGroup.id] ?? ''}
@@ -10644,6 +11077,7 @@ function App() {
             group={activeGroup}
             messageFeedRef={messageFeedRef}
             onAttachmentChange={handleGroupAttachmentChange}
+            onAttachmentClear={() => clearGroupAttachmentDraft(activeGroup.id)}
             onOpenGroupActions={(event) => {
               scheduleActionAnchor(event.currentTarget, 'end', setGroupActionsAnchor)
               resetGroupMessageActions()
@@ -10667,13 +11101,17 @@ function App() {
                 (anchor) => openGroupMessageActions(message.id, anchor),
               )
             }}
+            onOpenAttachment={openMediaViewer}
             onOpenLinkedChannel={openSourceChannel}
             onOpenParticipants={() => setGroupParticipantsOpen(true)}
             onReplyCancel={() => setReplyTarget(null)}
             onReplyReferenceJump={scrollToGroupMessage}
+            onOpenPremiumUpsell={openPremiumUpsell}
             onOpenSourceChannel={openSourceChannelFromMessage}
             onOpenAttachmentPicker={openGroupAttachmentPicker}
             onOpenThread={openGroupThread}
+            onToggleSendOriginal={() => toggleGroupAttachmentSendOriginal(activeGroup.id)}
+            premiumUnlocked={sessionHasPremium}
             replyTarget={replyTarget}
             resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
             visibleMessages={visibleGroupMessages}
@@ -10687,12 +11125,14 @@ function App() {
             <DirectChatRoom
               activeChat={activeChat}
               activeMessageId={messageActionMessageId}
+              attachmentDraft={chatAttachmentDrafts[activeChat.id]}
               attachmentInputRef={attachmentInputRef}
               attachmentName={chatAttachmentDrafts[activeChat.id]?.fileName ?? ''}
               chatActionsOpen={chatActionsOpen}
               draft={chatMessageDrafts[activeChat.id] ?? ''}
               getMessageDeliveryIssue={getDirectMessageDeliveryIssue}
               messageFeedRef={messageFeedRef}
+              onAttachmentClear={() => clearChatAttachmentDraft(activeChat.id)}
               pinnedMessage={pinnedMessage}
               quietMode={quietMode}
               replyTarget={replyTarget}
@@ -10714,9 +11154,11 @@ function App() {
                   setMessageActionAnchor,
                 )
               }}
+              onOpenAttachment={openMediaViewer}
               onOpenLinkedChannel={openSourceChannel}
               onOpenSourceChannel={openSourceChannelFromMessage}
               onOpenAttachmentPicker={openAttachmentPicker}
+              onOpenPremiumUpsell={openPremiumUpsell}
               onOpenPremiumGift={() => {
                 setPremiumGiftChatId(activeChat.id)
                 setStageView('premium')
@@ -10743,10 +11185,12 @@ function App() {
               }}
               resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
               onSubmit={sendMessage}
+              onToggleSendOriginal={() => toggleChatAttachmentSendOriginal(activeChat.id)}
               onToggleChatActions={() => setChatActionsOpen((current) => !current)}
               onToggleFavoriteChat={() => {
                 void togglePinnedChat(activeChat.id)
               }}
+              premiumUnlocked={sessionHasPremium}
               onUnpinMessage={() => {
                 void unpinMessage(activeChat.id)
               }}
@@ -10771,6 +11215,7 @@ function App() {
                     linkedChannel={resolveEmbeddedChannelFromMessage(activeMessage)}
                     message={activeMessage}
                     mine={activeMessage.author === 'me'}
+                    onOpenAttachment={openMediaViewer}
                     replyChatTitle={activeChat.title}
                   />
                 ) : null}
@@ -12282,6 +12727,9 @@ function App() {
         </>
       ) : null}
       </main>
+      {mediaViewerAttachment ? (
+        <MediaViewerOverlay attachment={mediaViewerAttachment} onClose={closeMediaViewer} />
+      ) : null}
       {cookieConsentBanner}
     </>
   )

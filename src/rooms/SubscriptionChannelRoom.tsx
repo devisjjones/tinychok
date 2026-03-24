@@ -1,15 +1,19 @@
-import type { KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
+import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import { Fragment, useEffect, useRef } from 'react'
+import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import {
   formatConversationDayLabel,
   getConversationDayKey,
   insertComposerTextAtCursor,
+  isImageMimeType,
   scrollFeedChildIntoView,
   shouldSubmitComposerWithEnter,
 } from '../app/utils'
-import type { ReplyTarget, SubscriptionChannel } from '../app/types'
+import type { Message, ReplyTarget, SubscriptionChannel } from '../app/types'
 import { BubbleMessageContent } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
+import { ComposerAttachmentPicker } from '../components/ComposerAttachmentPicker'
+import { ComposerAttachmentPreview } from '../components/ComposerAttachmentPreview'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { EmojiPicker } from '../components/EmojiPicker'
 import { ThreadedBubble } from '../components/ThreadedBubble'
@@ -23,15 +27,25 @@ type SubscriptionChannelRoomProps = {
   visiblePosts: SubscriptionChannel['posts']
   onOpenChannelActions?: (event: MouseEvent<HTMLButtonElement>) => void
   onOpenSubscribers?: () => void
+  onOpenAttachment: (attachment: NonNullable<Message['attachment']>) => void
   onOpenThread: (postId: number) => void
   onPostSelect: (event: MouseEvent<HTMLButtonElement>, postId: number) => void
   onReplyReferenceJump?: (postId: number) => void
   publisher?: {
+    attachmentDraft?: ComposerAttachmentDraft
+    attachmentInputRef?: RefObject<HTMLInputElement | null>
+    attachmentName?: string
     draft: string
     error?: string
     isBusy?: boolean
+    onAttachmentChange?: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
+    onAttachmentClear?: () => void
+    onOpenAttachmentPicker?: (mode: 'file' | 'photo') => void
+    onOpenPremiumUpsell?: () => void
     onReplyCancel: () => void
     onDraftChange: (value: string) => void
+    onToggleSendOriginal?: () => void
+    premiumUnlocked?: boolean
     replyTarget: ReplyTarget | null
     onSubmit: () => void
   }
@@ -51,6 +65,7 @@ export function SubscriptionChannelRoom({
   visiblePosts,
   onOpenChannelActions,
   onOpenSubscribers,
+  onOpenAttachment,
   onOpenThread,
   onPostSelect,
   onReplyReferenceJump,
@@ -59,9 +74,33 @@ export function SubscriptionChannelRoom({
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
   const publisherInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const publisherAttachmentDraft = publisher?.attachmentDraft
+  const publisherAttachmentInputRef = publisher?.attachmentInputRef
+  const publisherAttachmentName = publisher?.attachmentName ?? ''
+  const publisherDraft = publisher?.draft ?? ''
+  const publisherError = publisher?.error ?? ''
+  const publisherBusy = Boolean(publisher?.isBusy)
+  const publisherOnAttachmentChange = publisher?.onAttachmentChange
+  const publisherOnAttachmentClear = publisher?.onAttachmentClear
+  const publisherOnOpenAttachmentPicker = publisher?.onOpenAttachmentPicker
+  const publisherOnOpenPremiumUpsell = publisher?.onOpenPremiumUpsell
+  const publisherOnReplyCancel = publisher?.onReplyCancel
+  const publisherOnDraftChange = publisher?.onDraftChange
+  const publisherOnToggleSendOriginal = publisher?.onToggleSendOriginal
+  const publisherPremiumUnlocked = Boolean(publisher?.premiumUnlocked)
+  const publisherReplyTarget = publisher?.replyTarget ?? null
+  const publisherOnSubmit = publisher?.onSubmit
+  const publisherCanSubmit = publisherAttachmentDraft
+    ? publisherAttachmentDraft.status === 'ready' && !publisherBusy
+    : publisherDraft.trim().length > 0 && !publisherBusy
+  const publisherPlaceholder = publisherAttachmentDraft
+    ? isImageMimeType(publisherAttachmentDraft.mimeType)
+      ? 'Добавьте подпись к фотографии...'
+      : 'Добавьте подпись к файлу...'
+    : 'Напишите сообщение в канал...'
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (!publisher || !publisher.draft.trim() || publisher.isBusy) return
+    if (!publisher || (!publisherDraft.trim() && !publisherAttachmentDraft) || !publisherCanSubmit) return
     if (
       !shouldSubmitComposerWithEnter({
         key: event.key,
@@ -76,7 +115,7 @@ export function SubscriptionChannelRoom({
     }
 
     event.preventDefault()
-    publisher.onSubmit()
+    publisherOnSubmit?.()
   }
 
   function jumpToPost(postId: number) {
@@ -91,12 +130,12 @@ export function SubscriptionChannelRoom({
   }
 
   useEffect(() => {
-    if (!publisher?.replyTarget) return
+    if (!publisherReplyTarget) return
 
     window.requestAnimationFrame(() => {
       publisherInputRef.current?.focus()
     })
-  }, [publisher?.replyTarget])
+  }, [publisherReplyTarget])
 
   return (
     <>
@@ -191,7 +230,11 @@ export function SubscriptionChannelRoom({
                           }
                           onClick={(event) => onPostSelect(event, post.id)}
                         >
-                          <BubbleMessageContent message={post} showReplyInline={false} />
+                          <BubbleMessageContent
+                            message={post}
+                            onOpenAttachment={onOpenAttachment}
+                            showReplyInline={false}
+                          />
                           <time>{post.time}</time>
                         </button>
                       }
@@ -207,20 +250,20 @@ export function SubscriptionChannelRoom({
             className="composer"
             onSubmit={(event) => {
               event.preventDefault()
-              publisher.onSubmit()
+              publisherOnSubmit?.()
             }}
           >
             <div className="composer-input">
-              {publisher.replyTarget ? (
+              {publisherReplyTarget ? (
                 <div className="composer-reply">
                   <div>
                     <span className="settings-label">Ответ</span>
-                    <p>{publisher.replyTarget.text}</p>
+                    <p>{publisherReplyTarget.text}</p>
                   </div>
                   <button
                     type="button"
                     className="soft-button composer-reply-cancel"
-                    onClick={publisher.onReplyCancel}
+                    onClick={publisherOnReplyCancel}
                     aria-label="Отменить ответ"
                     title="Отменить ответ"
                   >
@@ -230,12 +273,29 @@ export function SubscriptionChannelRoom({
               ) : null}
               <div className="composer-entry">
                 <div className="composer-field">
+                  {publisherAttachmentDraft && publisherOnAttachmentClear ? (
+                    <ComposerAttachmentPreview
+                      attachmentDraft={publisherAttachmentDraft}
+                      onClear={publisherOnAttachmentClear}
+                      onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
+                      onToggleSendOriginal={publisherOnToggleSendOriginal}
+                      premiumUnlocked={publisherPremiumUnlocked}
+                    />
+                  ) : null}
+                  {publisherAttachmentInputRef && publisherOnAttachmentChange ? (
+                    <input
+                      ref={publisherAttachmentInputRef}
+                      type="file"
+                      className="composer-attachment-input"
+                      onChange={publisherOnAttachmentChange}
+                    />
+                  ) : null}
                   <textarea
                     ref={publisherInputRef}
                     rows={1}
-                    placeholder="Напишите сообщение в канал..."
-                    value={publisher.draft}
-                    onChange={(event) => publisher.onDraftChange(event.target.value)}
+                    placeholder={publisherPlaceholder}
+                    value={publisherDraft}
+                    onChange={(event) => publisherOnDraftChange?.(event.target.value)}
                     onKeyDown={handleComposerKeyDown}
                   />
                   <div className="composer-tools">
@@ -243,14 +303,20 @@ export function SubscriptionChannelRoom({
                       onSelect={(emoji) =>
                         insertComposerTextAtCursor(
                           publisherInputRef.current,
-                          publisher.draft,
+                          publisherDraft,
                           emoji,
-                          publisher.onDraftChange,
+                          (value) => publisherOnDraftChange?.(value),
                         )
                       }
                     />
-                    {publisher.draft.trim() ? (
-                      <button type="submit" className="send-button composer-send" disabled={publisher.isBusy}>
+                    {publisherOnOpenAttachmentPicker ? (
+                      <ComposerAttachmentPicker
+                        attachmentName={publisherAttachmentName}
+                        onSelectMode={publisherOnOpenAttachmentPicker}
+                      />
+                    ) : null}
+                    {publisherDraft.trim() || publisherAttachmentDraft ? (
+                      <button type="submit" className="send-button composer-send" disabled={!publisherCanSubmit}>
                         <span className="composer-send-icon" aria-hidden="true">
                           <img src="/icons/sent.png" alt="" />
                         </span>
@@ -260,7 +326,7 @@ export function SubscriptionChannelRoom({
                 </div>
               </div>
             </div>
-            {publisher.error ? <p className="auth-error">{publisher.error}</p> : null}
+            {publisherError ? <p className="auth-error">{publisherError}</p> : null}
           </form>
         ) : subscriptionAction ? (
           <div className="channel-room-footer">

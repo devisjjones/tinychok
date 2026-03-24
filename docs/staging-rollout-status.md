@@ -1,6 +1,6 @@
 # Staging Rollout Status
 
-Короткий статус staging-контура по состоянию на `2026-03-23`.
+Короткий статус staging-контура по состоянию на `2026-03-24`.
 
 ## Что уже подтверждено
 
@@ -22,8 +22,9 @@
 
 ## Текущий кандидат на следующую staging-выкладку
 
-- последний уже запушенный candidate в `origin/codex/staging-deploy`: `55304e7`
-- поверх `55304e7` локально уже лежит новый cumulative batch, ещё не запушенный и не подтверждённый на staging
+- последний уже запушенный candidate в `origin/codex/staging-deploy`: `80346d7`
+- `80346d7` уже включает весь накопленный batch поверх `55304e7`
+- локально ветка уже ушла дальше `80346d7`: текущий `HEAD` содержит photo / attachment batch и свежую актуализацию docs
 - staging по-прежнему нельзя считать актуальной по текущему branch state, пока не будет отдельно задеплоен и проверен весь stack после `1b8df3f`
 
 ## Что уже включает `55304e7`
@@ -36,7 +37,7 @@
 - analytics / captcha groundwork
 - reply-flow / avatar / sorting / icon polish fixes
 
-## Что добавляет текущий локальный batch поверх `55304e7`
+## Что уже добавлено поверх `55304e7`
 
 - history window:
   - bootstrap direct / group / channel больше не тянет всю историю комнаты целиком
@@ -62,13 +63,30 @@
   - по умолчанию показывается компактный позитивный набор
   - кнопка `Весь набор` раскрывает полный набор эмодзи
   - для рендера подключён локальный `Noto Color Emoji`
+- profile save staging fix:
+  - `PUT /api/session` получил fallback через `POST /api/session`
+  - это закрывает transport-level `Failed to fetch` при сохранении настроек аккаунта на staging
+- delete-path hardening:
+  - server-side `saveSnapshot` больше не может воскрешать timeline data из stale client snapshot
+  - delete endpoint-ы получили staging-safe `POST` aliases
+  - frontend delete-path теперь умеет fallback `DELETE -> POST`
+  - это было добавлено после staging-бага, где удалённые сообщения возвращались после повторного входа в канал / группу / тред / личку
+- photo / attachment pipeline:
+  - attach-photo flow больше не отправляет файл сразу после выбора
+  - composer строит локальный preview через `blob:` URL и чистит его после remove / send
+  - клиент сжимает `jpeg/png/webp` перед отправкой в MVP-формат
+  - premium-переключатель `Отправить без сжатия` для premium отправляет original file, для non-premium открывает premium upsell
+  - image attachments работают в direct / group / channel / thread
+  - server-side media layer дополнительно валидирует image mime и сигнатуру файла
+  - photo message bubble разделён на верхний image block и нижний info/text block
+  - metadata photo preview / message теперь умеют показывать `вес, ширина×высота`
 
 ## Access guard status
 
 - basic auth включён на `https://staging.tinychok.ru`
 - `curl -I https://staging.tinychok.ru` должен возвращать `401 Unauthorized`
 - backend staging ограничен allowlist-ом телефонов через `TINYCHOK_ALLOWED_TEST_PHONES`
-- ни `55304e7`, ни текущий локальный batch поверх него не должны ослаблять эти ограничения
+- ни `80346d7`, ни предыдущие commits поверх `1b8df3f` не должны ослаблять эти ограничения
 
 Подробности лежат в [docs/staging-access-guard.md](docs/staging-access-guard.md).
 
@@ -92,6 +110,22 @@
   - direct / group / channel / thread composer
   - compact set
   - `Весь набор`
+- photo attachments:
+  - attach photo в direct / group / channel / thread
+  - preview до отправки
+  - `только фото`
+  - `текст + фото`
+  - remove до отправки
+  - premium / non-premium поведение `Отправить без сжатия`
+  - image viewer по tap на фото
+  - error path для oversized / unsupported image
+- delete consistency:
+  - удалить сообщение в direct
+  - удалить сообщение в group
+  - удалить post в channel
+  - удалить thread comment
+  - после каждого удаления выйти из комнаты и зайти снова
+  - сделать hard reload страницы и убедиться, что deleted item не вернулся
 
 ## Базовый deploy flow на staging VM
 

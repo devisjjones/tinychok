@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { mkdir, unlink } from 'node:fs/promises'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
@@ -12,7 +12,10 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'application/pdf': '.pdf',
   'image/jpeg': '.jpg',
   'image/png': '.png',
+  'image/webp': '.webp',
 }
+
+const SUPPORTED_IMAGE_ATTACHMENT_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 
 const MEDIA_KIND_CONFIG: Record<
   UploadMediaKind,
@@ -157,6 +160,26 @@ async function storeMediaFileLocally(options: {
   } satisfies Pick<UploadMediaResponse, 'mediaUrl' | 'size' | 'storageKey'>
 }
 
+async function storeMediaBufferLocally(options: {
+  buffer: Buffer
+  fileName: string
+  kind: UploadMediaKind
+  mimeType: string
+}) {
+  const { buffer, fileName, kind, mimeType } = options
+  const storageKey = buildStorageKey(kind, fileName, mimeType)
+  const absolutePath = join(runtimeConfig.storage.localMediaRoot, storageKey)
+
+  await mkdir(dirname(absolutePath), { recursive: true })
+  await writeFile(absolutePath, buffer)
+
+  return {
+    mediaUrl: buildStableMediaUrl(storageKey),
+    size: buffer.byteLength,
+    storageKey,
+  } satisfies Pick<UploadMediaResponse, 'mediaUrl' | 'size' | 'storageKey'>
+}
+
 async function storeMediaFileInObjectStorage(options: {
   fileName: string
   kind: UploadMediaKind
@@ -184,8 +207,68 @@ async function storeMediaFileInObjectStorage(options: {
   } satisfies Pick<UploadMediaResponse, 'mediaUrl' | 'size' | 'storageKey'>
 }
 
+async function storeMediaBufferInObjectStorage(options: {
+  buffer: Buffer
+  fileName: string
+  kind: UploadMediaKind
+  mimeType: string
+}) {
+  const { buffer, fileName, kind, mimeType } = options
+  const bucket = runtimeConfig.storage.objectStorage.bucket
+  const storageKey = buildStorageKey(kind, fileName, mimeType)
+
+  await getObjectStorageClient().send(
+    new PutObjectCommand({
+      Body: buffer,
+      Bucket: bucket!,
+      ContentType: mimeType,
+      Key: storageKey,
+    }),
+  )
+
+  return {
+    mediaUrl: buildStableMediaUrl(storageKey),
+    size: buffer.byteLength,
+    storageKey,
+  } satisfies Pick<UploadMediaResponse, 'mediaUrl' | 'size' | 'storageKey'>
+}
+
 export function getUploadKindConfig(kind: UploadMediaKind) {
   return MEDIA_KIND_CONFIG[kind]
+}
+
+function isSupportedImageAttachmentMimeType(mimeType: string) {
+  return SUPPORTED_IMAGE_ATTACHMENT_MIME_TYPES.has(mimeType)
+}
+
+function hasValidImageSignature(buffer: Buffer, mimeType: string) {
+  if (buffer.byteLength < 12) return false
+
+  if (mimeType === 'image/jpeg') {
+    return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
+  }
+
+  if (mimeType === 'image/png') {
+    return (
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a
+    )
+  }
+
+  if (mimeType === 'image/webp') {
+    return (
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+    )
+  }
+
+  return false
 }
 
 export async function storeMediaFile(options: {
@@ -198,6 +281,40 @@ export async function storeMediaFile(options: {
 
   if (kindConfig.allowedMimeTypes && !kindConfig.allowedMimeTypes.has(options.mimeType)) {
     throw new Error('Неподдерживаемый тип файла для этого действия.')
+  }
+
+  if (options.kind === 'attachment' && options.mimeType.startsWith('image/')) {
+    if (!isSupportedImageAttachmentMimeType(options.mimeType)) {
+      throw new Error('Для фотографии поддерживаются только JPEG, PNG и WebP.')
+    }
+
+    const fileBuffer = await readStreamToBuffer(options.stream)
+
+    if (fileBuffer.byteLength === 0) {
+      throw new Error('Файл пустой или повреждён.')
+    }
+
+    if (fileBuffer.byteLength > kindConfig.maxSizeBytes) {
+      throw new Error('Файл слишком большой.')
+    }
+
+    if (!hasValidImageSignature(fileBuffer, options.mimeType)) {
+      throw new Error('Не удалось проверить фотографию. Выберите другой файл.')
+    }
+
+    return runtimeConfig.storage.mediaBackend === 'object-storage'
+      ? storeMediaBufferInObjectStorage({
+          buffer: fileBuffer,
+          fileName: options.fileName,
+          kind: options.kind,
+          mimeType: options.mimeType,
+        })
+      : storeMediaBufferLocally({
+          buffer: fileBuffer,
+          fileName: options.fileName,
+          kind: options.kind,
+          mimeType: options.mimeType,
+        })
   }
 
   return runtimeConfig.storage.mediaBackend === 'object-storage'

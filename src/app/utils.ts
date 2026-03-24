@@ -2,6 +2,7 @@ export {
   buildChannelDirectLinkFromTitle,
   ensureUniqueChannelDirectLink,
   formatAccountName,
+  formatAttachmentImageDimensions,
   formatAttachmentSize,
   formatChannelAvatarLabel,
   formatConversationDayLabel,

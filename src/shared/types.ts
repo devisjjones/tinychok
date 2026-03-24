@@ -1,11 +1,14 @@
 export type MessageAttachment = {
   fileName: string
+  height?: number
   mediaUrl: string
   mimeType: string
   size: number
+  width?: number
 }
 
 export type ThreadComment = {
+  attachment?: MessageAttachment
   id: number
   author: 'me' | 'them'
   authorIdentifier?: string

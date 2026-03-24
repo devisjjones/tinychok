@@ -300,9 +300,11 @@ function sanitizeMessageAttachment(attachment: Message['attachment']) {
   if (!attachment) return undefined
 
   const fileName = attachment.fileName.replace(/\s+/g, ' ').trim().slice(0, 120)
+  const height = attachment.height ? Math.max(1, Math.floor(attachment.height)) : undefined
   const mediaUrl = attachment.mediaUrl.trim()
   const mimeType = attachment.mimeType.trim().slice(0, 120)
   const size = Math.max(0, Math.floor(attachment.size))
+  const width = attachment.width ? Math.max(1, Math.floor(attachment.width)) : undefined
 
   if (!fileName || !mediaUrl || !mimeType || size <= 0) {
     throw new Error('Некорректное вложение.')
@@ -310,9 +312,11 @@ function sanitizeMessageAttachment(attachment: Message['attachment']) {
 
   return {
     fileName,
+    height,
     mediaUrl,
     mimeType,
     size,
+    width,
   } satisfies NonNullable<Message['attachment']>
 }
 
@@ -536,6 +540,7 @@ function materializeThreadComment(
   if (!comment) return null
 
   return {
+    attachment: sanitizeMessageAttachment(comment.attachment),
     author: comment.author === 'me' || comment.author === 'them' ? comment.author : fallbackAuthor,
     authorIdentifier: comment.authorIdentifier ? normalizeIdentifier(comment.authorIdentifier) : undefined,
     createdAt: comment.createdAt,
@@ -2339,7 +2344,8 @@ export class TinychokStore {
     this.assertCanCommentInGroup(target.group, account)
 
     const text = sanitizeThreadCommentText(payload.text)
-    if (!text) {
+    const attachment = sanitizeMessageAttachment(payload.attachment)
+    if (!text && !attachment) {
       throw new Error('Комментарий не может быть пустым.')
     }
     const replyTo = sanitizeReplyTarget(payload.replyTo)
@@ -2352,6 +2358,7 @@ export class TinychokStore {
       threadId,
       account,
       text,
+      attachment,
       replyTo,
       deliveryId,
     )
@@ -2439,7 +2446,8 @@ export class TinychokStore {
     }
 
     const text = sanitizeMessageText(payload.text)
-    if (!text) {
+    const attachment = sanitizeMessageAttachment(payload.attachment)
+    if (!text && !attachment) {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
     const replyTo = sanitizeReplyTarget(payload.replyTo)
@@ -2479,6 +2487,7 @@ export class TinychokStore {
       this.database.subscriptionPosts.push({
         channelId: channelCopy.id,
         createdAt,
+        attachment,
         id: this.getNextSubscriptionPostId(channelCopy.ownerIdentifier, channelCopy.id),
         ownerIdentifier: channelCopy.ownerIdentifier,
         replyTo,
@@ -2488,7 +2497,7 @@ export class TinychokStore {
         time,
       })
 
-      channelCopy.preview = text
+      channelCopy.preview = text || (attachment ? `Файл: ${attachment.fileName}` : channelCopy.preview)
       channelCopy.time = time
       channelCopy.unread =
         channelCopy.ownerIdentifier === account.identifier || channelCopy.muted
@@ -3286,7 +3295,8 @@ export class TinychokStore {
     this.assertCanCommentInSubscriptionChannel(target.channel, account)
 
     const text = sanitizeThreadCommentText(payload.text)
-    if (!text) {
+    const attachment = sanitizeMessageAttachment(payload.attachment)
+    if (!text && !attachment) {
       throw new Error('Комментарий не может быть пустым.')
     }
     const replyTo = sanitizeReplyTarget(payload.replyTo)
@@ -3299,6 +3309,7 @@ export class TinychokStore {
       threadId,
       account,
       text,
+      attachment,
       replyTo,
       deliveryId,
     )
@@ -4345,9 +4356,11 @@ export class TinychokStore {
     account: Account,
     ownerIdentifier: string,
     text: string,
+    attachment?: Message['attachment'],
     deliveryId?: string,
   ): ThreadComment {
     return {
+      attachment,
       author: ownerIdentifier === account.identifier ? 'me' : 'them',
       authorIdentifier: account.identifier,
       createdAt: new Date().toISOString(),
@@ -4365,6 +4378,7 @@ export class TinychokStore {
     threadId: string,
     authorAccount: Account,
     text: string,
+    attachment?: Message['attachment'],
     replyTo?: Message['replyTo'],
     deliveryId?: string,
   ) {
@@ -4380,7 +4394,13 @@ export class TinychokStore {
       )
 
       for (const targetMessage of targetMessages) {
-        const nextComment = this.buildThreadComment(authorAccount, groupCopy.ownerIdentifier, text, deliveryId)
+        const nextComment = this.buildThreadComment(
+          authorAccount,
+          groupCopy.ownerIdentifier,
+          text,
+          attachment,
+          deliveryId,
+        )
         nextComment.replyTo = replyTo
         const nextComments = [...(targetMessage.threadComments ?? [])]
         nextComment.id = nextComments.reduce((maxId, comment) => Math.max(maxId, comment.id), 0) + 1
@@ -4399,6 +4419,7 @@ export class TinychokStore {
     threadId: string,
     authorAccount: Account,
     text: string,
+    attachment?: Message['attachment'],
     replyTo?: Message['replyTo'],
     deliveryId?: string,
   ) {
@@ -4414,7 +4435,13 @@ export class TinychokStore {
       )
 
       for (const targetPost of targetPosts) {
-        const nextComment = this.buildThreadComment(authorAccount, channelCopy.ownerIdentifier, text, deliveryId)
+        const nextComment = this.buildThreadComment(
+          authorAccount,
+          channelCopy.ownerIdentifier,
+          text,
+          attachment,
+          deliveryId,
+        )
         nextComment.replyTo = replyTo
         const nextComments = [...(targetPost.threadComments ?? [])]
         nextComment.id = nextComments.reduce((maxId, comment) => Math.max(maxId, comment.id), 0) + 1

@@ -37,7 +37,7 @@ import type {
   VerifyCodeResponse,
 } from '../shared/backend'
 import type { RegisterBody, RequestCodeBody, SaveSnapshotBody, VerifyCodeBody } from '../shared/backend'
-import type { SearchResult } from './types'
+import type { SearchResult, ThreadComment } from './types'
 
 function normalizeBaseUrl(value: string | undefined) {
   const trimmed = value?.trim()
@@ -96,16 +96,26 @@ function normalizeSourceGroup(sourceGroup: AppSnapshot['chats'][number]['message
   }
 }
 
+function normalizeAttachmentMedia<T extends { mediaUrl: string }>(attachment: T): T {
+  return {
+    ...attachment,
+    mediaUrl: resolveMediaUrl(attachment.mediaUrl),
+  }
+}
+
+function normalizeThreadCommentMedia(comment: ThreadComment): ThreadComment {
+  return {
+    ...comment,
+    attachment: comment.attachment ? normalizeAttachmentMedia(comment.attachment) : undefined,
+  }
+}
+
 function normalizeMessageMedia<T extends AppSnapshot['chats'][number]['messages'][number]>(message: T): T {
   return {
     ...message,
-    attachment: message.attachment
-      ? {
-          ...message.attachment,
-          mediaUrl: resolveMediaUrl(message.attachment.mediaUrl),
-        }
-      : undefined,
+    attachment: message.attachment ? normalizeAttachmentMedia(message.attachment) : undefined,
     sourceGroup: normalizeSourceGroup(message.sourceGroup),
+    threadComments: message.threadComments?.map((comment) => normalizeThreadCommentMedia(comment)),
   }
 }
 
@@ -120,12 +130,8 @@ function normalizeGroupMessages(messages: GroupHistoryResponse['messages']) {
 function normalizeChannelPosts(posts: SubscriptionChannelHistoryResponse['posts']) {
   return posts.map((post) => ({
     ...post,
-    attachment: post.attachment
-      ? {
-          ...post.attachment,
-          mediaUrl: resolveMediaUrl(post.attachment.mediaUrl),
-        }
-      : undefined,
+    attachment: post.attachment ? normalizeAttachmentMedia(post.attachment) : undefined,
+    threadComments: post.threadComments?.map((comment) => normalizeThreadCommentMedia(comment)),
   }))
 }
 
@@ -155,15 +161,7 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
     subscriptionChannels: snapshot.subscriptionChannels.map((channel) => ({
       ...channel,
       avatarImage: channel.avatarImage ? resolveMediaUrl(channel.avatarImage) : channel.avatarImage,
-      posts: channel.posts.map((post) => ({
-        ...post,
-        attachment: post.attachment
-          ? {
-              ...post.attachment,
-              mediaUrl: resolveMediaUrl(post.attachment.mediaUrl),
-        }
-          : undefined,
-      })),
+      posts: channel.posts.map((post) => normalizeChannelPosts([post])[0]),
     })),
     threadInbox: snapshot.threadInbox,
   }
