@@ -1,69 +1,58 @@
 # Staging Access Guard
 
-## Current applied state
+Документ описывает только текущие механики защиты staging-контура и их смысл.
 
-По состоянию на `2026-03-23` это уже включено на staging и осталось включённым после последнего подтверждённого deploy commit `1b8df3f`:
+## Active Guard Layers
 
-- basic auth включён на HTTPS-блоке `nginx` для `https://staging.tinychok.ru`
-- `curl -I https://staging.tinychok.ru` возвращает `401 Unauthorized`
-- логин basic auth: `tinychok`
-- пароль хранится только на VM и не должен попадать в чат или git
-- allowlist тестовых телефонов уже добавлен в `/home/devis/tinychok/.env` через `TINYCHOK_ALLOWED_TEST_PHONES`
+### Frontend Guard
 
-## Что важно для текущего branch state
+- `https://staging.tinychok.ru` закрыт через `nginx basic auth`
+- пароль хранится только на staging VM
+- пароль и содержимое `htpasswd` не должны попадать в чат, git или документацию
 
-- последний уже запушенный candidate: `80346d7`
-- `80346d7` уже включает thread inbox, delivery fixes, analytics / captcha groundwork, history window, owner flows канала, emoji picker, profile save fallback и delete hardening
-- локальный текущий `HEAD` уже добавляет photo / attachment pipeline поверх `80346d7`, но access guard semantics от этого не меняются
-- ни `80346d7`, ни предыдущие commits поверх `1b8df3f` не должны менять `basic auth` или `allowlist`
-- даже после будущего включения captcha staging всё равно должен оставаться закрыт через `basic auth` и `TINYCHOK_ALLOWED_TEST_PHONES`
+### Backend Guard
 
-## Почему нужны оба замка
+- backend читает `TINYCHOK_ALLOWED_TEST_PHONES`
+- если список не пустой, только номера из allowlist могут:
+  - запросить demo-код
+  - подтвердить код
+  - зарегистрировать аккаунт
 
-- пароль на сайте закрывает сам UI от случайных посетителей
-- allowlist телефонов на backend не даёт зарегистрироваться любому номеру, даже если кто-то узнает URL API
+Остальные получают понятную ошибку о том, что номер пока не включён в список тестеров.
 
-## Что уже поддерживает код
+## Why Both Locks Matter
 
-Backend умеет читать:
+- frontend guard закрывает сам UI от случайных посетителей
+- backend allowlist не даёт использовать staging auth любому номеру, даже если кто-то знает URL API
 
-```env
-TINYCHOK_ALLOWED_TEST_PHONES=+79990000001,+79990000002,+79990000003
-```
+Эти два замка дополняют друг друга и не заменяют один другой.
 
-Если список не пустой, только эти номера смогут:
+## What Must Not Bypass The Guard
 
-- запросить demo-код
-- подтвердить код
-- зарегистрировать аккаунт
+- image upload
+- file upload
+- GIF upload
+- avatar upload
+- websocket connect
+- auth request / verify / register flow
 
-Остальные увидят ошибку:
+Новые product-механики не должны требовать ослабления `basic auth` или allowlist-а.
 
-```text
-Этот номер пока не добавлен в список тестеров. Попросите владельца проекта добавить его в staging allowlist.
-```
+## Post-Deploy Verification
 
-## Что перепроверять после нового deploy
-
-Даже если кодовый deploy не трогает access guard, после выкладки полезно быстро проверить:
+Полезно быстро проверять:
 
 ```bash
-git rev-parse --short HEAD
 curl -I https://staging.tinychok.ru
 curl -s https://api.staging.tinychok.ru/healthz
 ```
 
-Если frontend открывается без basic auth или неподдерживаемый номер снова может пройти auth, значит проблема уже не в UI, а в `nginx` или staging `.env`.
+Если frontend внезапно открывается без basic auth или неподдерживаемый номер снова может пройти auth, проблема уже не в UI, а в `nginx` или staging `.env`.
 
-Photo / attachment batch тоже не должен требовать ослабления guard-а:
-
-- image upload идёт через уже существующий авторизованный `POST /api/media`
-- новый photo flow не должен обходить `Authorization` и не должен открывать публичный upload endpoint без сессии
-
-## Какие секреты нельзя писать в чат или git
+## Secrets That Must Stay Out Of Chat And Git
 
 - пароль `basic auth`
 - содержимое `htpasswd`
-- `TINYCHOK_ALLOWED_TEST_PHONES`
+- полное значение `TINYCHOK_ALLOWED_TEST_PHONES`
 - `TINYCHOK_CAPTCHA_SECRET_KEY`
-- любые внешние analytics credentials / ingest tokens
+- любые analytics ingest tokens и внешние credentials

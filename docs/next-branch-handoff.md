@@ -1,125 +1,124 @@
 # Next Branch Handoff
 
-Короткая точка продолжения для следующего треда или новой ветки.
+Короткая техническая точка входа для следующего треда или новой ветки. Документ описывает только текущее устройство системы и рабочие инварианты, без истории коммитов и списков прошлых правок.
 
-## Git state
+## Runtime Topology
 
-- рабочая ветка: `codex/staging-deploy`
-- последний уже запушенный commit в `origin/codex/staging-deploy`: `80346d7`
-- commit message: `Add staging-safe delete fallbacks`
-- последняя подтверждённая staging-выкладка: `1b8df3f`
-- подтверждённый staging message: `Polish mobile composer and refresh staging docs`
-- текущий staging-кандидат для следующего deploy: текущий `HEAD` ветки `codex/staging-deploy` после photo / attachment batch
-- рабочее дерево перед следующим commit / push уже не чистое: в нём лежит image attachment batch и актуализация docs
-- `public/svf/` по-прежнему не должен попадать в commit / push / deploy
+- staging frontend: `https://staging.tinychok.ru`
+- staging backend API: `https://api.staging.tinychok.ru`
+- realtime websocket: `wss://api.staging.tinychok.ru/ws`
+- staging живёт на отдельной VM `tinychok-staging-1`
+- frontend и backend деплоятся независимо, но должны использовать один и тот же staging backend
 
-## Что уже подтверждено по staging
+## Core Product Mechanics
 
-- staging backend live на `https://api.staging.tinychok.ru`
-- staging frontend live на `https://staging.tinychok.ru`
-- frontend и backend крутятся на VM `tinychok-staging-1`
-- `nginx` настроен
-- HTTPS выпущен для `staging.tinychok.ru` и `api.staging.tinychok.ru`
-- `staging.tinychok.ru` закрыт через `nginx basic auth`
-- backend staging ограничен allowlist-ом телефонов через `TINYCHOK_ALLOWED_TEST_PHONES`
-- последняя подтверждённая staging-выкладка всё ещё `1b8df3f`
-- весь stack после `1b8df3f`, включая `55304e7`, `f0ebbd1`, `ca1459e`, `4b7cc5c` и `80346d7`, пока не подтверждён на staging
+### Session and Snapshot Model
 
-## Что уже было в `55304e7`
+- клиент поднимается через bootstrap snapshot
+- realtime обновления приходят по websocket и синхронизируют текущее состояние клиента
+- timeline data считаются `server-authoritative`
+- клиентский `saveSnapshot` не должен воскрешать удалённые сообщения, посты или комментарии из устаревшего local state
 
-- весь накопленный product stack после `1b8df3f` до `4ad9b0b`
-- follow-up UI / UX batch по тредам, reply-flow, channel/group UX и иконкам
-- thread inbox / thread subscription layer
-- инженерный batch по refactor / optimistic delivery / `clientDeliveryId`
-- infra layer под analytics и captcha
+### History Window
 
-## Что уже добавлено поверх `55304e7`
+- direct / group / channel при входе не тянут всю историю сразу
+- стартовое окно строится по правилу:
+  - сначала сообщения за сегодня и вчера
+  - если их мало, окно добирается назад до минимального полезного объёма
+- при прокрутке вверх история догружается отдельными backend endpoint-ами
+- в лентах есть day divider, который показывает полную дату с годом
 
-- server-driven history window:
-  - при входе в direct / group / channel не показывается вся история сразу
-  - стартовое окно даёт `сегодня + вчера`, либо последние активные дни, но минимум `10` последних сообщений
-  - старая история догружается при скролле вверх через отдельные backend endpoint-ы
-- day divider:
-  - в active room есть разделитель начала суток
-  - divider показывает полную дату с годом
-- fixture / sorting fixes:
-  - тестовые сообщения / посты / комментарии разнесены по разным датам
-  - локальная dev-база умеет backfill-ить старые fixture `createdAt`
-  - сортировка чатов / групп / каналов снова должна смотреть на реальную последнюю активность
-- test-account hygiene:
-  - для `+79673215453` backend больше не откатывает вручную изменённые профильные поля к seeded `Мира`
-  - self-dialog test-аккаунта не должен появляться заново
-- owner flows канала:
-  - под названием канала показывается количество подписчиков
-  - владелец может открыть список подписчиков с поиском
-  - владелец виден как подписчик с тегом `Владелец`
-  - владелец может удалить подписчика или отправить его в blacklist комментариев канала
-  - вместо `Поделиться` в menu канала используется `Пригласить подписаться`
-  - приглашение приходит в direct chat как сообщение с lead text `Пользователь приглашает вас подписаться на канал:`
-- emoji picker:
-  - рядом с `attach` появилась кнопка `smile.png`
-  - по умолчанию открывается компактный позитивный набор
-  - внизу picker есть широкая кнопка `Весь набор`
-  - полный набор рендерится локальным `Noto Color Emoji`
-- profile save staging fix:
-  - `PUT /api/session` получил staging-safe fallback через `POST /api/session`
-  - это закрывает transport-level `Failed to fetch` при сохранении настроек аккаунта за reverse proxy
-- delete consistency fixes:
-  - server-side `saveSnapshot` больше не имеет права возвращать timeline data из stale client snapshot
-  - сообщения / посты / комментарии должны оставаться server-authoritative
-  - delete-path на клиенте теперь умеет fallback `DELETE -> POST`
-  - backend принимает `POST`-aliases для delete endpoint-ов
-  - это было добавлено именно после staging-бага, где удалённые сообщения возвращались после повторного входа в комнату
-- photo / attachment batch:
-  - composer attachment flow переписан под локальный preview до отправки
-  - image upload больше не происходит в момент выбора файла: сначала локальный draft, потом upload только в send-path
-  - клиент сжимает `jpeg/png/webp` перед отправкой: длинная сторона до `1600px`, re-encode в `webp`, fallback в `jpeg`
-  - premium-переключатель `Отправить без сжатия` открывает existing premium upsell для non-premium и для premium отправляет original file
-  - photo preview и image viewer работают в direct / group / channel / thread
-  - server-side media validation дополнительно проверяет image mime и сигнатуры `jpeg/png/webp`
-  - image message bubble теперь разделён на верхний photo-block и нижний info/text block
-  - в metadata фото теперь хранятся `width/height`, чтобы в UI можно было показывать `вес, размер фото`
+### Threads
 
-## Что нужно отдельно smoke-check-нуть на следующем staging deploy
+- у сообщений и постов могут быть треды
+- у пользователя есть отдельный inbox тредов
+- в inbox попадают треды, где пользователь:
+  - уже писал комментарий
+  - либо явно подписался на тред
+- новые ответы в подписанных тредах дают unread-индикаторы
+- в самом треде доступны `Подписаться` / `Отписаться`
+- автоподписка происходит после отправки комментария
 
-- thread inbox:
-  - badge на кнопке `Треды`
-  - список тредов с unread
-  - `Подписаться` / `Отписаться` в самом треде
-  - автоподписка после отправки комментария
-- lazy history:
-  - direct / group / channel открываются со свежим хвостом истории
-  - старая история догружается при скролле вверх
-  - day divider показывает корректную дату с годом
-- channel owner flows:
-  - список подписчиков канала
-  - поиск
-  - `Удалить подписчика`
-  - `В чёрный список`
-  - invite flow `Пригласить подписаться`
-- emoji picker:
-  - direct / group / channel / thread composer
-  - compact set
-  - `Весь набор`
+### Reply Flow
+
+- reply поддержан в личках, группах, каналах и тредах
+- превью сообщения, на которое отвечают, рендерится отдельным верхним блоком
+- этот блок кликабелен и прокручивает ленту к исходному сообщению
+- при выборе `Ответить` composer получает фокус сразу
+
+### Media and Attachments
+
+- attach modal разделяет:
+  - `Приложить фотографию`
+  - `Приложить файл`
+- GIF идут отдельной premium-вкладкой в emoji picker
+- фото в composer сначала живут локально как draft preview
+- upload делается только в send-path
+- фото пережимаются на клиенте перед отправкой
+- для premium доступен режим отправки оригинала без сжатия
+- в ленте фото и GIF открываются через fullscreen viewer
+
+### Avatar Pipeline
+
+- один и тот же avatar pipeline используется для:
+  - профиля
+  - канала
+  - группы
+- поддерживаются `JPG`, `PNG`, `WebP`
+- изображение автоматически:
+  - режется в квадрат по центру
+  - уменьшается до нормального размера
+  - пережимается перед upload
+- пользователь видит preview уже обработанного результата до сохранения
+
+### GIF Library
+
+- GIF-вкладка целиком premium-only
+- источник GIF для MVP:
+  - только локальный upload `.gif`
+  - без внешнего поиска
+- библиотека GIF привязана к конкретному пользователю
+- выбранная GIF прикладывается к текущему сообщению как одно вложение
+
+### Premium
+
+- premium влияет на:
+  - GIF library
+  - отправку фото без сжатия
+  - увеличенную storage quota
+- в проекте есть debug-layer для premium, он описан отдельно в [docs/debug-flags.md](/Users/devisjones/Documents/New%20project/tinychok/docs/debug-flags.md)
+
+### Storage and Quotas
+
+- free quota: `50 MB`
+- premium quota: `500 MB`
+- квота считается по реально сохранённым пользовательским вложениям
+- сервер проверяет квоту до сохранения нового upload
+- orphan uploads чистятся по TTL
+- usage и quota показываются в настройках пользователя
+
+## Operational Invariants
+
+- staging должен оставаться закрыт сразу двумя уровнями:
+  - `basic auth` на frontend
+  - allowlist телефонов на backend
+- delete-path обязан работать server-side и не должен зависеть только от локального optimistic UI
+- premium debug state может использоваться на staging, но не должен попадать в production без отдельного решения
+- production deploy обязан идти в режиме `TINYCHOK_APP_ENV=production`, чтобы тестовые сущности не попадали в боевой runtime
+
+## Smoke Checklist
+
+- auth flow на staging через allowlist номер
+- direct / group / channel opening с history window
+- day divider и догрузка старой истории вверх
+- thread inbox и unread badge
+- reply flow во всех типах комнат
 - photo attachments:
-  - direct / group / channel / thread composer
   - preview до отправки
-  - remove вложения до отправки
-  - отправка `только фото`
-  - отправка `текст + фото`
-  - non-premium tap по `Отправить без сжатия`
-  - premium upload original без сжатия
-  - fullscreen image viewer
-  - unsupported image format / oversized file дают понятную ошибку
-- delete flow:
-  - удалить сообщение в личке
-  - удалить сообщение в группе
-  - удалить пост в канале
-  - удалить комментарий в треде
-  - после каждого удаления выйти из комнаты и зайти снова
-  - убедиться, что сообщение не возвращается после повторного входа и reload
-
-## Рекомендованная точка старта для новой ветки
-
-- branch from: текущий `HEAD` ветки `codex/staging-deploy`
-- recommended name: `codex/staging-followup`
+  - `только фото`
+  - `текст + фото`
+  - fullscreen viewer
+- GIF flow для premium
+- avatar upload для профиля, канала и группы
+- storage quota block при превышении лимита
+- delete flow с повторным входом в комнату

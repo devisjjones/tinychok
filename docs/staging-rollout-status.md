@@ -1,139 +1,66 @@
 # Staging Rollout Status
 
-Короткий статус staging-контура по состоянию на `2026-03-24`.
+Короткий runbook по текущему staging-контуру. Документ описывает только текущее устройство контура, обязательные проверки и стандартный deploy flow.
 
-## Что уже подтверждено
+## Staging Contour
 
-- staging VM: `tinychok-staging-1`
-- staging frontend live на `https://staging.tinychok.ru`
-- staging backend live на `https://api.staging.tinychok.ru`
+- staging frontend: `https://staging.tinychok.ru`
+- staging backend: `https://api.staging.tinychok.ru`
+- websocket: `wss://api.staging.tinychok.ru/ws`
 - backend работает как `systemd` service `tinychok-staging.service`
-- `nginx` настроен как reverse proxy для API и как отдача frontend-статики
-- HTTPS выпущен для `staging.tinychok.ru` и `api.staging.tinychok.ru`
-- browser requests идут на `https://api.staging.tinychok.ru`
-- websocket подключается к `wss://api.staging.tinychok.ru/ws`
-- staging VM подтверждённо была обновлена до commit `1b8df3f`
-- latest confirmed deploy sequence:
-  - `npm ci`
-  - `npm run build`
-  - `sudo systemctl restart tinychok-staging`
-  - `sudo rsync -av --delete dist/ /var/www/tinychok-staging/`
-- владелец проекта после той выкладки подтвердил статус: `Всё работает`
+- frontend отдаётся как статическая Vite-сборка через `nginx`
+- backend и frontend используют один staging state store
 
-## Текущий кандидат на следующую staging-выкладку
+## Access Model
 
-- последний уже запушенный candidate в `origin/codex/staging-deploy`: `80346d7`
-- `80346d7` уже включает весь накопленный batch поверх `55304e7`
-- локально ветка уже ушла дальше `80346d7`: текущий `HEAD` содержит photo / attachment batch и свежую актуализацию docs
-- staging по-прежнему нельзя считать актуальной по текущему branch state, пока не будет отдельно задеплоен и проверен весь stack после `1b8df3f`
+- frontend staging закрыт через `nginx basic auth`
+- backend staging дополнительно ограничен allowlist-ом телефонов через `TINYCHOK_ALLOWED_TEST_PHONES`
+- эти два уровня нельзя ослаблять ради UI-фиксов, upload flow или realtime
 
-## Что уже включает `55304e7`
+Подробности guard-а лежат в [docs/staging-access-guard.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-access-guard.md).
 
-- весь product stack `1a037b9 -> 30a8256 -> 2bf7a1e -> a21f0d1 -> a6be3d3 -> 27646e7 -> 4ad9b0b`
-- docs refresh `59bf0f1`
-- thread inbox / thread subscription layer
-- partial refactor `App.tsx` в feature hooks
-- optimistic delivery и `clientDeliveryId`
-- analytics / captcha groundwork
-- reply-flow / avatar / sorting / icon polish fixes
+## What Staging Must Validate
 
-## Что уже добавлено поверх `55304e7`
+### Core Messaging
 
-- history window:
-  - bootstrap direct / group / channel больше не тянет всю историю комнаты целиком
-  - стартовое окно строится по правилу `сегодня + вчера`, либо по последним активным дням, но минимум `10` последних сообщений
-  - старая история догружается через backend endpoint-ы при скролле вверх
-- conversation day divider:
-  - direct / group / channel ленты получили разделитель начала суток
-  - divider показывает полную дату с годом
-- fixtures and sorting:
-  - тестовые сообщения / посты / комментарии распределены по разным датам
-  - старые fixture-данные умеют backfill-иться в локальной dev-базе
-  - сортировка списков должна смотреть на реальную дату активности, а не только на часы в превью
-- test account cleanup:
-  - для `+79673215453` убран rollback профиля к seeded `Мира`
-  - self-dialog test-аккаунта больше не должен создаваться заново
-- channel subscriber management:
-  - владелец канала видит кликабельное количество подписчиков
-  - доступны поиск, удаление подписчика и blacklist комментариев канала
-  - invite flow заменил `Поделиться` на `Пригласить подписаться`
-  - приглашение приходит в личный чат как сообщение с подписью `Пользователь приглашает вас подписаться на канал:`
-- emoji picker:
-  - рядом с `attach` появилась кнопка `smile.png`
-  - по умолчанию показывается компактный позитивный набор
-  - кнопка `Весь набор` раскрывает полный набор эмодзи
-  - для рендера подключён локальный `Noto Color Emoji`
-- profile save staging fix:
-  - `PUT /api/session` получил fallback через `POST /api/session`
-  - это закрывает transport-level `Failed to fetch` при сохранении настроек аккаунта на staging
-- delete-path hardening:
-  - server-side `saveSnapshot` больше не может воскрешать timeline data из stale client snapshot
-  - delete endpoint-ы получили staging-safe `POST` aliases
-  - frontend delete-path теперь умеет fallback `DELETE -> POST`
-  - это было добавлено после staging-бага, где удалённые сообщения возвращались после повторного входа в канал / группу / тред / личку
-- photo / attachment pipeline:
-  - attach-photo flow больше не отправляет файл сразу после выбора
-  - composer строит локальный preview через `blob:` URL и чистит его после remove / send
-  - клиент сжимает `jpeg/png/webp` перед отправкой в MVP-формат
-  - premium-переключатель `Отправить без сжатия` для premium отправляет original file, для non-premium открывает premium upsell
-  - image attachments работают в direct / group / channel / thread
-  - server-side media layer дополнительно валидирует image mime и сигнатуру файла
-  - photo message bubble разделён на верхний image block и нижний info/text block
-  - metadata photo preview / message теперь умеют показывать `вес, ширина×высота`
+- bootstrap snapshot загружается без ошибок
+- websocket подключается к staging API
+- direct / group / channel открываются с актуальным хвостом истории
+- скролл вверх догружает старые страницы истории
+- day divider показывает корректную дату
 
-## Access guard status
+### Threads
 
-- basic auth включён на `https://staging.tinychok.ru`
-- `curl -I https://staging.tinychok.ru` должен возвращать `401 Unauthorized`
-- backend staging ограничен allowlist-ом телефонов через `TINYCHOK_ALLOWED_TEST_PHONES`
-- ни `80346d7`, ни предыдущие commits поверх `1b8df3f` не должны ослаблять эти ограничения
+- у тредов работают unread badge и inbox
+- подписка и отписка треда меняют visibility в inbox
+- комментарии не теряются после reload
 
-Подробности лежат в [docs/staging-access-guard.md](docs/staging-access-guard.md).
+### Media
 
-## Что обязательно smoke-check-нуть при следующем deploy
+- фото прикладываются и отправляются через новый draft flow
+- fullscreen image viewer открывается по tap
+- GIF работают через premium-вкладку picker-а
+- аватарки профиля, группы и канала обновляются через единый crop/resize pipeline
 
-- thread inbox:
-  - список тредов
-  - unread badge
-  - `Подписаться` / `Отписаться`
-- lazy history:
-  - direct / group / channel открываются со свежим хвостом истории
-  - старая история догружается при скролле вверх
-  - divider показывает корректную дату с годом
-- channel owner flows:
-  - список подписчиков канала
-  - поиск
-  - `Удалить подписчика`
-  - `В чёрный список`
-  - invite flow `Пригласить подписаться`
-- emoji picker:
-  - direct / group / channel / thread composer
-  - compact set
-  - `Весь набор`
-- photo attachments:
-  - attach photo в direct / group / channel / thread
-  - preview до отправки
-  - `только фото`
-  - `текст + фото`
-  - remove до отправки
-  - premium / non-premium поведение `Отправить без сжатия`
-  - image viewer по tap на фото
-  - error path для oversized / unsupported image
-- delete consistency:
-  - удалить сообщение в direct
-  - удалить сообщение в group
-  - удалить post в channel
-  - удалить thread comment
-  - после каждого удаления выйти из комнаты и зайти снова
-  - сделать hard reload страницы и убедиться, что deleted item не вернулся
+### Ownership And Moderation Surface
 
-## Базовый deploy flow на staging VM
+- владелец канала видит список подписчиков
+- `Удалить подписчика` и `В чёрный список` работают
+- invite flow канала отправляет корректное сообщение-приглашение
+
+### Reliability
+
+- удалённые сообщения, посты и комментарии не возвращаются после повторного входа в комнату
+- stale client snapshot не может восстановить удалённый timeline
+- profile settings сохраняются без transport-level сбоев за reverse proxy
+
+## Standard Deploy Flow
 
 ```bash
 cd /home/devis/tinychok
 git fetch origin
 git checkout codex/staging-deploy
-git pull origin codex/staging-deploy
+git pull --ff-only origin codex/staging-deploy
 npm ci
 npm run build
 sudo systemctl restart tinychok-staging
@@ -146,3 +73,28 @@ sudo rsync -av --delete dist/ /var/www/tinychok-staging/
 cd /home/devis/tinychok
 bash scripts/deploy-staging.sh
 ```
+
+## Minimal Post-Deploy Check
+
+```bash
+curl -I https://staging.tinychok.ru
+curl -s https://api.staging.tinychok.ru/healthz
+```
+
+Ожидается:
+
+- frontend не открывается без basic auth
+- backend отвечает `status: ok`
+
+## Manual Smoke Checklist
+
+- login на staging под allowlist номером
+- direct message send
+- group message send
+- channel post send
+- thread comment send
+- delete message / post / comment с повторным входом
+- photo send и viewer
+- GIF send для premium
+- avatar update
+- storage quota warning / block
