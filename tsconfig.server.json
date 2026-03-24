@@ -18,5 +18,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["server/src/**/*.ts", "src/shared/**/*.ts", "src/app/mockData.ts", "src/app/types.ts", "src/app/utils.ts", "src/app/constants.ts"]
+  "include": ["server/src/**/*.ts", "scripts/**/*.ts", "src/shared/**/*.ts", "src/app/mockData.ts", "src/app/types.ts", "src/app/utils.ts", "src/app/constants.ts"]
 }

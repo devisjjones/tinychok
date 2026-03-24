@@ -7,6 +7,8 @@ export type MessageAttachment = {
   width?: number
 }
 
+export type StaffRole = 'owner' | 'moderator' | 'support'
+
 export type UserGifLibraryItem = {
   createdAt: string
   fileName: string
@@ -266,6 +268,10 @@ export type Account = {
   isTestEntity?: boolean
   premium?: boolean
   premiumExpiresAt?: string
+  staffRole?: StaffRole
+  blockedAt?: string
+  blockedReason?: string
+  lastActiveAt?: string
   blockedContactIds?: number[]
   gifLibrary?: UserGifLibraryItem[]
   storageUsage?: StorageUsage
@@ -282,6 +288,10 @@ export type Session = {
   soundsDisabled?: boolean
   premium?: boolean
   premiumExpiresAt?: string
+  staffRole?: StaffRole
+  blockedAt?: string
+  blockedReason?: string
+  lastActiveAt?: string
   blockedContactIds?: number[]
   gifLibrary?: UserGifLibraryItem[]
   storageUsage?: StorageUsage

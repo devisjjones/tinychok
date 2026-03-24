@@ -5,10 +5,11 @@
 ## Runtime Topology
 
 - staging frontend: `https://staging.tinychok.ru`
+- staging admin frontend: `https://admin.staging.tinychok.ru`
 - staging backend API: `https://api.staging.tinychok.ru`
 - realtime websocket: `wss://api.staging.tinychok.ru/ws`
 - staging живёт на отдельной VM `tinychok-staging-1`
-- frontend и backend деплоятся независимо, но должны использовать один и тот же staging backend
+- user frontend, admin frontend и backend деплоятся независимо, но должны использовать один и тот же staging backend и staging state store
 
 ## Core Product Mechanics
 
@@ -97,14 +98,52 @@
 - orphan uploads чистятся по TTL
 - usage и quota показываются в настройках пользователя
 
+### Admin Panel MVP
+
+- отдельный internal admin frontend рендерится host-aware через:
+  - `admin.staging.tinychok.ru`
+  - `admin.tinychok.ru`
+- production admin по умолчанию выключен через `ADMIN_PANEL_ENABLED=false`
+- авторизация staff идёт через существующий bearer-token auth flow, но доступ к admin API разрешён только аккаунтам с `staffRole`
+- роли:
+  - `owner`
+  - `moderator`
+  - `support`
+- server-side permission matrix лежит в `server/src/admin-permissions.ts`
+- admin API и origin gating лежат в `server/src/admin-routes.ts`
+- данные staff/admin хранятся в основном state store:
+  - `staffRole`
+  - `blockedAt`
+  - `blockedReason`
+  - `lastActiveAt`
+  - `adminReports`
+  - `adminAuditLogs`
+- bootstrap первого staff делается только через CLI:
+
+```bash
+npm run bootstrap:staff -- <identifier> <owner|moderator|support>
+```
+
+- перед bootstrap нужный пользователь уже должен существовать как обычный staging account
+- admin UI умеет:
+  - dashboard metrics
+  - user search / detail
+  - block / unblock
+  - manual premium grant / revoke
+  - moderation queue по жалобам
+  - media hide / delete
+  - audit log
+
 ## Operational Invariants
 
 - staging должен оставаться закрыт сразу двумя уровнями:
   - `basic auth` на frontend
   - allowlist телефонов на backend
+- staging admin тоже должен оставаться за `basic auth` и использовать тот же backend allowlist для staff login
 - delete-path обязан работать server-side и не должен зависеть только от локального optimistic UI
 - premium debug state может использоваться на staging, но не должен попадать в production без отдельного решения
 - production deploy обязан идти в режиме `TINYCHOK_APP_ENV=production`, чтобы тестовые сущности не попадали в боевой runtime
+- admin production нельзя включать без отдельного ручного решения по env и rollout-проверке staging
 
 ## Smoke Checklist
 
@@ -122,3 +161,7 @@
 - avatar upload для профиля, канала и группы
 - storage quota block при превышении лимита
 - delete flow с повторным входом в комнату
+- admin login под owner/moderator/support
+- user search, block/unblock и premium toggle в admin
+- report note / close / restrict user / hide or delete entity
+- audit log entry после admin-действия

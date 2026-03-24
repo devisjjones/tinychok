@@ -21,6 +21,7 @@ import {
 } from '../../src/shared/mockData'
 import type {
   Account,
+  StaffRole,
   ChannelThreadInboxItem,
   Channel,
   Chat,
@@ -54,6 +55,15 @@ import {
   sanitizeStatusField,
 } from '../../src/shared/utils'
 import type {
+  AdminAuditLogEntry,
+  AdminDashboardResponse,
+  AdminMediaItem,
+  AdminMediaItemEntityType,
+  AdminReportAction,
+  AdminReportDetailResponse,
+  AdminReportNote,
+  AdminReportSummary,
+  AdminUserSummary,
   AppSnapshot,
   ComplaintReason,
   CreateGroupBody,
@@ -154,6 +164,28 @@ type SubscriptionChannelReportRecord = {
   targetHandle: string
 }
 
+type AdminReportRecord = {
+  closedAt?: string
+  closedByIdentifier?: string
+  createdAt: string
+  entityKey: string
+  entityLabel: string
+  entityOwnerIdentifier?: string
+  entityPreview?: string
+  entityType: AdminReportSummary['entityType']
+  id: string
+  notes: AdminReportNote[]
+  reason: ComplaintReason
+  relatedUserIdentifier?: string
+  reporterIdentifier: string
+  resolutionAction?: AdminReportAction
+  resolutionReason?: string
+  status: AdminReportSummary['status']
+  updatedAt: string
+}
+
+type AdminAuditLogRecord = Omit<AdminAuditLogEntry, 'actorDisplayName'>
+
 type PersistedPendingMediaUpload = {
   createdAt: string
   fileName: string
@@ -179,6 +211,8 @@ type LegacyPersistedAccount = Account & {
 
 export type Database = {
   accounts: Account[]
+  adminAuditLogs: AdminAuditLogRecord[]
+  adminReports: AdminReportRecord[]
   authChallenges: AuthChallenge[]
   contactReports: ContactReportRecord[]
   dialogs: PersistedDialog[]
@@ -237,6 +271,8 @@ function cloneDiscoveryResults() {
 function createDefaultDatabase(): Database {
   return {
     accounts: [],
+    adminAuditLogs: [],
+    adminReports: [],
     authChallenges: [],
     contactReports: [],
     dialogs: [],
@@ -277,14 +313,18 @@ function createSeedState() {
 function buildTestAccounts() {
   return initialChats.map((chat) => ({
     avatarImage: undefined,
+    blockedAt: undefined,
+    blockedReason: undefined,
     blockedContactIds: [],
     createdAt: TEST_FIXTURE_CREATED_AT,
     displayName: chat.title,
     identifier: normalizeIdentifier(chat.phone),
     isTestEntity: true,
+    lastActiveAt: TEST_FIXTURE_CREATED_AT,
     nickname: normalizeNickname(chat.handle.replace(/^@+/u, '')),
     premium: chat.premium ?? false,
     premiumExpiresAt: chat.premium ? TEST_FIXTURE_PREMIUM_EXPIRES_AT : undefined,
+    staffRole: undefined,
     status: chat.status
       ? (chat.status.startsWith('Тестовый аккаунт')
           ? chat.status
@@ -514,6 +554,33 @@ function sanitizeComplaintReason(value: ComplaintReason | undefined) {
   throw new Error('Некорректная причина жалобы.')
 }
 
+function sanitizeStaffRole(value: string | undefined): StaffRole | undefined {
+  if (value === 'owner' || value === 'moderator' || value === 'support') {
+    return value
+  }
+
+  return undefined
+}
+
+function sanitizeAdminText(value: string | undefined, maxLength = 1000) {
+  return value?.replace(/\s+/g, ' ').trim().slice(0, maxLength) || ''
+}
+
+function isAccountBlocked(account: Pick<Account, 'blockedAt'> | null | undefined) {
+  return Boolean(account?.blockedAt)
+}
+
+function isContentReportEntityType(entityType: AdminReportSummary['entityType']) {
+  return (
+    entityType === 'channel' ||
+    entityType === 'group' ||
+    entityType === 'message' ||
+    entityType === 'media' ||
+    entityType === 'avatar' ||
+    entityType === 'gif'
+  )
+}
+
 function shouldAllowComments(
   target: Pick<
     Channel | GroupPreview | SubscriptionChannel,
@@ -551,6 +618,10 @@ function buildAccountHandle(account: Account) {
   return account.nickname?.trim()
     ? `@${account.nickname.trim()}`
     : `@user_${normalizedDigits.slice(-6) || 'tinychok'}`
+}
+
+function buildAccountDisplayLabel(account: Pick<Account, 'displayName' | 'identifier' | 'surname'>) {
+  return formatAccountName(account) || account.identifier
 }
 
 function pickAccentForIdentifier(identifier: string) {
@@ -1160,17 +1231,21 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
   nextDatabase.threadStates = []
 
   for (const legacyAccount of value.accounts ?? []) {
-    nextDatabase.accounts.push({
+  nextDatabase.accounts.push({
       avatarImage: legacyAccount.avatarImage?.trim() || undefined,
+      blockedAt: legacyAccount.blockedAt,
+      blockedReason: legacyAccount.blockedReason,
       blockedContactIds: legacyAccount.blockedContactIds ?? [],
       createdAt: legacyAccount.createdAt,
       displayName: legacyAccount.displayName,
       gifLibrary: [...(legacyAccount.gifLibrary ?? [])],
       identifier: legacyAccount.identifier,
       isTestEntity: legacyAccount.isTestEntity,
+      lastActiveAt: legacyAccount.lastActiveAt ?? legacyAccount.createdAt,
       nickname: legacyAccount.nickname ?? '',
       premium: legacyAccount.premium ?? true,
       premiumExpiresAt: legacyAccount.premiumExpiresAt ?? makePremiumExpiry(30),
+      staffRole: sanitizeStaffRole(legacyAccount.staffRole),
       status: legacyAccount.status ?? '',
       surname: legacyAccount.surname ?? '',
     })
@@ -1641,6 +1716,10 @@ export class TinychokStore {
       }
     }
 
+    if (isAccountBlocked(existingAccount)) {
+      throw new Error(existingAccount.blockedReason || 'Аккаунт заблокирован staff-командой.')
+    }
+
     const token = await this.createSessionToken(normalizedIdentifier)
     this.clearChallenge(normalizedIdentifier)
     await this.persist()
@@ -1670,16 +1749,20 @@ export class TinychokStore {
 
     const nextAccount: Account = {
       avatarImage: undefined,
+      blockedAt: undefined,
+      blockedReason: undefined,
       blockedContactIds: [],
       createdAt: new Date().toISOString(),
       displayName,
       gifLibrary: [],
       identifier: normalizedIdentifier,
       isTestEntity: false,
+      lastActiveAt: new Date().toISOString(),
       nickname: '',
       premium: true,
       premiumExpiresAt: makePremiumExpiry(30),
       soundsDisabled: true,
+      staffRole: undefined,
       status: '',
       surname: '',
     }
@@ -1842,6 +1925,327 @@ export class TinychokStore {
         subtitle: buildSearchSubtitle(candidate),
         title: formatAccountName(candidate) || candidate.identifier,
       }))
+  }
+
+  getAdminActorByToken(token: string) {
+    const account = this.findAccountByToken(token)
+    const role = sanitizeStaffRole(account?.staffRole)
+
+    return account && role
+      ? {
+          displayName: buildAccountDisplayLabel(account),
+          identifier: account.identifier,
+          permissions: [],
+          role,
+        }
+      : null
+  }
+
+  getAdminDashboard(): AdminDashboardResponse {
+    const totalUsers = this.database.accounts.length
+    const premiumUsers = this.database.accounts.filter((account) =>
+      hasActivePremium(account.premium, account.premiumExpiresAt),
+    ).length
+    const openReports = this.database.adminReports.filter((report) => report.status === 'open').length
+    const mediaItems = this.collectAdminMediaItems()
+    const usedStorageBytes = this.database.accounts.reduce(
+      (total, account) => total + this.getStorageUsage(account.identifier).usedBytes,
+      0,
+    )
+
+    return {
+      metrics: {
+        openReports,
+        premiumUsers,
+        totalMediaItems: mediaItems.length,
+        totalUsers,
+        usedStorageBytes,
+      },
+    }
+  }
+
+  adminSearchUsers(query: string) {
+    const trimmedQuery = query.trim()
+    const normalizedQuery = trimmedQuery.toLowerCase()
+    const normalizedIdentifier = normalizeIdentifier(trimmedQuery)
+    const digitsQuery = trimmedQuery.replace(/[^\d]/g, '')
+
+    return this.database.accounts
+      .filter((account) => {
+        if (!trimmedQuery) return true
+
+        const displayLabel = buildAccountDisplayLabel(account).toLowerCase()
+        const nickname = normalizeNickname(account.nickname ?? '').toLowerCase()
+        const accountDigits = account.identifier.replace(/[^\d]/g, '')
+
+        return (
+          account.identifier === normalizedIdentifier ||
+          (digitsQuery !== '' && accountDigits.includes(digitsQuery)) ||
+          displayLabel.includes(normalizedQuery) ||
+          nickname.includes(normalizedQuery)
+        )
+      })
+      .sort((left, right) => {
+        const blockedDelta = Number(isAccountBlocked(right)) - Number(isAccountBlocked(left))
+        if (blockedDelta !== 0) {
+          return blockedDelta
+        }
+
+        return compareIsoDateDesc(left.lastActiveAt, right.lastActiveAt)
+      })
+      .slice(0, 50)
+      .map((account) => this.buildAdminUserSummary(account))
+  }
+
+  adminGetUser(identifier: string) {
+    const account = this.findAccountForAdmin(identifier)
+    if (!account) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    return this.buildAdminUserSummary(account)
+  }
+
+  async adminSetUserBlocked(
+    actorToken: string,
+    identifier: string,
+    options: {
+      blocked: boolean
+      reason?: string
+    },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const target = this.findAccountForAdmin(identifier)
+    if (!target) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    if (target.identifier === actor.identifier && options.blocked) {
+      throw new Error('Нельзя заблокировать собственный staff-аккаунт.')
+    }
+
+    const previousValue = this.buildAdminUserSummary(target)
+    if (options.blocked) {
+      target.blockedAt = new Date().toISOString()
+      target.blockedReason = sanitizeAdminText(options.reason, 280) || 'Аккаунт заблокирован staff-командой.'
+      this.database.sessions = this.database.sessions.filter(
+        (session) => session.identifier !== target.identifier,
+      )
+    } else {
+      target.blockedAt = undefined
+      target.blockedReason = undefined
+    }
+
+    target.lastActiveAt = target.lastActiveAt ?? target.createdAt
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: options.blocked ? 'admin.user.block' : 'admin.user.unblock',
+      nextValue: this.buildAdminUserSummary(target),
+      previousValue,
+      summary: `${options.blocked ? 'Заблокирован' : 'Разблокирован'} пользователь ${target.identifier}`,
+      targetId: target.identifier,
+      targetType: 'user',
+    })
+
+    return this.buildAdminUserSummary(target)
+  }
+
+  async adminSetUserPremium(
+    actorToken: string,
+    identifier: string,
+    options: {
+      durationDays?: number
+      enabled: boolean
+      reason?: string
+    },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const target = this.findAccountForAdmin(identifier)
+    if (!target) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    const previousValue = this.buildAdminUserSummary(target)
+    const durationDays =
+      Number.isInteger(options.durationDays) && (options.durationDays ?? 0) > 0
+        ? options.durationDays ?? 30
+        : 30
+    target.premium = options.enabled
+    target.premiumExpiresAt = options.enabled ? makePremiumExpiry(durationDays) : ''
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: options.enabled ? 'admin.user.premium.grant' : 'admin.user.premium.revoke',
+      nextValue: this.buildAdminUserSummary(target),
+      previousValue,
+      summary: `${options.enabled ? 'Выдан' : 'Снят'} premium для ${target.identifier}${options.reason ? ` · ${sanitizeAdminText(options.reason, 120)}` : ''}`,
+      targetId: target.identifier,
+      targetType: 'user',
+    })
+
+    return this.buildAdminUserSummary(target)
+  }
+
+  adminListReports(status?: AdminReportSummary['status']) {
+    return this.database.adminReports
+      .filter((report) => (status ? report.status === status : true))
+      .sort((left, right) => compareIsoDateDesc(left.updatedAt, right.updatedAt))
+      .map((report) => this.buildAdminReportSummary(report))
+  }
+
+  async adminGetReport(actorToken: string, reportId: string): Promise<AdminReportDetailResponse['report']> {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const report = this.findAdminReport(reportId)
+    if (!report) {
+      throw new Error('Жалоба не найдена.')
+    }
+
+    if (isContentReportEntityType(report.entityType)) {
+      await this.appendAdminAuditLog(actor, {
+        action: 'admin.report.view-content',
+        summary: `Открыт контент жалобы ${report.id}`,
+        targetId: report.id,
+        targetType: 'report',
+      })
+    }
+
+    return this.buildAdminReportDetail(report)
+  }
+
+  async adminAddReportNote(actorToken: string, reportId: string, text: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const report = this.findAdminReport(reportId)
+    if (!report) {
+      throw new Error('Жалоба не найдена.')
+    }
+
+    const noteText = sanitizeAdminText(text, 1500)
+    if (!noteText) {
+      throw new Error('Нужен текст заметки.')
+    }
+
+    report.notes.push(this.createAdminNote(actor, noteText))
+    report.updatedAt = new Date().toISOString()
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.report.note',
+      summary: `Добавлена внутренняя заметка к жалобе ${report.id}`,
+      targetId: report.id,
+      targetType: 'report',
+    })
+
+    return this.buildAdminReportDetail(report)
+  }
+
+  async adminApplyReportAction(
+    actorToken: string,
+    reportId: string,
+    payload: {
+      action: AdminReportAction
+      note?: string
+      reason?: string
+    },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const report = this.findAdminReport(reportId)
+    if (!report) {
+      throw new Error('Жалоба не найдена.')
+    }
+
+    const reason = sanitizeAdminText(payload.reason, 500)
+    const note = sanitizeAdminText(payload.note, 1500)
+
+    if (note) {
+      report.notes.push(this.createAdminNote(actor, note))
+    }
+
+    const previousValue = this.buildAdminReportDetail(report)
+    if (payload.action === 'restrict_user') {
+      const targetIdentifier = report.relatedUserIdentifier ?? (report.entityType === 'user' ? report.entityKey : undefined)
+      if (!targetIdentifier) {
+        throw new Error('Для этой жалобы не найден пользователь для ограничения.')
+      }
+
+      await this.applyAdminUserBlockFromActor(actor, targetIdentifier, reason || `Жалоба ${report.id}`)
+    } else if (payload.action === 'hide_entity') {
+      await this.applyAdminEntityModeration(actor, report, 'hide', reason)
+    } else if (payload.action === 'delete_entity') {
+      await this.applyAdminEntityModeration(actor, report, 'delete', reason)
+    }
+
+    report.closedAt = new Date().toISOString()
+    report.closedByIdentifier = actor.identifier
+    report.resolutionAction = payload.action
+    report.resolutionReason = reason || undefined
+    report.status = 'closed'
+    report.updatedAt = report.closedAt
+
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: `admin.report.${payload.action}`,
+      nextValue: this.buildAdminReportDetail(report),
+      previousValue,
+      summary: `Применено действие ${payload.action} к жалобе ${report.id}`,
+      targetId: report.id,
+      targetType: 'report',
+    })
+
+    return this.buildAdminReportDetail(report)
+  }
+
+  adminListMedia(query: string) {
+    const trimmedQuery = query.trim().toLowerCase()
+
+    return this.collectAdminMediaItems()
+      .filter((item) => {
+        if (!trimmedQuery) return true
+
+        return (
+          item.ownerIdentifier.toLowerCase().includes(trimmedQuery) ||
+          item.entityLabel.toLowerCase().includes(trimmedQuery) ||
+          item.mediaUrl.toLowerCase().includes(trimmedQuery)
+        )
+      })
+      .slice(0, 200)
+  }
+
+  async adminModerateMedia(
+    actorToken: string,
+    mediaUrlOrId: string,
+    action: 'hide' | 'delete',
+    reason: string,
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const decodedMediaUrl = decodeURIComponent(mediaUrlOrId)
+    const mediaItem = this.collectAdminMediaItems().find((item) => item.mediaUrl === decodedMediaUrl)
+    if (!mediaItem) {
+      throw new Error('Media-объект не найден.')
+    }
+
+    await this.applyMediaModerationAction(actor, mediaItem.mediaUrl, action, sanitizeAdminText(reason, 500))
+    return this.adminListMedia('')
+  }
+
+  adminListAuditLogs() {
+    return [...this.database.adminAuditLogs]
+      .sort((left, right) => compareIsoDateDesc(left.createdAt, right.createdAt))
+      .map((entry) => ({
+        ...entry,
+        actorDisplayName: this.findAccount(entry.actorIdentifier)
+          ? buildAccountDisplayLabel(this.findAccount(entry.actorIdentifier)!)
+          : entry.actorIdentifier,
+      }))
+  }
+
+  async bootstrapStaffRole(identifier: string, role: StaffRole) {
+    const target = this.findAccountForAdmin(identifier)
+    if (!target) {
+      throw new Error('Пользователь для bootstrap не найден.')
+    }
+
+    target.staffRole = role
+    target.lastActiveAt = target.lastActiveAt ?? target.createdAt
+    await this.persist()
+    return this.buildAdminUserSummary(target)
   }
 
   async saveSnapshot(token: string, snapshot: AppSnapshot) {
@@ -2235,6 +2639,25 @@ export class TinychokStore {
         targetIdentifier,
       })
     }
+
+    const targetAccount = this.findAccount(targetIdentifier)
+    const latestDialogMessage = this.database.dialogMessages
+      .filter(
+        (message) => message.ownerIdentifier === account.identifier && message.dialogId === dialogId,
+      )
+      .sort((left, right) => left.id - right.id)
+      .at(-1)
+    this.upsertAdminReport({
+      createdAt: new Date().toISOString(),
+      entityKey: targetIdentifier,
+      entityLabel: targetAccount ? buildAccountDisplayLabel(targetAccount) : targetIdentifier,
+      entityOwnerIdentifier: targetIdentifier,
+      entityPreview: latestDialogMessage?.text || latestDialogMessage?.attachment?.fileName || undefined,
+      entityType: 'user',
+      reason,
+      relatedUserIdentifier: targetIdentifier,
+      reporterIdentifier: account.identifier,
+    })
 
     await this.persist()
 
@@ -3746,6 +4169,19 @@ export class TinychokStore {
       })
     }
 
+    const sourceManagedChannel = this.findManagedChannelByHandle(normalizedHandle)
+    this.upsertAdminReport({
+      createdAt: new Date().toISOString(),
+      entityKey: normalizedHandle,
+      entityLabel: channel.title,
+      entityOwnerIdentifier: sourceManagedChannel?.ownerIdentifier,
+      entityPreview: channel.preview,
+      entityType: 'channel',
+      reason,
+      relatedUserIdentifier: sourceManagedChannel?.ownerIdentifier,
+      reporterIdentifier: account.identifier,
+    })
+
     await this.persist()
 
     return {
@@ -4328,15 +4764,19 @@ export class TinychokStore {
       groups: materializeGroups(this.database, account.identifier),
       session: {
         avatarImage: account.avatarImage,
+        blockedAt: account.blockedAt,
+        blockedReason: account.blockedReason,
         blockedContactIds: [...(account.blockedContactIds ?? [])],
         displayName: account.displayName,
         gifLibrary: [...(account.gifLibrary ?? [])],
         identifier: account.identifier,
+        lastActiveAt: account.lastActiveAt,
         nickname: account.nickname ?? '',
         premium: account.premium ?? true,
         premiumExpiresAt: account.premiumExpiresAt ?? '',
         sessionToken: token,
         soundsDisabled: Boolean(account.soundsDisabled),
+        staffRole: account.staffRole,
         storageUsage: this.getStorageUsage(account.identifier),
         status: account.status ?? '',
         surname: account.surname ?? '',
@@ -4344,6 +4784,632 @@ export class TinychokStore {
       subscriptionChannels: materializeSubscriptionChannels(this.database, account.identifier),
       threadInbox: buildThreadInbox(this.database, account.identifier),
     }
+  }
+
+  private getStaffAccountByTokenOrThrow(token: string) {
+    const account = this.findAccountByToken(token)
+    const role = sanitizeStaffRole(account?.staffRole)
+
+    if (!account || !role) {
+      throw new Error('Доступ к admin panel разрешён только staff-аккаунтам.')
+    }
+
+    return {
+      ...account,
+      staffRole: role,
+    }
+  }
+
+  private findAccountForAdmin(identifier: string) {
+    const trimmed = identifier.trim()
+    const normalizedIdentifier = normalizeIdentifier(trimmed)
+    return this.findAccount(normalizedIdentifier || trimmed)
+  }
+
+  private buildAdminUserSummary(account: Account): AdminUserSummary {
+    return {
+      avatarImage: account.avatarImage,
+      blocked: isAccountBlocked(account),
+      blockedAt: account.blockedAt,
+      createdAt: account.createdAt,
+      displayName: buildAccountDisplayLabel(account),
+      identifier: account.identifier,
+      lastActiveAt: account.lastActiveAt,
+      nickname: normalizeNickname(account.nickname ?? '') || undefined,
+      premium: hasActivePremium(account.premium, account.premiumExpiresAt),
+      premiumExpiresAt: account.premiumExpiresAt,
+      staffRole: sanitizeStaffRole(account.staffRole),
+      status: account.status?.trim() || undefined,
+      storageUsage: this.getStorageUsage(account.identifier),
+    }
+  }
+
+  private createAdminNote(
+    actor: ReturnType<TinychokStore['getStaffAccountByTokenOrThrow']>,
+    text: string,
+  ): AdminReportNote {
+    return {
+      authorDisplayName: buildAccountDisplayLabel(actor),
+      authorIdentifier: actor.identifier,
+      createdAt: new Date().toISOString(),
+      id: randomUUID(),
+      text,
+    }
+  }
+
+  private buildAdminReportSummary(report: AdminReportRecord): AdminReportSummary {
+    return {
+      closedAt: report.closedAt,
+      closedByIdentifier: report.closedByIdentifier,
+      createdAt: report.createdAt,
+      entityKey: report.entityKey,
+      entityLabel: report.entityLabel,
+      entityOwnerIdentifier: report.entityOwnerIdentifier,
+      entityPreview: report.entityPreview,
+      entityType: report.entityType,
+      id: report.id,
+      noteCount: report.notes.length,
+      reason: report.reason,
+      relatedUserIdentifier: report.relatedUserIdentifier,
+      reporterIdentifier: report.reporterIdentifier,
+      status: report.status,
+      updatedAt: report.updatedAt,
+    }
+  }
+
+  private buildAdminReportDetail(report: AdminReportRecord): AdminReportDetailResponse['report'] {
+    const summary = this.buildAdminReportSummary(report)
+
+    return {
+      ...summary,
+      canDelete: summary.entityType !== 'user',
+      canHide: summary.entityType !== 'user',
+      canRestrictUser: Boolean(summary.relatedUserIdentifier || summary.entityType === 'user'),
+      notes: report.notes.map((note) => ({ ...note })),
+      resolutionAction: report.resolutionAction,
+      resolutionReason: report.resolutionReason,
+    }
+  }
+
+  private findAdminReport(reportId: string) {
+    return this.database.adminReports.find((report) => report.id === reportId) ?? null
+  }
+
+  private async appendAdminAuditLog(
+    actor: Pick<Account, 'identifier'> & { staffRole: StaffRole },
+    entry: Omit<AdminAuditLogRecord, 'actorIdentifier' | 'actorRole' | 'createdAt' | 'id'>,
+  ) {
+    this.database.adminAuditLogs.push({
+      ...entry,
+      actorIdentifier: actor.identifier,
+      actorRole: actor.staffRole,
+      createdAt: new Date().toISOString(),
+      id: randomUUID(),
+    })
+    await this.persist()
+  }
+
+  private upsertAdminReport(record: Omit<AdminReportRecord, 'closedAt' | 'closedByIdentifier' | 'id' | 'notes' | 'resolutionAction' | 'resolutionReason' | 'status' | 'updatedAt'>) {
+    const existingReport = this.database.adminReports.find(
+      (report) =>
+        report.reporterIdentifier === record.reporterIdentifier &&
+        report.entityType === record.entityType &&
+        report.entityKey === record.entityKey,
+    )
+
+    if (existingReport) {
+      existingReport.closedAt = undefined
+      existingReport.closedByIdentifier = undefined
+      existingReport.entityLabel = record.entityLabel
+      existingReport.entityOwnerIdentifier = record.entityOwnerIdentifier
+      existingReport.entityPreview = record.entityPreview
+      existingReport.reason = record.reason
+      existingReport.relatedUserIdentifier = record.relatedUserIdentifier
+      existingReport.resolutionAction = undefined
+      existingReport.resolutionReason = undefined
+      existingReport.status = 'open'
+      existingReport.updatedAt = new Date().toISOString()
+      return existingReport
+    }
+
+    const nextReport: AdminReportRecord = {
+      ...record,
+      id: randomUUID(),
+      notes: [],
+      status: 'open',
+      updatedAt: record.createdAt,
+    }
+    this.database.adminReports.push(nextReport)
+    return nextReport
+  }
+
+  private collectAdminMediaItems(): AdminMediaItem[] {
+    const items: AdminMediaItem[] = []
+
+    const pushItem = (
+      entityType: AdminMediaItemEntityType,
+      ownerIdentifier: string,
+      mediaUrl: string,
+      size: number,
+      entityLabel: string,
+      linked = true,
+    ) => {
+      items.push({
+        entityLabel,
+        entityType,
+        hidden: false,
+        id: encodeURIComponent(mediaUrl),
+        kind: inferStoredMediaKind(mediaUrl) ?? 'unknown',
+        linked,
+        mediaUrl,
+        ownerIdentifier,
+        size,
+      })
+    }
+
+    for (const upload of this.database.pendingMediaUploads) {
+      pushItem(
+        'pending-upload',
+        upload.ownerIdentifier,
+        upload.mediaUrl,
+        upload.size,
+        upload.fileName,
+        upload.linked,
+      )
+    }
+
+    for (const account of this.database.accounts) {
+      if (account.avatarImage) {
+        pushItem('profile-avatar', account.identifier, account.avatarImage, 0, buildAccountDisplayLabel(account))
+      }
+
+      for (const gif of account.gifLibrary ?? []) {
+        pushItem('user-gif', account.identifier, gif.mediaUrl, gif.size, `${buildAccountDisplayLabel(account)} · GIF`)
+      }
+    }
+
+    for (const group of this.database.groups) {
+      if (group.avatarImage) {
+        pushItem('group-avatar', group.ownerIdentifier, group.avatarImage, 0, group.title)
+      }
+    }
+
+    for (const channel of this.database.managedChannels) {
+      if (channel.avatarImage) {
+        pushItem('channel-avatar', channel.ownerIdentifier, channel.avatarImage, 0, channel.title)
+      }
+    }
+
+    for (const message of this.database.dialogMessages) {
+      if (!message.attachment?.mediaUrl) continue
+
+      pushItem(
+        'dialog-message',
+        message.ownerIdentifier,
+        message.attachment.mediaUrl,
+        message.attachment.size,
+        `Диалог #${message.dialogId} · ${message.text || message.attachment.fileName}`,
+      )
+    }
+
+    for (const message of this.database.groupMessages) {
+      if (message.attachment?.mediaUrl) {
+        pushItem(
+          'group-message',
+          message.ownerIdentifier,
+          message.attachment.mediaUrl,
+          message.attachment.size,
+          `Группа #${message.groupId} · ${message.text || message.attachment.fileName}`,
+        )
+      }
+
+      for (const comment of message.threadComments ?? []) {
+        if (!comment.attachment?.mediaUrl) continue
+        pushItem(
+          'group-comment',
+          normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier,
+          comment.attachment.mediaUrl,
+          comment.attachment.size,
+          `Тред группы #${message.groupId}`,
+        )
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      if (post.attachment?.mediaUrl) {
+        pushItem(
+          'channel-post',
+          post.ownerIdentifier,
+          post.attachment.mediaUrl,
+          post.attachment.size,
+          `Канал #${post.channelId} · ${post.text || post.attachment.fileName}`,
+        )
+      }
+
+      for (const comment of post.threadComments ?? []) {
+        if (!comment.attachment?.mediaUrl) continue
+        pushItem(
+          'channel-comment',
+          normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier,
+          comment.attachment.mediaUrl,
+          comment.attachment.size,
+          `Тред канала #${post.channelId}`,
+        )
+      }
+    }
+
+    return items.sort((left, right) => right.size - left.size)
+  }
+
+  private async applyAdminUserBlockFromActor(
+    actor: ReturnType<TinychokStore['getStaffAccountByTokenOrThrow']>,
+    identifier: string,
+    reason: string,
+  ) {
+    const target = this.findAccountForAdmin(identifier)
+    if (!target) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    const previousValue = this.buildAdminUserSummary(target)
+    target.blockedAt = new Date().toISOString()
+    target.blockedReason = reason || 'Аккаунт ограничен staff-командой.'
+    this.database.sessions = this.database.sessions.filter((session) => session.identifier !== target.identifier)
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.user.block',
+      nextValue: this.buildAdminUserSummary(target),
+      previousValue,
+      summary: `Ограничен пользователь ${target.identifier}`,
+      targetId: target.identifier,
+      targetType: 'user',
+    })
+  }
+
+  private async applyAdminEntityModeration(
+    actor: ReturnType<TinychokStore['getStaffAccountByTokenOrThrow']>,
+    report: AdminReportRecord,
+    action: 'hide' | 'delete',
+    reason: string,
+  ) {
+    if (report.entityType === 'channel') {
+      if (action === 'hide') {
+        await this.hideChannelByHandle(actor, report.entityKey, reason)
+      } else {
+        await this.deleteChannelByHandle(actor, report.entityKey, reason)
+      }
+      return
+    }
+
+    if (report.entityType === 'group') {
+      if (action === 'hide') {
+        await this.hideGroupBySharedId(actor, report.entityKey, reason)
+      } else {
+        await this.deleteGroupBySharedId(actor, report.entityKey, reason)
+      }
+      return
+    }
+
+    if (
+      report.entityType === 'media' ||
+      report.entityType === 'avatar' ||
+      report.entityType === 'gif'
+    ) {
+      await this.applyMediaModerationAction(actor, report.entityKey, action, reason)
+      return
+    }
+
+    throw new Error('Для этого типа жалобы пока нет moderation action.')
+  }
+
+  private async hideChannelByHandle(
+    actor: ReturnType<TinychokStore['getStaffAccountByTokenOrThrow']>,
+    handle: string,
+    reason: string,
+  ) {
+    const normalizedHandle = sanitizeChannelDirectLink(handle) || handle
+    const managedChannel = this.findManagedChannelByHandle(normalizedHandle)
+    const keptOwnerIdentifier = managedChannel?.ownerIdentifier
+
+    if (managedChannel) {
+      managedChannel.status = 'draft'
+      managedChannel.visibility = 'closed'
+    }
+
+    this.removeSubscriptionChannelCopiesByHandle(normalizedHandle, keptOwnerIdentifier)
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.channel.hide',
+      summary: `Скрыт канал ${normalizedHandle}${reason ? ` · ${reason}` : ''}`,
+      targetId: normalizedHandle,
+      targetType: 'channel',
+    })
+  }
+
+  private async deleteChannelByHandle(
+    actor: ReturnType<TinychokStore['getStaffAccountByTokenOrThrow']>,
+    handle: string,
+    reason: string,
+  ) {
+    const normalizedHandle = sanitizeChannelDirectLink(handle) || handle
+    const mediaUrls = new Set<string>()
+
+    for (const channel of this.database.managedChannels) {
+      if ((sanitizeChannelDirectLink(channel.directLink) || channel.directLink) !== normalizedHandle) continue
+      if (channel.avatarImage) {
+        mediaUrls.add(channel.avatarImage)
+      }
+    }
+
+    for (const channel of this.listSubscriptionChannelCopiesByHandle(normalizedHandle)) {
+      if (channel.avatarImage) {
+        mediaUrls.add(channel.avatarImage)
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      const parentChannel = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+      if (!parentChannel) continue
+      if ((sanitizeChannelDirectLink(parentChannel.handle) || parentChannel.handle) !== normalizedHandle) continue
+
+      if (post.attachment?.mediaUrl) {
+        mediaUrls.add(post.attachment.mediaUrl)
+      }
+
+      for (const comment of post.threadComments ?? []) {
+        if (comment.attachment?.mediaUrl) {
+          mediaUrls.add(comment.attachment.mediaUrl)
+        }
+      }
+    }
+
+    this.database.managedChannels = this.database.managedChannels.filter(
+      (channel) => (sanitizeChannelDirectLink(channel.directLink) || channel.directLink) !== normalizedHandle,
+    )
+    this.removeSubscriptionChannelCopiesByHandle(normalizedHandle)
+    await this.persist()
+
+    for (const mediaUrl of mediaUrls) {
+      await this.applyMediaModerationAction(actor, mediaUrl, 'delete', reason)
+    }
+
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.channel.delete',
+      summary: `Удалён канал ${normalizedHandle}`,
+      targetId: normalizedHandle,
+      targetType: 'channel',
+    })
+  }
+
+  private removeSubscriptionChannelCopiesByHandle(handle: string, keepOwnerIdentifier?: string) {
+    const normalizedHandle = sanitizeChannelDirectLink(handle) || handle
+    const removableCopies = this.database.subscriptionChannels.filter(
+      (channel) =>
+        (sanitizeChannelDirectLink(channel.handle) || channel.handle) === normalizedHandle &&
+        (!keepOwnerIdentifier || channel.ownerIdentifier !== keepOwnerIdentifier),
+    )
+    const removableKeys = new Set(removableCopies.map((copy) => `${copy.ownerIdentifier}:${copy.id}`))
+
+    this.database.subscriptionChannels = this.database.subscriptionChannels.filter(
+      (channel) => !removableKeys.has(`${channel.ownerIdentifier}:${channel.id}`),
+    )
+    this.database.subscriptionPosts = this.database.subscriptionPosts.filter(
+      (post) => !removableKeys.has(`${post.ownerIdentifier}:${post.channelId}`),
+    )
+    this.database.threadStates = this.database.threadStates.filter(
+      (state) => !state.threadId.startsWith(`channel:${normalizedHandle}:`),
+    )
+  }
+
+  private async hideGroupBySharedId(
+    actor: ReturnType<TinychokStore['getStaffAccountByTokenOrThrow']>,
+    sharedId: string,
+    reason: string,
+  ) {
+    const groupCopies = this.listGroupCopies(sharedId)
+    const ownerIdentifier =
+      normalizeIdentifier(groupCopies[0]?.creatorIdentifier ?? '') ||
+      groupCopies[0]?.ownerIdentifier
+
+    this.removeGroupCopiesBySharedId(sharedId, ownerIdentifier)
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.group.hide',
+      summary: `Скрыта группа ${sharedId}${reason ? ` · ${reason}` : ''}`,
+      targetId: sharedId,
+      targetType: 'group',
+    })
+  }
+
+  private async deleteGroupBySharedId(
+    actor: ReturnType<TinychokStore['getStaffAccountByTokenOrThrow']>,
+    sharedId: string,
+    reason: string,
+  ) {
+    const mediaUrls = new Set<string>()
+
+    for (const group of this.listGroupCopies(sharedId)) {
+      if (group.avatarImage) {
+        mediaUrls.add(group.avatarImage)
+      }
+    }
+
+    for (const message of this.database.groupMessages) {
+      const parentGroup = this.findGroup(message.ownerIdentifier, message.groupId)
+      if (!parentGroup || this.getSharedGroupId(parentGroup) !== sharedId) continue
+
+      if (message.attachment?.mediaUrl) {
+        mediaUrls.add(message.attachment.mediaUrl)
+      }
+
+      for (const comment of message.threadComments ?? []) {
+        if (comment.attachment?.mediaUrl) {
+          mediaUrls.add(comment.attachment.mediaUrl)
+        }
+      }
+    }
+
+    this.removeGroupCopiesBySharedId(sharedId)
+    await this.persist()
+
+    for (const mediaUrl of mediaUrls) {
+      await this.applyMediaModerationAction(actor, mediaUrl, 'delete', reason)
+    }
+
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.group.delete',
+      summary: `Удалена группа ${sharedId}`,
+      targetId: sharedId,
+      targetType: 'group',
+    })
+  }
+
+  private removeGroupCopiesBySharedId(sharedId: string, keepOwnerIdentifier?: string) {
+    const removableCopies = this.listGroupCopies(sharedId).filter(
+      (group) => !keepOwnerIdentifier || group.ownerIdentifier !== keepOwnerIdentifier,
+    )
+    const removableKeys = new Set(removableCopies.map((group) => `${group.ownerIdentifier}:${group.id}`))
+
+    this.database.groups = this.database.groups.filter(
+      (group) => !removableKeys.has(`${group.ownerIdentifier}:${group.id}`),
+    )
+    this.database.groupMessages = this.database.groupMessages.filter(
+      (message) => !removableKeys.has(`${message.ownerIdentifier}:${message.groupId}`),
+    )
+    this.database.threadStates = this.database.threadStates.filter(
+      (state) => !state.threadId.startsWith(`group:${sharedId}:`),
+    )
+  }
+
+  private async applyMediaModerationAction(
+    actor: ReturnType<TinychokStore['getStaffAccountByTokenOrThrow']>,
+    mediaUrl: string,
+    action: 'hide' | 'delete',
+    reason: string,
+  ) {
+    const previousValue = this.collectAdminMediaItems().filter((item) => item.mediaUrl === mediaUrl)
+    const changed = this.stripMediaReferences(mediaUrl)
+    if (!changed && action === 'delete') {
+      const hadPendingUpload = this.database.pendingMediaUploads.some((upload) => upload.mediaUrl === mediaUrl)
+      if (!hadPendingUpload) {
+        throw new Error('Media-объект не найден для moderation.')
+      }
+    }
+
+    if (action === 'delete') {
+      this.database.pendingMediaUploads = this.database.pendingMediaUploads.filter(
+        (upload) => upload.mediaUrl !== mediaUrl,
+      )
+    }
+
+    await this.persist()
+
+    if (action === 'delete') {
+      const kind = inferStoredMediaKind(mediaUrl)
+      if (kind) {
+        try {
+          await deleteStoredMediaByUrl(mediaUrl, kind)
+        } catch (error) {
+          console.error('Failed to delete moderated media', error)
+        }
+      }
+    }
+
+    await this.appendAdminAuditLog(actor, {
+      action: `admin.media.${action}`,
+      nextValue: this.collectAdminMediaItems().filter((item) => item.mediaUrl === mediaUrl),
+      previousValue,
+      summary: `${action === 'hide' ? 'Скрыт' : 'Удалён'} media-объект ${mediaUrl}${reason ? ` · ${reason}` : ''}`,
+      targetId: mediaUrl,
+      targetType: 'media',
+    })
+  }
+
+  private stripMediaReferences(mediaUrl: string) {
+    let didChange = false
+
+    for (const account of this.database.accounts) {
+      if (account.avatarImage === mediaUrl) {
+        account.avatarImage = undefined
+        didChange = true
+      }
+
+      const nextGifLibrary = (account.gifLibrary ?? []).filter((gif) => gif.mediaUrl !== mediaUrl)
+      if (nextGifLibrary.length !== (account.gifLibrary ?? []).length) {
+        account.gifLibrary = nextGifLibrary
+        didChange = true
+      }
+    }
+
+    for (const group of this.database.groups) {
+      if (group.avatarImage === mediaUrl) {
+        group.avatarImage = undefined
+        didChange = true
+      }
+    }
+
+    for (const channel of this.database.managedChannels) {
+      if (channel.avatarImage === mediaUrl) {
+        channel.avatarImage = undefined
+        didChange = true
+      }
+    }
+
+    for (const channel of this.database.subscriptionChannels) {
+      if (channel.avatarImage === mediaUrl) {
+        channel.avatarImage = undefined
+        didChange = true
+      }
+    }
+
+    for (const message of this.database.dialogMessages) {
+      if (message.attachment?.mediaUrl === mediaUrl) {
+        message.attachment = undefined
+        didChange = true
+      }
+    }
+
+    for (const message of this.database.groupMessages) {
+      if (message.attachment?.mediaUrl === mediaUrl) {
+        message.attachment = undefined
+        didChange = true
+      }
+
+      const nextComments = (message.threadComments ?? []).map((comment) =>
+        comment.attachment?.mediaUrl === mediaUrl
+          ? {
+              ...comment,
+              attachment: undefined,
+            }
+          : comment,
+      )
+      if (JSON.stringify(nextComments) !== JSON.stringify(message.threadComments ?? [])) {
+        message.threadComments = nextComments
+        didChange = true
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      if (post.attachment?.mediaUrl === mediaUrl) {
+        post.attachment = undefined
+        didChange = true
+      }
+
+      const nextComments = (post.threadComments ?? []).map((comment) =>
+        comment.attachment?.mediaUrl === mediaUrl
+          ? {
+              ...comment,
+              attachment: undefined,
+            }
+          : comment,
+      )
+      if (JSON.stringify(nextComments) !== JSON.stringify(post.threadComments ?? [])) {
+        post.threadComments = nextComments
+        didChange = true
+      }
+    }
+
+    return didChange
   }
 
   getStorageUsageByToken(token: string) {
@@ -4626,6 +5692,11 @@ export class TinychokStore {
   }
 
   private async createSessionToken(identifier: string) {
+    const account = this.findAccount(identifier)
+    if (account) {
+      account.lastActiveAt = new Date().toISOString()
+    }
+
     const token = randomUUID()
     this.database.sessions.push({
       createdAt: new Date().toISOString(),
@@ -4657,7 +5728,8 @@ export class TinychokStore {
 
   private findAccountByToken(token: string) {
     const identifier = this.getIdentifierByToken(token)
-    return identifier ? this.findAccount(identifier) : null
+    const account = identifier ? this.findAccount(identifier) : null
+    return account && !isAccountBlocked(account) ? account : null
   }
 
   private hasActiveSession(identifier: string) {
@@ -5796,6 +6868,25 @@ function applyProductionFixtureCleanup(database: Database) {
     didMutate = true
   }
 
+  const nextAdminAuditLogs = database.adminAuditLogs.filter(
+    (entry) => !testAccountIdentifiers.has(entry.actorIdentifier),
+  )
+  if (nextAdminAuditLogs.length !== database.adminAuditLogs.length) {
+    database.adminAuditLogs = nextAdminAuditLogs
+    didMutate = true
+  }
+
+  const nextAdminReports = database.adminReports.filter(
+    (report) =>
+      !testAccountIdentifiers.has(report.reporterIdentifier) &&
+      !testAccountIdentifiers.has(report.entityOwnerIdentifier ?? '') &&
+      !testAccountIdentifiers.has(report.relatedUserIdentifier ?? ''),
+  )
+  if (nextAdminReports.length !== database.adminReports.length) {
+    database.adminReports = nextAdminReports
+    didMutate = true
+  }
+
   const nextAuthChallenges = database.authChallenges.filter(
     (challenge) => !testAccountIdentifiers.has(challenge.identifier),
   )
@@ -6084,7 +7175,24 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
     {
       ...createDefaultDatabase(),
       ...normalized,
-      accounts: normalized.accounts ?? [],
+      accounts: (normalized.accounts ?? []).map((account) => ({
+        ...account,
+        blockedAt: account.blockedAt || undefined,
+        blockedReason: account.blockedReason || undefined,
+        lastActiveAt: account.lastActiveAt || account.createdAt,
+        staffRole: sanitizeStaffRole(account.staffRole),
+      })),
+      adminAuditLogs: (normalized.adminAuditLogs ?? []).filter(
+        (entry): entry is AdminAuditLogRecord => Boolean(sanitizeStaffRole(entry.actorRole)),
+      ).map((entry) => ({
+        ...entry,
+        actorRole: sanitizeStaffRole(entry.actorRole)!,
+      })),
+      adminReports: (normalized.adminReports ?? []).map((report) => ({
+        ...report,
+        notes: report.notes ?? [],
+        status: report.status === 'closed' ? 'closed' : 'open',
+      })),
       authChallenges: normalized.authChallenges ?? [],
       contactReports: normalized.contactReports ?? [],
       dialogs: normalized.dialogs ?? [],

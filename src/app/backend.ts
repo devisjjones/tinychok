@@ -1,4 +1,17 @@
 import type {
+  AdminDashboardResponse,
+  AdminAuditLogResponse,
+  AdminBootstrapResponse,
+  AdminMediaActionBody,
+  AdminMediaListResponse,
+  AdminReportActionBody,
+  AdminReportDetailResponse,
+  AdminReportNoteBody,
+  AdminReportsResponse,
+  AdminUserBlockBody,
+  AdminUserDetailResponse,
+  AdminUserPremiumBody,
+  AdminUsersResponse,
   AppSnapshot,
   ClientRuntimeConfigResponse,
   CreateGroupBody,
@@ -363,6 +376,173 @@ export async function searchDiscoveryResults(sessionToken: string, query: string
 
   const payload = await readJsonResponse<DiscoverySearchResponse>(response)
   return payload.results as SearchResult[]
+}
+
+export async function fetchAdminBootstrap(sessionToken: string) {
+  const response = await fetch(makeHttpUrl('/api/admin/bootstrap'), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminBootstrapResponse>(response)
+}
+
+export async function fetchAdminDashboard(sessionToken: string) {
+  const response = await fetch(makeHttpUrl('/api/admin/dashboard'), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminDashboardResponse>(response)
+}
+
+export async function searchAdminUsers(sessionToken: string, query: string) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/users'), window.location.origin)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminUsersResponse>(response)
+}
+
+export async function fetchAdminUser(sessionToken: string, identifier: string) {
+  const response = await fetch(makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}`), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminUserDetailResponse>(response)
+}
+
+export async function blockAdminUser(
+  sessionToken: string,
+  identifier: string,
+  body: AdminUserBlockBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/block`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminUserDetailResponse>(response)
+}
+
+export async function unblockAdminUser(sessionToken: string, identifier: string) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/block`),
+    makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+
+  return readJsonResponse<AdminUserDetailResponse>(response)
+}
+
+export async function setAdminUserPremium(
+  sessionToken: string,
+  identifier: string,
+  body: AdminUserPremiumBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/premium`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminUserDetailResponse>(response)
+}
+
+export async function fetchAdminReports(
+  sessionToken: string,
+  status?: 'open' | 'closed',
+) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/reports'), window.location.origin)
+  if (status) {
+    requestUrl.searchParams.set('status', status)
+  }
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminReportsResponse>(response)
+}
+
+export async function fetchAdminReport(sessionToken: string, reportId: string) {
+  const response = await fetch(makeHttpUrl(`/api/admin/reports/${encodeURIComponent(reportId)}`), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminReportDetailResponse>(response)
+}
+
+export async function addAdminReportNote(
+  sessionToken: string,
+  reportId: string,
+  body: AdminReportNoteBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/reports/${encodeURIComponent(reportId)}/notes`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminReportDetailResponse>(response)
+}
+
+export async function applyAdminReportAction(
+  sessionToken: string,
+  reportId: string,
+  body: AdminReportActionBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/reports/${encodeURIComponent(reportId)}/actions`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminReportDetailResponse>(response)
+}
+
+export async function fetchAdminMedia(sessionToken: string, query: string) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/media'), window.location.origin)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminMediaListResponse>(response)
+}
+
+export async function moderateAdminMedia(
+  sessionToken: string,
+  body: AdminMediaActionBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/media/actions'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminMediaListResponse>(response)
+}
+
+export async function fetchAdminAuditLog(sessionToken: string) {
+  const response = await fetch(makeHttpUrl('/api/admin/audit-log'), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminAuditLogResponse>(response)
 }
 
 export async function saveSnapshot(sessionToken: string, snapshot: AppSnapshot) {

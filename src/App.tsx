@@ -457,6 +457,12 @@ const defaultClientRuntimeConfig: ClientRuntimeConfigResponse = {
     maxBatchSize: 20,
     provider: 'disabled',
   },
+  admin: {
+    bannerLabel: 'DEVELOPMENT',
+    enabled: false,
+    environment: 'development',
+    hosts: [],
+  },
   captcha: {
     enabled: false,
     provider: 'disabled',

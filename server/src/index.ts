@@ -44,6 +44,7 @@ import type {
 import type { RealtimeEvent } from '../../src/shared/backend'
 import type { AnalyticsBatchBody } from '../../src/shared/analytics'
 import { ingestAnalyticsBatch, parseAnalyticsBatch } from './analytics'
+import { registerAdminRoutes } from './admin-routes'
 import { verifyCaptchaOrThrow } from './captcha'
 import { runtimeConfig } from './config'
 import {
@@ -124,6 +125,27 @@ function getRequestedMediaKey(request: FastifyRequest) {
   return storageKey
 }
 
+function getAdminBannerLabel() {
+  if (runtimeConfig.environment === 'production') {
+    return 'PRODUCTION' as const
+  }
+
+  if (runtimeConfig.environment === 'staging') {
+    return 'STAGING' as const
+  }
+
+  return 'DEVELOPMENT' as const
+}
+
+function isLocalOrigin(origin: string) {
+  try {
+    const { hostname } = new URL(origin)
+    return hostname === 'localhost' || hostname === '127.0.0.1'
+  } catch {
+    return false
+  }
+}
+
 const { metadata: storeMetadata, store } = await createStore()
 const socketsByToken = new Map<string, WebSocket>()
 
@@ -165,7 +187,14 @@ setInterval(() => {
 
 await app.register(cors, {
   credentials: true,
-  origin: true,
+  origin(origin, callback) {
+    if (!origin || isLocalOrigin(origin) || runtimeConfig.allowedOrigins.includes(origin)) {
+      callback(null, true)
+      return
+    }
+
+    callback(null, false)
+  },
 })
 
 await app.register(multipart)
@@ -208,6 +237,12 @@ app.get('/api/client-config', async () => ({
     flushIntervalMs: runtimeConfig.analytics.flushIntervalMs,
     maxBatchSize: runtimeConfig.analytics.maxBatchSize,
     provider: runtimeConfig.analytics.provider,
+  },
+  admin: {
+    bannerLabel: getAdminBannerLabel(),
+    enabled: runtimeConfig.admin.enabled,
+    environment: runtimeConfig.environment,
+    hosts: [runtimeConfig.admin.hosts.staging, runtimeConfig.admin.hosts.production],
   },
   captcha: {
     enabled: runtimeConfig.auth.captcha.provider !== 'disabled',
@@ -1206,6 +1241,8 @@ app.post('/api/subscription-channels/:channelId/report', async (request, reply) 
     return sendError(reply, error)
   }
 })
+
+await registerAdminRoutes(app, store)
 
 app.get('/ws', { websocket: true }, (connection, request) => {
   const requestUrl = new URL(request.url, `http://${request.headers.host ?? '127.0.0.1'}`)

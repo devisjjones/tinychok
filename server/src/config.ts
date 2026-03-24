@@ -57,12 +57,55 @@ function readStringList(value: string | undefined) {
   return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))]
 }
 
+function toOrigin(value: string | null) {
+  if (!value) return null
+
+  try {
+    return new URL(value).origin
+  } catch {
+    return null
+  }
+}
+
+function readAdminEnabled(value: string | undefined, environment: AppEnvironment) {
+  return readBoolean(value, environment !== 'production')
+}
+
+const runtimeEnvironment = readEnvironment(process.env.TINYCHOK_APP_ENV ?? process.env.NODE_ENV)
+const publicApiBaseUrl = normalizeBaseUrl(process.env.PUBLIC_API_URL)
+const publicAppBaseUrl = normalizeBaseUrl(process.env.PUBLIC_APP_URL)
+const publicMediaBaseUrl = normalizeBaseUrl(process.env.PUBLIC_MEDIA_BASE_URL)
+const publicAdminStagingBaseUrl =
+  normalizeBaseUrl(process.env.PUBLIC_ADMIN_STAGING_URL) ?? 'https://admin.staging.tinychok.ru'
+const publicAdminProductionBaseUrl =
+  normalizeBaseUrl(process.env.PUBLIC_ADMIN_PRODUCTION_URL) ?? 'https://admin.tinychok.ru'
+const extraAllowedOrigins = readStringList(process.env.TINYCHOK_ALLOWED_ORIGINS)
+const normalizedAllowedOrigins = [
+  publicApiBaseUrl,
+  publicAppBaseUrl,
+  publicAdminStagingBaseUrl,
+  publicAdminProductionBaseUrl,
+  ...extraAllowedOrigins,
+]
+  .map((value) => toOrigin(value))
+  .filter((value): value is string => Boolean(value))
+
 export const runtimeConfig = {
-  environment: readEnvironment(process.env.TINYCHOK_APP_ENV ?? process.env.NODE_ENV),
+  environment: runtimeEnvironment,
   publicUrls: {
-    apiBaseUrl: normalizeBaseUrl(process.env.PUBLIC_API_URL),
-    appBaseUrl: normalizeBaseUrl(process.env.PUBLIC_APP_URL),
-    mediaBaseUrl: normalizeBaseUrl(process.env.PUBLIC_MEDIA_BASE_URL),
+    adminProductionBaseUrl: publicAdminProductionBaseUrl,
+    adminStagingBaseUrl: publicAdminStagingBaseUrl,
+    apiBaseUrl: publicApiBaseUrl,
+    appBaseUrl: publicAppBaseUrl,
+    mediaBaseUrl: publicMediaBaseUrl,
+  },
+  allowedOrigins: normalizedAllowedOrigins,
+  admin: {
+    enabled: readAdminEnabled(process.env.ADMIN_PANEL_ENABLED, runtimeEnvironment),
+    hosts: {
+      production: process.env.ADMIN_PRODUCTION_HOST?.trim() || 'admin.tinychok.ru',
+      staging: process.env.ADMIN_STAGING_HOST?.trim() || 'admin.staging.tinychok.ru',
+    },
   },
   auth: {
     allowedTestPhones: readStringList(process.env.TINYCHOK_ALLOWED_TEST_PHONES),
@@ -106,7 +149,7 @@ export const runtimeConfig = {
       host: process.env.POSTGRES_HOST?.trim() || '127.0.0.1',
       password: process.env.POSTGRES_PASSWORD?.trim() || '',
       port: readPort(process.env.POSTGRES_PORT, 6432),
-      ssl: readBoolean(process.env.POSTGRES_SSL, readEnvironment(process.env.TINYCHOK_APP_ENV ?? process.env.NODE_ENV) !== 'development'),
+      ssl: readBoolean(process.env.POSTGRES_SSL, runtimeEnvironment !== 'development'),
       stateTableName: process.env.POSTGRES_STATE_TABLE?.trim() || 'app_runtime_state',
       user: process.env.POSTGRES_USER?.trim() || 'tinychok_app',
     },

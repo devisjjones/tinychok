@@ -9,6 +9,8 @@ import type {
   Message,
   SearchResult,
   Session,
+  StaffRole,
+  StorageUsage,
   SubscriptionChannel,
   UserGifLibraryItem,
 } from './types'
@@ -29,6 +31,45 @@ export type CaptchaProvider = 'disabled' | 'turnstile'
 
 export type AnalyticsProvider = 'disabled' | 'log'
 
+export type AdminPermission =
+  | 'admin.access'
+  | 'dashboard.read'
+  | 'users.read'
+  | 'users.block'
+  | 'users.premium.write'
+  | 'reports.read'
+  | 'reports.note'
+  | 'reports.resolve'
+  | 'media.read'
+  | 'media.moderate'
+  | 'audit.read'
+  | 'staff.manage'
+
+export type AdminReportEntityType =
+  | 'user'
+  | 'channel'
+  | 'group'
+  | 'message'
+  | 'media'
+  | 'avatar'
+  | 'gif'
+
+export type AdminReportStatus = 'open' | 'closed'
+
+export type AdminReportAction = 'hide_entity' | 'delete_entity' | 'restrict_user' | 'close_report'
+
+export type AdminMediaItemEntityType =
+  | 'pending-upload'
+  | 'profile-avatar'
+  | 'group-avatar'
+  | 'channel-avatar'
+  | 'user-gif'
+  | 'dialog-message'
+  | 'group-message'
+  | 'group-comment'
+  | 'channel-post'
+  | 'channel-comment'
+
 export type RequestCodeBody = {
   captchaToken?: string
   identifier: string
@@ -41,11 +82,165 @@ export type ClientRuntimeConfigResponse = {
     maxBatchSize: number
     provider: AnalyticsProvider
   }
+  admin: {
+    bannerLabel: 'DEVELOPMENT' | 'STAGING' | 'PRODUCTION'
+    enabled: boolean
+    environment: 'development' | 'staging' | 'production'
+    hosts: string[]
+  }
   captcha: {
     enabled: boolean
     provider: CaptchaProvider
     siteKey: string | null
   }
+}
+
+export type AdminActor = {
+  displayName: string
+  identifier: string
+  permissions: AdminPermission[]
+  role: StaffRole
+}
+
+export type AdminBootstrapResponse = {
+  actor: AdminActor
+  config: ClientRuntimeConfigResponse['admin']
+}
+
+export type AdminDashboardResponse = {
+  metrics: {
+    openReports: number
+    premiumUsers: number
+    totalMediaItems: number
+    totalUsers: number
+    usedStorageBytes: number
+  }
+}
+
+export type AdminUserSummary = {
+  avatarImage?: string
+  blocked: boolean
+  blockedAt?: string
+  createdAt: string
+  displayName: string
+  identifier: string
+  lastActiveAt?: string
+  nickname?: string
+  premium: boolean
+  premiumExpiresAt?: string
+  staffRole?: StaffRole
+  status?: string
+  storageUsage: StorageUsage
+}
+
+export type AdminUsersResponse = {
+  users: AdminUserSummary[]
+}
+
+export type AdminUserDetailResponse = {
+  user: AdminUserSummary
+}
+
+export type AdminUserBlockBody = {
+  reason: string
+}
+
+export type AdminUserPremiumBody = {
+  durationDays?: number
+  enabled: boolean
+  reason: string
+}
+
+export type AdminReportNote = {
+  authorDisplayName: string
+  authorIdentifier: string
+  createdAt: string
+  id: string
+  text: string
+}
+
+export type AdminReportSummary = {
+  closedAt?: string
+  closedByIdentifier?: string
+  createdAt: string
+  entityKey: string
+  entityLabel: string
+  entityOwnerIdentifier?: string
+  entityPreview?: string
+  entityType: AdminReportEntityType
+  id: string
+  noteCount: number
+  reason: ComplaintReason
+  relatedUserIdentifier?: string
+  reporterIdentifier: string
+  status: AdminReportStatus
+  updatedAt: string
+}
+
+export type AdminReportDetailResponse = {
+  report: AdminReportSummary & {
+    canDelete: boolean
+    canHide: boolean
+    canRestrictUser: boolean
+    notes: AdminReportNote[]
+    resolutionAction?: AdminReportAction
+    resolutionReason?: string
+  }
+}
+
+export type AdminReportsResponse = {
+  reports: AdminReportSummary[]
+}
+
+export type AdminReportActionBody = {
+  action: AdminReportAction
+  note?: string
+  reason?: string
+}
+
+export type AdminReportNoteBody = {
+  text: string
+}
+
+export type AdminMediaItem = {
+  entityId?: string
+  entityLabel: string
+  entityType: AdminMediaItemEntityType
+  hidden: boolean
+  id: string
+  kind: UploadMediaKind | 'unknown'
+  linked: boolean
+  mediaUrl: string
+  ownerIdentifier: string
+  size: number
+}
+
+export type AdminMediaListResponse = {
+  items: AdminMediaItem[]
+}
+
+export type AdminMediaActionBody = {
+  action: 'hide' | 'delete'
+  mediaUrl: string
+  reason: string
+}
+
+export type AdminAuditLogEntry = {
+  action: string
+  actorDisplayName: string
+  actorIdentifier: string
+  actorRole: StaffRole
+  createdAt: string
+  id: string
+  nextValue?: unknown
+  previousValue?: unknown
+  summary: string
+  targetId: string
+  targetType: string
+}
+
+export type AdminAuditLogResponse = {
+  entries: AdminAuditLogEntry[]
 }
 
 export type DiscoverySearchResponse = {

@@ -17,6 +17,7 @@ export type {
   SearchResult,
   Session,
   SettingsView,
+  StaffRole,
   StorageUsage,
   StageView,
   SubscriptionChannel,

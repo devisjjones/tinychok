@@ -5,15 +5,17 @@
 ## Staging Contour
 
 - staging frontend: `https://staging.tinychok.ru`
+- staging admin frontend: `https://admin.staging.tinychok.ru`
 - staging backend: `https://api.staging.tinychok.ru`
 - websocket: `wss://api.staging.tinychok.ru/ws`
 - backend работает как `systemd` service `tinychok-staging.service`
-- frontend отдаётся как статическая Vite-сборка через `nginx`
+- user frontend и admin frontend отдаются как статические Vite-сборки через `nginx`
 - backend и frontend используют один staging state store
 
 ## Access Model
 
 - frontend staging закрыт через `nginx basic auth`
+- admin staging тоже должен быть закрыт через `nginx basic auth`
 - backend staging дополнительно ограничен allowlist-ом телефонов через `TINYCHOK_ALLOWED_TEST_PHONES`
 - эти два уровня нельзя ослаблять ради UI-фиксов, upload flow или realtime
 
@@ -54,6 +56,22 @@
 - stale client snapshot не может восстановить удалённый timeline
 - profile settings сохраняются без transport-level сбоев за reverse proxy
 
+### Admin Panel
+
+- `ADMIN_PANEL_ENABLED=true` на staging
+- `ADMIN_PANEL_ENABLED=false` по умолчанию на production, пока не будет отдельного ручного включения
+- `PUBLIC_ADMIN_STAGING_URL` должен указывать на `https://admin.staging.tinychok.ru`
+- `PUBLIC_ADMIN_PRODUCTION_URL` должен указывать на `https://admin.tinychok.ru`
+- `ADMIN_STAGING_HOST=admin.staging.tinychok.ru`
+- `ADMIN_PRODUCTION_HOST=admin.tinychok.ru`
+- admin UI открывается только на допустимых host-ах и использует тот же staging API
+- первый owner назначается отдельно bootstrap-командой после создания обычного staging account:
+
+```bash
+cd /home/devis/tinychok
+npm run bootstrap:staff -- <identifier> owner
+```
+
 ## Standard Deploy Flow
 
 ```bash
@@ -78,12 +96,14 @@ bash scripts/deploy-staging.sh
 
 ```bash
 curl -I https://staging.tinychok.ru
+curl -I https://admin.staging.tinychok.ru
 curl -s https://api.staging.tinychok.ru/healthz
 ```
 
 Ожидается:
 
 - frontend не открывается без basic auth
+- admin frontend не открывается без basic auth
 - backend отвечает `status: ok`
 
 ## Manual Smoke Checklist
@@ -98,3 +118,9 @@ curl -s https://api.staging.tinychok.ru/healthz
 - GIF send для premium
 - avatar update
 - storage quota warning / block
+- admin login под staff account
+- dashboard cards в admin
+- user search, block / unblock, premium toggle
+- report queue, note, close, restrict user
+- media hide / delete
+- audit log

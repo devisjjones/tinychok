@@ -7,6 +7,7 @@
 ### Frontend Guard
 
 - `https://staging.tinychok.ru` закрыт через `nginx basic auth`
+- `https://admin.staging.tinychok.ru` тоже должен быть закрыт через `nginx basic auth`
 - пароль хранится только на staging VM
 - пароль и содержимое `htpasswd` не должны попадать в чат, git или документацию
 
@@ -23,6 +24,7 @@
 ## Why Both Locks Matter
 
 - frontend guard закрывает сам UI от случайных посетителей
+- отдельный guard на `admin.staging.tinychok.ru` закрывает internal staff UI от случайного открытия
 - backend allowlist не даёт использовать staging auth любому номеру, даже если кто-то знает URL API
 
 Эти два замка дополняют друг друга и не заменяют один другой.
@@ -33,6 +35,8 @@
 - file upload
 - GIF upload
 - avatar upload
+- admin login
+- admin API
 - websocket connect
 - auth request / verify / register flow
 
@@ -44,10 +48,11 @@
 
 ```bash
 curl -I https://staging.tinychok.ru
+curl -I https://admin.staging.tinychok.ru
 curl -s https://api.staging.tinychok.ru/healthz
 ```
 
-Если frontend внезапно открывается без basic auth или неподдерживаемый номер снова может пройти auth, проблема уже не в UI, а в `nginx` или staging `.env`.
+Если user frontend или admin frontend внезапно открываются без basic auth, либо неподдерживаемый номер снова может пройти auth, проблема уже не в UI, а в `nginx` или staging `.env`.
 
 ## Secrets That Must Stay Out Of Chat And Git
 
