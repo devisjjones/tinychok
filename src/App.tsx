@@ -9,7 +9,6 @@ import {
   channelActionMenuHeight,
   channelActionMenuWidth,
   channelAvatarUploadAcceptedMimeTypes,
-  channelAvatarUploadMaxSizeBytes,
   channelAvatarTones,
   channelBlockedMenuHeight,
   channelDirectLinkMaxLength,
@@ -22,8 +21,10 @@ import {
   groupActionMenuWidth,
   groupTitleMaxLength,
   managedChannelsPerUserLimit,
+  messagePhotoSendOriginalPreferenceStorageKey,
   nicknameFieldMaxLength,
   premiumGroupMemberLimit,
+  premiumDebugAutoCheckoutStorageKey,
   quickFilters,
   sessionStorageKey,
   statusFieldMaxLength,
@@ -36,9 +37,11 @@ import {
   initialGroups,
   initialSubscribedChannels,
 } from './app/mockData'
+import { prepareAvatarUpload } from './app/avatarProcessing'
 import { loadAccounts, loadSession } from './app/storage'
 import {
   buildComposerAttachmentDraft,
+  buildGifLibraryAttachmentDraft,
   buildPendingAttachmentDraft,
   createPreparingComposerAttachmentDraft,
   releaseComposerAttachmentDraft,
@@ -84,6 +87,8 @@ import {
   reportSubscriptionChannel as reportSubscriptionChannelRequest,
   removeSubscriptionChannelSubscriber as removeSubscriptionChannelSubscriberRequest,
   registerAccount,
+  setDebugPremiumState as setDebugPremiumStateRequest,
+  registerUserGif,
   requestAuthCode,
   saveSnapshot,
   searchDiscoveryResults as searchDiscoveryResultsRequest,
@@ -107,6 +112,11 @@ import {
   verifyAuthCode,
 } from './app/backend'
 import { configureAnalyticsRuntime, trackAnalyticsEvent } from './app/analytics'
+import {
+  buildUserGifRegistrationBody,
+  readGifDimensions,
+  validateGifUploadFile,
+} from './app/gifLibrary'
 import type { ClientRuntimeConfigResponse } from './shared/backend'
 import type {
   Account,
@@ -129,6 +139,7 @@ import type {
   ThreadComment,
   ThreadInboxItem,
   TopListView,
+  UserGifLibraryItem,
 } from './app/types'
 import { useCaptcha } from './app/useCaptcha'
 import { scheduleActionAnchor, useAnchoredMenu } from './app/useAnchoredMenu'
@@ -148,18 +159,21 @@ import {
   formatUnreadBadgeCount,
   buildChannelDirectLinkFromTitle,
   ensureUniqueChannelDirectLink,
+  formatAttachmentSize,
   getChannelVisibilityDescription,
   getChannelVisibilityLabel,
   getNextChannelVisibility,
   getPremiumDaysLeft,
   hasActivePremium,
   isPhoneQuery,
+  makePremiumExpiry,
   makeDraftChannel,
   matchesQuery,
   moveUnreadItemsFirst,
   normalizeIdentifier,
   normalizeNickname,
   normalizePremiumExpiry,
+  isImageMimeType,
   sanitizeChannelDirectLink,
   sanitizeChannelDescription,
   sanitizeChannelTitle,
@@ -177,7 +191,7 @@ import { ConfirmLogoutScreen } from './screens/ConfirmLogoutScreen'
 import { DirectChatRoom } from './rooms/DirectChatRoom'
 import { GroupRoom } from './rooms/GroupRoom'
 import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
-import { BubbleMessageContent } from './components/BubbleMessageContent'
+import { BubbleImageOverlayMeta, BubbleMessageContent } from './components/BubbleMessageContent'
 import { AttachedReplyBubble } from './components/AttachedReplyBubble'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { ComposerAttachmentPicker } from './components/ComposerAttachmentPicker'
@@ -406,12 +420,6 @@ type ChannelAvatarDraft = {
   file?: File
 }
 
-type StockAvatarOption = {
-  id: string
-  imagePath: string
-  label: string
-}
-
 type BlacklistManagerTarget =
   | {
       kind: 'group'
@@ -432,16 +440,6 @@ type BlacklistManagerTarget =
       scope: 'existing'
     }
 
-function formatStockAvatarLabel(filePath: string) {
-  const fileName = filePath.split('/').pop() ?? filePath
-
-  return fileName
-    .replace(/\.[^.]+$/u, '')
-    .replace(/[_-]+/gu, ' ')
-    .trim()
-    .replace(/\b\p{L}/gu, (char) => char.toUpperCase())
-}
-
 function buildDefaultGroupTitle(session: Session | null) {
   return `Группа: ${session ? formatSessionName(session) : 'создатель группы'}`
 }
@@ -449,30 +447,6 @@ function buildDefaultGroupTitle(session: Session | null) {
 function buildLocalGroupHandle(groupId: number) {
   return `@group_${groupId}`
 }
-
-function buildStockAvatarOptions(modules: Record<string, string>) {
-  return Object.entries(modules)
-    .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath, 'ru'))
-    .map(([filePath, imagePath]) => ({
-      id: filePath,
-      imagePath,
-      label: formatStockAvatarLabel(filePath),
-    })) satisfies StockAvatarOption[]
-}
-
-const channelAvatarStockOptions = buildStockAvatarOptions(
-  import.meta.glob('./assets/stock-avatars/channels/*.{png,jpg,jpeg}', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, string>,
-)
-
-const profileAvatarStockOptions = buildStockAvatarOptions(
-  import.meta.glob('./assets/stock-avatars/users/*.{png,jpg,jpeg}', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, string>,
-)
 
 const PENDING_MESSAGE_RETRY_INTERVAL_MS = 2000
 const OUTGOING_CONFIRMATION_WINDOW_MS = 30_000
@@ -672,6 +646,9 @@ function App() {
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const channelAvatarObjectUrlsRef = useRef(new Set<string>())
   const localMessageAttachmentObjectUrlsRef = useRef(new Set<string>())
+  const profileAvatarSelectionTokenRef = useRef(0)
+  const channelAvatarSelectionTokenRef = useRef(0)
+  const groupAvatarSelectionTokenRef = useRef(0)
   const chatAttachmentSelectionTokenRef = useRef(0)
   const groupAttachmentSelectionTokenRef = useRef(0)
   const channelAttachmentSelectionTokenRef = useRef(0)
@@ -730,6 +707,7 @@ function App() {
   const [channelAttachmentDrafts, setChannelAttachmentDrafts] = useState<Record<number, ComposerAttachmentDraft | undefined>>({})
   const [threadAttachmentDraft, setThreadAttachmentDraft] = useState<ComposerAttachmentDraft | undefined>(undefined)
   const [mediaViewerAttachment, setMediaViewerAttachment] = useState<MessageAttachment | null>(null)
+  const [mediaViewerDownloadEnabled, setMediaViewerDownloadEnabled] = useState(true)
   const [pendingGroupThreadComments, setPendingGroupThreadComments] = useState<PendingGroupThreadComment[]>([])
   const [pendingChannelThreadComments, setPendingChannelThreadComments] = useState<PendingChannelThreadComment[]>([])
   const [activeFilter, setActiveFilter] = useState('Все')
@@ -756,6 +734,15 @@ function App() {
   const [chatActionsOpen, setChatActionsOpen] = useState(false)
   const [blockedActionChatId, setBlockedActionChatId] = useState<number | null>(null)
   const [premiumGiftChatId, setPremiumGiftChatId] = useState<number | null>(null)
+  const [premiumDebugAutoCheckout, setPremiumDebugAutoCheckout] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(premiumDebugAutoCheckoutStorageKey) === 'true'
+  })
+  const [photoSendOriginalPreference, setPhotoSendOriginalPreference] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.sessionStorage.getItem(messagePhotoSendOriginalPreferenceStorageKey) === 'true'
+  })
+  const [premiumPurchaseBusy, setPremiumPurchaseBusy] = useState(false)
   const [messageActionMessageId, setMessageActionMessageId] = useState<number | null>(null)
   const [forwardingMessageId, setForwardingMessageId] = useState<number | null>(null)
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null)
@@ -823,19 +810,20 @@ function App() {
   const [groupAvatarPickerOpen, setGroupAvatarPickerOpen] = useState(false)
   const [groupAvatarPickerDraft, setGroupAvatarPickerDraft] = useState<ChannelAvatarDraft | null>(null)
   const [groupAvatarPickerError, setGroupAvatarPickerError] = useState('')
-  const [groupAvatarPickerMode, setGroupAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
+  const [, setGroupAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
+  const [groupAvatarPickerBusy, setGroupAvatarPickerBusy] = useState(false)
   const [profileAvatarPickerOpen, setProfileAvatarPickerOpen] = useState(false)
   const [profileAvatarPickerDraft, setProfileAvatarPickerDraft] = useState<ChannelAvatarDraft | null>(null)
   const [profileAvatarPickerError, setProfileAvatarPickerError] = useState('')
   const [profileAvatarPickerBusy, setProfileAvatarPickerBusy] = useState(false)
-  const [profileAvatarPickerMode, setProfileAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
+  const [, setProfileAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
   const [channelAvatarPickerTarget, setChannelAvatarPickerTarget] = useState<ChannelAvatarPickerTarget | null>(
     null,
   )
   const [channelAvatarPickerDraft, setChannelAvatarPickerDraft] = useState<ChannelAvatarDraft | null>(null)
   const [channelAvatarPickerError, setChannelAvatarPickerError] = useState('')
   const [channelAvatarPickerBusy, setChannelAvatarPickerBusy] = useState(false)
-  const [channelAvatarPickerMode, setChannelAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
+  const [, setChannelAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
   const [editingChannelTitleId, setEditingChannelTitleId] = useState<number | null>(null)
   const [editingChannelTitleValue, setEditingChannelTitleValue] = useState('')
   const [channelManagementOpenId, setChannelManagementOpenId] = useState<number | null>(null)
@@ -1624,6 +1612,14 @@ function App() {
         ? threadChannelPost?.threadComments ?? []
         : []
   const activeThreadCommentCount = activeThreadComments.length
+  const activeThreadCommentLabel =
+    activeThreadCommentCount % 10 === 1 && activeThreadCommentCount % 100 !== 11
+      ? 'комментарий'
+      : activeThreadCommentCount % 10 >= 2 &&
+          activeThreadCommentCount % 10 <= 4 &&
+          (activeThreadCommentCount % 100 < 12 || activeThreadCommentCount % 100 > 14)
+        ? 'комментария'
+        : 'комментариев'
   const activeThreadComment =
     threadCommentActionId === null
       ? null
@@ -1735,6 +1731,16 @@ function App() {
     const leftDate = Date.parse(left.latestActivityAt ?? '') || 0
     return rightDate - leftDate
   })
+  const formatThreadCommentCountLabel = (count: number) => {
+    const noun =
+      count % 10 === 1 && count % 100 !== 11
+        ? 'комментарий'
+        : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)
+          ? 'комментария'
+          : 'комментариев'
+
+    return `${count} ${noun}`
+  }
   const totalChannelNotifications = subscriptionChannels.reduce((sum, channel) => sum + channel.unread, 0)
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
   const totalThreadNotifications = threadInbox.reduce((sum, item) => sum + item.unreadCount, 0)
@@ -1742,6 +1748,25 @@ function App() {
   const openPremiumUpsell = useCallback(() => {
     setStageView('premium')
   }, [])
+
+  async function applyPremiumDebugState(enabled: boolean, durationDays = 30) {
+    if (!session) return
+
+    if (backendReady && session.sessionToken) {
+      const response = await setDebugPremiumStateRequest(session.sessionToken, {
+        durationDays,
+        enabled,
+      })
+      applySnapshot(response.snapshot)
+      return
+    }
+
+    syncSession({
+      ...session,
+      premium: enabled,
+      premiumExpiresAt: enabled ? makePremiumExpiry(durationDays) : '',
+    })
+  }
   const profilePreviewSession =
     session && profileSettingsDraft
       ? {
@@ -1755,6 +1780,16 @@ function App() {
   const profileSettingsAvatarLabel =
     profilePreviewSession?.displayName.trim().slice(0, 1).toUpperCase() || 'Я'
   const effectiveProfileSoundsDisabled = quietMode || Boolean(profileSettingsDraft?.soundsDisabled)
+  const storageUsage = session?.storageUsage
+  const storageUsageLabel = storageUsage
+    ? `${formatAttachmentSize(storageUsage.usedBytes)} из ${formatAttachmentSize(storageUsage.quotaBytes)}`
+    : ''
+  const storageRemainingLabel = storageUsage
+    ? `Осталось ${formatAttachmentSize(storageUsage.remainingBytes)}`
+    : ''
+  const storageUsagePercent = storageUsage?.percentUsed ?? 0
+  const storageUsageTone =
+    storageUsagePercent >= 100 ? 'danger' : storageUsagePercent >= 85 ? 'warning' : 'normal'
   const profileSettingsDirty =
     session !== null &&
     profileSettingsDraft !== null &&
@@ -1861,6 +1896,43 @@ function App() {
   const premiumMonthlyPrice = 199
   const premiumAnnualPrice = 1390
   const premiumAnnualSavingsPercent = Math.round((1 - premiumAnnualPrice / (premiumMonthlyPrice * 12)) * 100)
+
+  async function startRealPremiumCheckout(plan: 'month' | 'year') {
+    const planLabel = plan === 'year' ? 'годовая' : 'месячная'
+    throw new Error(`Реальная ${planLabel} покупка пока не подключена. Для тестов включите дебаг-тоггл автопокупки.`)
+  }
+
+  async function startPremiumCheckout(plan: 'month' | 'year') {
+    if (!session || premiumPurchaseBusy) return
+
+    setPremiumPurchaseBusy(true)
+
+    try {
+      if (premiumDebugAutoCheckout) {
+        await applyPremiumDebugState(true, plan === 'year' ? 365 : 30)
+        return
+      }
+
+      await startRealPremiumCheckout(plan)
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : 'Не удалось запустить покупку премиума.',
+      )
+    } finally {
+      setPremiumPurchaseBusy(false)
+    }
+  }
+
+  function disablePremiumForDebug() {
+    if (!session) return
+
+    void applyPremiumDebugState(false).catch((error) => {
+      window.alert(
+        error instanceof Error ? error.message : 'Не удалось отключить премиум в debug-режиме.',
+      )
+    })
+  }
+
   const cookieConsentStatus =
     cookieConsent === 'analytics'
       ? 'Вы приняли аналитические cookie'
@@ -2143,6 +2215,80 @@ function App() {
     setProfileSettingsBusy(false)
     setProfileSettingsError('')
   }, [session])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    window.localStorage.setItem(
+      premiumDebugAutoCheckoutStorageKey,
+      premiumDebugAutoCheckout ? 'true' : 'false',
+    )
+  }, [premiumDebugAutoCheckout])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    window.sessionStorage.setItem(
+      messagePhotoSendOriginalPreferenceStorageKey,
+      photoSendOriginalPreference ? 'true' : 'false',
+    )
+  }, [photoSendOriginalPreference])
+
+  useEffect(() => {
+    const nextSendOriginal = sessionHasPremium && photoSendOriginalPreference
+
+    setChatAttachmentDrafts((currentAttachments) =>
+      Object.fromEntries(
+        Object.entries(currentAttachments).map(([chatId, draft]) => [
+          chatId,
+          draft &&
+          draft.kind === 'image' &&
+          draft.status === 'ready' &&
+          draft.compressionEligible &&
+          draft.sendOriginal !== nextSendOriginal
+            ? setComposerAttachmentSendOriginal(draft, nextSendOriginal)
+            : draft,
+        ]),
+      ),
+    )
+    setGroupAttachmentDrafts((currentAttachments) =>
+      Object.fromEntries(
+        Object.entries(currentAttachments).map(([groupId, draft]) => [
+          groupId,
+          draft &&
+          draft.kind === 'image' &&
+          draft.status === 'ready' &&
+          draft.compressionEligible &&
+          draft.sendOriginal !== nextSendOriginal
+            ? setComposerAttachmentSendOriginal(draft, nextSendOriginal)
+            : draft,
+        ]),
+      ),
+    )
+    setChannelAttachmentDrafts((currentAttachments) =>
+      Object.fromEntries(
+        Object.entries(currentAttachments).map(([channelId, draft]) => [
+          channelId,
+          draft &&
+          draft.kind === 'image' &&
+          draft.status === 'ready' &&
+          draft.compressionEligible &&
+          draft.sendOriginal !== nextSendOriginal
+            ? setComposerAttachmentSendOriginal(draft, nextSendOriginal)
+            : draft,
+        ]),
+      ),
+    )
+    setThreadAttachmentDraft((currentDraft) =>
+      currentDraft &&
+      currentDraft.kind === 'image' &&
+      currentDraft.status === 'ready' &&
+      currentDraft.compressionEligible &&
+      currentDraft.sendOriginal !== nextSendOriginal
+        ? setComposerAttachmentSendOriginal(currentDraft, nextSendOriginal)
+        : currentDraft,
+    )
+  }, [photoSendOriginalPreference, sessionHasPremium])
 
   const persistSession = useCallback((nextSession: Session | null) => {
     setSession(nextSession)
@@ -3024,12 +3170,27 @@ function App() {
     })
   }
 
-  function openMediaViewer(attachment: MessageAttachment) {
+  function openMediaViewer(attachment: MessageAttachment, options?: { allowDownload?: boolean }) {
     setMediaViewerAttachment(attachment)
+    setMediaViewerDownloadEnabled(options?.allowDownload ?? true)
+  }
+
+  function openAttachmentDraftPreview(attachmentDraft?: ComposerAttachmentDraft) {
+    if (!attachmentDraft || attachmentDraft.kind !== 'image') return
+
+    openMediaViewer({
+      fileName: attachmentDraft.fileName,
+      height: attachmentDraft.height,
+      mediaUrl: attachmentDraft.previewUrl,
+      mimeType: attachmentDraft.mimeType,
+      size: attachmentDraft.size,
+      width: attachmentDraft.width,
+    }, { allowDownload: false })
   }
 
   function closeMediaViewer() {
     setMediaViewerAttachment(null)
+    setMediaViewerDownloadEnabled(true)
   }
 
   function applyLocalDialogRead(chatId: number) {
@@ -3730,6 +3891,80 @@ function App() {
     return await buildComposerAttachmentDraft(file, options)
   }
 
+  function applyPhotoSendOriginalPreferenceToDraft(attachmentDraft: ComposerAttachmentDraft) {
+    if (!sessionHasPremium || !photoSendOriginalPreference) {
+      return attachmentDraft
+    }
+
+    return setComposerAttachmentSendOriginal(attachmentDraft, true)
+  }
+
+  function getGifSelectionBlockedReason(attachmentDraft?: ComposerAttachmentDraft) {
+    if (!attachmentDraft) return null
+    return attachmentDraft.mimeType === 'image/gif' ? null : 'Сначала уберите текущее вложение.'
+  }
+
+  async function uploadUserGifToLibrary(file: File) {
+    if (!session?.sessionToken) {
+      throw new Error('Нужна активная сессия.')
+    }
+
+    if (!sessionHasPremium) {
+      openPremiumUpsell()
+      throw new Error('GIF доступны только в премиуме.')
+    }
+
+    validateGifUploadFile(file)
+    const dimensions = await readGifDimensions(file)
+    const uploadedMedia = await uploadMediaFile(session.sessionToken, file, 'user-gif')
+    const response = await registerUserGif(
+      session.sessionToken,
+      buildUserGifRegistrationBody(file, uploadedMedia, dimensions),
+    )
+    applySnapshot(response.snapshot)
+  }
+
+  function attachChatGif(chatId: number, gif: UserGifLibraryItem) {
+    chatAttachmentSelectionTokenRef.current += 1
+    setChatAttachmentDrafts((currentAttachments) => {
+      releaseComposerAttachmentDraft(currentAttachments[chatId])
+      return {
+        ...currentAttachments,
+        [chatId]: buildGifLibraryAttachmentDraft(gif),
+      }
+    })
+  }
+
+  function attachGroupGif(groupId: number, gif: UserGifLibraryItem) {
+    groupAttachmentSelectionTokenRef.current += 1
+    setGroupAttachmentDrafts((currentAttachments) => {
+      releaseComposerAttachmentDraft(currentAttachments[groupId])
+      return {
+        ...currentAttachments,
+        [groupId]: buildGifLibraryAttachmentDraft(gif),
+      }
+    })
+  }
+
+  function attachChannelGif(channelId: number, gif: UserGifLibraryItem) {
+    channelAttachmentSelectionTokenRef.current += 1
+    setChannelAttachmentDrafts((currentAttachments) => {
+      releaseComposerAttachmentDraft(currentAttachments[channelId])
+      return {
+        ...currentAttachments,
+        [channelId]: buildGifLibraryAttachmentDraft(gif),
+      }
+    })
+  }
+
+  function attachThreadGif(gif: UserGifLibraryItem) {
+    threadAttachmentSelectionTokenRef.current += 1
+    setThreadAttachmentDraft((currentDraft) => {
+      releaseComposerAttachmentDraft(currentDraft)
+      return buildGifLibraryAttachmentDraft(gif)
+    })
+  }
+
   function toggleChatAttachmentSendOriginal(chatId: number) {
     setChatAttachmentDrafts((currentAttachments) => {
       const currentDraft = currentAttachments[chatId]
@@ -3737,9 +3972,12 @@ function App() {
         return currentAttachments
       }
 
+      const nextSendOriginal = !currentDraft.sendOriginal
+      setPhotoSendOriginalPreference(nextSendOriginal)
+
       return {
         ...currentAttachments,
-        [chatId]: setComposerAttachmentSendOriginal(currentDraft, !currentDraft.sendOriginal),
+        [chatId]: setComposerAttachmentSendOriginal(currentDraft, nextSendOriginal),
       }
     })
   }
@@ -3751,9 +3989,12 @@ function App() {
         return currentAttachments
       }
 
+      const nextSendOriginal = !currentDraft.sendOriginal
+      setPhotoSendOriginalPreference(nextSendOriginal)
+
       return {
         ...currentAttachments,
-        [groupId]: setComposerAttachmentSendOriginal(currentDraft, !currentDraft.sendOriginal),
+        [groupId]: setComposerAttachmentSendOriginal(currentDraft, nextSendOriginal),
       }
     })
   }
@@ -3765,9 +4006,12 @@ function App() {
         return currentAttachments
       }
 
+      const nextSendOriginal = !currentDraft.sendOriginal
+      setPhotoSendOriginalPreference(nextSendOriginal)
+
       return {
         ...currentAttachments,
-        [channelId]: setComposerAttachmentSendOriginal(currentDraft, !currentDraft.sendOriginal),
+        [channelId]: setComposerAttachmentSendOriginal(currentDraft, nextSendOriginal),
       }
     })
   }
@@ -3778,7 +4022,10 @@ function App() {
         return currentDraft
       }
 
-      return setComposerAttachmentSendOriginal(currentDraft, !currentDraft.sendOriginal)
+      const nextSendOriginal = !currentDraft.sendOriginal
+      setPhotoSendOriginalPreference(nextSendOriginal)
+
+      return setComposerAttachmentSendOriginal(currentDraft, nextSendOriginal)
     })
   }
 
@@ -3887,6 +4134,8 @@ function App() {
   }
 
   function closeChannelAvatarPicker(options?: { preserveCurrentDraft?: boolean }) {
+    channelAvatarSelectionTokenRef.current += 1
+
     if (!options?.preserveCurrentDraft) {
       const shouldPreserveSavedCreateDraft =
         channelAvatarPickerTarget?.scope === 'create' &&
@@ -3910,48 +4159,36 @@ function App() {
   }
 
   function openChannelAvatarPicker(target: ChannelAvatarPickerTarget) {
+    channelAvatarSelectionTokenRef.current += 1
     setChannelAvatarPickerTarget(target)
     setChannelAvatarPickerError('')
     setChannelAvatarPickerBusy(false)
 
     if (target.scope === 'create') {
       setChannelAvatarPickerDraft(creatingChannelAvatarDraft)
-      setChannelAvatarPickerMode('none')
+      setChannelAvatarPickerMode('device')
       return
     }
 
     setChannelAvatarPickerDraft(null)
-    setChannelAvatarPickerMode('none')
+    setChannelAvatarPickerMode('device')
   }
 
-  function buildStockAvatarDraft(option: StockAvatarOption): ChannelAvatarDraft {
+  async function buildProcessedAvatarDraft(file: File): Promise<ChannelAvatarDraft> {
+    const preparedAvatar = await prepareAvatarUpload(file)
+    channelAvatarObjectUrlsRef.current.add(preparedAvatar.previewUrl)
+
     return {
-      kind: 'stock',
-      label: option.label,
-      previewUrl: option.imagePath,
+      file: preparedAvatar.file,
+      kind: 'upload',
+      label: file.name,
+      previewUrl: preparedAvatar.previewUrl,
     }
   }
 
-  function selectStockChannelAvatar(option: StockAvatarOption) {
-    const nextDraft = buildStockAvatarDraft(option)
-
-    setChannelAvatarPickerMode('stock')
-    setChannelAvatarPickerError('')
-    setChannelAvatarPickerDraft((currentDraft) => {
-      const shouldPreserveSavedCreateDraft =
-        channelAvatarPickerTarget?.scope === 'create' &&
-        currentDraft !== null &&
-        currentDraft === creatingChannelAvatarDraft
-
-      if (!shouldPreserveSavedCreateDraft) {
-        releaseChannelAvatarDraft(currentDraft)
-      }
-
-      return nextDraft
-    })
-  }
-
   function openGroupCreateDialog(preselectedChatIds: number[] = []) {
+    groupAvatarSelectionTokenRef.current += 1
+
     const nextSelectedChatIds = [...new Set(
       preselectedChatIds.filter((chatId) => creatableGroupChats.some((chat) => chat.id === chatId)),
     )]
@@ -3975,7 +4212,8 @@ function App() {
     setGroupAvatarPickerOpen(false)
     setGroupAvatarPickerDraft(null)
     setGroupAvatarPickerError('')
-    setGroupAvatarPickerMode('none')
+    setGroupAvatarPickerMode('device')
+    setGroupAvatarPickerBusy(false)
 
     if (groupAvatarInputRef.current) {
       groupAvatarInputRef.current.value = ''
@@ -3983,6 +4221,8 @@ function App() {
   }
 
   function closeGroupCreateDialog(options?: { preserveCurrentDraft?: boolean }) {
+    groupAvatarSelectionTokenRef.current += 1
+
     if (!options?.preserveCurrentDraft) {
       releaseChannelAvatarDraft(creatingGroupAvatarDraft)
     }
@@ -4005,7 +4245,8 @@ function App() {
     setGroupAvatarPickerOpen(false)
     setGroupAvatarPickerDraft(null)
     setGroupAvatarPickerError('')
-    setGroupAvatarPickerMode('none')
+    setGroupAvatarPickerMode('device')
+    setGroupAvatarPickerBusy(false)
 
     if (groupAvatarInputRef.current) {
       groupAvatarInputRef.current.value = ''
@@ -4013,13 +4254,17 @@ function App() {
   }
 
   function openGroupAvatarPicker() {
+    groupAvatarSelectionTokenRef.current += 1
     setGroupAvatarPickerOpen(true)
     setGroupAvatarPickerDraft(creatingGroupAvatarDraft)
     setGroupAvatarPickerError('')
-    setGroupAvatarPickerMode('none')
+    setGroupAvatarPickerMode('device')
+    setGroupAvatarPickerBusy(false)
   }
 
   function closeGroupAvatarPicker(options?: { preserveCurrentDraft?: boolean }) {
+    groupAvatarSelectionTokenRef.current += 1
+
     if (!options?.preserveCurrentDraft) {
       const shouldPreserveSavedDraft =
         groupAvatarPickerDraft !== null && groupAvatarPickerDraft === creatingGroupAvatarDraft
@@ -4032,37 +4277,23 @@ function App() {
     setGroupAvatarPickerOpen(false)
     setGroupAvatarPickerDraft(null)
     setGroupAvatarPickerError('')
-    setGroupAvatarPickerMode('none')
+    setGroupAvatarPickerMode('device')
+    setGroupAvatarPickerBusy(false)
 
     if (groupAvatarInputRef.current) {
       groupAvatarInputRef.current.value = ''
     }
   }
 
-  function selectStockGroupAvatar(option: StockAvatarOption) {
-    const nextDraft = buildStockAvatarDraft(option)
-
-    setGroupAvatarPickerMode('stock')
-    setGroupAvatarPickerError('')
-    setGroupAvatarPickerDraft((currentDraft) => {
-      const shouldPreserveSavedDraft =
-        currentDraft !== null && currentDraft === creatingGroupAvatarDraft
-
-      if (!shouldPreserveSavedDraft) {
-        releaseChannelAvatarDraft(currentDraft)
-      }
-
-      return nextDraft
-    })
-  }
-
   function triggerGroupAvatarUpload() {
+    groupAvatarSelectionTokenRef.current += 1
     setGroupAvatarPickerMode('device')
     setGroupAvatarPickerError('')
+    setGroupAvatarPickerBusy(false)
     groupAvatarInputRef.current?.click()
   }
 
-  function handleGroupAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleGroupAvatarChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
 
     if (!file) {
@@ -4070,37 +4301,38 @@ function App() {
       return
     }
 
-    if (!channelAvatarUploadAcceptedMimeTypes.includes(file.type as (typeof channelAvatarUploadAcceptedMimeTypes)[number])) {
-      setGroupAvatarPickerError('Поддерживаются только JPG и PNG.')
-      event.target.value = ''
-      return
-    }
-
-    if (file.size > channelAvatarUploadMaxSizeBytes) {
-      setGroupAvatarPickerError('Файл слишком большой. Максимальный размер аватарки 1 МБ.')
-      event.target.value = ''
-      return
-    }
-
-    const nextAvatarImage = URL.createObjectURL(file)
-    channelAvatarObjectUrlsRef.current.add(nextAvatarImage)
+    const selectionToken = ++groupAvatarSelectionTokenRef.current
+    setGroupAvatarPickerBusy(true)
     setGroupAvatarPickerError('')
     setGroupAvatarPickerMode('device')
-    setGroupAvatarPickerDraft((currentDraft) => {
-      const shouldPreserveSavedDraft =
-        currentDraft !== null && currentDraft === creatingGroupAvatarDraft
 
-      if (!shouldPreserveSavedDraft) {
-        releaseChannelAvatarDraft(currentDraft)
-      }
+    try {
+      const nextDraft = await buildProcessedAvatarDraft(file)
 
-      return {
-        file,
-        kind: 'upload',
-        label: file.name,
-        previewUrl: nextAvatarImage,
+      setGroupAvatarPickerDraft((currentDraft) => {
+        if (selectionToken !== groupAvatarSelectionTokenRef.current) {
+          releaseChannelAvatarDraft(nextDraft)
+          return currentDraft
+        }
+
+        const shouldPreserveSavedDraft =
+          currentDraft !== null && currentDraft === creatingGroupAvatarDraft
+
+        if (!shouldPreserveSavedDraft) {
+          releaseChannelAvatarDraft(currentDraft)
+        }
+
+        return nextDraft
+      })
+    } catch (error) {
+      setGroupAvatarPickerError(
+        error instanceof Error ? error.message : 'Не удалось подготовить аватарку группы.',
+      )
+    } finally {
+      if (selectionToken === groupAvatarSelectionTokenRef.current) {
+        setGroupAvatarPickerBusy(false)
       }
-    })
+    }
 
     event.target.value = ''
   }
@@ -4142,6 +4374,8 @@ function App() {
   }
 
   function closeProfileAvatarPicker(options?: { preserveCurrentDraft?: boolean }) {
+    profileAvatarSelectionTokenRef.current += 1
+
     if (!options?.preserveCurrentDraft) {
       releaseChannelAvatarDraft(profileAvatarPickerDraft)
     }
@@ -4150,7 +4384,7 @@ function App() {
     setProfileAvatarPickerDraft(null)
     setProfileAvatarPickerError('')
     setProfileAvatarPickerBusy(false)
-    setProfileAvatarPickerMode('none')
+    setProfileAvatarPickerMode('device')
 
     if (profileAvatarInputRef.current) {
       profileAvatarInputRef.current.value = ''
@@ -4158,22 +4392,12 @@ function App() {
   }
 
   function openProfileAvatarPicker() {
+    profileAvatarSelectionTokenRef.current += 1
     setProfileAvatarPickerOpen(true)
     setProfileAvatarPickerDraft(null)
     setProfileAvatarPickerError('')
     setProfileAvatarPickerBusy(false)
-    setProfileAvatarPickerMode('none')
-  }
-
-  function selectStockProfileAvatar(option: StockAvatarOption) {
-    const nextDraft = buildStockAvatarDraft(option)
-
-    setProfileAvatarPickerMode('stock')
-    setProfileAvatarPickerError('')
-    setProfileAvatarPickerDraft((currentDraft) => {
-      releaseChannelAvatarDraft(currentDraft)
-      return nextDraft
-    })
+    setProfileAvatarPickerMode('device')
   }
 
   async function mutateBlockedContacts(nextBlockedContactIds: number[]) {
@@ -4674,7 +4898,9 @@ function App() {
       }
     })
 
-    const nextAttachmentDraft = await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl })
+    const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
+      await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
+    )
     setChatAttachmentDrafts((currentAttachments) => {
       if (selectionToken !== chatAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -4719,7 +4945,9 @@ function App() {
       }
     })
 
-    const nextAttachmentDraft = await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl })
+    const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
+      await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
+    )
     setGroupAttachmentDrafts((currentAttachments) => {
       if (selectionToken !== groupAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -4763,7 +4991,9 @@ function App() {
       }
     })
 
-    const nextAttachmentDraft = await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl })
+    const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
+      await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
+    )
     setChannelAttachmentDrafts((currentAttachments) => {
       if (selectionToken !== channelAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -4803,7 +5033,9 @@ function App() {
       return preparingDraft
     })
 
-    const nextAttachmentDraft = await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl })
+    const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
+      await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
+    )
     setThreadAttachmentDraft((currentDraft) => {
       if (selectionToken !== threadAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -7011,18 +7243,22 @@ function App() {
   }
 
   function triggerChannelAvatarUpload() {
+    channelAvatarSelectionTokenRef.current += 1
     setChannelAvatarPickerMode('device')
     setChannelAvatarPickerError('')
+    setChannelAvatarPickerBusy(false)
     channelAvatarInputRef.current?.click()
   }
 
   function triggerProfileAvatarUpload() {
+    profileAvatarSelectionTokenRef.current += 1
     setProfileAvatarPickerMode('device')
     setProfileAvatarPickerError('')
+    setProfileAvatarPickerBusy(false)
     profileAvatarInputRef.current?.click()
   }
 
-  function handleProfileAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleProfileAvatarChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
 
     if (!file) {
@@ -7030,31 +7266,32 @@ function App() {
       return
     }
 
-    if (!channelAvatarUploadAcceptedMimeTypes.includes(file.type as (typeof channelAvatarUploadAcceptedMimeTypes)[number])) {
-      setProfileAvatarPickerError('Поддерживаются только JPG и PNG.')
-      event.target.value = ''
-      return
-    }
-
-    if (file.size > channelAvatarUploadMaxSizeBytes) {
-      setProfileAvatarPickerError('Файл слишком большой. Максимальный размер аватарки 1 МБ.')
-      event.target.value = ''
-      return
-    }
-
-    const nextAvatarImage = URL.createObjectURL(file)
-    channelAvatarObjectUrlsRef.current.add(nextAvatarImage)
+    const selectionToken = ++profileAvatarSelectionTokenRef.current
+    setProfileAvatarPickerBusy(true)
     setProfileAvatarPickerError('')
     setProfileAvatarPickerMode('device')
-    setProfileAvatarPickerDraft((currentDraft) => {
-      releaseChannelAvatarDraft(currentDraft)
-      return {
-        file,
-        kind: 'upload',
-        label: file.name,
-        previewUrl: nextAvatarImage,
+
+    try {
+      const nextDraft = await buildProcessedAvatarDraft(file)
+
+      setProfileAvatarPickerDraft((currentDraft) => {
+        if (selectionToken !== profileAvatarSelectionTokenRef.current) {
+          releaseChannelAvatarDraft(nextDraft)
+          return currentDraft
+        }
+
+        releaseChannelAvatarDraft(currentDraft)
+        return nextDraft
+      })
+    } catch (error) {
+      setProfileAvatarPickerError(
+        error instanceof Error ? error.message : 'Не удалось подготовить аватарку профиля.',
+      )
+    } finally {
+      if (selectionToken === profileAvatarSelectionTokenRef.current) {
+        setProfileAvatarPickerBusy(false)
       }
-    })
+    }
 
     event.target.value = ''
   }
@@ -7106,7 +7343,7 @@ function App() {
     }
   }
 
-  function handleChannelAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleChannelAvatarChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
 
     if (!file) {
@@ -7114,39 +7351,40 @@ function App() {
       return
     }
 
-    if (!channelAvatarUploadAcceptedMimeTypes.includes(file.type as (typeof channelAvatarUploadAcceptedMimeTypes)[number])) {
-      setChannelAvatarPickerError('Поддерживаются только JPG и PNG.')
-      event.target.value = ''
-      return
-    }
-
-    if (file.size > channelAvatarUploadMaxSizeBytes) {
-      setChannelAvatarPickerError('Файл слишком большой. Максимальный размер аватарки 1 МБ.')
-      event.target.value = ''
-      return
-    }
-
-    const nextAvatarImage = URL.createObjectURL(file)
-    channelAvatarObjectUrlsRef.current.add(nextAvatarImage)
+    const selectionToken = ++channelAvatarSelectionTokenRef.current
+    setChannelAvatarPickerBusy(true)
     setChannelAvatarPickerError('')
     setChannelAvatarPickerMode('device')
-    setChannelAvatarPickerDraft((currentDraft) => {
-      const shouldPreserveSavedCreateDraft =
-        channelAvatarPickerTarget?.scope === 'create' &&
-        currentDraft !== null &&
-        currentDraft === creatingChannelAvatarDraft
 
-      if (!shouldPreserveSavedCreateDraft) {
-        releaseChannelAvatarDraft(currentDraft)
-      }
+    try {
+      const nextDraft = await buildProcessedAvatarDraft(file)
 
-      return {
-        file,
-        kind: 'upload',
-        label: file.name,
-        previewUrl: nextAvatarImage,
+      setChannelAvatarPickerDraft((currentDraft) => {
+        if (selectionToken !== channelAvatarSelectionTokenRef.current) {
+          releaseChannelAvatarDraft(nextDraft)
+          return currentDraft
+        }
+
+        const shouldPreserveSavedCreateDraft =
+          channelAvatarPickerTarget?.scope === 'create' &&
+          currentDraft !== null &&
+          currentDraft === creatingChannelAvatarDraft
+
+        if (!shouldPreserveSavedCreateDraft) {
+          releaseChannelAvatarDraft(currentDraft)
+        }
+
+        return nextDraft
+      })
+    } catch (error) {
+      setChannelAvatarPickerError(
+        error instanceof Error ? error.message : 'Не удалось подготовить аватарку канала.',
+      )
+    } finally {
+      if (selectionToken === channelAvatarSelectionTokenRef.current) {
+        setChannelAvatarPickerBusy(false)
       }
-    })
+    }
 
     event.target.value = ''
   }
@@ -7897,6 +8135,9 @@ function App() {
                   </span>
                 </div>
               </div>
+              <p className="room-thread-meta">
+                {`${activeThreadCommentCount} ${activeThreadCommentLabel}`}
+              </p>
             </div>
           </div>
           {activeThreadId ? (
@@ -7915,14 +8156,29 @@ function App() {
 
         <div className="room-thread-source" ref={threadSourceRef}>
           {threadTarget.kind === 'group' && threadGroupMessage ? (
+            (() => {
+              const hasImageAttachment = Boolean(
+                threadGroupMessage.attachment && isImageMimeType(threadGroupMessage.attachment.mimeType),
+              )
+              const isImageOnlyBubble =
+                hasImageAttachment &&
+                !resolveEmbeddedChannelFromMessage(threadGroupMessage) &&
+                !threadGroupMessage.sourceChannel &&
+                !threadGroupMessage.sourceGroup &&
+                threadSourceText.trim().length === 0
+
+              return (
             <AttachedReplyBubble
               mine={threadGroupMessage.author === 'me'}
               replyTo={threadGroupMessage.replyTo}
               bubble={
                 <article
-                  className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}`}
+                  className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
                 >
                   <BubbleMessageContent
+                    imageOverlay={
+                      hasImageAttachment ? <BubbleImageOverlayMeta time={threadSourceTime} /> : undefined
+                    }
                     linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
                     message={{
                       ...threadGroupMessage,
@@ -7931,11 +8187,21 @@ function App() {
                     onOpenAttachment={openMediaViewer}
                     showReplyInline={false}
                   />
-                  <time>{threadSourceTime}</time>
+                  {!hasImageAttachment ? <time>{threadSourceTime}</time> : null}
                 </article>
               }
             />
+              )
+            })()
           ) : threadTarget.kind === 'channel' && threadChannelPost ? (
+            (() => {
+              const hasImageAttachment = Boolean(
+                threadChannelPost.attachment && isImageMimeType(threadChannelPost.attachment.mimeType),
+              )
+              const isImageOnlyBubble =
+                hasImageAttachment && threadSourceText.trim().length === 0
+
+              return (
             <AttachedReplyBubble
               className="channel"
               onReplyClick={(() => {
@@ -7958,9 +8224,12 @@ function App() {
               replyTo={threadChannelPost.replyTo}
               bubble={
                 <article
-                  className={`bubble channel-post room-thread-source-bubble${threadChannelPost.replyTo ? ' has-attached-reply' : ''}`}
+                  className={`bubble channel-post room-thread-source-bubble${threadChannelPost.replyTo ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
                 >
                   <BubbleMessageContent
+                    imageOverlay={
+                      hasImageAttachment ? <BubbleImageOverlayMeta time={threadSourceTime} /> : undefined
+                    }
                     message={{
                       ...threadChannelPost,
                       text: threadSourceText,
@@ -7968,10 +8237,12 @@ function App() {
                     onOpenAttachment={openMediaViewer}
                     showReplyInline={false}
                   />
-                  <time>{threadSourceTime}</time>
+                  {!hasImageAttachment ? <time>{threadSourceTime}</time> : null}
                 </article>
               }
             />
+              )
+            })()
           ) : null}
         </div>
 
@@ -7980,6 +8251,10 @@ function App() {
             activeThreadComments.map((comment) => {
               const participant = resolveThreadCommentParticipant(comment)
               const mine = comment.author === 'me'
+              const hasImageAttachment = Boolean(
+                comment.attachment && isImageMimeType(comment.attachment.mimeType),
+              )
+              const isImageOnlyBubble = hasImageAttachment && comment.text.trim().length === 0
               const replyReference = comment.replyTo
 
               return (
@@ -7996,7 +8271,7 @@ function App() {
                     <button
                       type="button"
                       data-thread-comment-id={comment.id}
-                      className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}`}
+                      className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
                       onClick={(event) => {
                         scheduleActionAnchor(
                           event.currentTarget,
@@ -8031,6 +8306,9 @@ function App() {
                         <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
                       )}
                       <BubbleMessageContent
+                        imageOverlay={
+                          hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
+                        }
                         message={{
                           attachment: comment.attachment,
                           replyTo: comment.replyTo,
@@ -8040,7 +8318,7 @@ function App() {
                         onOpenAttachment={openMediaViewer}
                         showReplyInline={false}
                       />
-                      <time>{comment.time}</time>
+                      {!hasImageAttachment ? <time>{comment.time}</time> : null}
                     </button>
                   }
                 />
@@ -8088,6 +8366,7 @@ function App() {
                     <ComposerAttachmentPreview
                       attachmentDraft={threadAttachmentDraft}
                       onClear={clearThreadAttachmentDraft}
+                      onOpenPreview={() => openAttachmentDraftPreview(threadAttachmentDraft)}
                       onOpenPremiumUpsell={openPremiumUpsell}
                       onToggleSendOriginal={toggleThreadAttachmentSendOriginal}
                       premiumUnlocked={sessionHasPremium}
@@ -8115,6 +8394,10 @@ function App() {
                   />
                   <div className="composer-tools">
                     <EmojiPicker
+                      canSelectGif={!getGifSelectionBlockedReason(threadAttachmentDraft)}
+                      gifLibrary={session?.gifLibrary ?? []}
+                      gifSelectionBlockedReason={getGifSelectionBlockedReason(threadAttachmentDraft)}
+                      onOpenPremiumUpsell={openPremiumUpsell}
                       onSelect={(emoji) =>
                         insertComposerTextAtCursor(
                           threadComposerInputRef.current,
@@ -8123,6 +8406,9 @@ function App() {
                           setThreadDraft,
                         )
                       }
+                      onSelectGif={attachThreadGif}
+                      onUploadGif={uploadUserGifToLibrary}
+                      premiumUnlocked={sessionHasPremium}
                     />
                     <ComposerAttachmentPicker
                       attachmentName={threadAttachmentDraft?.fileName ?? ''}
@@ -9726,7 +10012,7 @@ function App() {
                     </span>
                     <span className="chat-handle">
                       {item.commentCount > 0
-                        ? `${item.commentCount} комментариев`
+                        ? formatThreadCommentCountLabel(item.commentCount)
                         : 'Подписка на тред'}
                     </span>
                     <span className="chat-preview thread-inbox-preview">
@@ -10076,6 +10362,37 @@ function App() {
                       <span>Выключить звуки</span>
                     </label>
                   </article>
+                  {storageUsage ? (
+                    <article className={`settings-item storage-usage-card ${storageUsageTone}`}>
+                      <div className="storage-usage-header">
+                        <span className="settings-label">Хранилище</span>
+                        <strong>{storageUsageLabel}</strong>
+                      </div>
+                      <div
+                        className="storage-usage-bar"
+                        role="progressbar"
+                        aria-label="Использование хранилища"
+                        aria-valuemin={0}
+                        aria-valuemax={storageUsage.quotaBytes}
+                        aria-valuenow={storageUsage.usedBytes}
+                      >
+                        <span
+                          className="storage-usage-bar-fill"
+                          style={{ width: `${Math.max(4, Math.min(100, storageUsagePercent))}%` }}
+                        />
+                      </div>
+                      <p className="settings-text">{storageRemainingLabel}</p>
+                      {!sessionHasPremium ? (
+                        <button
+                          type="button"
+                          className="soft-button storage-usage-upsell"
+                          onClick={() => setStageView('premium')}
+                        >
+                          Больше места с премиумом
+                        </button>
+                      ) : null}
+                    </article>
+                  ) : null}
                 </div>
               ) : settingsView === 'management' ? (
                 <div className="settings-stack">
@@ -10304,17 +10621,31 @@ function App() {
           <section className="settings-view premium-view">
             <div className="settings-panel premium-panel">
               <div className="settings-heading premium-heading">
-                {premiumGiftChat ? (
-                  <>
+                <div className="premium-title-row">
+                  {premiumGiftChat ? (
                     <div className="premium-gift-title">
                       <h2>Подарить Премиум</h2>
                       <img src="/icons/crown100.png" alt="" />
                     </div>
-                    <p className="premium-gift-contact">{`Контакту ${premiumGiftChat.title}`}</p>
-                  </>
-                ) : (
-                  <h2>{sessionHasPremium ? 'Продли премиум Тайничок' : 'Премиум Тайничок'}</h2>
-                )}
+                  ) : (
+                    <h2>{sessionHasPremium ? 'Продли премиум Тайничок' : 'Премиум Тайничок'}</h2>
+                  )}
+                  {sessionHasPremium ? (
+                    <div className="premium-debug-block">
+                      <span className="premium-debug-label">Дебаг</span>
+                      <button
+                        type="button"
+                        className="soft-button premium-debug-disable-button"
+                        onClick={disablePremiumForDebug}
+                      >
+                        Выключить премиум
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {premiumGiftChat ? (
+                  <p className="premium-gift-contact">{`Контакту ${premiumGiftChat.title}`}</p>
+                ) : null}
                 <p className="settings-copy">
                   {premiumGiftChat
                     ? 'В Тайничке нет рекламы, поэтому, совершая покупку, вы помогаете обслуживать прожорливые серверы.'
@@ -10343,12 +10674,21 @@ function App() {
                         <img src="/icons/crown64.png" alt="" aria-hidden="true" />
                       </span>
                     </li>
-                    <li>Увеличивает срок хранения файлов и фотографий</li>
+                    <li>Загрузка и использование GIF animation</li>
+                    <li>Отправка фотографий в оригинальном размере</li>
+                    <li>Хранилище файлов до 500 МБ</li>
                     <li>Создание тематических каналов</li>
                     <li>Группы до 200 человек</li>
                   </ul>
-                  <button type="button" className="send-button premium-submit">
-                    Выбрать месяц
+                  <button
+                    type="button"
+                    className="send-button premium-submit"
+                    onClick={() => {
+                      void startPremiumCheckout('month')
+                    }}
+                    disabled={premiumPurchaseBusy}
+                  >
+                    {premiumPurchaseBusy ? 'Обрабатываем...' : 'Выбрать месяц'}
                   </button>
                 </article>
 
@@ -10368,17 +10708,26 @@ function App() {
                         <img src="/icons/crown64.png" alt="" aria-hidden="true" />
                       </span>
                     </li>
-                    <li>Увеличивает срок хранения файлов и фотографий</li>
+                    <li>Загрузка и использование GIF animation</li>
+                    <li>Отправка фотографий в оригинальном размере</li>
+                    <li>Хранилище файлов до 500 МБ</li>
                     <li>Создание тематических каналов</li>
                     <li>Группы до 200 человек</li>
                   </ul>
-                  <button type="button" className="send-button premium-submit">
-                    Выбрать год
+                  <button
+                    type="button"
+                    className="send-button premium-submit"
+                    onClick={() => {
+                      void startPremiumCheckout('year')
+                    }}
+                    disabled={premiumPurchaseBusy}
+                  >
+                    {premiumPurchaseBusy ? 'Обрабатываем...' : 'Выбрать год'}
                   </button>
                 </article>
               </div>
 
-              <div className="settings-actions">
+              <div className="settings-actions premium-actions">
                 <button
                   type="button"
                   className="soft-button"
@@ -10389,6 +10738,26 @@ function App() {
                 >
                   Назад
                 </button>
+                <div className="premium-debug-inline">
+                  <span className="premium-debug-label">Дебаг</span>
+                  <button
+                    type="button"
+                    className={
+                      premiumDebugAutoCheckout
+                        ? 'premium-debug-toggle active'
+                        : 'premium-debug-toggle'
+                    }
+                    aria-pressed={premiumDebugAutoCheckout}
+                    onClick={() => {
+                      setPremiumDebugAutoCheckout((current) => !current)
+                    }}
+                  >
+                    <span className="premium-debug-toggle-thumb" aria-hidden="true" />
+                  </button>
+                  <span className="premium-debug-inline-copy">
+                    Автопокупка для тестов. При включении покупка проходит сразу, без реального платежа.
+                  </span>
+                </div>
               </div>
             </div>
           </section>
@@ -10431,24 +10800,55 @@ function App() {
                         </span>
                       </button>
                     ))}
+                    <button
+                      type="button"
+                      className="channel-card channels-create-button"
+                      onClick={openChannelCreateView}
+                    >
+                      <span className="channel-avatar channels-create-avatar" style={{ backgroundColor: '#8c5738' }}>
+                        +
+                      </span>
+                      <span className="channel-card-copy">
+                        <strong className="channel-card-title">
+                          <span>Создать канал</span>
+                          <span className="chat-star">
+                            <img src="/icons/news100.svg" alt="Канал" />
+                          </span>
+                        </strong>
+                        <span>Новый черновик канала</span>
+                      </span>
+                    </button>
                   </div>
                 ) : (
                   <article className="settings-item">
                     <p className="settings-text">Пока нет каналов. Создайте первый канал из этой сцены.</p>
                   </article>
                 )}
+                {channels.length === 0 ? (
+                  <button
+                    type="button"
+                    className="channel-card channels-create-button"
+                    onClick={openChannelCreateView}
+                  >
+                    <span className="channel-avatar channels-create-avatar" style={{ backgroundColor: '#8c5738' }}>
+                      +
+                    </span>
+                    <span className="channel-card-copy">
+                      <strong className="channel-card-title">
+                        <span>Создать канал</span>
+                        <span className="chat-star">
+                          <img src="/icons/news100.svg" alt="Канал" />
+                        </span>
+                      </strong>
+                      <span>Новый черновик канала</span>
+                    </span>
+                  </button>
+                ) : null}
               </div>
 
               <div className="settings-actions channels-manager-actions">
-                <button type="button" className="soft-button" onClick={() => setStageView('main')}>
+                <button type="button" className="soft-button channels-manager-back" onClick={() => setStageView('main')}>
                   Назад
-                </button>
-                <button
-                  type="button"
-                  className="send-button channels-create-button"
-                  onClick={openChannelCreateView}
-                >
-                  Создать канал
                 </button>
               </div>
             </div>
@@ -11033,13 +11433,21 @@ function App() {
                     isBusy: channelPostBusy,
                     onAttachmentChange: handleChannelAttachmentChange,
                     onAttachmentClear: () => clearChannelAttachmentDraft(currentSubscriptionChannel!.id),
+                    onAttachmentPreviewOpen: () =>
+                      openAttachmentDraftPreview(channelAttachmentDrafts[currentSubscriptionChannel!.id]),
                     onDraftChange: (value) => updateChannelPostDraft(currentSubscriptionChannel!.id, value),
                     onOpenAttachmentPicker: openChannelAttachmentPicker,
                     onOpenPremiumUpsell: openPremiumUpsell,
                     onReplyCancel: () => setChannelPostReplyTarget(null),
+                    onSelectGif: (gif) => attachChannelGif(currentSubscriptionChannel!.id, gif),
                     onToggleSendOriginal: () =>
                       toggleChannelAttachmentSendOriginal(currentSubscriptionChannel!.id),
+                    onUploadGif: uploadUserGifToLibrary,
                     premiumUnlocked: sessionHasPremium,
+                    gifLibrary: session?.gifLibrary ?? [],
+                    gifSelectionBlockedReason: getGifSelectionBlockedReason(
+                      channelAttachmentDrafts[currentSubscriptionChannel!.id],
+                    ),
                     replyTarget: channelPostReplyTarget,
                     onSubmit: () => {
                       void sendManagedChannelPost()
@@ -11078,6 +11486,7 @@ function App() {
             messageFeedRef={messageFeedRef}
             onAttachmentChange={handleGroupAttachmentChange}
             onAttachmentClear={() => clearGroupAttachmentDraft(activeGroup.id)}
+            onAttachmentPreviewOpen={() => openAttachmentDraftPreview(groupAttachmentDrafts[activeGroup.id])}
             onOpenGroupActions={(event) => {
               scheduleActionAnchor(event.currentTarget, 'end', setGroupActionsAnchor)
               resetGroupMessageActions()
@@ -11110,7 +11519,11 @@ function App() {
             onOpenSourceChannel={openSourceChannelFromMessage}
             onOpenAttachmentPicker={openGroupAttachmentPicker}
             onOpenThread={openGroupThread}
+            onSelectGif={(gif) => attachGroupGif(activeGroup.id, gif)}
             onToggleSendOriginal={() => toggleGroupAttachmentSendOriginal(activeGroup.id)}
+            onUploadGif={uploadUserGifToLibrary}
+            gifLibrary={session?.gifLibrary ?? []}
+            gifSelectionBlockedReason={getGifSelectionBlockedReason(groupAttachmentDrafts[activeGroup.id])}
             premiumUnlocked={sessionHasPremium}
             replyTarget={replyTarget}
             resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
@@ -11133,6 +11546,7 @@ function App() {
               getMessageDeliveryIssue={getDirectMessageDeliveryIssue}
               messageFeedRef={messageFeedRef}
               onAttachmentClear={() => clearChatAttachmentDraft(activeChat.id)}
+              onAttachmentPreviewOpen={() => openAttachmentDraftPreview(chatAttachmentDrafts[activeChat.id])}
               pinnedMessage={pinnedMessage}
               quietMode={quietMode}
               replyTarget={replyTarget}
@@ -11165,6 +11579,8 @@ function App() {
                 setChatActionsOpen(false)
               }}
               onReplyCancel={() => setReplyTarget(null)}
+              onSelectGif={(gif) => attachChatGif(activeChat.id, gif)}
+              onUploadGif={uploadUserGifToLibrary}
               onReplyReferenceJump={scrollToDirectMessage}
               onRequestReportContact={() => {
                 setReportingChatId(activeChat.id)
@@ -11190,6 +11606,8 @@ function App() {
               onToggleFavoriteChat={() => {
                 void togglePinnedChat(activeChat.id)
               }}
+              gifLibrary={session?.gifLibrary ?? []}
+              gifSelectionBlockedReason={getGifSelectionBlockedReason(chatAttachmentDrafts[activeChat.id])}
               premiumUnlocked={sessionHasPremium}
               onUnpinMessage={() => {
                 void unpinMessage(activeChat.id)
@@ -11716,9 +12134,6 @@ function App() {
             <div className="channel-avatar-picker-popover">
               <div className="channel-avatar-picker-copy">
                 <p className="settings-label">Аватарка профиля</p>
-                <p className="settings-text">
-                  Поддерживаются JPG и PNG до 1 МБ. Лучше всего работает квадратное изображение.
-                </p>
               </div>
 
               <div className="channel-avatar-picker-preview-card">
@@ -11734,85 +12149,30 @@ function App() {
                 </span>
                 <div className="channel-avatar-picker-preview-copy">
                   <strong>Превью</strong>
-                  <span>Так будет выглядеть ваша аватарка.</span>
+                  <span>Так будет выглядеть обработанная квадратная аватарка.</span>
                   {profileAvatarPickerDraft?.label ? <span>{profileAvatarPickerDraft.label}</span> : null}
                 </div>
               </div>
 
-              <div className="channel-avatar-picker-toggle-row">
-                <button
-                  type="button"
-                  className={`soft-button channel-avatar-picker-toggle${profileAvatarPickerMode === 'stock' ? ' active' : ''}`}
-                  onClick={() => {
-                    setProfileAvatarPickerMode('stock')
-                    setProfileAvatarPickerError('')
-                  }}
+              <article className="settings-item channel-avatar-device-card">
+                <a
+                  className="settings-inline-link"
+                  href="/avatar-upload-rules.html"
+                  target="_blank"
+                  rel="noreferrer"
                 >
-                  Выбрать аватар
-                </button>
+                  Правила загрузки аватарки
+                </a>
                 <button
                   type="button"
-                  className={`soft-button channel-avatar-picker-toggle${profileAvatarPickerMode === 'device' ? ' active' : ''}`}
+                  className="soft-button"
                   onClick={triggerProfileAvatarUpload}
                 >
-                  Загрузить с устройства
+                  {profileAvatarPickerDraft?.kind === 'upload' || profileAvatarPickerDraft?.kind === 'uploaded'
+                    ? 'Выбрать другой файл'
+                    : 'Загрузить с устройства'}
                 </button>
-              </div>
-
-              {profileAvatarPickerMode === 'stock' ? (
-                profileAvatarStockOptions.length > 0 ? (
-                <div className="channel-avatar-stock-grid">
-                  {profileAvatarStockOptions.map((option) => {
-                    const optionPreviewUrl = option.imagePath
-                    const isSelected = profileAvatarPickerDraft?.previewUrl === optionPreviewUrl
-
-                    return (
-                      <button
-                        key={`profile-${option.id}`}
-                        type="button"
-                        className={`channel-avatar-stock-option${isSelected ? ' active' : ''}`}
-                        onClick={() => selectStockProfileAvatar(option)}
-                      >
-                        <span
-                          className="channel-avatar channel-avatar-stock-preview"
-                          style={{ backgroundColor: '#8c5738' }}
-                        >
-                          <img src={optionPreviewUrl} alt="" className="channel-avatar-image" />
-                        </span>
-                        <span>{option.label}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-                ) : (
-                  <article className="settings-item channel-avatar-device-card">
-                    <p className="settings-text">
-                      В папке `src/assets/stock-avatars/users` пока нет стоковых аватарок.
-                    </p>
-                  </article>
-                )
-              ) : profileAvatarPickerMode === 'device' ? (
-                <article className="settings-item channel-avatar-device-card">
-                  <p className="settings-text">
-                    Выберите файл с устройства. Если нужно, можно сразу открыть диалог ещё раз и заменить изображение.
-                  </p>
-                  <button
-                    type="button"
-                    className="soft-button"
-                    onClick={triggerProfileAvatarUpload}
-                  >
-                    {profileAvatarPickerDraft?.kind === 'upload' || profileAvatarPickerDraft?.kind === 'uploaded'
-                      ? 'Выбрать другой файл'
-                      : 'Выбрать файл'}
-                  </button>
-                </article>
-              ) : (
-                <article className="settings-item channel-avatar-device-card">
-                  <p className="settings-text">
-                    Выберите, откуда взять аватарку: из готового набора или с устройства.
-                  </p>
-                </article>
-              )}
+              </article>
 
               {profileAvatarPickerError ? <p className="auth-error">{profileAvatarPickerError}</p> : null}
 
@@ -11832,7 +12192,7 @@ function App() {
                   }}
                   disabled={!profileAvatarPickerDraft || profileAvatarPickerBusy}
                 >
-                  {profileAvatarPickerBusy ? 'Сохраняем...' : 'Применить'}
+                  {profileAvatarPickerBusy ? 'Обрабатываем...' : 'Применить'}
                 </button>
               </div>
             </div>
@@ -11850,9 +12210,6 @@ function App() {
             <div className="channel-avatar-picker-popover">
               <div className="channel-avatar-picker-copy">
                 <p className="settings-label">Аватарка канала</p>
-                <p className="settings-text">
-                  Поддерживаются JPG и PNG до 1 МБ. Лучше всего работает квадратное изображение.
-                </p>
               </div>
 
               <div className="channel-avatar-picker-preview-card">
@@ -11872,85 +12229,30 @@ function App() {
                 </span>
                 <div className="channel-avatar-picker-preview-copy">
                   <strong>Превью</strong>
-                  <span>Так аватарка будет выглядеть в интерфейсе Tinychok.</span>
+                  <span>Так будет выглядеть обработанная квадратная аватарка.</span>
                   {channelAvatarPickerDraft?.label ? <span>{channelAvatarPickerDraft.label}</span> : null}
                 </div>
               </div>
 
-              <div className="channel-avatar-picker-toggle-row">
-                <button
-                  type="button"
-                  className={`soft-button channel-avatar-picker-toggle${channelAvatarPickerMode === 'stock' ? ' active' : ''}`}
-                  onClick={() => {
-                    setChannelAvatarPickerMode('stock')
-                    setChannelAvatarPickerError('')
-                  }}
+              <article className="settings-item channel-avatar-device-card">
+                <a
+                  className="settings-inline-link"
+                  href="/avatar-upload-rules.html"
+                  target="_blank"
+                  rel="noreferrer"
                 >
-                  Выбрать аватар
-                </button>
+                  Правила загрузки аватарки
+                </a>
                 <button
                   type="button"
-                  className={`soft-button channel-avatar-picker-toggle${channelAvatarPickerMode === 'device' ? ' active' : ''}`}
+                  className="soft-button"
                   onClick={triggerChannelAvatarUpload}
                 >
-                  Загрузить с устройства
+                  {channelAvatarPickerDraft?.kind === 'upload' || channelAvatarPickerDraft?.kind === 'uploaded'
+                    ? 'Выбрать другой файл'
+                    : 'Загрузить с устройства'}
                 </button>
-              </div>
-
-              {channelAvatarPickerMode === 'stock' ? (
-                channelAvatarStockOptions.length > 0 ? (
-                <div className="channel-avatar-stock-grid">
-                  {channelAvatarStockOptions.map((option) => {
-                    const optionPreviewUrl = option.imagePath
-                    const isSelected = channelAvatarPickerDraft?.previewUrl === optionPreviewUrl
-
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className={`channel-avatar-stock-option${isSelected ? ' active' : ''}`}
-                        onClick={() => selectStockChannelAvatar(option)}
-                      >
-                        <span
-                          className="channel-avatar channel-avatar-stock-preview"
-                          style={{ backgroundColor: getCurrentChannelAvatarTone() }}
-                        >
-                          <img src={optionPreviewUrl} alt="" className="channel-avatar-image" />
-                        </span>
-                        <span>{option.label}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-                ) : (
-                  <article className="settings-item channel-avatar-device-card">
-                    <p className="settings-text">
-                      В папке `src/assets/stock-avatars/channels` пока нет стоковых аватарок.
-                    </p>
-                  </article>
-                )
-              ) : channelAvatarPickerMode === 'device' ? (
-                <article className="settings-item channel-avatar-device-card">
-                  <p className="settings-text">
-                    Выберите файл с устройства. Если нужно, можно сразу открыть диалог ещё раз и заменить изображение.
-                  </p>
-                  <button
-                    type="button"
-                    className="soft-button"
-                    onClick={triggerChannelAvatarUpload}
-                  >
-                    {channelAvatarPickerDraft?.kind === 'upload' || channelAvatarPickerDraft?.kind === 'uploaded'
-                      ? 'Выбрать другой файл'
-                      : 'Выбрать файл'}
-                  </button>
-                </article>
-              ) : (
-                <article className="settings-item channel-avatar-device-card">
-                  <p className="settings-text">
-                    Выберите, откуда взять аватарку: из готового набора или с устройства.
-                  </p>
-                </article>
-              )}
+              </article>
 
               {channelAvatarPickerError ? <p className="auth-error">{channelAvatarPickerError}</p> : null}
 
@@ -11970,7 +12272,7 @@ function App() {
                   }}
                   disabled={!channelAvatarPickerDraft || channelAvatarPickerBusy}
                 >
-                  {channelAvatarPickerBusy ? 'Сохраняем...' : 'Применить'}
+                  {channelAvatarPickerBusy ? 'Обрабатываем...' : 'Применить'}
                 </button>
               </div>
             </div>
@@ -12071,10 +12373,10 @@ function App() {
                       formatChannelAvatarLabel(creatingGroupTitle || buildDefaultGroupTitle(session))
                     )}
                   </span>
-                  <div className="channel-avatar-copy">
-                    <p className="settings-text">
-                      Можно выбрать готовое изображение Tinychok или загрузить JPG/PNG до 1 МБ.
-                    </p>
+                    <div className="channel-avatar-copy">
+                      <p className="settings-text">
+                        Можно выбрать готовую аватарку Tinychok или загрузить JPG, PNG либо WebP до 5 МБ.
+                      </p>
                     <button
                       type="button"
                       className="soft-button"
@@ -12222,7 +12524,6 @@ function App() {
           <div className="channel-avatar-picker-popover group-avatar-picker-popover">
             <div className="channel-avatar-picker-copy">
               <strong>Аватарка группы</strong>
-              <p className="settings-text">Поддерживаются JPG и PNG. Максимальный размер 1 МБ.</p>
             </div>
             <div className="channel-avatar-picker-preview-card">
               <span
@@ -12241,67 +12542,25 @@ function App() {
               </span>
               <div className="channel-avatar-picker-preview-copy">
                 <strong>{creatingGroupTitle.trim() || buildDefaultGroupTitle(session)}</strong>
-                <span>Так будет выглядеть аватарка группы.</span>
+                <span>Так будет выглядеть обработанная квадратная аватарка.</span>
+                {groupAvatarPickerDraft?.label ? <span>{groupAvatarPickerDraft.label}</span> : null}
               </div>
             </div>
-            <div className="channel-avatar-picker-toggle-row">
-              <button
-                type="button"
-                className={`soft-button channel-avatar-picker-toggle${groupAvatarPickerMode === 'stock' ? ' active' : ''}`}
-                onClick={() => setGroupAvatarPickerMode('stock')}
+            <article className="settings-item channel-avatar-device-card">
+              <a
+                className="settings-inline-link"
+                href="/avatar-upload-rules.html"
+                target="_blank"
+                rel="noreferrer"
               >
-                Выбрать аватар
+                Правила загрузки аватарки
+              </a>
+              <button type="button" className="soft-button" onClick={triggerGroupAvatarUpload}>
+                {groupAvatarPickerDraft?.kind === 'upload' || groupAvatarPickerDraft?.kind === 'uploaded'
+                  ? 'Выбрать другой файл'
+                  : 'Загрузить с устройства'}
               </button>
-              <button
-                type="button"
-                className={`soft-button channel-avatar-picker-toggle${groupAvatarPickerMode === 'device' ? ' active' : ''}`}
-                onClick={triggerGroupAvatarUpload}
-              >
-                Загрузить с устройства
-              </button>
-            </div>
-            {groupAvatarPickerMode === 'stock' ? (
-              channelAvatarStockOptions.length > 0 ? (
-                <div className="channel-avatar-stock-grid">
-                  {channelAvatarStockOptions.map((option) => {
-                    const optionPreviewUrl = option.imagePath
-                    const isSelected = groupAvatarPickerDraft?.previewUrl === optionPreviewUrl
-
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className={`channel-avatar-stock-option${isSelected ? ' active' : ''}`}
-                        onClick={() => selectStockGroupAvatar(option)}
-                      >
-                        <img src={optionPreviewUrl} alt="" className="channel-avatar-stock-preview" />
-                        <span>{option.label}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              ) : (
-                <article className="settings-item channel-avatar-device-card">
-                  <p className="settings-text">
-                    В папке `src/assets/stock-avatars/channels` пока нет стоковых аватарок.
-                  </p>
-                </article>
-              )
-            ) : groupAvatarPickerMode === 'device' ? (
-              <article className="settings-item channel-avatar-device-card">
-                <p className="settings-text">
-                  Выберите изображение с устройства. Поддерживаются только JPG и PNG до 1 МБ.
-                </p>
-                <button type="button" className="soft-button" onClick={triggerGroupAvatarUpload}>
-                  Загрузить с устройства
-                </button>
-                {groupAvatarPickerDraft?.kind === 'upload' || groupAvatarPickerDraft?.kind === 'uploaded' ? (
-                  <p className="settings-text">
-                    Файл: <strong>{groupAvatarPickerDraft.label}</strong>
-                  </p>
-                ) : null}
-              </article>
-            ) : null}
+            </article>
             <input
               ref={groupAvatarInputRef}
               type="file"
@@ -12322,9 +12581,9 @@ function App() {
                 type="button"
                 className="room-confirm-button room-confirm-button-primary"
                 onClick={applyGroupAvatarSelection}
-                disabled={!groupAvatarPickerDraft}
+                disabled={!groupAvatarPickerDraft || groupAvatarPickerBusy}
               >
-                Применить
+                {groupAvatarPickerBusy ? 'Обрабатываем...' : 'Применить'}
               </button>
             </div>
           </div>
@@ -12728,7 +12987,11 @@ function App() {
       ) : null}
       </main>
       {mediaViewerAttachment ? (
-        <MediaViewerOverlay attachment={mediaViewerAttachment} onClose={closeMediaViewer} />
+        <MediaViewerOverlay
+          attachment={mediaViewerAttachment}
+          onClose={closeMediaViewer}
+          allowDownload={mediaViewerDownloadEnabled}
+        />
       ) : null}
       {cookieConsentBanner}
     </>

@@ -1,22 +1,29 @@
 import {
-  messageAttachmentUploadMaxSizeBytes,
+  messageFileAcceptedExtensions,
+  messageFileAcceptedMimeTypes,
+  messageFileUploadMaxSizeBytes,
+  messageGifUploadMaxSizeBytes,
   messagePhotoAcceptedMimeTypes,
   messagePhotoCompressionTargetBytes,
   messagePhotoMaxDimensionPx,
+  messagePhotoUploadMaxSizeBytes,
 } from './constants'
+import type { UserGifLibraryItem } from './types'
 import type { PendingAttachmentDraft } from './usePendingMessageOutbox'
 
 export type ComposerAttachmentDraftStatus = 'preparing' | 'ready' | 'error'
 export type ComposerAttachmentKind = 'image' | 'file'
 
 export type ComposerAttachmentDraft = {
+  compressionEligible?: boolean
   error?: string
-  file: File
+  file?: File
   fileName: string
   height?: number
   kind: ComposerAttachmentKind
+  mediaUrl?: string
   mimeType: string
-  originalFile: File
+  originalFile?: File
   originalHeight?: number
   originalSize: number
   originalWidth?: number
@@ -46,6 +53,32 @@ function resolveAttachmentKind(file: File): ComposerAttachmentKind {
 function isSupportedPhotoMimeType(mimeType: string) {
   return messagePhotoAcceptedMimeTypes.includes(
     mimeType as (typeof messagePhotoAcceptedMimeTypes)[number],
+  )
+}
+
+function isGifFile(file: File) {
+  return file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')
+}
+
+function getFileExtension(fileName: string) {
+  const match = /\.[^.]+$/u.exec(fileName.trim().toLowerCase())
+  return match?.[0] ?? ''
+}
+
+function isAllowedFileAttachment(file: File) {
+  const extension = getFileExtension(file.name)
+  const hasAllowedExtension = messageFileAcceptedExtensions.includes(
+    extension as (typeof messageFileAcceptedExtensions)[number],
+  )
+
+  if (!hasAllowedExtension) return false
+
+  if (!file.type) {
+    return extension === '.txt'
+  }
+
+  return messageFileAcceptedMimeTypes.includes(
+    file.type as (typeof messageFileAcceptedMimeTypes)[number],
   )
 }
 
@@ -168,6 +201,7 @@ export function buildPendingAttachmentDraft(attachmentDraft?: ComposerAttachment
     file: attachmentDraft.file,
     fileName: attachmentDraft.fileName,
     height: attachmentDraft.height,
+    mediaUrl: attachmentDraft.mediaUrl,
     mimeType: attachmentDraft.mimeType,
     size: attachmentDraft.size,
     width: attachmentDraft.width,
@@ -179,6 +213,7 @@ export function createPreparingComposerAttachmentDraft(file: File): ComposerAtta
     file,
     fileName: file.name,
     kind: resolveAttachmentKind(file),
+    compressionEligible: false,
     mimeType: file.type || 'application/octet-stream',
     originalFile: file,
     originalSize: file.size,
@@ -199,6 +234,7 @@ export function buildComposerAttachmentDraftError(
     file,
     fileName: file.name,
     kind: resolveAttachmentKind(file),
+    compressionEligible: false,
     mimeType: file.type || 'application/octet-stream',
     originalFile: file,
     originalSize: file.size,
@@ -214,22 +250,46 @@ export async function buildComposerAttachmentDraft(
   options?: { previewUrl?: string },
 ): Promise<ComposerAttachmentDraft> {
   const previewUrl = options?.previewUrl ?? createComposerPreviewUrl(file)
+  const kind = resolveAttachmentKind(file)
 
-  if (file.size > messageAttachmentUploadMaxSizeBytes) {
+  if (kind === 'image' && file.size > messagePhotoUploadMaxSizeBytes) {
     return buildComposerAttachmentDraftError(
       file,
-      'Файл слишком большой. Максимальный размер 20 МБ.',
+      'Фотография слишком большая. Максимальный размер 10 МБ.',
       previewUrl,
     )
   }
 
-  const kind = resolveAttachmentKind(file)
-
   if (kind === 'file') {
+    if (isGifFile(file)) {
+      return buildComposerAttachmentDraftError(
+        file,
+        `GIF загружаются через вкладку GIFs. Максимальный размер ${Math.round(messageGifUploadMaxSizeBytes / (1024 * 1024))} МБ.`,
+        previewUrl,
+      )
+    }
+
+    if (file.size > messageFileUploadMaxSizeBytes) {
+      return buildComposerAttachmentDraftError(
+        file,
+        'Файл слишком большой. Максимальный размер 10 МБ.',
+        previewUrl,
+      )
+    }
+
+    if (!isAllowedFileAttachment(file)) {
+      return buildComposerAttachmentDraftError(
+        file,
+        'Поддерживаются только PDF, DOC, DOCX, XLS, XLSX, TXT и ZIP.',
+        previewUrl,
+      )
+    }
+
     return {
       file,
       fileName: file.name,
       kind,
+      compressionEligible: false,
       mimeType: file.type || 'application/octet-stream',
       originalFile: file,
       originalSize: file.size,
@@ -251,6 +311,7 @@ export async function buildComposerAttachmentDraft(
       file: processed.file,
       fileName: file.name,
       kind,
+      compressionEligible: true,
       mimeType: processed.mimeType,
       originalFile: file,
       originalHeight: processed.originalHeight,
@@ -280,7 +341,7 @@ export function setComposerAttachmentSendOriginal(
   attachmentDraft: ComposerAttachmentDraft,
   sendOriginal: boolean,
 ): ComposerAttachmentDraft {
-  if (attachmentDraft.kind !== 'image') {
+  if (attachmentDraft.kind !== 'image' || !attachmentDraft.compressionEligible || !attachmentDraft.originalFile) {
     return attachmentDraft
   }
 
@@ -299,5 +360,24 @@ export function setComposerAttachmentSendOriginal(
     width: sendOriginal
       ? attachmentDraft.originalWidth ?? attachmentDraft.width
       : attachmentDraft.processedWidth ?? attachmentDraft.width,
+  }
+}
+
+export function buildGifLibraryAttachmentDraft(gif: UserGifLibraryItem): ComposerAttachmentDraft {
+  return {
+    compressionEligible: false,
+    fileName: gif.fileName,
+    height: gif.height,
+    kind: 'image',
+    mediaUrl: gif.mediaUrl,
+    mimeType: gif.mimeType,
+    originalHeight: gif.height,
+    originalSize: gif.size,
+    originalWidth: gif.width,
+    previewUrl: gif.mediaUrl,
+    sendOriginal: false,
+    size: gif.size,
+    status: 'ready',
+    width: gif.width,
   }
 }

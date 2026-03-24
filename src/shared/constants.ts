@@ -18,19 +18,48 @@ export const channelActionMenuHeight = 132
 export const channelBlockedMenuHeight = 146
 export const groupActionMenuWidth = 280
 export const groupActionMenuHeight = 228
-export const channelAvatarUploadMaxSizeBytes = 1 * 1024 * 1024
-export const channelAvatarUploadAcceptedMimeTypes = [
+export const avatarSourceMaxSizeBytes = 5 * 1024 * 1024
+export const avatarAcceptedMimeTypes = [
   'image/jpeg',
   'image/png',
+  'image/webp',
 ] as const
-export const messageAttachmentUploadMaxSizeBytes = 20 * 1024 * 1024
+export const avatarOutputSizePx = 512
+export const avatarPreviewSizePx = 128
+export const channelAvatarUploadMaxSizeBytes = avatarSourceMaxSizeBytes
+export const channelAvatarUploadAcceptedMimeTypes = avatarAcceptedMimeTypes
+export const messagePhotoUploadMaxSizeBytes = 10 * 1024 * 1024
+export const messageFileUploadMaxSizeBytes = 10 * 1024 * 1024
+export const messageGifUploadMaxSizeBytes = 5 * 1024 * 1024
 export const messagePhotoAcceptedMimeTypes = [
   'image/jpeg',
   'image/png',
   'image/webp',
 ] as const
+export const messageFileAcceptedMimeTypes = [
+  'application/msword',
+  'application/pdf',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/x-zip-compressed',
+  'application/zip',
+  'text/plain',
+] as const
+export const messageFileAcceptedExtensions = [
+  '.doc',
+  '.docx',
+  '.pdf',
+  '.txt',
+  '.xls',
+  '.xlsx',
+  '.zip',
+] as const
 export const messagePhotoMaxDimensionPx = 1600
 export const messagePhotoCompressionTargetBytes = 1_600_000
+export const freeStorageQuotaBytes = 50 * 1024 * 1024
+export const premiumStorageQuotaBytes = 500 * 1024 * 1024
+export const orphanUploadTtlMs = 24 * 60 * 60 * 1000
 export const chatActionMenuWidth = 320
 export const chatActionMenuHeight = 290
 export const quickFilters = ['Все', '★']
@@ -38,3 +67,5 @@ export const channelAvatarTones = ['#8c5738', '#6eb6ff', '#ff8a5b', '#82c9a3', '
 export const accountsStorageKey = 'tinychok.accounts'
 export const sessionStorageKey = 'tinychok.session'
 export const cookieConsentStorageKey = 'tinychok.cookie-consent'
+export const premiumDebugAutoCheckoutStorageKey = 'tinychok.debug.premium-auto-checkout'
+export const messagePhotoSendOriginalPreferenceStorageKey = 'tinychok.session.photo-send-original'

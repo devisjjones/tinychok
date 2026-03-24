@@ -4,8 +4,11 @@ import { dirname, resolve } from 'node:path'
 import {
   defaultGroupMemberLimit,
   displayNameFieldMaxLength,
+  freeStorageQuotaBytes,
   groupTitleMaxLength,
   managedChannelsPerUserLimit,
+  orphanUploadTtlMs,
+  premiumStorageQuotaBytes,
   premiumGroupMemberLimit,
   surnameFieldMaxLength,
 } from '../../src/shared/constants'
@@ -24,12 +27,15 @@ import type {
   GroupThreadInboxItem,
   GroupParticipant,
   GroupPreview,
+  MessageAttachment,
   Message,
   SearchResult,
   Session,
+  StorageUsage,
   SubscriptionChannel,
   ThreadComment,
   ThreadInboxItem,
+  UserGifLibraryItem,
 } from '../../src/shared/types'
 import {
   buildChannelDirectLinkFromTitle,
@@ -52,6 +58,7 @@ import type {
   ComplaintReason,
   CreateGroupBody,
   CreateManagedChannelBody,
+  DebugPremiumBody,
   DirectDialogHistoryResponse,
   GroupHistoryResponse,
   InviteManagedChannelMembersBody,
@@ -61,6 +68,7 @@ import type {
   ReportContactBody,
   ReportSubscriptionChannelBody,
   RegisterBody,
+  RegisterUserGifBody,
   RequestCodeResponse,
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
@@ -146,6 +154,18 @@ type SubscriptionChannelReportRecord = {
   targetHandle: string
 }
 
+type PersistedPendingMediaUpload = {
+  createdAt: string
+  fileName: string
+  kind: 'attachment' | 'channel-avatar' | 'group-avatar' | 'profile-avatar' | 'user-gif'
+  linked: boolean
+  mediaUrl: string
+  mimeType: string
+  ownerIdentifier: string
+  size: number
+  storageKey: string
+}
+
 type LegacyAccountState = {
   channels: Channel[]
   chats: Chat[]
@@ -166,6 +186,7 @@ export type Database = {
   groupMessages: PersistedGroupMessage[]
   groups: PersistedGroup[]
   managedChannels: PersistedManagedChannel[]
+  pendingMediaUploads: PersistedPendingMediaUpload[]
   sessions: SessionRecord[]
   subscriptionChannelReports: SubscriptionChannelReportRecord[]
   subscriptionChannels: PersistedSubscriptionChannel[]
@@ -223,6 +244,7 @@ function createDefaultDatabase(): Database {
     groupMessages: [],
     groups: [],
     managedChannels: [],
+    pendingMediaUploads: [],
     sessions: [],
     subscriptionChannelReports: [],
     subscriptionChannels: [],
@@ -318,6 +340,85 @@ function sanitizeMessageAttachment(attachment: Message['attachment']) {
     size,
     width,
   } satisfies NonNullable<Message['attachment']>
+}
+
+function sanitizeUserGifLibraryItem(item: UserGifLibraryItem) {
+  const fileName = item.fileName.replace(/\s+/g, ' ').trim().slice(0, 120)
+  const mediaUrl = item.mediaUrl.trim()
+  const mimeType = item.mimeType.trim()
+  const size = Math.max(0, Math.floor(item.size))
+  const width = item.width ? Math.max(1, Math.floor(item.width)) : undefined
+  const height = item.height ? Math.max(1, Math.floor(item.height)) : undefined
+
+  if (!item.id.trim() || !fileName || !mediaUrl || mimeType !== 'image/gif' || size <= 0) {
+    throw new Error('Некорректная GIF.')
+  }
+
+  if (!fileName.toLowerCase().endsWith('.gif') || size > 5 * 1024 * 1024) {
+    throw new Error('GIF не прошла проверку.')
+  }
+
+  return {
+    createdAt: item.createdAt,
+    fileName,
+    height,
+    id: item.id.trim(),
+    mediaUrl,
+    mimeType: 'image/gif',
+    size,
+    width,
+  } satisfies UserGifLibraryItem
+}
+
+function inferStoredMediaKind(mediaUrl: string): PersistedPendingMediaUpload['kind'] | null {
+  const trimmed = mediaUrl.trim()
+  if (!trimmed) return null
+
+  let pathname = trimmed
+  if (/^https?:\/\//u.test(trimmed)) {
+    try {
+      pathname = new URL(trimmed).pathname
+    } catch {
+      return null
+    }
+  }
+
+  pathname = pathname.replace(/^\/+uploads\/?/u, '').replace(/^\/+/u, '')
+
+  if (pathname.startsWith('attachments/')) return 'attachment'
+  if (pathname.startsWith('channel-avatars/')) return 'channel-avatar'
+  if (pathname.startsWith('group-avatars/')) return 'group-avatar'
+  if (pathname.startsWith('profile-avatars/')) return 'profile-avatar'
+  if (pathname.startsWith('user-gifs/')) return 'user-gif'
+  return null
+}
+
+type OwnedStoredMediaReference = {
+  kind: PersistedPendingMediaUpload['kind']
+  mediaUrl: string
+  ownerIdentifier: string
+  size: number
+}
+
+function buildStorageUsage(usedBytes: number, premium?: boolean, premiumExpiresAt?: string): StorageUsage {
+  const quotaBytes = hasActivePremium(premium, premiumExpiresAt) ? premiumStorageQuotaBytes : freeStorageQuotaBytes
+  const remainingBytes = Math.max(0, quotaBytes - usedBytes)
+  const percentUsed = quotaBytes > 0 ? Math.min(100, (usedBytes / quotaBytes) * 100) : 0
+
+  return {
+    percentUsed,
+    quotaBytes,
+    remainingBytes,
+    usedBytes,
+  }
+}
+
+function collectMediaUrlsFromAttachment(attachment?: MessageAttachment) {
+  return attachment?.mediaUrl ? [attachment.mediaUrl] : []
+}
+
+function collectMediaUrlsFromThreadComments(comments?: ThreadComment[]) {
+  return (comments ?? []).flatMap((comment) => collectMediaUrlsFromAttachment(comment.attachment))
 }
 
 function sanitizeGroupTitle(value: string) {
@@ -1064,6 +1165,7 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
       blockedContactIds: legacyAccount.blockedContactIds ?? [],
       createdAt: legacyAccount.createdAt,
       displayName: legacyAccount.displayName,
+      gifLibrary: [...(legacyAccount.gifLibrary ?? [])],
       identifier: legacyAccount.identifier,
       isTestEntity: legacyAccount.isTestEntity,
       nickname: legacyAccount.nickname ?? '',
@@ -1571,6 +1673,7 @@ export class TinychokStore {
       blockedContactIds: [],
       createdAt: new Date().toISOString(),
       displayName,
+      gifLibrary: [],
       identifier: normalizedIdentifier,
       isTestEntity: false,
       nickname: '',
@@ -1807,12 +1910,10 @@ export class TinychokStore {
 
     await this.persist()
 
+    this.clearPendingMediaUpload(account.avatarImage)
+
     if (previousAvatarImage && previousAvatarImage !== account.avatarImage) {
-      try {
-        await deleteStoredMediaByUrl(previousAvatarImage, 'profile-avatar')
-      } catch (error) {
-        console.error('Failed to delete replaced profile avatar', error)
-      }
+      await this.deleteMediaIfUnreferenced(previousAvatarImage)
     }
 
     return this.buildSnapshot(account, token)
@@ -1865,13 +1966,70 @@ export class TinychokStore {
 
     await this.persist()
 
+    this.clearPendingMediaUpload(account.avatarImage)
+
     if (previousAvatarImage && previousAvatarImage !== account.avatarImage) {
-      try {
-        await deleteStoredMediaByUrl(previousAvatarImage, 'profile-avatar')
-      } catch (error) {
-        console.error('Failed to delete replaced profile avatar', error)
+      await this.deleteMediaIfUnreferenced(previousAvatarImage)
+    }
+
+    return {
+      broadcastIdentifiers: [...new Set(broadcastIdentifiers)],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async addUserGif(token: string, payload: RegisterUserGifBody): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    if (!hasActivePremium(account.premium, account.premiumExpiresAt)) {
+      throw new Error('GIF доступны только в премиуме.')
+    }
+
+    const nextGif = sanitizeUserGifLibraryItem(payload)
+    const currentLibrary = account.gifLibrary ?? []
+
+    if (currentLibrary.some((item) => item.mediaUrl === nextGif.mediaUrl || item.id === nextGif.id)) {
+      return {
+        broadcastIdentifiers: [account.identifier],
+        snapshot: this.buildSnapshot(account, token),
       }
     }
+
+    account.gifLibrary = [nextGif, ...currentLibrary].sort(
+      (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
+    )
+
+    await this.persist()
+    this.clearPendingMediaUpload(nextGif.mediaUrl)
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async setDebugPremiumState(token: string, payload: DebugPremiumBody): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    account.premium = Boolean(payload.enabled)
+    account.premiumExpiresAt = payload.enabled
+      ? makePremiumExpiry(
+          Number.isInteger(payload.durationDays) && (payload.durationDays ?? 0) > 0
+            ? payload.durationDays!
+            : 30,
+        )
+      : ''
+
+    const broadcastIdentifiers = this.refreshDialogsForAccount(account)
+    broadcastIdentifiers.push(account.identifier)
+
+    await this.persist()
 
     return {
       broadcastIdentifiers: [...new Set(broadcastIdentifiers)],
@@ -2007,6 +2165,7 @@ export class TinychokStore {
     }
 
     await this.persist()
+    this.clearPendingMediaUpload(attachment?.mediaUrl)
 
     return {
       broadcastIdentifiers: [...new Set(broadcastIdentifiers)],
@@ -2170,6 +2329,13 @@ export class TinychokStore {
       throw new Error('Диалог не найден.')
     }
 
+    const removedMessage = this.database.dialogMessages.find(
+      (message) =>
+        message.ownerIdentifier === account.identifier &&
+        message.dialogId === dialogId &&
+        message.id === messageId,
+    )
+
     const beforeCount = this.database.dialogMessages.length
     this.database.dialogMessages = this.database.dialogMessages.filter(
       (message) =>
@@ -2189,6 +2355,7 @@ export class TinychokStore {
     }
 
     await this.persist()
+    await this.deleteMediaIfUnreferenced(removedMessage?.attachment?.mediaUrl)
 
     return {
       broadcastIdentifiers: [account.identifier],
@@ -2207,6 +2374,10 @@ export class TinychokStore {
       throw new Error('Диалог не найден.')
     }
 
+    const removedMediaUrls = this.database.dialogMessages
+      .filter((message) => message.ownerIdentifier === account.identifier && message.dialogId === dialogId)
+      .flatMap((message) => collectMediaUrlsFromAttachment(message.attachment))
+
     this.database.dialogMessages = this.database.dialogMessages.filter(
       (message) => !(message.ownerIdentifier === account.identifier && message.dialogId === dialogId),
     )
@@ -2215,6 +2386,9 @@ export class TinychokStore {
     dialog.unread = 0
 
     await this.persist()
+    for (const mediaUrl of removedMediaUrls) {
+      await this.deleteMediaIfUnreferenced(mediaUrl)
+    }
 
     return {
       broadcastIdentifiers: [account.identifier],
@@ -2235,6 +2409,10 @@ export class TinychokStore {
       throw new Error('Диалог не найден.')
     }
 
+    const removedMediaUrls = this.database.dialogMessages
+      .filter((message) => message.ownerIdentifier === account.identifier && message.dialogId === dialogId)
+      .flatMap((message) => collectMediaUrlsFromAttachment(message.attachment))
+
     this.database.dialogs = this.database.dialogs.filter(
       (dialog) => !(dialog.ownerIdentifier === account.identifier && dialog.id === dialogId),
     )
@@ -2244,6 +2422,9 @@ export class TinychokStore {
     account.blockedContactIds = (account.blockedContactIds ?? []).filter((id) => id !== dialogId)
 
     await this.persist()
+    for (const mediaUrl of removedMediaUrls) {
+      await this.deleteMediaIfUnreferenced(mediaUrl)
+    }
 
     return {
       broadcastIdentifiers: [account.identifier],
@@ -2396,6 +2577,8 @@ export class TinychokStore {
       throw new Error('Комментарий не найден.')
     }
 
+    const removedMediaUrl = targetComment.attachment?.mediaUrl
+
     if (normalizeIdentifier(targetComment.authorIdentifier ?? '') !== account.identifier) {
       throw new Error('Можно удалить только свой комментарий.')
     }
@@ -2423,6 +2606,7 @@ export class TinychokStore {
     }
 
     await this.persist()
+    await this.deleteMediaIfUnreferenced(removedMediaUrl)
 
     return {
       broadcastIdentifiers: [...broadcastIdentifiers],
@@ -2546,6 +2730,10 @@ export class TinychokStore {
     }
 
     const targetThreadId = getSubscriptionPostThreadId(ownerCopy, ownerPost)
+    const removedMediaUrls = [
+      ...collectMediaUrlsFromAttachment(ownerPost.attachment),
+      ...collectMediaUrlsFromThreadComments(ownerPost.threadComments),
+    ]
     const broadcastIdentifiers = new Set<string>()
     const channelCopies = this.listSubscriptionChannelCopiesByHandle(managedChannel.directLink)
 
@@ -2588,6 +2776,9 @@ export class TinychokStore {
     }
 
     await this.persist()
+    for (const mediaUrl of removedMediaUrls) {
+      await this.deleteMediaIfUnreferenced(mediaUrl)
+    }
 
     return {
       broadcastIdentifiers: [...broadcastIdentifiers],
@@ -2626,6 +2817,10 @@ export class TinychokStore {
     }
 
     const sharedId = this.getSharedGroupId(group)
+    const removedMediaUrls = [
+      ...collectMediaUrlsFromAttachment(message.attachment),
+      ...collectMediaUrlsFromThreadComments(message.threadComments),
+    ]
     const groupCopies = this.listGroupCopies(sharedId)
     const groupCopyIds = new Set(groupCopies.map((groupCopy) => `${groupCopy.ownerIdentifier}:${groupCopy.id}`))
     const messageReceiptKey = getMessageReadReceiptKey(message)
@@ -2643,6 +2838,9 @@ export class TinychokStore {
     })
 
     await this.persist()
+    for (const mediaUrl of removedMediaUrls) {
+      await this.deleteMediaIfUnreferenced(mediaUrl)
+    }
 
     return {
       broadcastIdentifiers: [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))],
@@ -2741,8 +2939,10 @@ export class TinychokStore {
 
     await this.persist()
 
+    this.clearPendingMediaUpload(group.avatarImage)
+
     if (previousAvatarImage && previousAvatarImage !== group.avatarImage) {
-      await deleteStoredMediaByUrl(previousAvatarImage, 'group-avatar')
+      await this.deleteMediaIfUnreferenced(previousAvatarImage)
     }
 
     return {
@@ -2881,6 +3081,12 @@ export class TinychokStore {
     if (creatorIdentifier === account.identifier) {
       const groupCopyKeys = new Set(groupCopies.map((groupCopy) => `${groupCopy.ownerIdentifier}:${groupCopy.id}`))
       const removedAvatarImage = group.avatarImage
+      const removedMediaUrls = this.database.groupMessages
+        .filter((candidate) => groupCopyKeys.has(`${candidate.ownerIdentifier}:${candidate.groupId}`))
+        .flatMap((candidate) => [
+          ...collectMediaUrlsFromAttachment(candidate.attachment),
+          ...collectMediaUrlsFromThreadComments(candidate.threadComments),
+        ])
       this.database.groups = this.database.groups.filter(
         (candidate) => this.getSharedGroupId(candidate) !== sharedId,
       )
@@ -2891,7 +3097,10 @@ export class TinychokStore {
       await this.persist()
 
       if (removedAvatarImage) {
-        await deleteStoredMediaByUrl(removedAvatarImage, 'group-avatar')
+        await this.deleteMediaIfUnreferenced(removedAvatarImage)
+      }
+      for (const mediaUrl of removedMediaUrls) {
+        await this.deleteMediaIfUnreferenced(mediaUrl)
       }
 
       return {
@@ -3435,6 +3644,8 @@ export class TinychokStore {
       throw new Error('Комментарий не найден.')
     }
 
+    const removedMediaUrl = targetComment.attachment?.mediaUrl
+
     if (normalizeIdentifier(targetComment.authorIdentifier ?? '') !== account.identifier) {
       throw new Error('Можно удалить только свой комментарий.')
     }
@@ -3462,6 +3673,7 @@ export class TinychokStore {
     }
 
     await this.persist()
+    await this.deleteMediaIfUnreferenced(removedMediaUrl)
 
     return {
       broadcastIdentifiers: [...broadcastIdentifiers],
@@ -3597,6 +3809,7 @@ export class TinychokStore {
     const createdChannel = this.findManagedChannel(account.identifier, channelId)
     if (createdChannel) {
       this.ensureSubscriptionChannelCopyForOwner(createdChannel, account.identifier)
+      this.clearPendingMediaUpload(createdChannel.avatarImage)
     }
 
     await this.persist()
@@ -3867,15 +4080,13 @@ export class TinychokStore {
 
     await this.persist()
 
+    this.clearPendingMediaUpload(channel.avatarImage)
+
     if (
       previousAvatarImage &&
       previousAvatarImage !== channel.avatarImage
     ) {
-      try {
-        await deleteStoredMediaByUrl(previousAvatarImage, 'channel-avatar')
-      } catch (error) {
-        console.error('Failed to delete replaced channel avatar', error)
-      }
+      await this.deleteMediaIfUnreferenced(previousAvatarImage)
     }
 
     return {
@@ -3924,6 +4135,12 @@ export class TinychokStore {
           .concat(account.identifier),
       ),
     ]
+    const removedMediaUrls = this.database.subscriptionPosts
+      .filter((post) => removableSubscriptionChannelKeys.has(`${post.ownerIdentifier}:${post.channelId}`))
+      .flatMap((post) => [
+        ...collectMediaUrlsFromAttachment(post.attachment),
+        ...collectMediaUrlsFromThreadComments(post.threadComments),
+      ])
 
     this.database.managedChannels = this.database.managedChannels.filter(
       (channel) => !(channel.ownerIdentifier === account.identifier && channel.id === channelId),
@@ -3938,11 +4155,10 @@ export class TinychokStore {
     await this.persist()
 
     if (removedAvatarImage) {
-      try {
-        await deleteStoredMediaByUrl(removedAvatarImage, 'channel-avatar')
-      } catch (error) {
-        console.error('Failed to delete removed channel avatar', error)
-      }
+      await this.deleteMediaIfUnreferenced(removedAvatarImage)
+    }
+    for (const mediaUrl of removedMediaUrls) {
+      await this.deleteMediaIfUnreferenced(mediaUrl)
     }
 
     return {
@@ -4034,6 +4250,7 @@ export class TinychokStore {
     }
 
     this.database.groups.push(nextGroup)
+    this.clearPendingMediaUpload(nextGroup.avatarImage)
 
     for (const recipientAccount of recipientAccounts) {
       this.ensureGroupCopyForOwner(nextGroup, recipientAccount.identifier, participants)
@@ -4113,17 +4330,292 @@ export class TinychokStore {
         avatarImage: account.avatarImage,
         blockedContactIds: [...(account.blockedContactIds ?? [])],
         displayName: account.displayName,
+        gifLibrary: [...(account.gifLibrary ?? [])],
         identifier: account.identifier,
         nickname: account.nickname ?? '',
         premium: account.premium ?? true,
         premiumExpiresAt: account.premiumExpiresAt ?? '',
         sessionToken: token,
         soundsDisabled: Boolean(account.soundsDisabled),
+        storageUsage: this.getStorageUsage(account.identifier),
         status: account.status ?? '',
         surname: account.surname ?? '',
       } satisfies Session,
       subscriptionChannels: materializeSubscriptionChannels(this.database, account.identifier),
       threadInbox: buildThreadInbox(this.database, account.identifier),
+    }
+  }
+
+  getStorageUsageByToken(token: string) {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    return this.getStorageUsage(account.identifier)
+  }
+
+  assertMediaUploadWithinQuota(token: string, size: number) {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const usage = this.getStorageUsage(account.identifier)
+    if (usage.usedBytes + size > usage.quotaBytes) {
+      if (usage.usedBytes > usage.quotaBytes) {
+        throw new Error('Ваше хранилище уже превышает текущий лимит. Освободите место или включите премиум.')
+      }
+
+      throw new Error('Недостаточно места в хранилище для нового вложения.')
+    }
+  }
+
+  async registerPendingMediaUpload(
+    token: string,
+    payload: Omit<PersistedPendingMediaUpload, 'createdAt' | 'linked' | 'ownerIdentifier'>,
+  ) {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const existingUpload = this.database.pendingMediaUploads.find(
+      (upload) => upload.ownerIdentifier === account.identifier && upload.mediaUrl === payload.mediaUrl,
+    )
+    if (existingUpload) {
+      existingUpload.createdAt = new Date().toISOString()
+      existingUpload.fileName = payload.fileName
+      existingUpload.kind = payload.kind
+      existingUpload.linked = false
+      existingUpload.mimeType = payload.mimeType
+      existingUpload.size = payload.size
+      existingUpload.storageKey = payload.storageKey
+    } else {
+      this.database.pendingMediaUploads.push({
+        ...payload,
+        createdAt: new Date().toISOString(),
+        linked: false,
+        ownerIdentifier: account.identifier,
+      })
+    }
+
+    await this.persist()
+  }
+
+  async cleanupExpiredPendingMediaUploads() {
+    const now = Date.now()
+    const staleUploads = this.database.pendingMediaUploads.filter((upload) => {
+      const createdAt = Date.parse(upload.createdAt)
+      return !upload.linked && !Number.isNaN(createdAt) && now - createdAt >= orphanUploadTtlMs
+    })
+
+    if (staleUploads.length === 0) {
+      return 0
+    }
+
+    this.database.pendingMediaUploads = this.database.pendingMediaUploads.filter(
+      (upload) => !staleUploads.some((staleUpload) => staleUpload.mediaUrl === upload.mediaUrl),
+    )
+    await this.persist()
+
+    for (const upload of staleUploads) {
+      try {
+        await deleteStoredMediaByUrl(upload.mediaUrl, upload.kind)
+      } catch (error) {
+        console.error('Failed to cleanup orphan upload', error)
+      }
+    }
+
+    return staleUploads.length
+  }
+
+  private getStorageUsage(ownerIdentifier: string): StorageUsage {
+    const account = this.findAccount(ownerIdentifier)
+    const trackedMedia = new Map<string, number>()
+
+    for (const upload of this.database.pendingMediaUploads) {
+      if (upload.ownerIdentifier !== ownerIdentifier) continue
+      trackedMedia.set(upload.mediaUrl, upload.size)
+    }
+
+    for (const reference of this.collectOwnedMediaReferences()) {
+      if (reference.ownerIdentifier !== ownerIdentifier) continue
+      if (!trackedMedia.has(reference.mediaUrl)) {
+        trackedMedia.set(reference.mediaUrl, reference.size)
+      }
+    }
+
+    const usedBytes = [...trackedMedia.values()].reduce((total, size) => total + size, 0)
+    return buildStorageUsage(usedBytes, account?.premium, account?.premiumExpiresAt)
+  }
+
+  private collectOwnedMediaReferences(): OwnedStoredMediaReference[] {
+    const references: OwnedStoredMediaReference[] = []
+
+    for (const account of this.database.accounts) {
+      if (account.avatarImage) {
+        references.push({
+          kind: 'profile-avatar',
+          mediaUrl: account.avatarImage,
+          ownerIdentifier: account.identifier,
+          size: 0,
+        })
+      }
+
+      for (const gif of account.gifLibrary ?? []) {
+        references.push({
+          kind: 'user-gif',
+          mediaUrl: gif.mediaUrl,
+          ownerIdentifier: account.identifier,
+          size: gif.size,
+        })
+      }
+    }
+
+    for (const group of this.database.groups) {
+      if (!group.avatarImage) continue
+      references.push({
+        kind: 'group-avatar',
+        mediaUrl: group.avatarImage,
+        ownerIdentifier: group.ownerIdentifier,
+        size: 0,
+      })
+    }
+
+    for (const channel of this.database.managedChannels) {
+      if (!channel.avatarImage) continue
+      references.push({
+        kind: 'channel-avatar',
+        mediaUrl: channel.avatarImage,
+        ownerIdentifier: channel.ownerIdentifier,
+        size: 0,
+      })
+    }
+
+    for (const message of this.database.dialogMessages) {
+      const attachment = sanitizeMessageAttachment(message.attachment)
+      if (!attachment) continue
+      const ownerIdentifier =
+        message.author === 'me'
+          ? message.ownerIdentifier
+          : normalizeIdentifier(
+              this.findDialog(message.ownerIdentifier, message.dialogId)?.phone ?? '',
+            ) || message.ownerIdentifier
+      references.push({
+        kind: inferStoredMediaKind(attachment.mediaUrl) ?? 'attachment',
+        mediaUrl: attachment.mediaUrl,
+        ownerIdentifier,
+        size: attachment.size,
+      })
+    }
+
+    for (const message of this.database.groupMessages) {
+      const attachment = sanitizeMessageAttachment(message.attachment)
+      if (attachment) {
+        const ownerIdentifier =
+          message.author === 'me'
+            ? message.ownerIdentifier
+            : normalizeIdentifier(
+                this.findGroup(message.ownerIdentifier, message.groupId)
+                  ?.participants.find((participant) => participant.id === message.groupParticipantId)
+                  ?.identifier ?? '',
+              ) || message.ownerIdentifier
+        references.push({
+          kind: inferStoredMediaKind(attachment.mediaUrl) ?? 'attachment',
+          mediaUrl: attachment.mediaUrl,
+          ownerIdentifier,
+          size: attachment.size,
+        })
+      }
+
+      for (const comment of message.threadComments ?? []) {
+        const commentAttachment = sanitizeMessageAttachment(comment.attachment)
+        if (!commentAttachment) continue
+        references.push({
+          kind: inferStoredMediaKind(commentAttachment.mediaUrl) ?? 'attachment',
+          mediaUrl: commentAttachment.mediaUrl,
+          ownerIdentifier: normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier,
+          size: commentAttachment.size,
+        })
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      const attachment = sanitizeMessageAttachment(post.attachment)
+      if (attachment) {
+        const channelHandle =
+          this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)?.handle ?? ''
+        const channelOwnerIdentifier =
+          this.findManagedChannelByHandle(channelHandle)?.ownerIdentifier ?? post.ownerIdentifier
+        references.push({
+          kind: inferStoredMediaKind(attachment.mediaUrl) ?? 'attachment',
+          mediaUrl: attachment.mediaUrl,
+          ownerIdentifier: channelOwnerIdentifier,
+          size: attachment.size,
+        })
+      }
+
+      for (const comment of post.threadComments ?? []) {
+        const commentAttachment = sanitizeMessageAttachment(comment.attachment)
+        if (!commentAttachment) continue
+        references.push({
+          kind: inferStoredMediaKind(commentAttachment.mediaUrl) ?? 'attachment',
+          mediaUrl: commentAttachment.mediaUrl,
+          ownerIdentifier: normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier,
+          size: commentAttachment.size,
+        })
+      }
+    }
+
+    return references.map((reference) => {
+      if (reference.size > 0) return reference
+
+      const pendingSize = this.database.pendingMediaUploads.find(
+        (upload) =>
+          upload.ownerIdentifier === reference.ownerIdentifier && upload.mediaUrl === reference.mediaUrl,
+      )?.size
+
+      return {
+        ...reference,
+        size: pendingSize ?? 0,
+      }
+    })
+  }
+
+  private clearPendingMediaUpload(mediaUrl?: string) {
+    if (!mediaUrl) return
+    for (const upload of this.database.pendingMediaUploads) {
+      if (upload.mediaUrl === mediaUrl) {
+        upload.linked = true
+      }
+    }
+  }
+
+  private async deleteMediaIfUnreferenced(mediaUrl?: string) {
+    if (!mediaUrl) return
+
+    const kind = inferStoredMediaKind(mediaUrl)
+    if (!kind) return
+
+    const hasPendingUpload = this.database.pendingMediaUploads.some(
+      (upload) => upload.mediaUrl === mediaUrl && !upload.linked,
+    )
+    if (hasPendingUpload) return
+
+    const isStillReferenced = this.collectOwnedMediaReferences().some(
+      (reference) => reference.mediaUrl === mediaUrl,
+    )
+    if (isStillReferenced) return
+
+    try {
+      await deleteStoredMediaByUrl(mediaUrl, kind)
+      this.database.pendingMediaUploads = this.database.pendingMediaUploads.filter(
+        (upload) => upload.mediaUrl !== mediaUrl,
+      )
+      await this.persist()
+    } catch (error) {
+      console.error('Failed to delete unreferenced media', error)
     }
   }
 
@@ -5051,18 +5543,8 @@ function upsertNonProductionTestAccounts(database: Database) {
       continue
     }
 
-    const nextPremiumExpiresAt = testAccount.premium ? testAccount.premiumExpiresAt : undefined
-
     if (existingAccount.isTestEntity !== true) {
       existingAccount.isTestEntity = true
-      didMutate = true
-    }
-    if ((existingAccount.premium ?? false) !== (testAccount.premium ?? false)) {
-      existingAccount.premium = testAccount.premium
-      didMutate = true
-    }
-    if ((existingAccount.premiumExpiresAt ?? '') !== (nextPremiumExpiresAt ?? '')) {
-      existingAccount.premiumExpiresAt = nextPremiumExpiresAt
       didMutate = true
     }
     if ((existingAccount.createdAt ?? '') !== testAccount.createdAt) {
@@ -5610,6 +6092,10 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
       groupMessages: normalized.groupMessages ?? [],
       groups: normalized.groups ?? [],
       managedChannels: normalized.managedChannels ?? [],
+      pendingMediaUploads: (normalized.pendingMediaUploads ?? []).map((upload) => ({
+        ...upload,
+        linked: Boolean(upload.linked),
+      })),
       sessions: normalized.sessions ?? [],
       subscriptionChannelReports: normalized.subscriptionChannelReports ?? [],
       subscriptionChannels: normalized.subscriptionChannels ?? [],

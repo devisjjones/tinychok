@@ -1,6 +1,6 @@
 import type { ActionAnchor, ChannelPost, GroupParticipant, Message, ThreadComment } from '../app/types'
-import { shouldShowDeliveryCaption } from '../app/utils'
-import { BubbleMessageContent, ForwardedChannelHeader } from './BubbleMessageContent'
+import { isImageMimeType, shouldShowDeliveryCaption } from '../app/utils'
+import { BubbleImageOverlayMeta, BubbleMessageContent, ForwardedChannelHeader } from './BubbleMessageContent'
 
 type SelectedBubbleOverlayProps =
   | {
@@ -60,26 +60,37 @@ function getOverlayPosition(anchor: ActionAnchor) {
 
 export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
   if (props.kind === 'channel') {
+    const hasImageAttachment = Boolean(
+      props.post.attachment && isImageMimeType(props.post.attachment.mimeType),
+    )
+    const isImageOnlyBubble = hasImageAttachment && props.post.text.trim().length === 0
+
     return (
       <div
-        className="bubble bubble-overlay bubble-button selected channel-post"
+        className={`bubble bubble-overlay bubble-button selected channel-post${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
         style={getOverlayPosition(props.anchor)}
         aria-hidden="true"
       >
         <BubbleMessageContent
+          imageOverlay={hasImageAttachment ? <BubbleImageOverlayMeta time={props.post.time} /> : undefined}
           message={{ attachment: props.post.attachment, replyTo: undefined, text: props.post.text }}
           onOpenAttachment={props.onOpenAttachment}
           showReplyInline={false}
         />
-        <time>{props.post.time}</time>
+        {!hasImageAttachment ? <time>{props.post.time}</time> : null}
       </div>
     )
   }
 
   if (props.kind === 'thread-comment') {
+    const hasImageAttachment = Boolean(
+      props.comment.attachment && isImageMimeType(props.comment.attachment.mimeType),
+    )
+    const isImageOnlyBubble = hasImageAttachment && props.comment.text.trim().length === 0
+
     return (
       <div
-        className={`bubble bubble-overlay bubble-button selected${props.mine ? ' mine' : ''}`}
+        className={`bubble bubble-overlay bubble-button selected${props.mine ? ' mine' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
         style={getOverlayPosition(props.anchor)}
         aria-hidden="true"
       >
@@ -109,6 +120,11 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           <span className="bubble-meta">{props.comment.displayAuthor ?? 'Участник'}</span>
         )}
         <BubbleMessageContent
+          imageOverlay={
+            hasImageAttachment ? (
+              <BubbleImageOverlayMeta time={props.comment.time} />
+            ) : undefined
+          }
           message={{
             attachment: props.comment.attachment,
             replyTo: props.comment.replyTo,
@@ -118,13 +134,22 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           onOpenAttachment={props.onOpenAttachment}
           showReplyInline={false}
         />
-        <time>{props.comment.time}</time>
+        {!hasImageAttachment ? <time>{props.comment.time}</time> : null}
       </div>
     )
   }
 
   const bubbleClassNames = ['bubble', 'bubble-overlay', 'bubble-button', 'selected']
   const hasDeliveryIssue = Boolean(props.deliveryIssue)
+  const hasImageAttachment = Boolean(
+    props.message.attachment && isImageMimeType(props.message.attachment.mimeType),
+  )
+  const isImageOnlyBubble =
+    hasImageAttachment &&
+    !props.linkedChannel &&
+    !props.message.sourceChannel &&
+    !props.message.sourceGroup &&
+    props.message.text.trim().length === 0
   const showDeliveryCaption = hasDeliveryIssue && shouldShowDeliveryCaption(props.message)
 
   if (props.mine) {
@@ -145,6 +170,10 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
 
   if (props.kind === 'direct' && props.mine && props.message.readAt) {
     bubbleClassNames.push('read-by-recipient')
+  }
+
+  if (isImageOnlyBubble) {
+    bubbleClassNames.push('media-only-bubble')
   }
 
   return (
@@ -199,17 +228,33 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         <span className="bubble-meta">Приглашение в группу</span>
       ) : null}
       <BubbleMessageContent
+        imageOverlay={
+          hasImageAttachment ? (
+            <BubbleImageOverlayMeta
+              deliveryIndicatorSrc={
+                props.mine
+                  ? props.deliveryIssue === 'failed'
+                    ? '/icons/warning-48.png'
+                    : props.deliveryIssue === 'pending'
+                      ? '/icons/hourglass-48.png'
+                      : '/icons/double-tick-50.png'
+                  : null
+              }
+              time={props.message.time}
+            />
+          ) : undefined
+        }
         linkedChannel={props.linkedChannel}
         message={props.message}
         onOpenAttachment={props.onOpenAttachment}
         replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
         showReplyInline={false}
       />
-      <time>{props.message.time}</time>
-      {showDeliveryCaption ? (
+      {!hasImageAttachment ? <time>{props.message.time}</time> : null}
+      {!hasImageAttachment && showDeliveryCaption ? (
         <span className="bubble-delivery-caption">Сообщение не отправлено</span>
       ) : null}
-      {props.mine ? (
+      {!hasImageAttachment && props.mine ? (
         <img
           className="bubble-delivery-indicator"
           src={

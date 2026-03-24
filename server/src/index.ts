@@ -10,6 +10,7 @@ import type {
   ClientRuntimeConfigResponse,
   CreateGroupBody,
   CreateManagedChannelBody,
+  DebugPremiumBody,
   DiscoverySearchResponse,
   DirectDialogHistoryResponse,
   GroupHistoryResponse,
@@ -18,6 +19,7 @@ import type {
   ManageSubscriptionChannelSubscriberBody,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
+  RegisterUserGifBody,
   ReportContactBody,
   ReportSubscriptionChannelBody,
   RegisterBody,
@@ -36,6 +38,7 @@ import type {
   UpdateManagedChannelBody,
   UpdateSubscriptionChannelBody,
   UpdateSessionBody,
+  UploadMediaKind,
   VerifyCodeBody,
 } from '../../src/shared/backend'
 import type { RealtimeEvent } from '../../src/shared/backend'
@@ -44,11 +47,12 @@ import { ingestAnalyticsBatch, parseAnalyticsBatch } from './analytics'
 import { verifyCaptchaOrThrow } from './captcha'
 import { runtimeConfig } from './config'
 import {
+  deleteStoredMediaByUrl,
   getMediaBackend,
   getMediaObjectSignedUrl,
   getMediaRootPath,
   getUploadKindConfig,
-  storeMediaFile,
+  storeMediaBuffer,
 } from './media'
 import { createStore } from './store-factory'
 
@@ -89,14 +93,15 @@ function getPositiveNumericQueryParam(request: FastifyRequest, key: string) {
   return numericValue
 }
 
-function getUploadKind(request: FastifyRequest) {
+function getUploadKind(request: FastifyRequest): UploadMediaKind {
   const rawKind = (request.query as Record<string, string | undefined> | undefined)?.kind
 
   if (
     rawKind === 'attachment' ||
     rawKind === 'channel-avatar' ||
     rawKind === 'group-avatar' ||
-    rawKind === 'profile-avatar'
+    rawKind === 'profile-avatar' ||
+    rawKind === 'user-gif'
   ) {
     return rawKind
   }
@@ -148,6 +153,15 @@ async function broadcastSnapshotsForIdentifiers(identifiers: string[]) {
 const app = Fastify({
   logger: true,
 })
+
+void store.cleanupExpiredPendingMediaUploads().catch((error) => {
+  app.log.error(error)
+})
+setInterval(() => {
+  void store.cleanupExpiredPendingMediaUploads().catch((error) => {
+    app.log.error(error)
+  })
+}, 60 * 60 * 1000)
 
 await app.register(cors, {
   credentials: true,
@@ -437,12 +451,38 @@ app.post('/api/media', async (request, reply) => {
       throw new Error('Файл не найден в запросе.')
     }
 
-    const storedFile = await storeMediaFile({
+    const fileBuffer = await file.toBuffer()
+    store.assertMediaUploadWithinQuota(token, fileBuffer.byteLength)
+    const ownerIdentifier = store.getIdentifierByToken(token)
+    if (!ownerIdentifier) {
+      return reply.code(401).send({ message: 'Сессия устарела. Войдите снова.' })
+    }
+
+    const storedFile = await storeMediaBuffer({
+      buffer: fileBuffer,
       fileName: file.filename,
       kind,
       mimeType: file.mimetype,
-      stream: file.file,
+      ownerIdentifier,
     })
+
+    try {
+      await store.registerPendingMediaUpload(token, {
+        fileName: file.filename,
+        kind,
+        mediaUrl: storedFile.mediaUrl,
+        mimeType: file.mimetype,
+        size: storedFile.size,
+        storageKey: storedFile.storageKey,
+      })
+    } catch (error) {
+      try {
+        await deleteStoredMediaByUrl(storedFile.mediaUrl, kind)
+      } catch (cleanupError) {
+        request.log.error(cleanupError)
+      }
+      throw error
+    }
 
     return {
       fileName: file.filename,
@@ -452,6 +492,38 @@ app.post('/api/media', async (request, reply) => {
       size: storedFile.size,
       storageKey: storedFile.storageKey,
     }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/session/gifs', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const body = parseJsonPayload<RegisterUserGifBody>(request.body)
+    const result = await store.addUserGif(token, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/session/debug-premium', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const body = parseJsonPayload<DebugPremiumBody>(request.body)
+    const result = await store.setDebugPremiumState(token, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
   } catch (error) {
     return sendError(reply, error)
   }

@@ -7,6 +7,24 @@ export type MessageAttachment = {
   width?: number
 }
 
+export type UserGifLibraryItem = {
+  createdAt: string
+  fileName: string
+  height?: number
+  id: string
+  mediaUrl: string
+  mimeType: 'image/gif'
+  size: number
+  width?: number
+}
+
+export type StorageUsage = {
+  percentUsed: number
+  quotaBytes: number
+  remainingBytes: number
+  usedBytes: number
+}
+
 export type ThreadComment = {
   attachment?: MessageAttachment
   id: number
@@ -249,6 +267,8 @@ export type Account = {
   premium?: boolean
   premiumExpiresAt?: string
   blockedContactIds?: number[]
+  gifLibrary?: UserGifLibraryItem[]
+  storageUsage?: StorageUsage
   createdAt: string
 }
 
@@ -263,5 +283,7 @@ export type Session = {
   premium?: boolean
   premiumExpiresAt?: string
   blockedContactIds?: number[]
+  gifLibrary?: UserGifLibraryItem[]
+  storageUsage?: StorageUsage
   sessionToken?: string
 }

@@ -66,7 +66,7 @@ export function ComposerAttachmentPicker({
             onClick={() => handleSelect('photo')}
           >
             <strong>Приложить фотографию</strong>
-            <span>До 20 МБ. Поддерживаются JPG, PNG и WebP.</span>
+            <span>До 10 МБ. Поддерживаются JPG, PNG и WebP.</span>
           </button>
           <button
             type="button"
@@ -74,7 +74,7 @@ export function ComposerAttachmentPicker({
             onClick={() => handleSelect('file')}
           >
             <strong>Приложить файл</strong>
-            <span>Документы, архивы и другие файлы до 20 МБ.</span>
+            <span>Документы и архивы до 10 МБ.</span>
           </button>
         </div>
       ) : null}

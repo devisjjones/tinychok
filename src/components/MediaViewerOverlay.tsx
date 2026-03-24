@@ -1,15 +1,29 @@
-import { useEffect } from 'react'
+import { useEffect, type MouseEvent as ReactMouseEvent } from 'react'
 import type { MessageAttachment } from '../app/types'
 
 type MediaViewerOverlayProps = {
+  allowDownload?: boolean
   attachment: MessageAttachment
   onClose: () => void
 }
 
 export function MediaViewerOverlay({
+  allowDownload = true,
   attachment,
   onClose,
 }: MediaViewerOverlayProps) {
+  function handleDownloadClick(event: ReactMouseEvent<HTMLButtonElement>) {
+    event.stopPropagation()
+
+    const link = document.createElement('a')
+    link.href = attachment.mediaUrl
+    link.download = attachment.fileName || 'attachment'
+    link.rel = 'noopener noreferrer'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
@@ -31,6 +45,17 @@ export function MediaViewerOverlay({
       aria-label={attachment.fileName}
       onClick={onClose}
     >
+      {allowDownload ? (
+        <button
+          type="button"
+          className="media-viewer-download"
+          onClick={handleDownloadClick}
+          aria-label="Скачать фотографию"
+          title="Скачать фотографию"
+        >
+          <span className="media-viewer-download-label">Скачать</span>
+        </button>
+      ) : null}
       <button
         type="button"
         className="media-viewer-close"

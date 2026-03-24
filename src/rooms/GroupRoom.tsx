@@ -1,7 +1,14 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
-import type { ChannelMessageSource, GroupParticipant, GroupPreview, Message, ReplyTarget } from '../app/types'
+import type {
+  ChannelMessageSource,
+  GroupParticipant,
+  GroupPreview,
+  Message,
+  ReplyTarget,
+  UserGifLibraryItem,
+} from '../app/types'
 import {
   formatChannelAvatarLabel,
   formatConversationDayLabel,
@@ -14,6 +21,7 @@ import {
 } from '../app/utils'
 import {
   BubbleMessageContent,
+  BubbleImageOverlayMeta,
   ForwardedChannelHeader,
 } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
@@ -36,6 +44,7 @@ type GroupRoomProps = {
   visibleMessages: Message[]
   onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
   onAttachmentClear: () => void
+  onAttachmentPreviewOpen?: () => void
   onOpenGroupActions: (event: MouseEvent<HTMLButtonElement>) => void
   onBack: () => void
   onComposerFocus: () => void
@@ -49,9 +58,13 @@ type GroupRoomProps = {
   onOpenAttachmentPicker: (mode: 'file' | 'photo') => void
   onOpenPremiumUpsell?: () => void
   onReplyCancel: () => void
+  onSelectGif?: (gif: UserGifLibraryItem) => void
+  onUploadGif?: (file: File) => Promise<void>
   onReplyReferenceJump?: (messageId: number) => void
   onToggleSendOriginal?: () => void
   premiumUnlocked?: boolean
+  gifLibrary?: UserGifLibraryItem[]
+  gifSelectionBlockedReason?: string | null
   replyTarget: ReplyTarget | null
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   composerDisabledNotice?: string | null
@@ -71,6 +84,7 @@ export function GroupRoom({
   visibleMessages,
   onAttachmentChange,
   onAttachmentClear,
+  onAttachmentPreviewOpen,
   onOpenGroupActions,
   onBack,
   onComposerFocus,
@@ -84,8 +98,12 @@ export function GroupRoom({
   onOpenAttachmentPicker,
   onOpenPremiumUpsell,
   onReplyCancel,
+  onSelectGif,
+  onUploadGif,
   onReplyReferenceJump,
   onToggleSendOriginal,
+  gifLibrary = [],
+  gifSelectionBlockedReason = null,
   premiumUnlocked = false,
   replyTarget,
   resolveLinkedChannelFromMessage,
@@ -237,12 +255,20 @@ export function GroupRoom({
             const previousMessageDayKey = previousMessage ? getConversationDayKey(previousMessage.createdAt) : null
             const groupParticipant = resolveGroupParticipant(message)
             const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
-            const messageDeliveryIssue =
-              message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
-            const messagePending = messageDeliveryIssue === 'pending'
-            const messageFailed = messageDeliveryIssue === 'failed'
-            const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
+          const messageDeliveryIssue =
+            message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
+          const hasImageAttachment = Boolean(
+            message.attachment && isImageMimeType(message.attachment.mimeType),
+          )
+          const messagePending = messageDeliveryIssue === 'pending'
+          const messageFailed = messageDeliveryIssue === 'failed'
+          const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
             const showDeliveryIndicator = message.author === 'me'
+            const isImageOnlyBubble =
+              hasImageAttachment &&
+              !linkedChannel &&
+              !message.sourceChannel &&
+              message.text.trim().length === 0
             const bubbleClassNames = ['bubble', 'bubble-button']
 
             if (message.author === 'me') {
@@ -271,6 +297,10 @@ export function GroupRoom({
 
             if (message.replyTo) {
               bubbleClassNames.push('has-attached-reply')
+            }
+
+            if (isImageOnlyBubble) {
+              bubbleClassNames.push('media-only-bubble')
             }
 
             const replyReference = message.replyTo
@@ -334,6 +364,22 @@ export function GroupRoom({
                             </>
                           ) : null}
                           <BubbleMessageContent
+                            imageOverlay={
+                              hasImageAttachment ? (
+                                <BubbleImageOverlayMeta
+                                  deliveryIndicatorSrc={
+                                    showDeliveryIndicator
+                                      ? messageFailed
+                                        ? '/icons/warning-48.png'
+                                        : messagePending
+                                          ? '/icons/hourglass-48.png'
+                                          : '/icons/double-tick-50.png'
+                                      : null
+                                  }
+                                  time={message.time}
+                                />
+                              ) : undefined
+                            }
                             linkedChannel={linkedChannel}
                             message={message}
                             onOpenAttachment={onOpenAttachment}
@@ -342,11 +388,11 @@ export function GroupRoom({
                             }
                             showReplyInline={false}
                           />
-                          <time>{message.time}</time>
-                          {showDeliveryCaption ? (
+                          {!hasImageAttachment ? <time>{message.time}</time> : null}
+                          {!hasImageAttachment && showDeliveryCaption ? (
                             <span className="bubble-delivery-caption">Сообщение не отправлено</span>
                           ) : null}
-                          {showDeliveryIndicator ? (
+                          {!hasImageAttachment && showDeliveryIndicator ? (
                             <img
                               className="bubble-delivery-indicator"
                               src={
@@ -406,6 +452,7 @@ export function GroupRoom({
                     <ComposerAttachmentPreview
                       attachmentDraft={attachmentDraft}
                       onClear={onAttachmentClear}
+                      onOpenPreview={onAttachmentPreviewOpen}
                       onOpenPremiumUpsell={onOpenPremiumUpsell}
                       onToggleSendOriginal={onToggleSendOriginal}
                       premiumUnlocked={premiumUnlocked}
@@ -428,9 +475,16 @@ export function GroupRoom({
                   />
                   <div className="composer-tools">
                     <EmojiPicker
+                      canSelectGif={!gifSelectionBlockedReason}
+                      gifLibrary={gifLibrary}
+                      gifSelectionBlockedReason={gifSelectionBlockedReason}
+                      onOpenPremiumUpsell={onOpenPremiumUpsell}
                       onSelect={(emoji) =>
                         insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
                       }
+                      onSelectGif={onSelectGif}
+                      onUploadGif={onUploadGif}
+                      premiumUnlocked={premiumUnlocked}
                     />
                     <ComposerAttachmentPicker
                       attachmentName={attachmentName}

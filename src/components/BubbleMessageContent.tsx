@@ -1,4 +1,4 @@
-import type { MouseEvent as ReactMouseEvent } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { ChannelMessageSource, Message } from '../app/types'
 import {
   formatAttachmentImageDimensions,
@@ -9,11 +9,17 @@ import {
 
 type BubbleMessageContentProps = {
   message: Pick<Message, 'attachment' | 'replyTo' | 'sourceGroup' | 'text'>
+  imageOverlay?: ReactNode
   linkedChannel?: ChannelMessageSource | null
   onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
   onOpenLinkedChannel?: () => void
   replyChatTitle?: string
   showReplyInline?: boolean
+}
+
+type BubbleImageOverlayMetaProps = {
+  deliveryIndicatorSrc?: string | null
+  time: string
 }
 
 type ForwardedChannelHeaderProps = {
@@ -72,7 +78,27 @@ export function ForwardedChannelHeader({
   )
 }
 
+export function BubbleImageOverlayMeta({
+  deliveryIndicatorSrc,
+  time,
+}: BubbleImageOverlayMetaProps) {
+  return (
+    <span className="bubble-attachment-image-overlay">
+      <span className="bubble-attachment-image-time">{time}</span>
+      {deliveryIndicatorSrc ? (
+        <img
+          className="bubble-attachment-image-indicator"
+          src={deliveryIndicatorSrc}
+          alt=""
+          aria-hidden="true"
+        />
+      ) : null}
+    </span>
+  )
+}
+
 export function BubbleMessageContent({
+  imageOverlay,
   linkedChannel,
   message,
   onOpenAttachment,
@@ -80,10 +106,13 @@ export function BubbleMessageContent({
   replyChatTitle,
   showReplyInline = true,
 }: BubbleMessageContentProps) {
+  const hasBodyBelowAttachment = Boolean(linkedChannel || message.sourceGroup || message.text.trim())
   const attachmentNode = message.attachment ? (
     isImageMimeType(message.attachment.mimeType) ? (
       <div
-        className="bubble-attachment bubble-attachment-photo bubble-attachment-button"
+        className={`bubble-attachment bubble-attachment-photo bubble-attachment-button${
+          hasBodyBelowAttachment ? ' has-body-below' : ' image-only'
+        }`}
         onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
           event.stopPropagation()
           onOpenAttachment?.(message.attachment!)
@@ -94,12 +123,7 @@ export function BubbleMessageContent({
           alt={message.attachment.fileName}
           className="bubble-attachment-image"
         />
-        <div className="bubble-attachment-photo-meta">
-          <span>
-            {formatAttachmentSize(message.attachment.size)}
-            {`, ${formatAttachmentImageDimensions(message.attachment.width, message.attachment.height)}`}
-          </span>
-        </div>
+        {imageOverlay}
       </div>
     ) : (
       <div
@@ -112,7 +136,12 @@ export function BubbleMessageContent({
         <span className="bubble-attachment-badge">Файл</span>
         <div className="bubble-attachment-copy">
           <strong>{message.attachment.fileName}</strong>
-          <span>{formatAttachmentSize(message.attachment.size)}</span>
+          <span>
+            {formatAttachmentSize(message.attachment.size)}
+            {message.attachment.width && message.attachment.height
+              ? `, ${formatAttachmentImageDimensions(message.attachment.width, message.attachment.height)}`
+              : ''}
+          </span>
         </div>
       </div>
     )

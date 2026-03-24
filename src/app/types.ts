@@ -17,9 +17,11 @@ export type {
   SearchResult,
   Session,
   SettingsView,
+  StorageUsage,
   StageView,
   SubscriptionChannel,
   ThreadComment,
   ThreadInboxItem,
   TopListView,
+  UserGifLibraryItem,
 } from '../shared/types'

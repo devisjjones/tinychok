@@ -10,6 +10,7 @@ import type {
   SearchResult,
   Session,
   SubscriptionChannel,
+  UserGifLibraryItem,
 } from './types'
 
 export type ExistingAccountPreview = Pick<Account, 'displayName' | 'surname'>
@@ -120,7 +121,12 @@ export type OpenDirectDialogResponse = MutationResponse & {
   dialogId: number
 }
 
-export type UploadMediaKind = 'attachment' | 'channel-avatar' | 'group-avatar' | 'profile-avatar'
+export type UploadMediaKind =
+  | 'attachment'
+  | 'channel-avatar'
+  | 'group-avatar'
+  | 'profile-avatar'
+  | 'user-gif'
 
 export type UploadMediaResponse = {
   fileName: string
@@ -129,6 +135,13 @@ export type UploadMediaResponse = {
   mimeType: string
   size: number
   storageKey: string
+}
+
+export type RegisterUserGifBody = UserGifLibraryItem
+
+export type DebugPremiumBody = {
+  enabled: boolean
+  durationDays?: number
 }
 
 export type UpdateSessionBody = Partial<

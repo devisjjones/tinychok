@@ -5,6 +5,7 @@ import type {
   CreateGroupResponse,
   CreateManagedChannelBody,
   CreateManagedChannelResponse,
+  DebugPremiumBody,
   DiscoverySearchResponse,
   DirectDialogHistoryResponse,
   GroupHistoryResponse,
@@ -14,6 +15,7 @@ import type {
   MutationResponse,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
+  RegisterUserGifBody,
   ReportContactBody,
   ReportSubscriptionChannelBody,
   RegisterResponse,
@@ -143,6 +145,7 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
       avatarImage: snapshot.session.avatarImage
         ? resolveMediaUrl(snapshot.session.avatarImage)
         : snapshot.session.avatarImage,
+      gifLibrary: snapshot.session.gifLibrary?.map((gif) => normalizeAttachmentMedia(gif)),
     },
     channels: snapshot.channels.map((channel) => ({
       ...channel,
@@ -413,6 +416,30 @@ export async function uploadMediaFile(
     ...payload,
     mediaUrl: resolveMediaUrl(payload.mediaUrl),
   }
+}
+
+export async function registerUserGif(
+  sessionToken: string,
+  body: RegisterUserGifBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/session/gifs'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function setDebugPremiumState(
+  sessionToken: string,
+  body: DebugPremiumBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/session/debug-premium'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
 }
 
 export async function sendDirectMessage(

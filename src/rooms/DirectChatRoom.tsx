@@ -7,7 +7,7 @@ import type {
 } from 'react'
 import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
-import type { ChannelMessageSource, Chat, Message, ReplyTarget } from '../app/types'
+import type { ChannelMessageSource, Chat, Message, ReplyTarget, UserGifLibraryItem } from '../app/types'
 import {
   formatConversationDayLabel,
   formatMessagePreview,
@@ -21,6 +21,7 @@ import {
 } from '../app/utils'
 import {
   BubbleMessageContent,
+  BubbleImageOverlayMeta,
   ForwardedChannelHeader,
 } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
@@ -40,6 +41,7 @@ type DirectChatRoomProps = {
   getMessageDeliveryIssue: (messageId: number) => 'pending' | 'failed' | null
   messageFeedRef: RefObject<HTMLDivElement | null>
   onAttachmentClear: () => void
+  onAttachmentPreviewOpen?: () => void
   pinnedMessage: Message | null
   quietMode: boolean
   replyTarget: ReplyTarget | null
@@ -61,10 +63,14 @@ type DirectChatRoomProps = {
   onRequestDeleteContact: () => void
   onRequestDeleteHistory: () => void
   onRequestReportContact: () => void
+  onSelectGif?: (gif: UserGifLibraryItem) => void
+  onUploadGif?: (file: File) => Promise<void>
   onReplyReferenceJump?: (messageId: number) => void
   onToggleSendOriginal?: () => void
   onToggleChatMuted: () => void
   premiumUnlocked?: boolean
+  gifLibrary?: UserGifLibraryItem[]
+  gifSelectionBlockedReason?: string | null
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   onSubmit: () => void | Promise<void>
   onToggleChatActions: () => void
@@ -83,6 +89,7 @@ export function DirectChatRoom({
   getMessageDeliveryIssue,
   messageFeedRef,
   onAttachmentClear,
+  onAttachmentPreviewOpen,
   pinnedMessage,
   quietMode,
   replyTarget,
@@ -101,12 +108,16 @@ export function DirectChatRoom({
   onOpenPremiumGift,
   onOpenPremiumUpsell,
   onReplyCancel,
+  onSelectGif,
+  onUploadGif,
   onReplyReferenceJump,
   onRequestDeleteContact,
   onRequestDeleteHistory,
   onRequestReportContact,
   onToggleSendOriginal,
   onToggleChatMuted,
+  gifLibrary = [],
+  gifSelectionBlockedReason = null,
   premiumUnlocked = false,
   resolveLinkedChannelFromMessage,
   onSubmit,
@@ -311,11 +322,20 @@ export function DirectChatRoom({
           const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
           const messageDeliveryIssue =
             message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
+          const hasImageAttachment = Boolean(
+            message.attachment && isImageMimeType(message.attachment.mimeType),
+          )
           const messagePending = messageDeliveryIssue === 'pending'
           const messageFailed = messageDeliveryIssue === 'failed'
           const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
           const showDeliveryIndicator = message.author === 'me'
           const messageReadByRecipient = message.author === 'me' && Boolean(message.readAt)
+          const isImageOnlyBubble =
+            hasImageAttachment &&
+            !linkedChannel &&
+            !message.sourceChannel &&
+            !message.sourceGroup &&
+            message.text.trim().length === 0
           const bubbleClassNames = ['bubble', 'bubble-button']
 
           if (message.author === 'me') {
@@ -348,6 +368,10 @@ export function DirectChatRoom({
 
           if (message.replyTo) {
             bubbleClassNames.push('has-attached-reply')
+          }
+
+          if (isImageOnlyBubble) {
+            bubbleClassNames.push('media-only-bubble')
           }
 
           const replyReference = message.replyTo
@@ -392,6 +416,22 @@ export function DirectChatRoom({
                       </span>
                     ) : null}
                     <BubbleMessageContent
+                      imageOverlay={
+                        hasImageAttachment ? (
+                          <BubbleImageOverlayMeta
+                            deliveryIndicatorSrc={
+                              showDeliveryIndicator
+                                ? messageFailed
+                                  ? '/icons/warning-48.png'
+                                  : messagePending
+                                    ? '/icons/hourglass-48.png'
+                                    : '/icons/double-tick-50.png'
+                                : null
+                            }
+                            time={message.time}
+                          />
+                        ) : undefined
+                      }
                       linkedChannel={linkedChannel}
                       message={message}
                       onOpenAttachment={onOpenAttachment}
@@ -401,11 +441,11 @@ export function DirectChatRoom({
                       replyChatTitle={activeChat.title}
                       showReplyInline={false}
                     />
-                    <time>{message.time}</time>
-                    {showDeliveryCaption ? (
+                    {!hasImageAttachment ? <time>{message.time}</time> : null}
+                    {!hasImageAttachment && showDeliveryCaption ? (
                       <span className="bubble-delivery-caption">Сообщение не отправлено</span>
                     ) : null}
-                    {showDeliveryIndicator ? (
+                    {!hasImageAttachment && showDeliveryIndicator ? (
                       <img
                         className="bubble-delivery-indicator"
                         src={
@@ -467,6 +507,7 @@ export function DirectChatRoom({
                 <ComposerAttachmentPreview
                   attachmentDraft={attachmentDraft}
                   onClear={onAttachmentClear}
+                  onOpenPreview={onAttachmentPreviewOpen}
                   onOpenPremiumUpsell={onOpenPremiumUpsell}
                   onToggleSendOriginal={onToggleSendOriginal}
                   premiumUnlocked={premiumUnlocked}
@@ -488,9 +529,16 @@ export function DirectChatRoom({
               />
               <div className="composer-tools">
                 <EmojiPicker
+                  canSelectGif={!gifSelectionBlockedReason}
+                  gifLibrary={gifLibrary}
+                  gifSelectionBlockedReason={gifSelectionBlockedReason}
+                  onOpenPremiumUpsell={onOpenPremiumUpsell}
                   onSelect={(emoji) =>
                     insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
                   }
+                  onSelectGif={onSelectGif}
+                  onUploadGif={onUploadGif}
+                  premiumUnlocked={premiumUnlocked}
                 />
                 <ComposerAttachmentPicker
                   attachmentName={attachmentName}

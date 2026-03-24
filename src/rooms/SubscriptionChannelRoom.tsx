@@ -9,8 +9,8 @@ import {
   scrollFeedChildIntoView,
   shouldSubmitComposerWithEnter,
 } from '../app/utils'
-import type { Message, ReplyTarget, SubscriptionChannel } from '../app/types'
-import { BubbleMessageContent } from '../components/BubbleMessageContent'
+import type { Message, ReplyTarget, SubscriptionChannel, UserGifLibraryItem } from '../app/types'
+import { BubbleImageOverlayMeta, BubbleMessageContent } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ComposerAttachmentPicker } from '../components/ComposerAttachmentPicker'
 import { ComposerAttachmentPreview } from '../components/ComposerAttachmentPreview'
@@ -40,12 +40,17 @@ type SubscriptionChannelRoomProps = {
     isBusy?: boolean
     onAttachmentChange?: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
     onAttachmentClear?: () => void
+    onAttachmentPreviewOpen?: () => void
     onOpenAttachmentPicker?: (mode: 'file' | 'photo') => void
     onOpenPremiumUpsell?: () => void
     onReplyCancel: () => void
     onDraftChange: (value: string) => void
+    onSelectGif?: (gif: UserGifLibraryItem) => void
     onToggleSendOriginal?: () => void
+    onUploadGif?: (file: File) => Promise<void>
     premiumUnlocked?: boolean
+    gifLibrary?: UserGifLibraryItem[]
+    gifSelectionBlockedReason?: string | null
     replyTarget: ReplyTarget | null
     onSubmit: () => void
   }
@@ -82,12 +87,17 @@ export function SubscriptionChannelRoom({
   const publisherBusy = Boolean(publisher?.isBusy)
   const publisherOnAttachmentChange = publisher?.onAttachmentChange
   const publisherOnAttachmentClear = publisher?.onAttachmentClear
+  const publisherOnAttachmentPreviewOpen = publisher?.onAttachmentPreviewOpen
   const publisherOnOpenAttachmentPicker = publisher?.onOpenAttachmentPicker
   const publisherOnOpenPremiumUpsell = publisher?.onOpenPremiumUpsell
   const publisherOnReplyCancel = publisher?.onReplyCancel
   const publisherOnDraftChange = publisher?.onDraftChange
+  const publisherOnSelectGif = publisher?.onSelectGif
   const publisherOnToggleSendOriginal = publisher?.onToggleSendOriginal
+  const publisherOnUploadGif = publisher?.onUploadGif
   const publisherPremiumUnlocked = Boolean(publisher?.premiumUnlocked)
+  const publisherGifLibrary = publisher?.gifLibrary ?? []
+  const publisherGifSelectionBlockedReason = publisher?.gifSelectionBlockedReason ?? null
   const publisherReplyTarget = publisher?.replyTarget ?? null
   const publisherOnSubmit = publisher?.onSubmit
   const publisherCanSubmit = publisherAttachmentDraft
@@ -199,9 +209,13 @@ export function SubscriptionChannelRoom({
             const previousPost = index > 0 ? visiblePosts[index - 1] : null
             const postDayKey = getConversationDayKey(post.createdAt)
             const previousPostDayKey = previousPost ? getConversationDayKey(previousPost.createdAt) : null
-            const replyReference = post.replyTo
+          const replyReference = post.replyTo
+          const hasImageAttachment = Boolean(
+            post.attachment && isImageMimeType(post.attachment.mimeType),
+          )
+          const isImageOnlyBubble = hasImageAttachment && post.text.trim().length === 0
 
-            return (
+          return (
               <Fragment key={post.id}>
                 {index === 0 || previousPostDayKey !== postDayKey ? (
                   <ConversationDayDivider label={formatConversationDayLabel(post.createdAt)} />
@@ -225,17 +239,20 @@ export function SubscriptionChannelRoom({
                           data-channel-post-id={post.id}
                           className={
                             activePostId === post.id
-                              ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}`
-                              : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}`
+                              ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
+                              : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
                           }
                           onClick={(event) => onPostSelect(event, post.id)}
                         >
                           <BubbleMessageContent
+                            imageOverlay={
+                              hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
+                            }
                             message={post}
                             onOpenAttachment={onOpenAttachment}
                             showReplyInline={false}
                           />
-                          <time>{post.time}</time>
+                          {!hasImageAttachment ? <time>{post.time}</time> : null}
                         </button>
                       }
                     />
@@ -277,6 +294,7 @@ export function SubscriptionChannelRoom({
                     <ComposerAttachmentPreview
                       attachmentDraft={publisherAttachmentDraft}
                       onClear={publisherOnAttachmentClear}
+                      onOpenPreview={publisherOnAttachmentPreviewOpen}
                       onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
                       onToggleSendOriginal={publisherOnToggleSendOriginal}
                       premiumUnlocked={publisherPremiumUnlocked}
@@ -300,6 +318,10 @@ export function SubscriptionChannelRoom({
                   />
                   <div className="composer-tools">
                     <EmojiPicker
+                      canSelectGif={!publisherGifSelectionBlockedReason}
+                      gifLibrary={publisherGifLibrary}
+                      gifSelectionBlockedReason={publisherGifSelectionBlockedReason}
+                      onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
                       onSelect={(emoji) =>
                         insertComposerTextAtCursor(
                           publisherInputRef.current,
@@ -308,6 +330,9 @@ export function SubscriptionChannelRoom({
                           (value) => publisherOnDraftChange?.(value),
                         )
                       }
+                      onSelectGif={publisherOnSelectGif}
+                      onUploadGif={publisherOnUploadGif}
+                      premiumUnlocked={publisherPremiumUnlocked}
                     />
                     {publisherOnOpenAttachmentPicker ? (
                       <ComposerAttachmentPicker

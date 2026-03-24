@@ -1,21 +1,40 @@
 import { randomUUID } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
-import { pipeline } from 'node:stream/promises'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { UploadMediaKind, UploadMediaResponse } from '../../src/shared/backend'
+import {
+  avatarAcceptedMimeTypes,
+  avatarSourceMaxSizeBytes,
+  messageFileAcceptedExtensions,
+  messageFileAcceptedMimeTypes,
+  messageFileUploadMaxSizeBytes,
+  messageGifUploadMaxSizeBytes,
+  messagePhotoAcceptedMimeTypes,
+  messagePhotoUploadMaxSizeBytes,
+} from '../../src/shared/constants'
 import { makePublicUrl, runtimeConfig } from './config'
 
 const MIME_EXTENSION_MAP: Record<string, string> = {
+  'application/msword': '.doc',
   'application/pdf': '.pdf',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/x-zip-compressed': '.zip',
+  'application/zip': '.zip',
+  'image/gif': '.gif',
   'image/jpeg': '.jpg',
   'image/png': '.png',
   'image/webp': '.webp',
+  'text/plain': '.txt',
 }
 
-const SUPPORTED_IMAGE_ATTACHMENT_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const SUPPORTED_IMAGE_ATTACHMENT_MIME_TYPES = new Set(messagePhotoAcceptedMimeTypes)
+const SUPPORTED_FILE_ATTACHMENT_MIME_TYPES = new Set(messageFileAcceptedMimeTypes)
+const SUPPORTED_FILE_ATTACHMENT_EXTENSIONS = new Set(messageFileAcceptedExtensions)
+const SUPPORTED_GIF_MIME_TYPES = new Set(['image/gif'])
 
 const MEDIA_KIND_CONFIG: Record<
   UploadMediaKind,
@@ -28,23 +47,28 @@ const MEDIA_KIND_CONFIG: Record<
   // Avatars and attachments already live in separate prefixes, so switching from
   // local disk to Object Storage does not change the key layout.
   'channel-avatar': {
-    allowedMimeTypes: new Set(['image/jpeg', 'image/png']),
+    allowedMimeTypes: new Set(avatarAcceptedMimeTypes),
     directory: 'channel-avatars',
-    maxSizeBytes: 1 * 1024 * 1024,
+    maxSizeBytes: avatarSourceMaxSizeBytes,
   },
   'group-avatar': {
-    allowedMimeTypes: new Set(['image/jpeg', 'image/png']),
+    allowedMimeTypes: new Set(avatarAcceptedMimeTypes),
     directory: 'group-avatars',
-    maxSizeBytes: 1 * 1024 * 1024,
+    maxSizeBytes: avatarSourceMaxSizeBytes,
   },
   'profile-avatar': {
-    allowedMimeTypes: new Set(['image/jpeg', 'image/png']),
+    allowedMimeTypes: new Set(avatarAcceptedMimeTypes),
     directory: 'profile-avatars',
-    maxSizeBytes: 1 * 1024 * 1024,
+    maxSizeBytes: avatarSourceMaxSizeBytes,
+  },
+  'user-gif': {
+    allowedMimeTypes: new Set(['image/gif']),
+    directory: 'user-gifs',
+    maxSizeBytes: messageGifUploadMaxSizeBytes,
   },
   attachment: {
     directory: 'attachments',
-    maxSizeBytes: 20 * 1024 * 1024,
+    maxSizeBytes: messagePhotoUploadMaxSizeBytes,
   },
 }
 
@@ -59,9 +83,24 @@ function sanitizeFileExtension(fileName: string, mimeType: string) {
   return MIME_EXTENSION_MAP[mimeType] ?? ''
 }
 
-function buildStorageKey(kind: UploadMediaKind, fileName: string, mimeType: string) {
+function sanitizeOwnerStorageSegment(ownerIdentifier?: string) {
+  if (!ownerIdentifier) return null
+  const normalized = ownerIdentifier.trim().replace(/[^a-zA-Z0-9_-]+/gu, '_')
+  return normalized || null
+}
+
+function buildStorageKey(
+  kind: UploadMediaKind,
+  fileName: string,
+  mimeType: string,
+  ownerIdentifier?: string,
+) {
   const extension = sanitizeFileExtension(fileName, mimeType)
-  return `${MEDIA_KIND_CONFIG[kind].directory}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}${extension}`
+  const ownerSegment = kind === 'user-gif' ? sanitizeOwnerStorageSegment(ownerIdentifier) : null
+  const pathPrefix = ownerSegment
+    ? `${MEDIA_KIND_CONFIG[kind].directory}/${ownerSegment}`
+    : MEDIA_KIND_CONFIG[kind].directory
+  return `${pathPrefix}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}${extension}`
 }
 
 function buildStableMediaUrl(storageKey: string) {
@@ -135,39 +174,15 @@ async function readStreamToBuffer(stream: NodeJS.ReadableStream) {
   return Buffer.concat(chunks)
 }
 
-async function storeMediaFileLocally(options: {
-  fileName: string
-  kind: UploadMediaKind
-  mimeType: string
-  stream: NodeJS.ReadableStream
-}) {
-  const { fileName, kind, mimeType, stream } = options
-  const storageKey = buildStorageKey(kind, fileName, mimeType)
-  const absolutePath = join(runtimeConfig.storage.localMediaRoot, storageKey)
-  let size = 0
-
-  stream.on('data', (chunk) => {
-    size += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk))
-  })
-
-  await mkdir(dirname(absolutePath), { recursive: true })
-  await pipeline(stream, createWriteStream(absolutePath))
-
-  return {
-    mediaUrl: buildStableMediaUrl(storageKey),
-    size,
-    storageKey,
-  } satisfies Pick<UploadMediaResponse, 'mediaUrl' | 'size' | 'storageKey'>
-}
-
 async function storeMediaBufferLocally(options: {
   buffer: Buffer
   fileName: string
   kind: UploadMediaKind
   mimeType: string
+  ownerIdentifier?: string
 }) {
-  const { buffer, fileName, kind, mimeType } = options
-  const storageKey = buildStorageKey(kind, fileName, mimeType)
+  const { buffer, fileName, kind, mimeType, ownerIdentifier } = options
+  const storageKey = buildStorageKey(kind, fileName, mimeType, ownerIdentifier)
   const absolutePath = join(runtimeConfig.storage.localMediaRoot, storageKey)
 
   await mkdir(dirname(absolutePath), { recursive: true })
@@ -180,42 +195,16 @@ async function storeMediaBufferLocally(options: {
   } satisfies Pick<UploadMediaResponse, 'mediaUrl' | 'size' | 'storageKey'>
 }
 
-async function storeMediaFileInObjectStorage(options: {
-  fileName: string
-  kind: UploadMediaKind
-  mimeType: string
-  stream: NodeJS.ReadableStream
-}) {
-  const { fileName, kind, mimeType, stream } = options
-  const bucket = runtimeConfig.storage.objectStorage.bucket
-  const storageKey = buildStorageKey(kind, fileName, mimeType)
-  const fileBody = await readStreamToBuffer(stream)
-
-  await getObjectStorageClient().send(
-    new PutObjectCommand({
-      Body: fileBody,
-      Bucket: bucket!,
-      ContentType: mimeType,
-      Key: storageKey,
-    }),
-  )
-
-  return {
-    mediaUrl: buildStableMediaUrl(storageKey),
-    size: fileBody.byteLength,
-    storageKey,
-  } satisfies Pick<UploadMediaResponse, 'mediaUrl' | 'size' | 'storageKey'>
-}
-
 async function storeMediaBufferInObjectStorage(options: {
   buffer: Buffer
   fileName: string
   kind: UploadMediaKind
   mimeType: string
+  ownerIdentifier?: string
 }) {
-  const { buffer, fileName, kind, mimeType } = options
+  const { buffer, fileName, kind, mimeType, ownerIdentifier } = options
   const bucket = runtimeConfig.storage.objectStorage.bucket
-  const storageKey = buildStorageKey(kind, fileName, mimeType)
+  const storageKey = buildStorageKey(kind, fileName, mimeType, ownerIdentifier)
 
   await getObjectStorageClient().send(
     new PutObjectCommand({
@@ -238,7 +227,28 @@ export function getUploadKindConfig(kind: UploadMediaKind) {
 }
 
 function isSupportedImageAttachmentMimeType(mimeType: string) {
-  return SUPPORTED_IMAGE_ATTACHMENT_MIME_TYPES.has(mimeType)
+  return SUPPORTED_IMAGE_ATTACHMENT_MIME_TYPES.has(
+    mimeType as (typeof messagePhotoAcceptedMimeTypes)[number],
+  )
+}
+
+function isSupportedGifMimeType(mimeType: string) {
+  return SUPPORTED_GIF_MIME_TYPES.has(mimeType)
+}
+
+function isSupportedFileAttachment(fileName: string, mimeType: string) {
+  const extension = extname(fileName).toLowerCase()
+  if (!SUPPORTED_FILE_ATTACHMENT_EXTENSIONS.has(extension as (typeof messageFileAcceptedExtensions)[number])) {
+    return false
+  }
+
+  if (!mimeType) {
+    return extension === '.txt'
+  }
+
+  return SUPPORTED_FILE_ATTACHMENT_MIME_TYPES.has(
+    mimeType as (typeof messageFileAcceptedMimeTypes)[number],
+  )
 }
 
 function hasValidImageSignature(buffer: Buffer, mimeType: string) {
@@ -271,11 +281,18 @@ function hasValidImageSignature(buffer: Buffer, mimeType: string) {
   return false
 }
 
-export async function storeMediaFile(options: {
+function hasValidGifSignature(buffer: Buffer) {
+  if (buffer.byteLength < 6) return false
+  const signature = buffer.subarray(0, 6).toString('ascii')
+  return signature === 'GIF87a' || signature === 'GIF89a'
+}
+
+export async function storeMediaBuffer(options: {
+  buffer: Buffer
   fileName: string
   kind: UploadMediaKind
   mimeType: string
-  stream: NodeJS.ReadableStream
+  ownerIdentifier?: string
 }) {
   const kindConfig = getUploadKindConfig(options.kind)
 
@@ -283,43 +300,107 @@ export async function storeMediaFile(options: {
     throw new Error('Неподдерживаемый тип файла для этого действия.')
   }
 
+  if (options.buffer.byteLength === 0) {
+    throw new Error('Файл пустой или повреждён.')
+  }
+
+  if (
+    options.kind === 'channel-avatar' ||
+    options.kind === 'group-avatar' ||
+    options.kind === 'profile-avatar'
+  ) {
+    if (!isSupportedImageAttachmentMimeType(options.mimeType)) {
+      throw new Error('Для аватарки поддерживаются только JPG, PNG и WebP.')
+    }
+
+    if (options.buffer.byteLength > avatarSourceMaxSizeBytes) {
+      throw new Error('Файл слишком большой. Максимальный размер аватарки 5 МБ.')
+    }
+
+    if (!hasValidImageSignature(options.buffer, options.mimeType)) {
+      throw new Error('Не удалось проверить изображение для аватарки. Выберите другой файл.')
+    }
+
+    return runtimeConfig.storage.mediaBackend === 'object-storage'
+      ? storeMediaBufferInObjectStorage(options)
+      : storeMediaBufferLocally(options)
+  }
+
   if (options.kind === 'attachment' && options.mimeType.startsWith('image/')) {
     if (!isSupportedImageAttachmentMimeType(options.mimeType)) {
       throw new Error('Для фотографии поддерживаются только JPEG, PNG и WebP.')
     }
 
-    const fileBuffer = await readStreamToBuffer(options.stream)
-
-    if (fileBuffer.byteLength === 0) {
-      throw new Error('Файл пустой или повреждён.')
+    if (options.buffer.byteLength > messagePhotoUploadMaxSizeBytes) {
+      throw new Error('Фотография слишком большая. Максимальный размер 10 МБ.')
     }
 
-    if (fileBuffer.byteLength > kindConfig.maxSizeBytes) {
-      throw new Error('Файл слишком большой.')
-    }
-
-    if (!hasValidImageSignature(fileBuffer, options.mimeType)) {
+    if (!hasValidImageSignature(options.buffer, options.mimeType)) {
       throw new Error('Не удалось проверить фотографию. Выберите другой файл.')
     }
 
     return runtimeConfig.storage.mediaBackend === 'object-storage'
-      ? storeMediaBufferInObjectStorage({
-          buffer: fileBuffer,
-          fileName: options.fileName,
-          kind: options.kind,
-          mimeType: options.mimeType,
-        })
-      : storeMediaBufferLocally({
-          buffer: fileBuffer,
-          fileName: options.fileName,
-          kind: options.kind,
-          mimeType: options.mimeType,
-        })
+      ? storeMediaBufferInObjectStorage(options)
+      : storeMediaBufferLocally(options)
+  }
+
+  if (options.kind === 'attachment') {
+    if (options.buffer.byteLength > messageFileUploadMaxSizeBytes) {
+      throw new Error('Файл слишком большой. Максимальный размер 10 МБ.')
+    }
+
+    if (!isSupportedFileAttachment(options.fileName, options.mimeType)) {
+      throw new Error('Поддерживаются только PDF, DOC, DOCX, XLS, XLSX, TXT и ZIP.')
+    }
+
+    return runtimeConfig.storage.mediaBackend === 'object-storage'
+      ? storeMediaBufferInObjectStorage(options)
+      : storeMediaBufferLocally(options)
+  }
+
+  if (options.kind === 'user-gif') {
+    if (!options.ownerIdentifier) {
+      throw new Error('Не удалось определить владельца GIF.')
+    }
+
+    if (!isSupportedGifMimeType(options.mimeType)) {
+      throw new Error('Поддерживаются только GIF.')
+    }
+
+    if (options.buffer.byteLength > messageGifUploadMaxSizeBytes) {
+      throw new Error('GIF слишком большая. Максимальный размер 5 МБ.')
+    }
+
+    const extension = extname(options.fileName).toLowerCase()
+    if (extension !== '.gif' || !hasValidGifSignature(options.buffer)) {
+      throw new Error('Поддерживаются только корректные GIF-файлы.')
+    }
+
+    return runtimeConfig.storage.mediaBackend === 'object-storage'
+      ? storeMediaBufferInObjectStorage(options)
+      : storeMediaBufferLocally(options)
   }
 
   return runtimeConfig.storage.mediaBackend === 'object-storage'
-    ? storeMediaFileInObjectStorage(options)
-    : storeMediaFileLocally(options)
+    ? storeMediaBufferInObjectStorage(options)
+    : storeMediaBufferLocally(options)
+}
+
+export async function storeMediaFile(options: {
+  fileName: string
+  kind: UploadMediaKind
+  mimeType: string
+  ownerIdentifier?: string
+  stream: NodeJS.ReadableStream
+}) {
+  const fileBuffer = await readStreamToBuffer(options.stream)
+  return storeMediaBuffer({
+    buffer: fileBuffer,
+    fileName: options.fileName,
+    kind: options.kind,
+    mimeType: options.mimeType,
+    ownerIdentifier: options.ownerIdentifier,
+  })
 }
 
 export async function deleteStoredMediaByUrl(mediaUrl: string, kind: UploadMediaKind) {
