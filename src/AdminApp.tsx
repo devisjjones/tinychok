@@ -34,6 +34,7 @@ import type {
 
 type AdminSection = 'dashboard' | 'users' | 'reports' | 'media' | 'audit'
 type AdminAuthStep = 'phone' | 'code'
+type AdminUserListFilter = 'all' | 'blocked'
 
 const adminSessionStorageKey = 'tinychok.admin.session'
 
@@ -133,6 +134,7 @@ export default function AdminApp() {
   const [dashboard, setDashboard] = useState<AdminDashboardResponse | null>(null)
   const [users, setUsers] = useState<AdminUserSummary[]>([])
   const [userQuery, setUserQuery] = useState('')
+  const [userListFilter, setUserListFilter] = useState<AdminUserListFilter>('all')
   const [selectedUserIdentifier, setSelectedUserIdentifier] = useState('')
   const [selectedUser, setSelectedUser] = useState<AdminUserSummary | null>(null)
 
@@ -492,6 +494,10 @@ export default function AdminApp() {
     }
   }
 
+  const blockedUsersCount = users.filter((user) => user.blocked).length
+  const visibleUsers =
+    userListFilter === 'blocked' ? users.filter((user) => user.blocked) : users
+
   if (appLoading) {
     return <main className="admin-shell admin-loading">Подготавливаем admin panel...</main>
   }
@@ -680,6 +686,22 @@ export default function AdminApp() {
               <div className="admin-panel-heading">
                 <h2>Users</h2>
               </div>
+              <div className="admin-filter-tabs" role="tablist" aria-label="Фильтр пользователей">
+                <button
+                  type="button"
+                  className={userListFilter === 'all' ? 'admin-filter-tab active' : 'admin-filter-tab'}
+                  onClick={() => setUserListFilter('all')}
+                >
+                  {`Все (${users.length})`}
+                </button>
+                <button
+                  type="button"
+                  className={userListFilter === 'blocked' ? 'admin-filter-tab active blocked' : 'admin-filter-tab blocked'}
+                  onClick={() => setUserListFilter('blocked')}
+                >
+                  {`Заблокированные (${blockedUsersCount})`}
+                </button>
+              </div>
               <input
                 className="admin-search-input"
                 type="search"
@@ -689,21 +711,36 @@ export default function AdminApp() {
               />
 
               <div className="admin-list">
-                {users.map((user) => (
+                {visibleUsers.map((user) => (
                   <button
                     key={user.identifier}
                     type="button"
-                    className={selectedUserIdentifier === user.identifier ? 'admin-list-item active' : 'admin-list-item'}
+                    className={
+                      selectedUserIdentifier === user.identifier
+                        ? `admin-list-item active${user.blocked ? ' blocked' : ''}`
+                        : `admin-list-item${user.blocked ? ' blocked' : ''}`
+                    }
                     onClick={() => {
                       setSelectedUserIdentifier(user.identifier)
                       void refreshSelectedUser(user.identifier)
                     }}
                   >
-                    <strong>{user.displayName}</strong>
+                    <strong className={user.blocked ? 'admin-user-name-flag blocked' : undefined}>
+                      {user.displayName}
+                    </strong>
                     <span>{user.identifier}</span>
-                    <span>{user.blocked ? 'blocked' : user.staffRole ?? 'user'}</span>
+                    <span className={user.blocked ? 'admin-user-status blocked' : 'admin-user-status'}>
+                      {user.blocked ? 'Заблокирован' : user.staffRole ?? 'user'}
+                    </span>
                   </button>
                 ))}
+                {visibleUsers.length === 0 ? (
+                  <div className="admin-empty-state admin-empty-state-inline">
+                    {userListFilter === 'blocked'
+                      ? 'Заблокированных пользователей по текущему поиску нет.'
+                      : 'Пользователи по текущему поиску не найдены.'}
+                  </div>
+                ) : null}
               </div>
             </div>
 

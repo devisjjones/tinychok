@@ -12,7 +12,7 @@
   --admin-badge-text: #fff4e5;
 }
 
-body {
+.admin-shell {
   background:
     radial-gradient(circle at top right, rgba(157, 78, 47, 0.18), transparent 28%),
     linear-gradient(180deg, #f8f2e7 0%, #efe7db 100%);
@@ -295,6 +295,36 @@ body {
   min-height: 0;
 }
 
+.admin-filter-tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-filter-tab {
+  border: 1px solid var(--admin-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--admin-text);
+  padding: 10px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.admin-filter-tab.active {
+  background: #f6dfd2;
+  border-color: rgba(157, 78, 47, 0.28);
+}
+
+.admin-filter-tab.blocked {
+  color: #8d2f2a;
+}
+
+.admin-filter-tab.blocked.active {
+  background: rgba(184, 54, 42, 0.12);
+  border-color: rgba(184, 54, 42, 0.32);
+}
+
 .admin-list {
   display: grid;
   gap: 10px;
@@ -307,11 +337,34 @@ body {
   display: block;
 }
 
+.admin-list-item.blocked {
+  border-color: rgba(184, 54, 42, 0.28);
+  background: rgba(255, 245, 244, 0.95);
+}
+
+.admin-list-item.blocked.active {
+  background: rgba(184, 54, 42, 0.14);
+  border-color: rgba(184, 54, 42, 0.34);
+}
+
 .admin-list-item span,
 .admin-note-card span {
   display: block;
   font-size: 13px;
   color: var(--admin-muted);
+}
+
+.admin-user-name-flag.blocked {
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #b8362a;
+  color: #fff7f3;
+}
+
+.admin-user-status.blocked {
+  color: #8d2f2a;
+  font-weight: 700;
 }
 
 .admin-detail-grid {
@@ -338,6 +391,13 @@ body {
   display: grid;
   gap: 12px;
   margin-top: 18px;
+}
+
+.admin-empty-state-inline {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px dashed var(--admin-border);
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .admin-note-list {
