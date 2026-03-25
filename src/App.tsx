@@ -12,7 +12,6 @@ import {
   channelAvatarTones,
   channelBlockedMenuHeight,
   channelDirectLinkMaxLength,
-  channelDescriptionMaxLength,
   channelTitleMaxLength,
   chatActionMenuHeight,
   chatActionMenuWidth,
@@ -351,6 +350,7 @@ function buildPreviewSubscriptionChannelFromManagedChannel(channel: Channel): Su
     posts: [],
     preview: channel.description,
     readers: 1,
+    statusText: channel.description,
     time: '',
     title: channel.title,
     unread: 0,
@@ -418,6 +418,7 @@ type ChannelAvatarDraft = {
   kind: 'stock' | 'upload' | 'uploaded'
   label: string
   previewUrl: string
+  attachment?: MessageAttachment
   file?: File
 }
 
@@ -447,6 +448,23 @@ function buildDefaultGroupTitle(session: Session | null) {
 
 function buildLocalGroupHandle(groupId: number) {
   return `@group_${groupId}`
+}
+
+function cloneManagedChannel(channel: Channel): Channel {
+  return {
+    ...channel,
+    commentBlacklistIdentifiers: [...(channel.commentBlacklistIdentifiers ?? [])],
+  }
+}
+
+function areStringListsEqual(left: string[] | undefined, right: string[] | undefined) {
+  const leftValue = left ?? []
+  const rightValue = right ?? []
+
+  return (
+    leftValue.length === rightValue.length &&
+    leftValue.every((value, index) => value === rightValue[index])
+  )
 }
 
 const PENDING_MESSAGE_RETRY_INTERVAL_MS = 2000
@@ -684,7 +702,6 @@ function App() {
     subscriptionChannels: initialSubscribedChannels,
     threadInbox: [],
   })
-  const channelMutationTimeoutsRef = useRef(new Map<number, number>())
   const pendingChannelPatchesRef = useRef(new Map<number, UpdateManagedChannelBody>())
   const suppressChannelSnapshotSyncRef = useRef(false)
   const previousChatsRef = useRef(initialChats)
@@ -835,6 +852,20 @@ function App() {
   const [, setChannelAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
   const [channelSettingsBusy, setChannelSettingsBusy] = useState(false)
   const [channelSettingsError, setChannelSettingsError] = useState('')
+  const [channelSettingsDirtyVersion, setChannelSettingsDirtyVersion] = useState(0)
+  const [channelSettingsBaseline, setChannelSettingsBaseline] = useState<Channel | null>(null)
+  const [confirmChannelSettingsLeaveOpen, setConfirmChannelSettingsLeaveOpen] = useState(false)
+  const [pendingAvatarPostPrompt, setPendingAvatarPostPrompt] = useState<{
+    attachment: MessageAttachment
+    channelId: number
+    exitAfterSave: boolean
+  } | null>(null)
+  const [pendingAvatarPostCaption, setPendingAvatarPostCaption] = useState('')
+  const [recentChannelAvatarSelection, setRecentChannelAvatarSelection] = useState<{
+    attachment: MessageAttachment
+    channelId: number
+    mediaUrl: string
+  } | null>(null)
   const [editingChannelTitleId, setEditingChannelTitleId] = useState<number | null>(null)
   const [editingChannelTitleValue, setEditingChannelTitleValue] = useState('')
   const [channelManagementOpenId, setChannelManagementOpenId] = useState<number | null>(null)
@@ -1224,6 +1255,13 @@ function App() {
     activeChannelId === null
       ? null
       : channels.find((channel) => channel.id === activeChannelId) ?? null
+  const activeChannelPendingPatch =
+    activeChannel && channelSettingsDirtyVersion >= 0
+      ? pendingChannelPatchesRef.current.get(activeChannel.id) ?? null
+      : null
+  const activeChannelSettingsDirty = Boolean(
+    activeChannelPendingPatch && Object.keys(activeChannelPendingPatch).length > 0,
+  )
   const activeSubscriptionChannel =
     activeSubscriptionChannelId === null
       ? null
@@ -2680,10 +2718,12 @@ function App() {
         : null,
     )
     setActiveChannelId((currentChannelId) =>
-      currentChannelId !== null && snapshot.channels.some((channel) => channel.id === currentChannelId)
-        ? currentChannelId
-        : snapshot.channels[0]?.id ?? null,
-      )
+      currentChannelId === null
+        ? null
+        : snapshot.channels.some((channel) => channel.id === currentChannelId)
+          ? currentChannelId
+          : snapshot.channels[0]?.id ?? null,
+    )
     syncSession(snapshot.session)
   }, [
     mergeDirectOutboxMessagesIntoChats,
@@ -2731,87 +2771,38 @@ function App() {
     }
   }, [applySnapshot, pendingDirectMessagesRef, pendingGroupMessagesRef])
 
+  function clearScheduledBackendSnapshotSync() {
+    if (backendSyncTimeoutRef.current !== null) {
+      window.clearTimeout(backendSyncTimeoutRef.current)
+      backendSyncTimeoutRef.current = null
+    }
+  }
+
   const commitManagedChannelMutation = useCallback(
     async (channelId: number, patch: UpdateManagedChannelBody, reason: string) => {
-      if (!backendReady || !session?.sessionToken) return true
+      if (!backendReady || !session?.sessionToken) {
+        return latestSnapshotRef.current
+      }
 
       try {
         const response = await updateManagedChannelRequest(session.sessionToken, channelId, patch)
         applySnapshot(response.snapshot)
-        return true
+        return response.snapshot
       } catch (error) {
         console.error(`Failed to sync managed channel mutation after ${reason}`, error)
         await fallbackSaveCurrentSnapshot(reason)
-        return false
+        return null
       }
     },
     [applySnapshot, backendReady, fallbackSaveCurrentSnapshot, session?.sessionToken],
   )
 
-  const flushManagedChannelMutation = useCallback(
-    async (channelId: number, reason: string) => {
-      const activeTimeout = channelMutationTimeoutsRef.current.get(channelId)
-      if (activeTimeout !== undefined) {
-        window.clearTimeout(activeTimeout)
-        channelMutationTimeoutsRef.current.delete(channelId)
-      }
-
-      const nextPatch = pendingChannelPatchesRef.current.get(channelId)
-      pendingChannelPatchesRef.current.delete(channelId)
-      suppressChannelSnapshotSyncRef.current = false
-
-      if (!nextPatch || Object.keys(nextPatch).length === 0) {
-        return true
-      }
-
-      return commitManagedChannelMutation(channelId, nextPatch, reason)
-    },
-    [commitManagedChannelMutation],
-  )
-
-  const scheduleManagedChannelMutation = useCallback(
-    (channelId: number, patch: UpdateManagedChannelBody) => {
-      // Channel detail fields follow the same pattern as profile fields: local form state first,
-      // then one compact server mutation after the user pauses typing.
-      if (!backendReady || !session?.sessionToken) return
-
-      suppressChannelSnapshotSyncRef.current = true
-      pendingChannelPatchesRef.current.set(channelId, {
-        ...(pendingChannelPatchesRef.current.get(channelId) ?? {}),
-        ...patch,
-      })
-
-      const activeTimeout = channelMutationTimeoutsRef.current.get(channelId)
-      if (activeTimeout !== undefined) {
-        window.clearTimeout(activeTimeout)
-      }
-
-      const timeoutId = window.setTimeout(() => {
-        const nextPatch = pendingChannelPatchesRef.current.get(channelId)
-
-        pendingChannelPatchesRef.current.delete(channelId)
-        channelMutationTimeoutsRef.current.delete(channelId)
-        suppressChannelSnapshotSyncRef.current = false
-
-        if (!nextPatch || Object.keys(nextPatch).length === 0) return
-
-        void commitManagedChannelMutation(channelId, nextPatch, 'channel mutation')
-      }, 320)
-
-      channelMutationTimeoutsRef.current.set(channelId, timeoutId)
-    },
-    [backendReady, commitManagedChannelMutation, session?.sessionToken],
-  )
-
   useEffect(() => {
     if (session?.sessionToken) return
 
-    channelMutationTimeoutsRef.current.forEach((timeoutId) => {
-      window.clearTimeout(timeoutId)
-    })
-    channelMutationTimeoutsRef.current.clear()
     pendingChannelPatchesRef.current.clear()
     suppressChannelSnapshotSyncRef.current = false
+    setChannelSettingsDirtyVersion((current) => current + 1)
   }, [session?.sessionToken])
 
   useEffect(() => {
@@ -2937,6 +2928,10 @@ function App() {
       !channelsChanged &&
       !subscriptionChannelsChanged
     ) {
+      return
+    }
+
+    if (suppressChannelSnapshotSyncRef.current && (channelsChanged || subscriptionChannelsChanged)) {
       return
     }
 
@@ -7130,14 +7125,17 @@ function App() {
     openChannelsView('create')
   }
 
-  function openManagedChannelRoom(channel: Channel) {
+  function openManagedChannelRoom(
+    channel: Channel,
+    nextSubscriptionChannels: SubscriptionChannel[] = subscriptionChannels,
+  ) {
     const normalizedHandle = sanitizeChannelDirectLink(channel.directLink)
-    const existingSubscriptionChannel = subscriptionChannels.find(
+    const existingSubscriptionChannel = nextSubscriptionChannels.find(
       (candidate) =>
         normalizedHandle !== '' &&
         sanitizeChannelDirectLink(candidate.handle) === normalizedHandle,
     )
-    const fallbackSubscriptionChannel = subscriptionChannels.find((candidate) => candidate.id === channel.id)
+    const fallbackSubscriptionChannel = nextSubscriptionChannels.find((candidate) => candidate.id === channel.id)
 
     if (existingSubscriptionChannel ?? fallbackSubscriptionChannel) {
       openSubscriptionChannel((existingSubscriptionChannel ?? fallbackSubscriptionChannel)!.id)
@@ -7169,25 +7167,228 @@ function App() {
     setSearchOpen(false)
   }
 
+  function setManagedChannelPendingPatch(
+    channelId: number,
+    nextPatch: UpdateManagedChannelBody,
+    baselineChannel: Channel,
+  ) {
+    const normalizedPatch: UpdateManagedChannelBody = {}
+
+    if (nextPatch.title !== undefined && nextPatch.title !== baselineChannel.title) {
+      normalizedPatch.title = nextPatch.title
+    }
+
+    if (
+      nextPatch.directLink !== undefined &&
+      sanitizeChannelDirectLink(nextPatch.directLink) !== sanitizeChannelDirectLink(baselineChannel.directLink)
+    ) {
+      normalizedPatch.directLink = nextPatch.directLink
+    }
+
+    if (
+      nextPatch.description !== undefined &&
+      nextPatch.description !== baselineChannel.description
+    ) {
+      normalizedPatch.description = nextPatch.description
+    }
+
+    if (nextPatch.visibility !== undefined && nextPatch.visibility !== baselineChannel.visibility) {
+      normalizedPatch.visibility = nextPatch.visibility
+    }
+
+    if (nextPatch.avatarTone !== undefined && nextPatch.avatarTone !== baselineChannel.avatarTone) {
+      normalizedPatch.avatarTone = nextPatch.avatarTone
+    }
+
+    if (
+      nextPatch.avatarImage !== undefined &&
+      (nextPatch.avatarImage || undefined) !== (baselineChannel.avatarImage || undefined)
+    ) {
+      normalizedPatch.avatarImage = nextPatch.avatarImage
+    }
+
+    if (
+      nextPatch.commentsEnabledForAll !== undefined &&
+      Boolean(nextPatch.commentsEnabledForAll) !== Boolean(baselineChannel.commentsEnabledForAll)
+    ) {
+      normalizedPatch.commentsEnabledForAll = nextPatch.commentsEnabledForAll
+    }
+
+    if (
+      nextPatch.commentsEnabledForPremium !== undefined &&
+      Boolean(nextPatch.commentsEnabledForPremium) !== Boolean(baselineChannel.commentsEnabledForPremium)
+    ) {
+      normalizedPatch.commentsEnabledForPremium = nextPatch.commentsEnabledForPremium
+    }
+
+    if (
+      nextPatch.commentBlacklistIdentifiers !== undefined &&
+      !areStringListsEqual(nextPatch.commentBlacklistIdentifiers, baselineChannel.commentBlacklistIdentifiers)
+    ) {
+      normalizedPatch.commentBlacklistIdentifiers = nextPatch.commentBlacklistIdentifiers
+    }
+
+    if (nextPatch.status !== undefined && nextPatch.status !== baselineChannel.status) {
+      normalizedPatch.status = nextPatch.status
+    }
+
+    if (Object.keys(normalizedPatch).length > 0) {
+      clearScheduledBackendSnapshotSync()
+      pendingChannelPatchesRef.current.set(channelId, normalizedPatch)
+      suppressChannelSnapshotSyncRef.current = true
+    } else {
+      pendingChannelPatchesRef.current.delete(channelId)
+      suppressChannelSnapshotSyncRef.current = pendingChannelPatchesRef.current.size > 0
+    }
+
+    setChannelSettingsDirtyVersion((current) => current + 1)
+  }
+
+  function syncManagedChannelState(channelId: number, nextChannelState: Channel) {
+    const currentChannel = channels.find((channel) => channel.id === channelId) ?? null
+    const currentHandle = sanitizeChannelDirectLink(currentChannel?.directLink ?? '')
+    const nextHandle = sanitizeChannelDirectLink(nextChannelState.directLink)
+
+    setChannels((currentChannels) =>
+      currentChannels.map((channel) => (channel.id === channelId ? cloneManagedChannel(nextChannelState) : channel)),
+    )
+
+    setSubscriptionChannels((currentChannels) =>
+      currentChannels.map((channel) => {
+        const channelHandle = sanitizeChannelDirectLink(channel.handle)
+        const matchesManagedChannel =
+          channel.id === channelId ||
+          (currentHandle !== '' && channelHandle === currentHandle) ||
+          (nextHandle !== '' && channelHandle === nextHandle)
+
+        if (!matchesManagedChannel) {
+          return channel
+        }
+
+        return {
+          ...channel,
+          accent: nextChannelState.avatarTone,
+          avatarImage: nextChannelState.avatarImage,
+          commentBlacklistIdentifiers: nextChannelState.commentBlacklistIdentifiers ?? [],
+          commentsEnabledForAll: Boolean(nextChannelState.commentsEnabledForAll),
+          commentsEnabledForPremium: Boolean(nextChannelState.commentsEnabledForPremium),
+          draft: nextChannelState.status === 'draft',
+          handle: nextChannelState.directLink,
+          statusText: nextChannelState.description,
+          title: nextChannelState.title,
+          visibility: nextChannelState.visibility,
+        }
+      }),
+    )
+
+    setPreviewSubscriptionChannel((currentChannelState) => {
+      if (!currentChannelState) return currentChannelState
+
+      const previewHandle = sanitizeChannelDirectLink(currentChannelState.handle)
+      const matchesManagedChannel =
+        currentChannelState.id === channelId ||
+        (currentHandle !== '' && previewHandle === currentHandle) ||
+        (nextHandle !== '' && previewHandle === nextHandle)
+
+      if (!matchesManagedChannel) {
+        return currentChannelState
+      }
+
+      return {
+        ...currentChannelState,
+        accent: nextChannelState.avatarTone,
+        avatarImage: nextChannelState.avatarImage,
+        commentBlacklistIdentifiers: nextChannelState.commentBlacklistIdentifiers ?? [],
+        commentsEnabledForAll: Boolean(nextChannelState.commentsEnabledForAll),
+        commentsEnabledForPremium: Boolean(nextChannelState.commentsEnabledForPremium),
+        draft: nextChannelState.status === 'draft',
+        handle: nextChannelState.directLink,
+        statusText: nextChannelState.description,
+        title: nextChannelState.title,
+        visibility: nextChannelState.visibility,
+      }
+    })
+  }
+
+  function discardManagedChannelChanges(channelId: number, baselineChannel: Channel) {
+    pendingChannelPatchesRef.current.delete(channelId)
+    suppressChannelSnapshotSyncRef.current = pendingChannelPatchesRef.current.size > 0
+    setChannelSettingsDirtyVersion((current) => current + 1)
+    setChannelSettingsError('')
+    syncManagedChannelState(channelId, baselineChannel)
+    if (recentChannelAvatarSelection?.channelId === channelId) {
+      setRecentChannelAvatarSelection(null)
+    }
+  }
+
   function openChannelDetailView(channelId: number) {
     setChannelManagementOpenId(null)
     setChannelSettingsError('')
+    setConfirmChannelSettingsLeaveOpen(false)
+    setPendingAvatarPostPrompt(null)
+    setPendingAvatarPostCaption('')
+    const nextChannel = channels.find((channel) => channel.id === channelId) ?? null
+    setChannelSettingsBaseline(nextChannel ? cloneManagedChannel(nextChannel) : null)
     setActiveChannelId(channelId)
     openChannelsView('detail')
   }
 
-  async function saveManagedChannelSettings(channelId: number) {
+  async function saveManagedChannelSettings(channelId: number, options?: { exitAfterSave?: boolean }) {
     setChannelSettingsBusy(true)
     setChannelSettingsError('')
 
     try {
-      const saved = await flushManagedChannelMutation(channelId, 'channel settings save')
+      clearScheduledBackendSnapshotSync()
+      const pendingPatch = pendingChannelPatchesRef.current.get(channelId) ?? null
 
-      if (!saved) {
-        setChannelSettingsError('Не удалось сохранить настройки канала. Попробуйте ещё раз.')
+      if (!pendingPatch || Object.keys(pendingPatch).length === 0) {
+        return true
       }
 
-      return saved
+      const savedSnapshot = await commitManagedChannelMutation(channelId, pendingPatch, 'channel settings save')
+
+      if (!savedSnapshot) {
+        setChannelSettingsError('Не удалось сохранить настройки канала. Попробуйте ещё раз.')
+        return false
+      }
+
+      pendingChannelPatchesRef.current.delete(channelId)
+      suppressChannelSnapshotSyncRef.current = pendingChannelPatchesRef.current.size > 0
+      setChannelSettingsDirtyVersion((current) => current + 1)
+
+      const savedChannel =
+        savedSnapshot.channels.find((channel) => channel.id === channelId) ??
+        channels.find((channel) => channel.id === channelId) ??
+        null
+
+      if (savedChannel) {
+        setChannelSettingsBaseline(cloneManagedChannel(savedChannel))
+      }
+
+      const avatarChanged =
+        pendingPatch.avatarImage !== undefined &&
+        (pendingPatch.avatarImage || undefined) !== (channelSettingsBaseline?.avatarImage || undefined)
+
+      if (
+        avatarChanged &&
+        recentChannelAvatarSelection &&
+        recentChannelAvatarSelection.channelId === channelId &&
+        recentChannelAvatarSelection.mediaUrl === (pendingPatch.avatarImage || undefined)
+      ) {
+        setPendingAvatarPostPrompt({
+          attachment: recentChannelAvatarSelection.attachment,
+          channelId,
+          exitAfterSave: Boolean(options?.exitAfterSave),
+        })
+        setPendingAvatarPostCaption('')
+        return true
+      }
+
+      if (options?.exitAfterSave && savedChannel) {
+        openManagedChannelRoom(savedChannel, savedSnapshot.subscriptionChannels)
+      }
+
+      return true
     } finally {
       setChannelSettingsBusy(false)
     }
@@ -7207,10 +7408,109 @@ function App() {
       return
     }
 
-    const saved = await saveManagedChannelSettings(activeChannel.id)
-    if (!saved) return
+    if (activeChannelSettingsDirty) {
+      setConfirmChannelSettingsLeaveOpen(true)
+      return
+    }
 
     openManagedChannelRoom(activeChannel)
+  }
+
+  function closeChannelSettingsLeaveConfirm() {
+    if (channelSettingsBusy) return
+    setConfirmChannelSettingsLeaveOpen(false)
+  }
+
+  function discardActiveChannelDetailChangesAndExit() {
+    if (!activeChannel || !channelSettingsBaseline) return
+
+    discardManagedChannelChanges(activeChannel.id, channelSettingsBaseline)
+    setConfirmChannelSettingsLeaveOpen(false)
+    openManagedChannelRoom(channelSettingsBaseline)
+  }
+
+  async function confirmActiveChannelLeaveWithSave() {
+    if (!activeChannel) return
+
+    setConfirmChannelSettingsLeaveOpen(false)
+    await saveManagedChannelSettings(activeChannel.id, { exitAfterSave: true })
+  }
+
+  async function sendManagedChannelAvatarUpdatePost(
+    channelId: number,
+    attachment: MessageAttachment,
+    caption: string,
+  ) {
+    if (backendReady && session?.sessionToken) {
+      const response = await sendManagedChannelPostRequest(session.sessionToken, channelId, {
+        attachment,
+        text: caption,
+      })
+      applySnapshot(response.snapshot)
+      return response.snapshot
+    }
+
+    const localManagedChannel = channels.find((channel) => channel.id === channelId) ?? null
+    if (localManagedChannel) {
+      applyLocalManagedChannelPost(localManagedChannel, caption, { attachment })
+    }
+    return latestSnapshotRef.current
+  }
+
+  async function confirmAvatarUpdatePost() {
+    if (!pendingAvatarPostPrompt) return
+
+    const prompt = pendingAvatarPostPrompt
+    setChannelPostBusy(true)
+    setChannelPostError('')
+
+    try {
+      const nextSnapshot = await sendManagedChannelAvatarUpdatePost(
+        prompt.channelId,
+        prompt.attachment,
+        pendingAvatarPostCaption.trim(),
+      )
+      setPendingAvatarPostPrompt(null)
+      setPendingAvatarPostCaption('')
+      setRecentChannelAvatarSelection(null)
+
+      if (prompt.exitAfterSave) {
+        const latestChannel =
+          nextSnapshot?.channels.find((channel) => channel.id === prompt.channelId) ??
+          channels.find((channel) => channel.id === prompt.channelId) ??
+          null
+        if (latestChannel) {
+          openManagedChannelRoom(latestChannel, nextSnapshot?.subscriptionChannels)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to send avatar update post', error)
+      setChannelPostError(
+        error instanceof Error ? error.message : 'Не удалось опубликовать пост о смене аватарки.',
+      )
+    } finally {
+      setChannelPostBusy(false)
+    }
+  }
+
+  function skipAvatarUpdatePost() {
+    const prompt = pendingAvatarPostPrompt
+    setPendingAvatarPostPrompt(null)
+    setPendingAvatarPostCaption('')
+    setRecentChannelAvatarSelection(null)
+
+    if (prompt?.exitAfterSave) {
+      const latestChannel =
+        latestSnapshotRef.current?.channels.find((channel) => channel.id === prompt.channelId) ??
+        channels.find((channel) => channel.id === prompt.channelId) ??
+        null
+      if (latestChannel) {
+        openManagedChannelRoom(
+          latestChannel,
+          latestSnapshotRef.current?.subscriptionChannels ?? subscriptionChannels,
+        )
+      }
+    }
   }
 
   function renderAdminBlockedChatBadge(chat: Pick<Chat, 'blockedByAdmin'>) {
@@ -7331,6 +7631,7 @@ function App() {
     const shouldSyncRoomChannel =
       normalizedPatch.directLink !== undefined ||
       normalizedPatch.title !== undefined ||
+      normalizedPatch.description !== undefined ||
       normalizedPatch.visibility !== undefined ||
       normalizedPatch.avatarTone !== undefined ||
       normalizedPatch.avatarImage !== undefined ||
@@ -7353,6 +7654,12 @@ function App() {
                 ...channel,
                 ...(normalizedPatch.directLink !== undefined ? { handle: normalizedPatch.directLink } : {}),
                 ...(normalizedPatch.title !== undefined ? { title: normalizedPatch.title } : {}),
+                ...(normalizedPatch.description !== undefined
+                  ? {
+                      statusText: normalizedPatch.description,
+                      ...(channel.posts.length === 0 ? { preview: normalizedPatch.description } : {}),
+                    }
+                  : {}),
                 ...(normalizedPatch.visibility !== undefined
                   ? { visibility: normalizedPatch.visibility }
                   : {}),
@@ -7393,6 +7700,12 @@ function App() {
               ...currentChannel,
               ...(normalizedPatch.directLink !== undefined ? { handle: normalizedPatch.directLink } : {}),
               ...(normalizedPatch.title !== undefined ? { title: normalizedPatch.title } : {}),
+              ...(normalizedPatch.description !== undefined
+                ? {
+                    statusText: normalizedPatch.description,
+                    ...(currentChannel.posts.length === 0 ? { preview: normalizedPatch.description } : {}),
+                  }
+                : {}),
               ...(normalizedPatch.visibility !== undefined
                 ? { visibility: normalizedPatch.visibility }
                 : {}),
@@ -7466,7 +7779,17 @@ function App() {
     }
 
     if (Object.keys(serverPatch).length > 0) {
-      scheduleManagedChannelMutation(channelId, serverPatch)
+      const baselineChannel =
+        channelSettingsBaseline && channelSettingsBaseline.id === channelId
+          ? channelSettingsBaseline
+          : existingChannel
+
+      if (baselineChannel) {
+        setManagedChannelPendingPatch(channelId, {
+          ...(pendingChannelPatchesRef.current.get(channelId) ?? {}),
+          ...serverPatch,
+        }, baselineChannel)
+      }
     }
   }
 
@@ -7641,12 +7964,26 @@ function App() {
           releaseChannelAvatarDraft(channelAvatarPickerDraft)
           nextDraft = {
             kind: 'uploaded',
+            attachment: {
+              fileName: uploadedMedia.fileName,
+              mediaUrl: uploadedMedia.mediaUrl,
+              mimeType: uploadedMedia.mimeType,
+              size: uploadedMedia.size,
+            },
             label: channelAvatarPickerDraft.label,
             previewUrl: uploadedMedia.mediaUrl,
           }
         } else {
           nextDraft = {
             kind: 'uploaded',
+            attachment: channelAvatarPickerDraft.file
+              ? {
+                  fileName: channelAvatarPickerDraft.file.name,
+                  mediaUrl: channelAvatarPickerDraft.previewUrl,
+                  mimeType: channelAvatarPickerDraft.file.type,
+                  size: channelAvatarPickerDraft.file.size,
+                }
+              : channelAvatarPickerDraft.attachment,
             label: channelAvatarPickerDraft.label,
             previewUrl: channelAvatarPickerDraft.previewUrl,
           }
@@ -7661,6 +7998,13 @@ function App() {
         setCreatingChannelAvatarDraft(nextDraft)
       } else {
         updateChannel(channelAvatarPickerTarget.channelId, { avatarImage: nextDraft.previewUrl })
+        if (nextDraft.attachment) {
+          setRecentChannelAvatarSelection({
+            attachment: nextDraft.attachment,
+            channelId: channelAvatarPickerTarget.channelId,
+            mediaUrl: nextDraft.previewUrl,
+          })
+        }
       }
 
       closeChannelAvatarPicker({ preserveCurrentDraft: true })
@@ -7851,7 +8195,7 @@ function App() {
     )
     const description =
       sanitizeChannelDescription(creatingChannelDescription) ||
-      'Описание канала пока не заполнено. Здесь можно подготовить текст до публикации.'
+      'Статус канала не задан.'
     const nextChannel: Channel = {
       avatarImage: creatingChannelAvatarDraft?.previewUrl,
       avatarTone: creatingChannelAvatarTone,
@@ -11163,14 +11507,15 @@ function App() {
                 </article>
 
                 <article className="settings-item channel-description-card">
-                  <span className="settings-label">Описание канала</span>
+                  <span className="settings-label">Статус канала</span>
                   <textarea
                     className="channel-description-input"
-                    maxLength={channelDescriptionMaxLength}
+                    maxLength={statusFieldMaxLength}
+                    placeholder="Статус канала не задан"
                     value={creatingChannelDescription}
                     onChange={(event) =>
                       setCreatingChannelDescription(
-                        event.target.value.slice(0, channelDescriptionMaxLength),
+                        sanitizeStatusField(event.target.value),
                       )
                     }
                   />
@@ -11429,14 +11774,15 @@ function App() {
                     </article>
 
                     <article className="settings-item channel-description-card">
-                      <span className="settings-label">Описание канала</span>
+                      <span className="settings-label">Статус канала</span>
                       <textarea
                         className="channel-description-input"
-                        maxLength={channelDescriptionMaxLength}
+                        maxLength={statusFieldMaxLength}
+                        placeholder="Статус канала не задан"
                         value={activeChannel.description}
                         onChange={(event) =>
                           updateChannel(activeChannel.id, {
-                            description: event.target.value.slice(0, channelDescriptionMaxLength),
+                            description: sanitizeStatusField(event.target.value),
                           })
                         }
                       />
@@ -11592,7 +11938,7 @@ function App() {
                 >
                   Назад
                 </button>
-                {activeChannel ? (
+                {activeChannel && activeChannelSettingsDirty ? (
                   <button
                     type="button"
                     className="send-button"
@@ -11621,6 +11967,87 @@ function App() {
               </div>
             </div>
           </section>
+        ) : null}
+
+        {confirmChannelSettingsLeaveOpen ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть подтверждение выхода из настроек канала"
+              onClick={closeChannelSettingsLeaveConfirm}
+            />
+            <div className="room-confirm room-confirm-compact">
+              <p className="room-confirm-copy">Хотите ли вы сохранить изменения?</p>
+              <div className="room-confirm-actions room-confirm-actions-dual">
+                <button
+                  type="button"
+                  className="room-confirm-button room-confirm-button-primary"
+                  disabled={channelSettingsBusy}
+                  onClick={() => {
+                    void confirmActiveChannelLeaveWithSave()
+                  }}
+                >
+                  Сохранить
+                </button>
+                <button
+                  type="button"
+                  className="room-confirm-button"
+                  disabled={channelSettingsBusy}
+                  onClick={discardActiveChannelDetailChangesAndExit}
+                >
+                  Не сохранять
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {pendingAvatarPostPrompt ? (
+          <>
+            <button
+              type="button"
+              className="room-confirm-scrim"
+              aria-label="Закрыть предложение опубликовать смену аватарки"
+              onClick={skipAvatarUpdatePost}
+            />
+            <div className="room-confirm room-group-create">
+              <p className="room-confirm-copy">Сделаем пост о смене аватарки канала?</p>
+              <div className="channels-fields">
+                <article className="settings-item channel-description-card">
+                  <span className="settings-label">Добавьте подпись</span>
+                  <textarea
+                    className="channel-description-input"
+                    maxLength={statusFieldMaxLength}
+                    placeholder="Подпись не обязательна"
+                    value={pendingAvatarPostCaption}
+                    onChange={(event) => setPendingAvatarPostCaption(sanitizeStatusField(event.target.value))}
+                  />
+                </article>
+              </div>
+              {channelPostError ? <p className="auth-error">{channelPostError}</p> : null}
+              <div className="room-confirm-actions room-confirm-actions-dual">
+                <button
+                  type="button"
+                  className="room-confirm-button room-confirm-button-primary"
+                  disabled={channelPostBusy}
+                  onClick={() => {
+                    void confirmAvatarUpdatePost()
+                  }}
+                >
+                  {channelPostBusy ? 'Публикуем...' : 'Да'}
+                </button>
+                <button
+                  type="button"
+                  className="room-confirm-button"
+                  disabled={channelPostBusy}
+                  onClick={skipAvatarUpdatePost}
+                >
+                  Нет
+                </button>
+              </div>
+            </div>
+          </>
         ) : null}
 
         {threadTarget ? (

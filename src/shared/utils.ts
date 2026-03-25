@@ -407,7 +407,7 @@ export function ensureUniqueChannelDirectLink(
 }
 
 export function sanitizeChannelDescription(value: string) {
-  return value.replace(/\s+/g, ' ').trim().slice(0, channelDescriptionMaxLength)
+  return sanitizeStatusField(value).slice(0, Math.min(statusFieldMaxLength, channelDescriptionMaxLength))
 }
 
 export function makePremiumExpiry(days: number) {

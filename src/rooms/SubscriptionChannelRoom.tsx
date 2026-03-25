@@ -182,6 +182,7 @@ export function SubscriptionChannelRoom({
                   </span>
                 </div>
               </div>
+              {channel.statusText ? <p className="room-channel-status">{channel.statusText}</p> : null}
               {onOpenSubscribers ? (
                 <button type="button" className="room-members-link" onClick={onOpenSubscribers}>
                   {subscriberCountLabel}

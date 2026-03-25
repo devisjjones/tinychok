@@ -192,6 +192,7 @@ export type SubscriptionChannel = {
   title: string
   handle: string
   avatarImage?: string
+  statusText?: string
   isTestEntity?: boolean
   latestActivityAt?: string
   historyHasMore?: boolean

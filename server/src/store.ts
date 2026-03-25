@@ -1064,6 +1064,7 @@ function toPersistedSubscriptionChannel(
 ): PersistedSubscriptionChannel {
   return {
     accent: channel.accent,
+    avatarImage: channel.avatarImage,
     commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
     commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
     commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
@@ -1078,9 +1079,10 @@ function toPersistedSubscriptionChannel(
         ...participant,
         identifier: participant.identifier ? normalizeIdentifier(participant.identifier) : undefined,
         nickname: normalizeNickname(participant.nickname ?? ''),
-      })) ?? [],
+    })) ?? [],
     preview: channel.preview,
     readers: channel.readers ?? 0,
+    statusText: channel.statusText?.trim() || undefined,
     time: channel.time,
     title: channel.title,
     unread: channel.unread,
@@ -1262,6 +1264,7 @@ function materializeSubscriptionChannel(
   return {
     accent: channel.accent,
     avatarImage: channel.avatarImage,
+    statusText: channel.statusText?.trim() || undefined,
     commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
     commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
     commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
@@ -5424,7 +5427,7 @@ export class TinychokStore {
     )
     const description =
       sanitizeChannelDescription(payload.description) ||
-      'Описание канала пока не заполнено. Здесь можно подготовить текст до публикации.'
+      'Статус канала не задан.'
     const visibility =
       payload.visibility === 'public' || payload.visibility === 'closed'
         ? payload.visibility
@@ -5641,8 +5644,7 @@ export class TinychokStore {
     }
 
     if (payload.description !== undefined) {
-      channel.description =
-        sanitizeChannelDescription(payload.description) || channel.description
+      channel.description = sanitizeChannelDescription(payload.description)
     }
 
     if (payload.visibility !== undefined) {
@@ -5694,6 +5696,7 @@ export class TinychokStore {
       channelCopy.draft = channel.status === 'draft'
       channelCopy.handle = channel.directLink
       channelCopy.preview = channelCopy.preview || channel.description
+      channelCopy.statusText = channel.description
       channelCopy.title = channel.title
       channelCopy.visibility = channel.visibility
     }
@@ -7597,6 +7600,7 @@ export class TinychokStore {
       participants: [],
       preview: sourceChannel.description,
       readers: 0,
+      statusText: sourceChannel.description,
       time: '',
       title: sourceChannel.title,
       unread: 0,
@@ -7962,6 +7966,7 @@ export class TinychokStore {
       copy.draft = sourceChannel.status === 'draft'
       copy.handle = sourceChannel.directLink
       copy.preview = copy.preview || sourceChannel.description
+      copy.statusText = sourceChannel.description
       copy.readers = subscriberCount
       copy.title = sourceChannel.title
       copy.visibility = sourceChannel.visibility
@@ -8800,6 +8805,10 @@ function ensureManagedChannelOwnerCopies(database: Database) {
         existingCopy.avatarImage = channel.avatarImage
         didMutate = true
       }
+      if (existingCopy.statusText !== channel.description) {
+        existingCopy.statusText = channel.description
+        didMutate = true
+      }
       if (existingCopy.draft !== (channel.status === 'draft')) {
         existingCopy.draft = channel.status === 'draft'
         didMutate = true
@@ -8829,6 +8838,7 @@ function ensureManagedChannelOwnerCopies(database: Database) {
     database.subscriptionChannels.push({
       accent: channel.avatarTone,
       avatarImage: channel.avatarImage,
+      statusText: channel.description,
       commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
       commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
       commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
