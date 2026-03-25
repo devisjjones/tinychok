@@ -8500,6 +8500,23 @@ function upsertNonProductionTestAccounts(database: Database) {
   return didMutate
 }
 
+function createNextOwnedDialogIdAllocator(dialogs: PersistedDialog[]) {
+  const nextIdByOwner = new Map<string, number>()
+
+  for (const dialog of dialogs) {
+    const currentMaxId = nextIdByOwner.get(dialog.ownerIdentifier) ?? 0
+    if (dialog.id > currentMaxId) {
+      nextIdByOwner.set(dialog.ownerIdentifier, dialog.id)
+    }
+  }
+
+  return (ownerIdentifier: string) => {
+    const nextId = (nextIdByOwner.get(ownerIdentifier) ?? 0) + 1
+    nextIdByOwner.set(ownerIdentifier, nextId)
+    return nextId
+  }
+}
+
 function ensureOwnerTestDialogs(database: Database, ownerIdentifier: string) {
   const ownerDialogs = database.dialogs.filter((dialog) => dialog.ownerIdentifier === ownerIdentifier)
   const ownerHasKnownTestDialog = ownerDialogs.some(
@@ -8511,9 +8528,28 @@ function ensureOwnerTestDialogs(database: Database, ownerIdentifier: string) {
 
   const seedState = createSeedState()
   const chats = normalizeChats(ownerIdentifier, seedState.chats)
-  database.dialogs.push(...chats.dialogs)
-  database.dialogMessages.push(...chats.dialogMessages)
-  return chats.dialogs.length > 0 || chats.dialogMessages.length > 0
+  if (chats.dialogs.length === 0) {
+    return false
+  }
+
+  let nextDialogId = ownerDialogs.reduce((maxId, dialog) => Math.max(maxId, dialog.id), 0)
+  const dialogIdMap = new Map<number, number>()
+  const remappedDialogs = chats.dialogs.map((dialog) => {
+    nextDialogId += 1
+    dialogIdMap.set(dialog.id, nextDialogId)
+    return {
+      ...dialog,
+      id: nextDialogId,
+    }
+  })
+  const remappedMessages = chats.dialogMessages.map((message) => ({
+    ...message,
+    dialogId: dialogIdMap.get(message.dialogId) ?? message.dialogId,
+  }))
+
+  database.dialogs.push(...remappedDialogs)
+  database.dialogMessages.push(...remappedMessages)
+  return remappedDialogs.length > 0 || remappedMessages.length > 0
 }
 
 function ensureOwnerTestGroups(database: Database, ownerIdentifier: string) {
@@ -8872,20 +8908,22 @@ function applyProductionFixtureCleanup(database: Database) {
 }
 
 function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewrite: boolean) {
-  const normalizedDuplicateDialogs = normalizePersistedDuplicateDialogs(database)
-  const dedupePersistedMessages = dedupePersistedMessagesByDeliveryId(database)
-  const ensuredManagedChannelOwnerCopies = ensureManagedChannelOwnerCopies(database)
-  const repairedSubscriptionChannelIdentities = repairSubscriptionChannelIdentityConflicts(database)
-  const dedupeSubscriptionPosts = dedupePersistedSubscriptionPosts(database)
   const nextState =
     runtimeConfig.environment === 'production'
       ? applyProductionFixtureCleanup(database)
       : applyNonProductionFixtures(database)
+  const repairedDialogIdCollisions = repairPersistedDialogIdCollisions(nextState.database)
+  const normalizedDuplicateDialogs = normalizePersistedDuplicateDialogs(nextState.database)
+  const dedupePersistedMessages = dedupePersistedMessagesByDeliveryId(nextState.database)
+  const ensuredManagedChannelOwnerCopies = ensureManagedChannelOwnerCopies(nextState.database)
+  const repairedSubscriptionChannelIdentities = repairSubscriptionChannelIdentityConflicts(nextState.database)
+  const dedupeSubscriptionPosts = dedupePersistedSubscriptionPosts(nextState.database)
 
   return {
     database: nextState.database,
     needsPersistenceRewrite:
       needsPersistenceRewrite ||
+      repairedDialogIdCollisions ||
       normalizedDuplicateDialogs ||
       dedupePersistedMessages ||
       ensuredManagedChannelOwnerCopies ||
@@ -8893,6 +8931,48 @@ function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewri
       dedupeSubscriptionPosts ||
       nextState.needsPersistenceRewrite,
   }
+}
+
+function repairPersistedDialogIdCollisions(database: Database) {
+  let didMutate = false
+  const getNextDialogId = createNextOwnedDialogIdAllocator(database.dialogs)
+  const dialogGroups = new Map<string, PersistedDialog[]>()
+
+  for (const dialog of database.dialogs) {
+    const groupKey = `${dialog.ownerIdentifier}:${dialog.id}`
+    const currentGroup = dialogGroups.get(groupKey)
+    if (currentGroup) {
+      currentGroup.push(dialog)
+    } else {
+      dialogGroups.set(groupKey, [dialog])
+    }
+  }
+
+  for (const dialogs of dialogGroups.values()) {
+    if (dialogs.length < 2) continue
+
+    const distinctPhones = new Set(
+      dialogs
+        .map((dialog) => normalizeIdentifier(dialog.phone) || dialog.phone)
+        .filter(Boolean),
+    )
+    if (distinctPhones.size < 2) continue
+
+    const canonicalDialog = dialogs.find((dialog) => !dialog.isTestEntity) ?? dialogs[0]
+    if (!canonicalDialog) continue
+
+    for (const dialog of dialogs) {
+      if (dialog === canonicalDialog) continue
+
+      dialog.id = getNextDialogId(dialog.ownerIdentifier)
+      dialog.pinnedMessageId = undefined
+      dialog.typing = false
+      dialog.unread = 0
+      didMutate = true
+    }
+  }
+
+  return didMutate
 }
 
 function normalizePersistedDuplicateDialogs(database: Database) {
