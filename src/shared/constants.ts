@@ -68,6 +68,6 @@ export const accountsStorageKey = 'tinychok.accounts'
 export const sessionStorageKey = 'tinychok.session'
 export const cookieConsentStorageKey = 'tinychok.cookie-consent'
 export const browserNotificationsBannerDismissedStorageKey =
-  'tinychok.browser-notifications.banner-dismissed'
+  'tinychok.browser-notifications.banner-dismissed.v2'
 export const premiumDebugAutoCheckoutStorageKey = 'tinychok.debug.premium-auto-checkout'
 export const messagePhotoSendOriginalPreferenceStorageKey = 'tinychok.session.photo-send-original'

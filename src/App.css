@@ -605,6 +605,7 @@
 
 .browser-notification-banner {
   position: relative;
+  flex: 0 0 auto;
   border-radius: 24px;
   background:
     linear-gradient(135deg, rgba(255, 251, 245, 0.98), rgba(247, 237, 224, 0.94)),
@@ -614,11 +615,16 @@
   overflow: hidden;
 }
 
+.browser-notification-banner-standalone {
+  margin: 10px 8px 0;
+}
+
 .browser-notification-banner-main {
   width: 100%;
+  min-height: 104px;
   border: 0;
   background: transparent;
-  padding: 16px 56px 16px 18px;
+  padding: 20px 56px 20px 18px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 14px;
@@ -629,8 +635,8 @@
 }
 
 .browser-notification-banner-icon-wrap {
-  width: 58px;
-  height: 58px;
+  width: 62px;
+  height: 62px;
   border-radius: 18px;
   display: inline-flex;
   align-items: center;
@@ -640,8 +646,8 @@
 }
 
 .browser-notification-banner-icon {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
   display: block;
   filter: brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
@@ -656,13 +662,13 @@
 
 .browser-notification-banner-copy strong {
   color: var(--ink);
-  font-size: 1.02rem;
+  font-size: 1.08rem;
   line-height: 1.1;
 }
 
 .browser-notification-banner-copy span {
   color: var(--muted);
-  line-height: 1.35;
+  line-height: 1.42;
 }
 
 .browser-notification-banner-dismiss {

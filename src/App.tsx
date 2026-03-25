@@ -11116,9 +11116,12 @@ function App() {
             )}
           </div>
         ) : (
-          <div className="chat-list">
+          <>
             {showBrowserNotificationsBanner ? (
-              <section className="browser-notification-banner" aria-label="Включение браузерных уведомлений">
+              <section
+                className="browser-notification-banner browser-notification-banner-standalone"
+                aria-label="Включение браузерных уведомлений"
+              >
                 <button
                   type="button"
                   className="browser-notification-banner-main"
@@ -11151,26 +11154,27 @@ function App() {
                 </button>
               </section>
             ) : null}
-            {orderedVisibleChats.map((chat) => (
-              <button
-                key={chat.id}
-                type="button"
-                className={[
-                  'chat-card',
-                  bottomSection === 'contacts' ? '' : 'chat-card-compact',
-                  chat.id === activeChat?.id ? 'active' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                onClick={() => openChat(chat.id)}
-              >
-                <span className="chat-avatar-stack">
-                  <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                    {chat.title.slice(0, 1)}
+            <div className="chat-list">
+              {orderedVisibleChats.map((chat) => (
+                <button
+                  key={chat.id}
+                  type="button"
+                  className={[
+                    'chat-card',
+                    bottomSection === 'contacts' ? '' : 'chat-card-compact',
+                    chat.id === activeChat?.id ? 'active' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => openChat(chat.id)}
+                >
+                  <span className="chat-avatar-stack">
+                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                      {chat.title.slice(0, 1)}
+                    </span>
+                    {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                   </span>
-                  {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
-                </span>
-                <span className="chat-copy">
+                  <span className="chat-copy">
                     <span className="chat-topline">
                       <span className="chat-name-row">
                         <strong className="chat-name-text">{chat.title}</strong>
@@ -11183,41 +11187,42 @@ function App() {
                         {chat.premium ? (
                           <span className="premium-crown chat-crown" aria-label="Премиум">
                             <img src="/icons/crown64.png" alt="" />
-                        </span>
-                      ) : null}
-                      {chat.pinned ? (
-                        <span className="chat-star">
-                          <img src="/icons/star100.png" alt="Избранный контакт" />
-                        </span>
+                          </span>
                         ) : null}
+                        {chat.pinned ? (
+                          <span className="chat-star">
+                            <img src="/icons/star100.png" alt="Избранный контакт" />
+                          </span>
+                        ) : null}
+                      </span>
+                      {bottomSection === 'contacts' ? null : chat.typing && !quietMode ? (
+                        <span className="chat-topline-typing" aria-label={`${chat.title} печатает`}>
+                          <span className="typing-dot" />
+                          <span className="typing-dot" />
+                          <span className="typing-dot" />
+                        </span>
+                      ) : !quietMode && chat.unread > 0 ? (
+                        <span
+                          className={
+                            chat.unread > 9
+                              ? 'chat-topline-badge chat-topline-badge-wide'
+                              : 'chat-topline-badge'
+                          }
+                        >
+                          {formatUnreadBadgeCount(chat.unread)}
+                        </span>
+                      ) : (
+                        <span className="chat-topline-meta">{chat.messages.at(-1)?.time}</span>
+                      )}
                     </span>
-                    {bottomSection === 'contacts' ? null : chat.typing && !quietMode ? (
-                      <span className="chat-topline-typing" aria-label={`${chat.title} печатает`}>
-                        <span className="typing-dot" />
-                        <span className="typing-dot" />
-                        <span className="typing-dot" />
-                      </span>
-                    ) : !quietMode && chat.unread > 0 ? (
-                      <span
-                        className={
-                          chat.unread > 9
-                            ? 'chat-topline-badge chat-topline-badge-wide'
-                            : 'chat-topline-badge'
-                        }
-                      >
-                        {formatUnreadBadgeCount(chat.unread)}
-                      </span>
-                    ) : (
-                      <span className="chat-topline-meta">{chat.messages.at(-1)?.time}</span>
-                    )}
+                    {bottomSection === 'contacts' ? (
+                      <span className="chat-preview chat-status-preview">{formatContactStatus(chat)}</span>
+                    ) : null}
                   </span>
-                  {bottomSection === 'contacts' ? (
-                    <span className="chat-preview chat-status-preview">{formatContactStatus(chat)}</span>
-                  ) : null}
-                </span>
-              </button>
-            ))}
-          </div>
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
         <div className="bottom-nav" aria-label="Основная навигация">
