@@ -180,22 +180,22 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
       ...channel,
       avatarImage: channel.avatarImage ? resolveMediaUrl(channel.avatarImage) : channel.avatarImage,
     })),
-    chats: snapshot.chats.map((chat) => ({
+    chats: (snapshot.chats ?? []).map((chat) => ({
       ...chat,
       pinnedMessage: chat.pinnedMessage ? normalizeMessageMedia(chat.pinnedMessage) : chat.pinnedMessage,
-      messages: chat.messages.map((message) => normalizeMessageMedia(message)),
+      messages: (chat.messages ?? []).map((message) => normalizeMessageMedia(message)),
     })),
-    groups: snapshot.groups.map((group) => ({
+    groups: (snapshot.groups ?? []).map((group) => ({
       ...group,
       avatarImage: group.avatarImage ? resolveMediaUrl(group.avatarImage) : group.avatarImage,
-      messages: group.messages.map((message) => normalizeMessageMedia(message)),
+      messages: (group.messages ?? []).map((message) => normalizeMessageMedia(message)),
     })),
-    subscriptionChannels: snapshot.subscriptionChannels.map((channel) => ({
+    subscriptionChannels: (snapshot.subscriptionChannels ?? []).map((channel) => ({
       ...channel,
       avatarImage: channel.avatarImage ? resolveMediaUrl(channel.avatarImage) : channel.avatarImage,
-      posts: channel.posts.map((post) => normalizeChannelPosts([post])[0]),
+      posts: (channel.posts ?? []).map((post) => normalizeChannelPosts([post])[0]),
     })),
-    threadInbox: snapshot.threadInbox,
+    threadInbox: snapshot.threadInbox ?? [],
   }
 }
 

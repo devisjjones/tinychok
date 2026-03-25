@@ -653,6 +653,18 @@ function isExpiredSessionError(error: unknown) {
   )
 }
 
+function getErrorMessage(error: unknown, fallbackMessage: string) {
+  if (error instanceof ApiError) {
+    return error.message || fallbackMessage
+  }
+
+  if (error instanceof Error) {
+    return error.message || fallbackMessage
+  }
+
+  return fallbackMessage
+}
+
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
   const threadSourceRef = useRef<HTMLDivElement | null>(null)
@@ -2790,8 +2802,12 @@ function App() {
         return response.snapshot
       } catch (error) {
         console.error(`Failed to sync managed channel mutation after ${reason}`, error)
-        await fallbackSaveCurrentSnapshot(reason)
-        return null
+
+        if (!(error instanceof ApiError)) {
+          await fallbackSaveCurrentSnapshot(reason)
+        }
+
+        throw error
       }
     },
     [applySnapshot, backendReady, fallbackSaveCurrentSnapshot, session?.sessionToken],
@@ -7345,7 +7361,16 @@ function App() {
         return true
       }
 
-      const savedSnapshot = await commitManagedChannelMutation(channelId, pendingPatch, 'channel settings save')
+      let savedSnapshot: AppSnapshot | null
+
+      try {
+        savedSnapshot = await commitManagedChannelMutation(channelId, pendingPatch, 'channel settings save')
+      } catch (error) {
+        setChannelSettingsError(
+          getErrorMessage(error, 'Не удалось сохранить настройки канала. Попробуйте ещё раз.'),
+        )
+        return false
+      }
 
       if (!savedSnapshot) {
         setChannelSettingsError('Не удалось сохранить настройки канала. Попробуйте ещё раз.')
