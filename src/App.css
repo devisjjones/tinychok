@@ -3768,6 +3768,20 @@
   padding: 0 18px;
 }
 
+.emoji-picker-gif-upload-actions {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.emoji-picker-gif-upload-hint {
+  margin: 0;
+  color: rgba(95, 66, 46, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .emoji-picker-gif-upload-plus {
   font-size: 1.2rem;
   line-height: 1;

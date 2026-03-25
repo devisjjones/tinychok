@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { messageGifUploadMaxSizeBytes } from '../app/constants'
 import { duplicateUserGifMessage } from '../app/gifLibrary'
 import type { UserGifLibraryItem } from '../app/types'
 import { compactEmojiCategories, fullEmojiCategories } from '../shared/emoji'
@@ -31,6 +32,7 @@ export function EmojiPicker({
   onUploadGif,
   premiumUnlocked = false,
 }: EmojiPickerProps) {
+  const gifUploadHint = `Только GIF, до ${Math.round(messageGifUploadMaxSizeBytes / (1024 * 1024))} МБ.`
   const [activeTab, setActiveTab] = useState<'emoji' | 'gifs'>('emoji')
   const [gifError, setGifError] = useState('')
   const [gifNotice, setGifNotice] = useState('')
@@ -355,15 +357,18 @@ export function EmojiPicker({
                     )
                   ) : gifLibrary.length === 0 ? (
                 <div className="emoji-picker-gif-empty">
-                  <button
-                    type="button"
-                    className="emoji-picker-gif-upload-button centered"
-                    onClick={openGifFileDialog}
-                    disabled={gifUploadBusy}
-                  >
-                    <span className="emoji-picker-gif-upload-plus" aria-hidden="true">+</span>
-                    {gifUploadBusy ? 'Загружаем GIF...' : 'Загрузить GIF'}
-                  </button>
+                  <div className="emoji-picker-gif-upload-actions">
+                    <button
+                      type="button"
+                      className="emoji-picker-gif-upload-button centered"
+                      onClick={openGifFileDialog}
+                      disabled={gifUploadBusy}
+                    >
+                      <span className="emoji-picker-gif-upload-plus" aria-hidden="true">+</span>
+                      {gifUploadBusy ? 'Загружаем GIF...' : 'Загрузить GIF'}
+                    </button>
+                    <p className="emoji-picker-gif-upload-hint">{gifUploadHint}</p>
+                  </div>
                 </div>
               ) : (
                     <>
@@ -405,14 +410,17 @@ export function EmojiPicker({
                       </div>
                     </>
                   )}
-                  <button
-                    type="button"
-                    className="emoji-picker-gif-upload-button"
-                    onClick={openGifFileDialog}
-                    disabled={gifUploadBusy}
-                  >
-                    {gifUploadBusy ? 'Загружаем GIF...' : 'Добавить GIF'}
-                  </button>
+                  <div className="emoji-picker-gif-upload-actions">
+                    <button
+                      type="button"
+                      className="emoji-picker-gif-upload-button"
+                      onClick={openGifFileDialog}
+                      disabled={gifUploadBusy}
+                    >
+                      {gifUploadBusy ? 'Загружаем GIF...' : 'Добавить GIF'}
+                    </button>
+                    <p className="emoji-picker-gif-upload-hint">{gifUploadHint}</p>
+                  </div>
                 </>
               )}
               {gifError ? <p className="emoji-picker-gif-error">{gifError}</p> : null}
