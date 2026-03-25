@@ -7422,7 +7422,7 @@ function App() {
   async function handleActiveChannelDetailSave() {
     if (!activeChannel || channelSettingsBusy) return
 
-    await saveManagedChannelSettings(activeChannel.id)
+    await saveManagedChannelSettings(activeChannel.id, { exitAfterSave: true })
   }
 
   async function handleActiveChannelDetailBack() {
