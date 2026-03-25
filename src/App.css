@@ -862,6 +862,7 @@
   place-items: center;
   color: #fff7ef;
   font-weight: 700;
+  overflow: hidden;
 }
 
 .chat-avatar-stack {
@@ -1211,6 +1212,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
+  border-radius: inherit;
 }
 
 .channel-card-copy {
