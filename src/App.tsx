@@ -4111,27 +4111,46 @@ function App() {
       return localGif
     }
 
-    try {
-      const uploadedMedia = await uploadMediaFile(session.sessionToken, file, 'user-gif')
-      const response = await registerUserGif(
-        session.sessionToken,
-        buildUserGifRegistrationBody(file, uploadedMedia, dimensions),
-      )
-      applySnapshot(response.snapshot)
+    const sessionToken = session.sessionToken
 
-      return (
-        response.snapshot.session.gifLibrary?.find((gif) => gif.mediaUrl === uploadedMedia.mediaUrl) ??
-        response.snapshot.session.gifLibrary?.find((gif) =>
-          findDuplicateUserGif([gif], { fileName: file.name, size: uploadedMedia.size }) !== null,
-        ) ??
-        buildUserGifRegistrationBody(file, uploadedMedia, dimensions)
-      )
+    try {
+      const uploadedMedia = await (async () => {
+        try {
+          return await uploadMediaFile(sessionToken, file, 'user-gif')
+        } catch (error) {
+          console.error('gif upload media failed', error)
+          throw error
+        }
+      })()
+
+      try {
+        const response = await registerUserGif(
+          sessionToken,
+          buildUserGifRegistrationBody(file, uploadedMedia, dimensions),
+        )
+        applySnapshot(response.snapshot)
+
+        return (
+          response.snapshot.session.gifLibrary?.find((gif) => gif.mediaUrl === uploadedMedia.mediaUrl) ??
+          response.snapshot.session.gifLibrary?.find((gif) =>
+            findDuplicateUserGif([gif], { fileName: file.name, size: uploadedMedia.size }) !== null,
+          ) ??
+          buildUserGifRegistrationBody(file, uploadedMedia, dimensions)
+        )
+      } catch (error) {
+        console.error('gif register failed', error)
+        throw error
+      }
     } catch (error) {
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        throw new Error('Не удалось загрузить GIF. Проверьте соединение и попробуйте ещё раз.')
+      if (error instanceof ApiError) {
+        throw error
       }
 
-      throw error
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Не удалось загрузить GIF. Попробуйте другой файл или повторите позже.')
+      }
+
+      throw new Error(getErrorMessage(error, 'Не удалось загрузить GIF. Попробуйте другой файл или повторите позже.'))
     }
   }
 

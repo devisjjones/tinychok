@@ -312,7 +312,7 @@ export function EmojiPicker({
                     <input
                       type="search"
                       className="emoji-picker-gif-search-input"
-                      placeholder="Например, Покемон"
+                      placeholder="Например: it's fine"
                       value={gifSearchQuery}
                       onChange={(event) => {
                         setGifSearchQuery(event.target.value)
