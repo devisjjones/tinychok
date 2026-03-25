@@ -603,6 +603,93 @@
   color: var(--muted);
 }
 
+.browser-notification-banner {
+  position: relative;
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(255, 251, 245, 0.98), rgba(247, 237, 224, 0.94)),
+    rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(141, 89, 57, 0.12);
+  box-shadow: 0 18px 34px rgba(64, 35, 18, 0.09);
+  overflow: hidden;
+}
+
+.browser-notification-banner-main {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 16px 56px 16px 18px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.browser-notification-banner-icon-wrap {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(140, 87, 56, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(141, 89, 57, 0.08);
+}
+
+.browser-notification-banner-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+  filter: brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
+    brightness(93%) contrast(90%);
+}
+
+.browser-notification-banner-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.browser-notification-banner-copy strong {
+  color: var(--ink);
+  font-size: 1.02rem;
+  line-height: 1.1;
+}
+
+.browser-notification-banner-copy span {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.browser-notification-banner-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(77, 58, 46, 0.07);
+  cursor: pointer;
+}
+
+.browser-notification-banner-dismiss img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  display: block;
+  filter: brightness(0) saturate(100%) invert(40%) sepia(11%) saturate(739%) hue-rotate(342deg)
+    brightness(97%) contrast(88%);
+}
+
 .account-chip {
   display: none;
 }
@@ -2082,6 +2169,10 @@
 }
 
 .storage-usage-card {
+  gap: 10px;
+}
+
+.settings-browser-notifications-card {
   gap: 10px;
 }
 

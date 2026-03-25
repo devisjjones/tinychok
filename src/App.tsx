@@ -5,6 +5,7 @@ import {
   accountStatusMaxFontSize,
   accountStatusMinFontSize,
   accountsStorageKey,
+  browserNotificationsBannerDismissedStorageKey,
   defaultGroupMemberLimit,
   channelActionMenuHeight,
   channelActionMenuWidth,
@@ -114,6 +115,12 @@ import {
   verifyAuthCode,
 } from './app/backend'
 import { configureAnalyticsRuntime, trackAnalyticsEvent } from './app/analytics'
+import {
+  getBrowserNotificationStatus,
+  requestBrowserNotificationPermission,
+  showBrowserNotification,
+  type BrowserNotificationStatus,
+} from './app/browserNotifications'
 import {
   buildUserGifRegistrationBodyFromAttachment,
   buildUserGifRegistrationBody,
@@ -238,6 +245,33 @@ const contactComplaintReasonOptions: Array<{ label: string; value: ComplaintReas
 const blockedAuthNoticeMessage =
   'На ваш аккаунт поступило много жалоб, поэтому вход временно заблокирован. Если произошла ошибка, напишите в поддержку и укажите email: devisjjones@gmail.com'
 
+type BrowserNotificationTarget =
+  | {
+      kind: 'chat'
+      chatId: number
+    }
+  | {
+      kind: 'group'
+      groupId: number
+    }
+  | {
+      kind: 'channel'
+      channelId: number
+    }
+  | {
+      item: ThreadInboxItem
+      kind: 'thread'
+    }
+
+type BrowserNotificationDigestEntry = {
+  body: string
+  target: BrowserNotificationTarget
+  title: string
+  unread: number
+}
+
+type BrowserNotificationDigest = Map<string, BrowserNotificationDigestEntry>
+
 type ProfileSettingsDraft = Pick<
   Session,
   'displayName' | 'surname' | 'nickname' | 'status' | 'avatarImage' | 'soundsDisabled'
@@ -265,6 +299,65 @@ function buildProfileSettingsDraft(session: Session): ProfileSettingsDraft {
     status: session.status ?? '',
     surname: session.surname ?? '',
   }
+}
+
+function buildBrowserNotificationDigest(
+  chats: Chat[],
+  groups: GroupPreview[],
+  subscriptionChannels: SubscriptionChannel[],
+  threadInbox: ThreadInboxItem[],
+): BrowserNotificationDigest {
+  const digest = new Map<string, BrowserNotificationDigestEntry>()
+
+  chats.forEach((chat) => {
+    digest.set(`chat:${chat.id}`, {
+      body: 'Новое сообщение',
+      target: {
+        chatId: chat.id,
+        kind: 'chat',
+      },
+      title: chat.title,
+      unread: chat.unread,
+    })
+  })
+
+  groups.forEach((group) => {
+    digest.set(`group:${group.id}`, {
+      body: 'Новое сообщение в группе',
+      target: {
+        groupId: group.id,
+        kind: 'group',
+      },
+      title: group.title,
+      unread: group.unread,
+    })
+  })
+
+  subscriptionChannels.forEach((channel) => {
+    digest.set(`channel:${channel.id}`, {
+      body: 'Новый пост в канале',
+      target: {
+        channelId: channel.id,
+        kind: 'channel',
+      },
+      title: channel.title,
+      unread: channel.unread,
+    })
+  })
+
+  threadInbox.forEach((item) => {
+    digest.set(`thread:${item.threadId}`, {
+      body: item.kind === 'group' ? 'Новый ответ в треде' : 'Новый комментарий к посту',
+      target: {
+        item,
+        kind: 'thread',
+      },
+      title: item.kind === 'group' ? item.groupTitle : item.channelTitle,
+      unread: item.unreadCount,
+    })
+  })
+
+  return digest
 }
 
 function buildGroupParticipantFromChat(chat: Chat, participantId?: number): GroupParticipant {
@@ -738,6 +831,12 @@ function App() {
   const pendingChannelPatchesRef = useRef(new Map<number, UpdateManagedChannelBody>())
   const suppressChannelSnapshotSyncRef = useRef(false)
   const previousChatsRef = useRef(initialChats)
+  const browserNotificationDigestRef = useRef<BrowserNotificationDigest | null>(null)
+  const browserNotificationOpenTargetRef = useRef<(target: BrowserNotificationTarget) => void>(() => {})
+  const suppressNextBrowserNotificationDiffRef = useRef(false)
+  const previousBrowserNotificationStatusRef = useRef<BrowserNotificationStatus>(
+    getBrowserNotificationStatus(),
+  )
   const [chats, setChats] = useState(initialChats)
   const [channels, setChannels] = useState(initialChannels)
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
@@ -774,6 +873,15 @@ function App() {
   const [activeFilter, setActiveFilter] = useState('Все')
   const [searchOpen, setSearchOpen] = useState(false)
   const [quietMode, setQuietMode] = useState(false)
+  const [browserNotificationStatus, setBrowserNotificationStatus] = useState<BrowserNotificationStatus>(
+    () => getBrowserNotificationStatus(),
+  )
+  const [browserNotificationsBannerDismissed, setBrowserNotificationsBannerDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return (
+      window.localStorage.getItem(browserNotificationsBannerDismissedStorageKey) === 'true'
+    )
+  })
   const [authStep, setAuthStep] = useState<AuthStep>('phone')
   const [displayName, setDisplayName] = useState('')
   const [identifier, setIdentifier] = useState('')
@@ -1772,6 +1880,32 @@ function App() {
       ? retainedSubscriptionChannelId
       : null
   const searchShowsPhone = isPhoneQuery(query)
+  const browserNotificationsSupported = browserNotificationStatus !== 'unsupported'
+  const showBrowserNotificationsBanner =
+    browserNotificationsSupported &&
+    browserNotificationStatus === 'default' &&
+    !browserNotificationsBannerDismissed &&
+    !searchOpen &&
+    topListView === 'none' &&
+    bottomSection === 'chats'
+  const browserNotificationSettingsStatusLabel =
+    browserNotificationStatus === 'granted'
+      ? 'Включены'
+      : browserNotificationStatus === 'denied'
+        ? 'Запрещены браузером'
+        : browserNotificationStatus === 'default'
+          ? 'Ожидают разрешения'
+          : 'Не поддерживаются в этом браузере'
+  const browserNotificationSettingsText =
+    browserNotificationStatus === 'granted'
+      ? quietMode
+        ? 'Браузерные уведомления включены, но режим «Тихо» временно их отключает.'
+        : 'Новые сообщения будут приходить в браузер, пока сайт открыт и держит realtime-соединение.'
+      : browserNotificationStatus === 'denied'
+        ? 'Разрешение запрещено браузером. Включить уведомления можно через настройки сайта.'
+        : browserNotificationStatus === 'default'
+          ? 'Разрешите показ уведомлений, чтобы не пропускать новые сообщения в браузере.'
+          : 'Этот браузер не поддерживает системные уведомления через Notification API.'
   const totalUnreadCount = availableChats.reduce((sum, chat) => sum + chat.unread, 0)
   const totalFavoriteUnreadCount = availableChats.reduce(
     (sum, chat) => sum + (chat.pinned ? chat.unread : 0),
@@ -2443,6 +2577,24 @@ function App() {
     window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
   }, [persistSession])
 
+  const syncBrowserNotificationStatus = useCallback(() => {
+    setBrowserNotificationStatus(getBrowserNotificationStatus())
+  }, [])
+
+  const dismissBrowserNotificationsBanner = useCallback(() => {
+    setBrowserNotificationsBannerDismissed(true)
+
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(browserNotificationsBannerDismissedStorageKey, 'true')
+    }
+  }, [])
+
+  const requestBrowserNotificationsAccess = useCallback(async () => {
+    const nextStatus = await requestBrowserNotificationPermission()
+    setBrowserNotificationStatus(nextStatus)
+    return nextStatus
+  }, [])
+
   const logout = useCallback(() => {
     Object.values(chatAttachmentDrafts).forEach((draft) => releaseComposerAttachmentDraft(draft))
     Object.values(groupAttachmentDrafts).forEach((draft) => releaseComposerAttachmentDraft(draft))
@@ -2516,6 +2668,42 @@ function App() {
   const playReceiveSound = useCallback(() => {
     playAudioCue(takeSoundPath)
   }, [playAudioCue])
+
+  useEffect(() => {
+    syncBrowserNotificationStatus()
+
+    if (typeof window === 'undefined') return undefined
+
+    const handleVisibilityChange = () => {
+      syncBrowserNotificationStatus()
+    }
+
+    window.addEventListener('focus', syncBrowserNotificationStatus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('focus', syncBrowserNotificationStatus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [syncBrowserNotificationStatus])
+
+  useEffect(() => {
+    const previousStatus = previousBrowserNotificationStatusRef.current
+
+    if (
+      previousStatus !== 'default' &&
+      browserNotificationStatus === 'default' &&
+      browserNotificationsBannerDismissed
+    ) {
+      setBrowserNotificationsBannerDismissed(false)
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(browserNotificationsBannerDismissedStorageKey)
+      }
+    }
+
+    previousBrowserNotificationStatusRef.current = browserNotificationStatus
+  }, [browserNotificationStatus, browserNotificationsBannerDismissed])
 
   const mergeDirectOutboxMessagesIntoChats = useCallback((snapshotChats: AppSnapshot['chats']) => {
     const queuedMessages = pendingDirectMessagesRef.current
@@ -2917,6 +3105,9 @@ function App() {
     if (!backendReady || !session?.sessionToken) return
 
     const socket = openRealtimeConnection(session.sessionToken, (event) => {
+      if (event.type === 'connection.ready') {
+        suppressNextBrowserNotificationDiffRef.current = true
+      }
       applySnapshot(event.snapshot)
     })
 
@@ -6414,6 +6605,84 @@ function App() {
     setActiveChatId(chatId)
     void syncDialogRead(chatId)
   }
+
+  browserNotificationOpenTargetRef.current = (target) => {
+    if (target.kind === 'chat') {
+      openChat(target.chatId)
+      return
+    }
+
+    if (target.kind === 'group') {
+      openGroup(target.groupId)
+      return
+    }
+
+    if (target.kind === 'channel') {
+      openSubscriptionChannel(target.channelId)
+      return
+    }
+
+    openThreadInboxItem(target.item)
+  }
+
+  useEffect(() => {
+    if (!backendReady || !session?.sessionToken) {
+      browserNotificationDigestRef.current = null
+      suppressNextBrowserNotificationDiffRef.current = false
+      return
+    }
+
+    const nextDigest = buildBrowserNotificationDigest(
+      availableChats,
+      groups,
+      subscriptionChannels,
+      threadInbox,
+    )
+
+    if (suppressNextBrowserNotificationDiffRef.current) {
+      suppressNextBrowserNotificationDiffRef.current = false
+      browserNotificationDigestRef.current = nextDigest
+      return
+    }
+
+    const previousDigest = browserNotificationDigestRef.current
+    browserNotificationDigestRef.current = nextDigest
+
+    if (!previousDigest) {
+      return
+    }
+
+    if (browserNotificationStatus !== 'granted' || quietMode) {
+      return
+    }
+
+    if (typeof document !== 'undefined' && !document.hidden && document.hasFocus()) {
+      return
+    }
+
+    nextDigest.forEach((entry, key) => {
+      const previousUnread = previousDigest.get(key)?.unread ?? 0
+      if (entry.unread <= 0 || entry.unread <= previousUnread) {
+        return
+      }
+
+      showBrowserNotification(entry.title, {
+        body: entry.body,
+        icon: '/icons/logo_ok_96.png',
+        onClick: () => browserNotificationOpenTargetRef.current(entry.target),
+        tag: `tinychok:${key}`,
+      })
+    })
+  }, [
+    availableChats,
+    backendReady,
+    browserNotificationStatus,
+    groups,
+    quietMode,
+    session?.sessionToken,
+    subscriptionChannels,
+    threadInbox,
+  ])
 
   function createLocalDialogFromSearchResult(result: SearchResult) {
     const normalizedPhone = normalizeIdentifier(result.phone)
@@ -10844,6 +11113,42 @@ function App() {
           </div>
         ) : (
           <div className="chat-list">
+            {showBrowserNotificationsBanner ? (
+              <section className="browser-notification-banner" aria-label="Включение браузерных уведомлений">
+                <button
+                  type="button"
+                  className="browser-notification-banner-main"
+                  onClick={() => {
+                    void requestBrowserNotificationsAccess()
+                  }}
+                >
+                  <span className="browser-notification-banner-icon-wrap" aria-hidden="true">
+                    <img
+                      src="/icons/bell.png"
+                      alt=""
+                      className="browser-notification-banner-icon"
+                    />
+                  </span>
+                  <span className="browser-notification-banner-copy">
+                    <strong>Не пропускайте сообщения!</strong>
+                    <span>
+                      Включите уведомления в браузере, чтобы быть в курсе новых сообщений.
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="browser-notification-banner-dismiss"
+                  aria-label="Скрыть плашку включения уведомлений"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    dismissBrowserNotificationsBanner()
+                  }}
+                >
+                  <img src="/icons/cancel.png" alt="" aria-hidden="true" />
+                </button>
+              </section>
+            ) : null}
             {orderedVisibleChats.map((chat) => (
               <button
                 key={chat.id}
@@ -11220,6 +11525,24 @@ function App() {
                   >
                     Заблокированные контакты
                   </button>
+                  <article className="settings-item settings-browser-notifications-card">
+                    <span className="settings-label">Браузерные уведомления</span>
+                    <strong className="settings-consent-status">
+                      {browserNotificationSettingsStatusLabel}
+                    </strong>
+                    <p className="settings-text">{browserNotificationSettingsText}</p>
+                    {browserNotificationStatus === 'default' ? (
+                      <button
+                        type="button"
+                        className="soft-button settings-consent-toggle"
+                        onClick={() => {
+                          void requestBrowserNotificationsAccess()
+                        }}
+                      >
+                        Включить уведомления
+                      </button>
+                    ) : null}
+                  </article>
                   <button type="button" className="settings-action-card">
                     Сменить номер телефона
                   </button>

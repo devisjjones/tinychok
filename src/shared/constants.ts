@@ -67,5 +67,7 @@ export const channelAvatarTones = ['#8c5738', '#6eb6ff', '#ff8a5b', '#82c9a3', '
 export const accountsStorageKey = 'tinychok.accounts'
 export const sessionStorageKey = 'tinychok.session'
 export const cookieConsentStorageKey = 'tinychok.cookie-consent'
+export const browserNotificationsBannerDismissedStorageKey =
+  'tinychok.browser-notifications.banner-dismissed'
 export const premiumDebugAutoCheckoutStorageKey = 'tinychok.debug.premium-auto-checkout'
 export const messagePhotoSendOriginalPreferenceStorageKey = 'tinychok.session.photo-send-original'

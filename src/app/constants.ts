@@ -7,6 +7,7 @@ export {
   avatarAcceptedMimeTypes,
   avatarOutputSizePx,
   avatarPreviewSizePx,
+  browserNotificationsBannerDismissedStorageKey,
   avatarSourceMaxSizeBytes,
   channelActionMenuHeight,
   channelActionMenuWidth,
