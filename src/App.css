@@ -2859,11 +2859,6 @@
   color: #fff8f2;
 }
 
-.bubble.mine.read-by-recipient {
-  background: #c89a78;
-  box-shadow: 0 16px 30px rgba(72, 52, 33, 0.1);
-}
-
 .bubble.has-attached-reply {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
@@ -2875,10 +2870,6 @@
 
 .bubble.mine.delivery-failed {
   background: #b06e45;
-}
-
-.bubble.mine.read-by-recipient .bubble-reply {
-  background: rgba(255, 248, 242, 0.2);
 }
 
 .channel-post {

@@ -6,6 +6,7 @@ import {
   accountStatusMinFontSize,
   accountsStorageKey,
   browserNotificationsBannerDismissedStorageKey,
+  browserNotificationsEnabledStorageKey,
   defaultGroupMemberLimit,
   channelActionMenuHeight,
   channelActionMenuWidth,
@@ -358,6 +359,15 @@ function buildBrowserNotificationDigest(
   })
 
   return digest
+}
+
+function loadBrowserNotificationsEnabledPreference() {
+  if (typeof window === 'undefined') return true
+
+  const storedValue = window.localStorage.getItem(browserNotificationsEnabledStorageKey)
+  if (storedValue === null) return true
+
+  return storedValue === 'true'
 }
 
 function buildGroupParticipantFromChat(chat: Chat, participantId?: number): GroupParticipant {
@@ -882,6 +892,9 @@ function App() {
       window.localStorage.getItem(browserNotificationsBannerDismissedStorageKey) === 'true'
     )
   })
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(() =>
+    loadBrowserNotificationsEnabledPreference(),
+  )
   const [authStep, setAuthStep] = useState<AuthStep>('phone')
   const [displayName, setDisplayName] = useState('')
   const [identifier, setIdentifier] = useState('')
@@ -1894,7 +1907,9 @@ function App() {
       : 'Включите уведомления в браузере, чтобы быть в курсе новых сообщений.'
   const browserNotificationSettingsStatusLabel =
     browserNotificationStatus === 'granted'
-      ? 'Включены'
+      ? browserNotificationsEnabled
+        ? 'Включены'
+        : 'Выключены в Тайничке'
       : browserNotificationStatus === 'denied'
         ? 'Запрещены браузером'
         : browserNotificationStatus === 'default'
@@ -1902,7 +1917,9 @@ function App() {
           : 'Не поддерживаются в этом браузере'
   const browserNotificationSettingsText =
     browserNotificationStatus === 'granted'
-      ? quietMode
+      ? !browserNotificationsEnabled
+        ? 'Разрешение браузера сохранено, но Tinychok не отправляет уведомления в этом браузере.'
+        : quietMode
         ? 'Браузерные уведомления включены, но режим «Тихо» временно их отключает.'
         : 'Новые сообщения будут приходить в браузер, пока сайт открыт и держит realtime-соединение.'
       : browserNotificationStatus === 'denied'
@@ -2585,6 +2602,14 @@ function App() {
     setBrowserNotificationStatus(getBrowserNotificationStatus())
   }, [])
 
+  const persistBrowserNotificationsEnabled = useCallback((enabled: boolean) => {
+    setBrowserNotificationsEnabled(enabled)
+
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(browserNotificationsEnabledStorageKey, String(enabled))
+    }
+  }, [])
+
   const dismissBrowserNotificationsBanner = useCallback(() => {
     setBrowserNotificationsBannerDismissed(true)
 
@@ -2596,8 +2621,24 @@ function App() {
   const requestBrowserNotificationsAccess = useCallback(async () => {
     const nextStatus = await requestBrowserNotificationPermission()
     setBrowserNotificationStatus(nextStatus)
+    if (nextStatus === 'granted') {
+      persistBrowserNotificationsEnabled(true)
+    }
     return nextStatus
-  }, [])
+  }, [persistBrowserNotificationsEnabled])
+
+  const enableBrowserNotifications = useCallback(async () => {
+    if (browserNotificationStatus === 'granted') {
+      persistBrowserNotificationsEnabled(true)
+      return 'granted'
+    }
+
+    return requestBrowserNotificationsAccess()
+  }, [browserNotificationStatus, persistBrowserNotificationsEnabled, requestBrowserNotificationsAccess])
+
+  const disableBrowserNotifications = useCallback(() => {
+    persistBrowserNotificationsEnabled(false)
+  }, [persistBrowserNotificationsEnabled])
 
   const logout = useCallback(() => {
     Object.values(chatAttachmentDrafts).forEach((draft) => releaseComposerAttachmentDraft(draft))
@@ -6656,11 +6697,7 @@ function App() {
       return
     }
 
-    if (browserNotificationStatus !== 'granted' || quietMode) {
-      return
-    }
-
-    if (typeof document !== 'undefined' && !document.hidden && document.hasFocus()) {
+    if (browserNotificationStatus !== 'granted' || !browserNotificationsEnabled || quietMode) {
       return
     }
 
@@ -6680,6 +6717,7 @@ function App() {
   }, [
     availableChats,
     backendReady,
+    browserNotificationsEnabled,
     browserNotificationStatus,
     groups,
     quietMode,
@@ -11543,7 +11581,25 @@ function App() {
                         type="button"
                         className="soft-button settings-consent-toggle"
                         onClick={() => {
-                          void requestBrowserNotificationsAccess()
+                          void enableBrowserNotifications()
+                        }}
+                      >
+                        Включить уведомления
+                      </button>
+                    ) : browserNotificationStatus === 'granted' && browserNotificationsEnabled ? (
+                      <button
+                        type="button"
+                        className="soft-button settings-consent-toggle"
+                        onClick={disableBrowserNotifications}
+                      >
+                        Выключить уведомления
+                      </button>
+                    ) : browserNotificationStatus === 'granted' ? (
+                      <button
+                        type="button"
+                        className="soft-button settings-consent-toggle"
+                        onClick={() => {
+                          void enableBrowserNotifications()
                         }}
                       >
                         Включить уведомления

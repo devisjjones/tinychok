@@ -341,6 +341,13 @@ export function DirectChatRoom({
           const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
           const showDeliveryIndicator = message.author === 'me'
           const messageReadByRecipient = message.author === 'me' && Boolean(message.readAt)
+          const deliveryIndicatorSrc = messageFailed
+            ? '/icons/warning-48.png'
+            : messagePending
+              ? '/icons/hourglass-48.png'
+              : messageReadByRecipient
+                ? '/icons/double-tick-50.png'
+                : '/icons/check-mark-50.png'
           const isImageOnlyBubble =
             hasImageAttachment &&
             !linkedChannel &&
@@ -431,13 +438,7 @@ export function DirectChatRoom({
                         hasImageAttachment ? (
                           <BubbleImageOverlayMeta
                             deliveryIndicatorSrc={
-                              showDeliveryIndicator
-                                ? messageFailed
-                                  ? '/icons/warning-48.png'
-                                  : messagePending
-                                    ? '/icons/hourglass-48.png'
-                                    : '/icons/double-tick-50.png'
-                                : null
+                              showDeliveryIndicator ? deliveryIndicatorSrc : null
                             }
                             time={message.time}
                           />
@@ -459,13 +460,7 @@ export function DirectChatRoom({
                     {!hasImageAttachment && showDeliveryIndicator ? (
                       <img
                         className="bubble-delivery-indicator"
-                        src={
-                          messageFailed
-                            ? '/icons/warning-48.png'
-                            : messagePending
-                              ? '/icons/hourglass-48.png'
-                              : '/icons/double-tick-50.png'
-                        }
+                        src={deliveryIndicatorSrc}
                         alt=""
                         aria-hidden="true"
                       />

@@ -58,6 +58,21 @@ function getOverlayPosition(anchor: ActionAnchor) {
   }
 }
 
+function resolveDirectDeliveryIndicatorSrc(
+  deliveryIssue: 'pending' | 'failed' | undefined,
+  readAt: string | undefined,
+) {
+  if (deliveryIssue === 'failed') {
+    return '/icons/warning-48.png'
+  }
+
+  if (deliveryIssue === 'pending') {
+    return '/icons/hourglass-48.png'
+  }
+
+  return readAt ? '/icons/double-tick-50.png' : '/icons/check-mark-50.png'
+}
+
 export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
   if (props.kind === 'channel') {
     const hasImageAttachment = Boolean(
@@ -233,11 +248,10 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
             <BubbleImageOverlayMeta
               deliveryIndicatorSrc={
                 props.mine
-                  ? props.deliveryIssue === 'failed'
-                    ? '/icons/warning-48.png'
-                    : props.deliveryIssue === 'pending'
-                      ? '/icons/hourglass-48.png'
-                      : '/icons/double-tick-50.png'
+                  ? resolveDirectDeliveryIndicatorSrc(
+                      props.deliveryIssue,
+                      props.kind === 'direct' ? props.message.readAt : undefined,
+                    )
                   : null
               }
               time={props.message.time}
@@ -257,13 +271,10 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       {!hasImageAttachment && props.mine ? (
         <img
           className="bubble-delivery-indicator"
-          src={
-            props.deliveryIssue === 'failed'
-              ? '/icons/warning-48.png'
-              : props.deliveryIssue === 'pending'
-                ? '/icons/hourglass-48.png'
-                : '/icons/double-tick-50.png'
-          }
+          src={resolveDirectDeliveryIndicatorSrc(
+            props.deliveryIssue,
+            props.kind === 'direct' ? props.message.readAt : undefined,
+          )}
           alt=""
           aria-hidden="true"
         />
