@@ -57,6 +57,7 @@ import {
 import type {
   AdminAuditLogEntry,
   AdminDashboardResponse,
+  AdminLinkedUser,
   AdminMediaItem,
   AdminMediaItemEntityType,
   AdminReportAction,
@@ -622,6 +623,59 @@ function buildAccountHandle(account: Account) {
 
 function buildAccountDisplayLabel(account: Pick<Account, 'displayName' | 'identifier' | 'surname'>) {
   return formatAccountName(account) || account.identifier
+}
+
+function classifyAdminMediaType(
+  attachment?: Pick<MessageAttachment, 'mimeType'> | null,
+  fallbackKind?: PersistedPendingMediaUpload['kind'] | 'pending-upload' | 'unknown',
+) {
+  if (fallbackKind === 'profile-avatar') {
+    return 'Аватарка профиля'
+  }
+
+  if (fallbackKind === 'group-avatar') {
+    return 'Аватарка группы'
+  }
+
+  if (fallbackKind === 'channel-avatar') {
+    return 'Аватарка канала'
+  }
+
+  if (fallbackKind === 'user-gif') {
+    return 'GIF'
+  }
+
+  const mimeType = attachment?.mimeType?.toLowerCase().trim() ?? ''
+  if (mimeType === 'image/gif') {
+    return 'GIF'
+  }
+
+  if (mimeType.startsWith('image/')) {
+    return 'Фото'
+  }
+
+  if (mimeType) {
+    return 'Файл'
+  }
+
+  if (fallbackKind === 'attachment') {
+    return 'Файл'
+  }
+
+  if (fallbackKind === 'pending-upload') {
+    return 'Черновик'
+  }
+
+  return 'Медиа'
+}
+
+function buildAdminMessageEntityKey(
+  scope: 'dialog' | 'group-message' | 'group-comment' | 'channel-post' | 'channel-comment',
+  ownerIdentifier: string,
+  parentId: number,
+  messageId: number,
+) {
+  return `${scope}:${ownerIdentifier}:${parentId}:${messageId}`
 }
 
 function pickAccentForIdentifier(identifier: string) {
@@ -2200,8 +2254,16 @@ export class TinychokStore {
         if (!trimmedQuery) return true
 
         return (
-          item.ownerIdentifier.toLowerCase().includes(trimmedQuery) ||
+          item.owner.identifier.toLowerCase().includes(trimmedQuery) ||
+          item.owner.displayName.toLowerCase().includes(trimmedQuery) ||
+          item.typeLabel.toLowerCase().includes(trimmedQuery) ||
           item.entityLabel.toLowerCase().includes(trimmedQuery) ||
+          item.fileName.toLowerCase().includes(trimmedQuery) ||
+          item.relatedUsers.some(
+            (user) =>
+              user.identifier.toLowerCase().includes(trimmedQuery) ||
+              user.displayName.toLowerCase().includes(trimmedQuery),
+          ) ||
           item.mediaUrl.toLowerCase().includes(trimmedQuery)
         )
       })
@@ -4925,116 +4987,271 @@ export class TinychokStore {
 
   private collectAdminMediaItems(): AdminMediaItem[] {
     const items: AdminMediaItem[] = []
+    const reportCountByKey = new Map<string, number>()
 
-    const pushItem = (
-      entityType: AdminMediaItemEntityType,
-      ownerIdentifier: string,
-      mediaUrl: string,
-      size: number,
-      entityLabel: string,
-      linked = true,
-    ) => {
+    for (const report of this.database.adminReports) {
+      reportCountByKey.set(report.entityKey, (reportCountByKey.get(report.entityKey) ?? 0) + 1)
+    }
+
+    const buildAdminLinkedUser = (identifier: string): AdminLinkedUser => {
+      const account = this.findAccount(identifier)
+      return {
+        displayName: account ? buildAccountDisplayLabel(account) : identifier,
+        identifier,
+      }
+    }
+
+    const countRelatedReports = (...keys: Array<string | undefined>) =>
+      [...new Set(keys.filter(Boolean))]
+        .map((key) => reportCountByKey.get(key!) ?? 0)
+        .reduce((total, count) => total + count, 0)
+
+    const pushItem = (payload: {
+      attachment?: Pick<MessageAttachment, 'fileName' | 'mimeType'> | null
+      entityId?: string
+      entityLabel: string
+      entityType: AdminMediaItemEntityType
+      fileName: string
+      kindOverride?: PersistedPendingMediaUpload['kind'] | 'pending-upload' | 'unknown'
+      linked?: boolean
+      mediaUrl: string
+      ownerIdentifier: string
+      relatedReportKeys?: string[]
+      relatedUsers?: AdminLinkedUser[]
+      size: number
+      typeLabel?: string
+    }) => {
+      const owner = buildAdminLinkedUser(payload.ownerIdentifier)
+      const resolvedKind = payload.kindOverride ?? inferStoredMediaKind(payload.mediaUrl) ?? 'unknown'
+
       items.push({
-        entityLabel,
-        entityType,
+        contextLabel: payload.entityLabel,
+        entityId: payload.entityId,
+        entityLabel: payload.entityLabel,
+        entityType: payload.entityType,
+        fileName: payload.fileName,
         hidden: false,
-        id: encodeURIComponent(mediaUrl),
-        kind: inferStoredMediaKind(mediaUrl) ?? 'unknown',
-        linked,
-        mediaUrl,
-        ownerIdentifier,
-        size,
+        id: encodeURIComponent(payload.mediaUrl),
+        kind: resolvedKind === 'pending-upload' ? 'unknown' : resolvedKind,
+        linked: payload.linked ?? true,
+        mediaUrl: payload.mediaUrl,
+        owner,
+        relatedReportCount: countRelatedReports(...(payload.relatedReportKeys ?? [])),
+        relatedUsers: payload.relatedUsers?.length ? payload.relatedUsers : [owner],
+        size: payload.size,
+        typeLabel:
+          payload.typeLabel ??
+          classifyAdminMediaType(payload.attachment, resolvedKind),
       })
     }
 
     for (const upload of this.database.pendingMediaUploads) {
-      pushItem(
-        'pending-upload',
-        upload.ownerIdentifier,
-        upload.mediaUrl,
-        upload.size,
-        upload.fileName,
-        upload.linked,
-      )
+      pushItem({
+        attachment: { fileName: upload.fileName, mimeType: upload.mimeType },
+        entityLabel: upload.linked ? 'Черновик вложения' : 'Сиротский media upload',
+        entityType: 'pending-upload',
+        fileName: upload.fileName,
+        kindOverride: 'pending-upload',
+        linked: upload.linked,
+        mediaUrl: upload.mediaUrl,
+        ownerIdentifier: upload.ownerIdentifier,
+        size: upload.size,
+        typeLabel: classifyAdminMediaType({ mimeType: upload.mimeType }, upload.kind),
+      })
     }
 
     for (const account of this.database.accounts) {
       if (account.avatarImage) {
-        pushItem('profile-avatar', account.identifier, account.avatarImage, 0, buildAccountDisplayLabel(account))
+        pushItem({
+          entityLabel: `Профиль: ${buildAccountDisplayLabel(account)}`,
+          entityType: 'profile-avatar',
+          fileName: 'Аватар профиля',
+          kindOverride: 'profile-avatar',
+          mediaUrl: account.avatarImage,
+          ownerIdentifier: account.identifier,
+          relatedReportKeys: [account.avatarImage],
+          relatedUsers: [buildAdminLinkedUser(account.identifier)],
+          size: 0,
+        })
       }
 
       for (const gif of account.gifLibrary ?? []) {
-        pushItem('user-gif', account.identifier, gif.mediaUrl, gif.size, `${buildAccountDisplayLabel(account)} · GIF`)
+        pushItem({
+          attachment: { fileName: gif.fileName, mimeType: gif.mimeType },
+          entityLabel: `GIF-панель: ${buildAccountDisplayLabel(account)}`,
+          entityType: 'user-gif',
+          fileName: gif.fileName,
+          kindOverride: 'user-gif',
+          mediaUrl: gif.mediaUrl,
+          ownerIdentifier: account.identifier,
+          relatedReportKeys: [gif.mediaUrl],
+          relatedUsers: [buildAdminLinkedUser(account.identifier)],
+          size: gif.size,
+        })
       }
     }
 
     for (const group of this.database.groups) {
       if (group.avatarImage) {
-        pushItem('group-avatar', group.ownerIdentifier, group.avatarImage, 0, group.title)
+        pushItem({
+          entityLabel: `Группа: ${group.title}`,
+          entityType: 'group-avatar',
+          fileName: 'Аватар группы',
+          kindOverride: 'group-avatar',
+          mediaUrl: group.avatarImage,
+          ownerIdentifier: group.ownerIdentifier,
+          relatedReportKeys: [group.avatarImage],
+          relatedUsers: [buildAdminLinkedUser(group.ownerIdentifier)],
+          size: 0,
+        })
       }
     }
 
     for (const channel of this.database.managedChannels) {
       if (channel.avatarImage) {
-        pushItem('channel-avatar', channel.ownerIdentifier, channel.avatarImage, 0, channel.title)
+        pushItem({
+          entityLabel: `Канал: ${channel.title}`,
+          entityType: 'channel-avatar',
+          fileName: 'Аватар канала',
+          kindOverride: 'channel-avatar',
+          mediaUrl: channel.avatarImage,
+          ownerIdentifier: channel.ownerIdentifier,
+          relatedReportKeys: [channel.avatarImage],
+          relatedUsers: [buildAdminLinkedUser(channel.ownerIdentifier)],
+          size: 0,
+        })
       }
     }
 
     for (const message of this.database.dialogMessages) {
       if (!message.attachment?.mediaUrl) continue
 
-      pushItem(
-        'dialog-message',
+      const dialog = this.findDialog(message.ownerIdentifier, message.dialogId)
+      const dialogPeerIdentifier = normalizeIdentifier(dialog?.phone ?? '')
+      const dialogOwner = buildAdminLinkedUser(message.ownerIdentifier)
+      const dialogPeer = dialogPeerIdentifier ? buildAdminLinkedUser(dialogPeerIdentifier) : null
+      const dialogEntityId = buildAdminMessageEntityKey(
+        'dialog',
         message.ownerIdentifier,
-        message.attachment.mediaUrl,
-        message.attachment.size,
-        `Диалог #${message.dialogId} · ${message.text || message.attachment.fileName}`,
+        message.dialogId,
+        message.id,
       )
+
+      pushItem({
+        attachment: message.attachment,
+        entityId: dialogEntityId,
+        entityLabel: 'Личный диалог',
+        entityType: 'dialog-message',
+        fileName: message.attachment.fileName,
+        mediaUrl: message.attachment.mediaUrl,
+        ownerIdentifier: message.ownerIdentifier,
+        relatedReportKeys: [dialogEntityId, message.attachment.mediaUrl],
+        relatedUsers: dialogPeer ? [dialogOwner, dialogPeer] : [dialogOwner],
+        size: message.attachment.size,
+      })
     }
 
     for (const message of this.database.groupMessages) {
+      const group = this.findGroup(message.ownerIdentifier, message.groupId)
+
       if (message.attachment?.mediaUrl) {
-        pushItem(
+        const groupMessageEntityId = buildAdminMessageEntityKey(
           'group-message',
           message.ownerIdentifier,
-          message.attachment.mediaUrl,
-          message.attachment.size,
-          `Группа #${message.groupId} · ${message.text || message.attachment.fileName}`,
+          message.groupId,
+          message.id,
         )
+
+        pushItem({
+          attachment: message.attachment,
+          entityId: groupMessageEntityId,
+          entityLabel: `Группа: ${group?.title ?? `#${message.groupId}`}`,
+          entityType: 'group-message',
+          fileName: message.attachment.fileName,
+          mediaUrl: message.attachment.mediaUrl,
+          ownerIdentifier: message.ownerIdentifier,
+          relatedReportKeys: [groupMessageEntityId, message.attachment.mediaUrl],
+          relatedUsers: [buildAdminLinkedUser(message.ownerIdentifier)],
+          size: message.attachment.size,
+        })
       }
 
       for (const comment of message.threadComments ?? []) {
         if (!comment.attachment?.mediaUrl) continue
-        pushItem(
+        const commentOwnerIdentifier =
+          normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
+        const groupCommentEntityId = buildAdminMessageEntityKey(
           'group-comment',
-          normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier,
-          comment.attachment.mediaUrl,
-          comment.attachment.size,
-          `Тред группы #${message.groupId}`,
+          commentOwnerIdentifier,
+          message.groupId,
+          comment.id,
         )
+
+        pushItem({
+          attachment: comment.attachment,
+          entityId: groupCommentEntityId,
+          entityLabel: `Комментарии группы: ${group?.title ?? `#${message.groupId}`}`,
+          entityType: 'group-comment',
+          fileName: comment.attachment.fileName,
+          mediaUrl: comment.attachment.mediaUrl,
+          ownerIdentifier: commentOwnerIdentifier,
+          relatedReportKeys: [groupCommentEntityId, comment.attachment.mediaUrl],
+          relatedUsers: [buildAdminLinkedUser(commentOwnerIdentifier)],
+          size: comment.attachment.size,
+        })
       }
     }
 
     for (const post of this.database.subscriptionPosts) {
+      const channel =
+        this.findSubscriptionChannel(post.ownerIdentifier, post.channelId) ??
+        this.findManagedChannel(post.ownerIdentifier, post.channelId)
+
       if (post.attachment?.mediaUrl) {
-        pushItem(
+        const channelPostEntityId = buildAdminMessageEntityKey(
           'channel-post',
           post.ownerIdentifier,
-          post.attachment.mediaUrl,
-          post.attachment.size,
-          `Канал #${post.channelId} · ${post.text || post.attachment.fileName}`,
+          post.channelId,
+          post.id,
         )
+
+        pushItem({
+          attachment: post.attachment,
+          entityId: channelPostEntityId,
+          entityLabel: `Канал: ${channel?.title ?? `#${post.channelId}`}`,
+          entityType: 'channel-post',
+          fileName: post.attachment.fileName,
+          mediaUrl: post.attachment.mediaUrl,
+          ownerIdentifier: post.ownerIdentifier,
+          relatedReportKeys: [channelPostEntityId, post.attachment.mediaUrl],
+          relatedUsers: [buildAdminLinkedUser(post.ownerIdentifier)],
+          size: post.attachment.size,
+        })
       }
 
       for (const comment of post.threadComments ?? []) {
         if (!comment.attachment?.mediaUrl) continue
-        pushItem(
+        const commentOwnerIdentifier =
+          normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
+        const channelCommentEntityId = buildAdminMessageEntityKey(
           'channel-comment',
-          normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier,
-          comment.attachment.mediaUrl,
-          comment.attachment.size,
-          `Тред канала #${post.channelId}`,
+          commentOwnerIdentifier,
+          post.channelId,
+          comment.id,
         )
+
+        pushItem({
+          attachment: comment.attachment,
+          entityId: channelCommentEntityId,
+          entityLabel: `Комментарии канала: ${channel?.title ?? `#${post.channelId}`}`,
+          entityType: 'channel-comment',
+          fileName: comment.attachment.fileName,
+          mediaUrl: comment.attachment.mediaUrl,
+          ownerIdentifier: commentOwnerIdentifier,
+          relatedReportKeys: [channelCommentEntityId, comment.attachment.mediaUrl],
+          relatedUsers: [buildAdminLinkedUser(commentOwnerIdentifier)],
+          size: comment.attachment.size,
+        })
       }
     }
 

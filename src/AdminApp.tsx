@@ -494,6 +494,21 @@ export default function AdminApp() {
     }
   }
 
+  async function openUserFromAdmin(identifierToOpen: string) {
+    if (!sessionToken) return
+
+    try {
+      setSection('users')
+      setUserListFilter('all')
+      setUserQuery(identifierToOpen)
+      setSelectedUserIdentifier(identifierToOpen)
+      await refreshUsers(identifierToOpen)
+      await refreshSelectedUser(identifierToOpen)
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   const blockedUsersCount = users.filter((user) => user.blocked).length
   const visibleUsers =
     userListFilter === 'blocked' ? users.filter((user) => user.blocked) : users
@@ -945,25 +960,63 @@ export default function AdminApp() {
             <input
               className="admin-search-input"
               type="search"
-              placeholder="Поиск по owner, label или media URL"
+              placeholder="Поиск по типу, файлу, пользователю или media URL"
               value={mediaQuery}
               onChange={(event) => setMediaQuery(event.target.value)}
             />
 
-            <div className="admin-table">
-              <div className="admin-table-row admin-table-head">
-                <span>Type</span>
-                <span>Owner</span>
-                <span>Entity</span>
-                <span>Size</span>
-                <span>Actions</span>
+            <div className="admin-table admin-media-table">
+              <div className="admin-table-row admin-table-head admin-media-row">
+                <span>Тип</span>
+                <span>Владелец</span>
+                <span>Где находится</span>
+                <span>Файл</span>
+                <span>Размер</span>
+                <span>Жалобы</span>
+                <span>Действия</span>
               </div>
               {mediaItems.map((item) => (
-                <div key={`${item.entityType}-${item.mediaUrl}-${item.ownerIdentifier}`} className="admin-table-row">
-                  <span>{item.kind}</span>
-                  <span>{item.ownerIdentifier}</span>
-                  <span>{item.entityLabel}</span>
+                <div key={`${item.entityType}-${item.mediaUrl}-${item.owner.identifier}`} className="admin-table-row admin-media-row">
+                  <span>{item.typeLabel}</span>
+                  <span className="admin-cell-stack">
+                    <button
+                      type="button"
+                      className="admin-inline-link"
+                      onClick={() => void openUserFromAdmin(item.owner.identifier)}
+                    >
+                      {item.owner.displayName}
+                    </button>
+                    <span>{item.owner.identifier}</span>
+                  </span>
+                  <span className="admin-cell-stack">
+                    <strong>{item.contextLabel}</strong>
+                    {item.relatedUsers.length > 1 ? (
+                      <span className="admin-related-users">
+                        {item.relatedUsers.map((user, index) => (
+                          <span key={user.identifier}>
+                            {index > 0 ? <span className="admin-related-users-separator">↔</span> : null}
+                            <button
+                              type="button"
+                              className="admin-inline-link"
+                              onClick={() => void openUserFromAdmin(user.identifier)}
+                            >
+                              {user.displayName}
+                            </button>
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="admin-cell-stack">
+                    <strong>{item.fileName}</strong>
+                    <span>{item.mediaUrl.split('/').at(-1) ?? item.mediaUrl}</span>
+                  </span>
                   <span>{formatBytes(item.size)}</span>
+                  <span>
+                    <span className={item.relatedReportCount > 0 ? 'admin-report-count has-reports' : 'admin-report-count'}>
+                      {item.relatedReportCount}
+                    </span>
+                  </span>
                   <span className="admin-table-actions">
                     <button type="button" className="admin-secondary-button" onClick={() => void handleModerateMedia(item, 'hide')}>
                       Hide

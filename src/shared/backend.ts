@@ -70,6 +70,11 @@ export type AdminMediaItemEntityType =
   | 'channel-post'
   | 'channel-comment'
 
+export type AdminLinkedUser = {
+  displayName: string
+  identifier: string
+}
+
 export type RequestCodeBody = {
   captchaToken?: string
   identifier: string
@@ -203,16 +208,21 @@ export type AdminReportNoteBody = {
 }
 
 export type AdminMediaItem = {
+  contextLabel: string
   entityId?: string
   entityLabel: string
   entityType: AdminMediaItemEntityType
+  fileName: string
   hidden: boolean
   id: string
   kind: UploadMediaKind | 'unknown'
   linked: boolean
   mediaUrl: string
-  ownerIdentifier: string
+  owner: AdminLinkedUser
+  relatedReportCount: number
+  relatedUsers: AdminLinkedUser[]
   size: number
+  typeLabel: string
 }
 
 export type AdminMediaListResponse = {
