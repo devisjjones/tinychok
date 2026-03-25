@@ -1883,11 +1883,15 @@ function App() {
   const browserNotificationsSupported = browserNotificationStatus !== 'unsupported'
   const showBrowserNotificationsBanner =
     browserNotificationsSupported &&
-    browserNotificationStatus === 'default' &&
+    browserNotificationStatus !== 'granted' &&
     !browserNotificationsBannerDismissed &&
     !searchOpen &&
     topListView === 'none' &&
     bottomSection === 'chats'
+  const browserNotificationBannerBody =
+    browserNotificationStatus === 'denied'
+      ? 'Разрешение сейчас запрещено браузером. Откройте настройки сайта и включите уведомления.'
+      : 'Включите уведомления в браузере, чтобы быть в курсе новых сообщений.'
   const browserNotificationSettingsStatusLabel =
     browserNotificationStatus === 'granted'
       ? 'Включены'
@@ -11131,9 +11135,7 @@ function App() {
                   </span>
                   <span className="browser-notification-banner-copy">
                     <strong>Не пропускайте сообщения!</strong>
-                    <span>
-                      Включите уведомления в браузере, чтобы быть в курсе новых сообщений.
-                    </span>
+                    <span>{browserNotificationBannerBody}</span>
                   </span>
                 </button>
                 <button
