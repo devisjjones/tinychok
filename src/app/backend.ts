@@ -225,14 +225,34 @@ export class ApiError extends Error {
 }
 
 async function readJsonResponse<T>(response: Response) {
-  const payload = (await response.json()) as T | { message?: string }
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+  const expectsJson = contentType.includes('application/json')
+  let payload: T | { message?: string } | undefined
+
+  try {
+    if (expectsJson) {
+      payload = (await response.json()) as T | { message?: string }
+    } else {
+      await response.text()
+    }
+  } catch (error) {
+    if (response.ok) {
+      throw error
+    }
+  }
 
   if (!response.ok) {
-    const apiError = payload as { message?: string }
-    const message = typeof apiError.message === 'string'
+    const apiError = payload as { message?: string } | undefined
+    const message = typeof apiError?.message === 'string'
       ? apiError.message
-      : 'Не удалось выполнить запрос к серверу.'
+      : response.status === 413
+        ? 'Файл слишком большой для текущего upload-контура.'
+        : 'Не удалось выполнить запрос к серверу.'
     throw new ApiError(message, response.status)
+  }
+
+  if (!payload) {
+    throw new ApiError('Сервер вернул неожиданный ответ.', response.status)
   }
 
   return payload as T

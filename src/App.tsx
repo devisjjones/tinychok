@@ -670,6 +670,22 @@ function getErrorMessage(error: unknown, fallbackMessage: string) {
   return fallbackMessage
 }
 
+function dedupeChatsByNormalizedPhone(chats: Chat[]) {
+  const seenKeys = new Set<string>()
+
+  return chats.filter((chat) => {
+    const normalizedPhone = normalizeIdentifier(chat.phone)
+    const dedupeKey = normalizedPhone || `dialog:${chat.id}`
+
+    if (seenKeys.has(dedupeKey)) {
+      return false
+    }
+
+    seenKeys.add(dedupeKey)
+    return true
+  })
+}
+
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
   const threadSourceRef = useRef<HTMLDivElement | null>(null)
@@ -1179,14 +1195,18 @@ function App() {
   }, [activeSubscriptionChannelId, previewSubscriptionChannel, resetBlacklistFlow, resetThreadState, threadTargetKind])
 
   const blockedContactIds = session?.blockedContactIds ?? []
-  const availableChats = sortChatsByRecentActivity(
-    chats.filter((chat) => !blockedContactIds.includes(chat.id)),
+  const availableChats = dedupeChatsByNormalizedPhone(
+    sortChatsByRecentActivity(
+      chats.filter((chat) => !blockedContactIds.includes(chat.id)),
+    ),
   )
   const creatableGroupChats = availableChats.filter(
     (chat) => normalizeIdentifier(chat.phone) !== normalizeIdentifier(session?.identifier ?? ''),
   )
-  const blockedChats = sortChatsByRecentActivity(
-    chats.filter((chat) => blockedContactIds.includes(chat.id)),
+  const blockedChats = dedupeChatsByNormalizedPhone(
+    sortChatsByRecentActivity(
+      chats.filter((chat) => blockedContactIds.includes(chat.id)),
+    ),
   )
   const visibleRetainedAllChatId =
     activeFilter === 'Все' &&

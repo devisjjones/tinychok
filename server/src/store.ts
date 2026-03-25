@@ -8186,7 +8186,8 @@ export class TinychokStore {
   private ensureDialogForContact(ownerIdentifier: string, contactAccount: Account) {
     const existingDialog = this.database.dialogs.find(
       (dialog) =>
-        dialog.ownerIdentifier === ownerIdentifier && dialog.phone === contactAccount.identifier,
+        dialog.ownerIdentifier === ownerIdentifier &&
+        normalizeIdentifier(dialog.phone) === contactAccount.identifier,
     )
 
     if (existingDialog) {
@@ -8871,6 +8872,7 @@ function applyProductionFixtureCleanup(database: Database) {
 }
 
 function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewrite: boolean) {
+  const normalizedDuplicateDialogs = normalizePersistedDuplicateDialogs(database)
   const dedupePersistedMessages = dedupePersistedMessagesByDeliveryId(database)
   const ensuredManagedChannelOwnerCopies = ensureManagedChannelOwnerCopies(database)
   const repairedSubscriptionChannelIdentities = repairSubscriptionChannelIdentityConflicts(database)
@@ -8884,12 +8886,165 @@ function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewri
     database: nextState.database,
     needsPersistenceRewrite:
       needsPersistenceRewrite ||
+      normalizedDuplicateDialogs ||
       dedupePersistedMessages ||
       ensuredManagedChannelOwnerCopies ||
       repairedSubscriptionChannelIdentities ||
       dedupeSubscriptionPosts ||
       nextState.needsPersistenceRewrite,
   }
+}
+
+function normalizePersistedDuplicateDialogs(database: Database) {
+  let didMutate = false
+  const accountsByIdentifier = new Map(database.accounts.map((account) => [account.identifier, account] as const))
+  const dialogGroups = new Map<string, PersistedDialog[]>()
+
+  for (const dialog of database.dialogs) {
+    const normalizedPhone = normalizeIdentifier(dialog.phone)
+    if (!normalizedPhone) continue
+
+    const groupKey = `${dialog.ownerIdentifier}:${normalizedPhone}`
+    const currentGroup = dialogGroups.get(groupKey)
+    if (currentGroup) {
+      currentGroup.push(dialog)
+    } else {
+      dialogGroups.set(groupKey, [dialog])
+    }
+  }
+
+  for (const dialogs of dialogGroups.values()) {
+    if (dialogs.length < 2) continue
+
+    const sortedDialogs = [...dialogs].sort((left, right) => {
+      const leftExact = Number(normalizeIdentifier(left.phone) !== left.phone)
+      const rightExact = Number(normalizeIdentifier(right.phone) !== right.phone)
+      if (leftExact !== rightExact) {
+        return leftExact - rightExact
+      }
+
+      return left.id - right.id
+    })
+    const canonicalDialog = sortedDialogs[0]
+    if (!canonicalDialog) continue
+
+    const dialogIds = new Set(sortedDialogs.map((dialog) => dialog.id))
+    const duplicateDialogIds = new Set(sortedDialogs.slice(1).map((dialog) => dialog.id))
+    if (duplicateDialogIds.size === 0) continue
+
+    const mergedSourceMessages = database.dialogMessages
+      .filter(
+        (message) =>
+          message.ownerIdentifier === canonicalDialog.ownerIdentifier && dialogIds.has(message.dialogId),
+      )
+      .sort((left, right) => {
+        const leftCreatedAt = parseIsoDate(left.createdAt)
+        const rightCreatedAt = parseIsoDate(right.createdAt)
+
+        if (leftCreatedAt !== null && rightCreatedAt !== null && leftCreatedAt !== rightCreatedAt) {
+          return leftCreatedAt - rightCreatedAt
+        }
+
+        if (leftCreatedAt !== null && rightCreatedAt === null) return -1
+        if (leftCreatedAt === null && rightCreatedAt !== null) return 1
+        if (left.dialogId !== right.dialogId) return left.dialogId - right.dialogId
+        return left.id - right.id
+      })
+
+    const seenMessageKeys = new Set<string>()
+    const mergedMessages = mergedSourceMessages.flatMap((message) => {
+      const deliveryId = message.deliveryId?.trim()
+      const dedupeKey = deliveryId
+        ? `delivery:${deliveryId}`
+        : `legacy:${message.dialogId}:${message.id}:${message.author}:${message.createdAt ?? ''}:${message.text.trim()}`
+
+      if (seenMessageKeys.has(dedupeKey)) {
+        didMutate = true
+        return []
+      }
+
+      seenMessageKeys.add(dedupeKey)
+      return [{
+        message,
+        sourceDialogId: message.dialogId,
+        sourceMessageId: message.id,
+      }]
+    })
+
+    const oldToNewMessageId = new Map<string, number>()
+    mergedMessages.forEach((entry, index) => {
+      oldToNewMessageId.set(`${entry.sourceDialogId}:${entry.sourceMessageId}`, index + 1)
+    })
+
+    const rewrittenMessages = mergedMessages.map(({ message, sourceDialogId }, index) => {
+      const replyToId = message.replyTo?.id
+      const remappedReplyToId =
+        replyToId === undefined ? undefined : oldToNewMessageId.get(`${sourceDialogId}:${replyToId}`)
+
+      return {
+        ...message,
+        dialogId: canonicalDialog.id,
+        id: index + 1,
+        replyTo:
+          message.replyTo && remappedReplyToId !== undefined
+            ? {
+                ...message.replyTo,
+                id: remappedReplyToId,
+              }
+            : undefined,
+      } satisfies PersistedDialogMessage
+    })
+
+    const pinnedMessageId = sortedDialogs
+      .flatMap((dialog) =>
+        dialog.pinnedMessageId === undefined
+          ? []
+          : [oldToNewMessageId.get(`${dialog.id}:${dialog.pinnedMessageId}`)],
+      )
+      .find((value): value is number => typeof value === 'number')
+
+    canonicalDialog.phone = normalizeIdentifier(canonicalDialog.phone) || canonicalDialog.phone
+    canonicalDialog.muted = sortedDialogs.some((dialog) => Boolean(dialog.muted))
+    canonicalDialog.pinned = sortedDialogs.some((dialog) => Boolean(dialog.pinned))
+    canonicalDialog.pinnedMessageId = pinnedMessageId
+    canonicalDialog.typing = sortedDialogs.some((dialog) => Boolean(dialog.typing))
+    canonicalDialog.unread = sortedDialogs.reduce(
+      (maxUnread, dialog) => Math.max(maxUnread, dialog.unread),
+      canonicalDialog.unread,
+    )
+    canonicalDialog.isTestEntity = sortedDialogs.some((dialog) => Boolean(dialog.isTestEntity))
+
+    database.dialogMessages = database.dialogMessages
+      .filter(
+        (message) =>
+          !(
+            message.ownerIdentifier === canonicalDialog.ownerIdentifier &&
+            dialogIds.has(message.dialogId)
+          ),
+      )
+      .concat(rewrittenMessages)
+
+    database.dialogs = database.dialogs.filter(
+      (dialog) =>
+        !(
+          dialog.ownerIdentifier === canonicalDialog.ownerIdentifier &&
+          duplicateDialogIds.has(dialog.id)
+        ),
+    )
+
+    const ownerAccount = accountsByIdentifier.get(canonicalDialog.ownerIdentifier)
+    if (ownerAccount?.blockedContactIds?.length) {
+      ownerAccount.blockedContactIds = [...new Set(
+        ownerAccount.blockedContactIds.map((dialogId) =>
+          dialogIds.has(dialogId) ? canonicalDialog.id : dialogId,
+        ),
+      )]
+    }
+
+    didMutate = true
+  }
+
+  return didMutate
 }
 
 function ensureManagedChannelOwnerCopies(database: Database) {
