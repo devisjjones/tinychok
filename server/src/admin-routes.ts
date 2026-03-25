@@ -192,9 +192,7 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       const auth = requireAdminActor(store, request, reply, 'users.read')
       if (!auth) return reply
 
-      return {
-        users: store.adminSearchUsers(getSearchQuery(request)),
-      } satisfies AdminUsersResponse
+      return store.adminSearchUsers(getSearchQuery(request)) satisfies AdminUsersResponse
     } catch (error) {
       return sendError(reply, error)
     }

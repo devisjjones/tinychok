@@ -2114,11 +2114,48 @@ export class TinychokStore {
 
   getAdminDashboard(): AdminDashboardResponse {
     const totalUsers = this.database.accounts.length
-    const premiumUsers = this.database.accounts.filter((account) =>
-      hasActivePremium(account.premium, account.premiumExpiresAt),
-    ).length
+    const blockedUsers = this.database.accounts.filter((account) => isAccountBlocked(account)).length
+    let premiumUsers = 0
+    let monthlyPremiumUsers = 0
+    let yearlyPremiumUsers = 0
+
+    for (const account of this.database.accounts) {
+      if (!hasActivePremium(account.premium, account.premiumExpiresAt)) continue
+      premiumUsers += 1
+
+      const expiresAt = account.premiumExpiresAt ? Date.parse(account.premiumExpiresAt) : NaN
+      const daysLeft = Number.isNaN(expiresAt)
+        ? 30
+        : Math.max(0, Math.ceil((expiresAt - Date.now()) / (1000 * 60 * 60 * 24)))
+
+      if (daysLeft >= 180) {
+        yearlyPremiumUsers += 1
+      } else {
+        monthlyPremiumUsers += 1
+      }
+    }
+
     const openReports = this.database.adminReports.filter((report) => report.status === 'open').length
+    const closedReports = this.database.adminReports.filter((report) => report.status === 'closed').length
     const mediaItems = this.collectAdminMediaItems()
+    const totalChannels = new Set(this.database.managedChannels.map((channel) => buildAdminChannelAggregateKey(channel))).size
+    const totalGroups = new Set(this.database.groups.map((group) => buildAdminGroupAggregateKey(group))).size
+    const threadIds = new Set<string>()
+
+    for (const message of this.database.groupMessages) {
+      const group = this.findGroup(message.ownerIdentifier, message.groupId)
+      if (!group) continue
+      if (compactThreadComments(message.threadComments).length === 0) continue
+      threadIds.add(getGroupMessageThreadId(group, message))
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      const channel = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+      if (!channel) continue
+      if (compactThreadComments(post.threadComments).length === 0) continue
+      threadIds.add(getSubscriptionPostThreadId(channel, post))
+    }
+
     const usedStorageBytes = this.database.accounts.reduce(
       (total, account) => total + this.getStorageUsage(account.identifier).usedBytes,
       0,
@@ -2126,11 +2163,18 @@ export class TinychokStore {
 
     return {
       metrics: {
+        blockedUsers,
+        closedReports,
+        monthlyPremiumUsers,
         openReports,
         premiumUsers,
+        totalChannels,
+        totalGroups,
         totalMediaItems: mediaItems.length,
+        totalThreads: threadIds.size,
         totalUsers,
         usedStorageBytes,
+        yearlyPremiumUsers,
       },
     }
   }
@@ -2141,7 +2185,7 @@ export class TinychokStore {
     const normalizedIdentifier = normalizeIdentifier(trimmedQuery)
     const digitsQuery = trimmedQuery.replace(/[^\d]/g, '')
 
-    return this.database.accounts
+    const users = this.database.accounts
       .filter((account) => {
         if (!trimmedQuery) return true
 
@@ -2166,6 +2210,12 @@ export class TinychokStore {
       })
       .slice(0, 20)
       .map((account) => this.buildAdminUserSummary(account))
+
+    return {
+      blockedUsers: this.database.accounts.filter((account) => isAccountBlocked(account)).length,
+      totalUsers: this.database.accounts.length,
+      users,
+    }
   }
 
   adminGetUser(identifier: string) {
@@ -2576,6 +2626,7 @@ export class TinychokStore {
         latestActivityAt: comments.at(-1)?.createdAt ?? message.createdAt,
         owner: buildAdminLinkedUser(message.ownerIdentifier),
         relatedReportCount: 0,
+        sourceGroupId: buildAdminGroupAggregateKey(group),
         sourceText: message.text || message.attachment?.fileName || 'Без текста',
         title: message.text || message.attachment?.fileName || 'Сообщение без текста',
       })
@@ -2597,6 +2648,7 @@ export class TinychokStore {
         latestActivityAt: comments.at(-1)?.createdAt ?? post.createdAt,
         owner: buildAdminLinkedUser(post.ownerIdentifier),
         relatedReportCount: 0,
+        sourceChannelHandle: sanitizeChannelDirectLink(channel.handle) || channel.handle,
         sourceText: post.text || post.attachment?.fileName || 'Без текста',
         title: post.text || post.attachment?.fileName || 'Пост без текста',
       })

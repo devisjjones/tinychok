@@ -114,11 +114,18 @@ export type AdminBootstrapResponse = {
 
 export type AdminDashboardResponse = {
   metrics: {
+    blockedUsers: number
+    closedReports: number
+    monthlyPremiumUsers: number
     openReports: number
     premiumUsers: number
+    totalChannels: number
+    totalGroups: number
     totalMediaItems: number
+    totalThreads: number
     totalUsers: number
     usedStorageBytes: number
+    yearlyPremiumUsers: number
   }
 }
 
@@ -140,6 +147,8 @@ export type AdminUserSummary = {
 }
 
 export type AdminUsersResponse = {
+  blockedUsers: number
+  totalUsers: number
   users: AdminUserSummary[]
 }
 
@@ -271,6 +280,8 @@ export type AdminThreadSummary = {
   latestActivityAt?: string
   owner: AdminLinkedUser
   relatedReportCount: number
+  sourceChannelHandle?: string
+  sourceGroupId?: string
   sourceText: string
   title: string
 }

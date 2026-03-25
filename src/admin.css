@@ -347,6 +347,11 @@
   min-width: 0;
 }
 
+.admin-section-note {
+  color: var(--admin-muted);
+  font-size: 13px;
+}
+
 .admin-filter-tabs {
   display: flex;
   gap: 10px;
@@ -646,16 +651,22 @@
   grid-template-columns: 140px 180px minmax(220px, 1.2fr) minmax(220px, 1fr) 100px 90px 220px;
 }
 
+.admin-media-table,
 .admin-audit-table {
   overflow-x: auto;
   padding-bottom: 6px;
 }
 
+.admin-media-table .admin-media-row {
+  min-width: 1360px;
+  width: 1360px;
+}
+
 .admin-audit-table .admin-table-row {
   grid-template-columns: 170px 220px 190px minmax(240px, 1.1fr) minmax(180px, 0.8fr) minmax(320px, 1.4fr);
   align-items: start;
-  min-width: 1520px;
-  width: max-content;
+  min-width: 1720px;
+  width: 1720px;
 }
 
 .admin-table-head {

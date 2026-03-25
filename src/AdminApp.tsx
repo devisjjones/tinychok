@@ -185,6 +185,8 @@ export default function AdminApp() {
 
   const [dashboard, setDashboard] = useState<AdminDashboardResponse | null>(null)
   const [users, setUsers] = useState<AdminUserSummary[]>([])
+  const [totalUserCount, setTotalUserCount] = useState(0)
+  const [blockedUserTotalCount, setBlockedUserTotalCount] = useState(0)
   const [userQuery, setUserQuery] = useState('')
   const [userListFilter, setUserListFilter] = useState<AdminUserListFilter>('all')
   const [selectedUserIdentifier, setSelectedUserIdentifier] = useState('')
@@ -283,6 +285,8 @@ export default function AdminApp() {
     if (!sessionToken) return
 
     const response = await searchAdminUsers(sessionToken, query)
+    setTotalUserCount(response.totalUsers)
+    setBlockedUserTotalCount(response.blockedUsers)
     setUsers(response.users)
   }
 
@@ -901,6 +905,32 @@ export default function AdminApp() {
     }
   }
 
+  async function openChannelFromAdmin(handleToOpen: string) {
+    if (!sessionToken || !handleToOpen) return
+
+    try {
+      setSection('channels')
+      setChannelQuery(handleToOpen)
+      setSelectedChannelHandle(handleToOpen)
+      await refreshChannels(handleToOpen)
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function openGroupFromAdmin(groupIdToOpen: string) {
+    if (!sessionToken || !groupIdToOpen) return
+
+    try {
+      setSection('groups')
+      setGroupQuery(groupIdToOpen)
+      setSelectedGroupId(groupIdToOpen)
+      await refreshGroups(groupIdToOpen)
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   function handleSelectDialogOwner(user: AdminUserSummary) {
     setSelectedDialogOwner(user)
     setDialogOwnerQuery('')
@@ -929,7 +959,7 @@ export default function AdminApp() {
     setDialogPeerQuery('')
   }
 
-  const blockedUsersCount = users.filter((user) => user.blocked).length
+  const blockedUsersCount = blockedUserTotalCount
   const visibleUsers =
     userListFilter === 'blocked' ? users.filter((user) => user.blocked) : users
   const selectedChannel = channels.find((channel) => channel.handle === selectedChannelHandle) ?? null
@@ -1102,12 +1132,32 @@ export default function AdminApp() {
                 <strong>{dashboard?.metrics.totalUsers ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
-                <span>Premium</span>
-                <strong>{dashboard?.metrics.premiumUsers ?? '...'}</strong>
+                <span>Reports · Открытые</span>
+                <strong>{dashboard?.metrics.openReports ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
-                <span>Жалобы</span>
-                <strong>{dashboard?.metrics.openReports ?? '...'}</strong>
+                <span>Reports · Закрытые</span>
+                <strong>{dashboard?.metrics.closedReports ?? '...'}</strong>
+              </article>
+              <article className="admin-metric-card">
+                <span>Premium · Месячные</span>
+                <strong>{dashboard?.metrics.monthlyPremiumUsers ?? '...'}</strong>
+              </article>
+              <article className="admin-metric-card">
+                <span>Premium · Годовые</span>
+                <strong>{dashboard?.metrics.yearlyPremiumUsers ?? '...'}</strong>
+              </article>
+              <article className="admin-metric-card">
+                <span>Группы</span>
+                <strong>{dashboard?.metrics.totalGroups ?? '...'}</strong>
+              </article>
+              <article className="admin-metric-card">
+                <span>Каналы</span>
+                <strong>{dashboard?.metrics.totalChannels ?? '...'}</strong>
+              </article>
+              <article className="admin-metric-card">
+                <span>Треды</span>
+                <strong>{dashboard?.metrics.totalThreads ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
                 <span>Media items</span>
@@ -1133,7 +1183,7 @@ export default function AdminApp() {
                   className={userListFilter === 'all' ? 'admin-filter-tab active' : 'admin-filter-tab'}
                   onClick={() => setUserListFilter('all')}
                 >
-                  {`Все (${users.length})`}
+                  {`Все (${totalUserCount})`}
                 </button>
                 <button
                   type="button"
@@ -1142,6 +1192,11 @@ export default function AdminApp() {
                 >
                   {`Заблокированные (${blockedUsersCount})`}
                 </button>
+              </div>
+              <div className="admin-section-note">
+                {userQuery.trim()
+                  ? `Показаны последние ${users.length} результатов по текущему поиску.`
+                  : `Показаны последние ${users.length} пользователей из ${totalUserCount}.`}
               </div>
               <input
                 className="admin-search-input"
@@ -1738,8 +1793,18 @@ export default function AdminApp() {
                     <div className="admin-user-identity">
                       <h2>{selectedThread.title}</h2>
                       <div className="admin-user-identity-meta">
-                        <span>{selectedThread.kind === 'group' ? 'Тред группы' : 'Тред канала'}</span>
-                        <span>{selectedThread.id}</span>
+                        <span>{selectedThread.kind === 'group' ? 'Источник треда: группа' : 'Источник треда: канал'}</span>
+                        <button
+                          type="button"
+                          className="admin-inline-link"
+                          onClick={() =>
+                            selectedThread.kind === 'group'
+                              ? void openGroupFromAdmin(selectedThread.sourceGroupId ?? '')
+                              : void openChannelFromAdmin(selectedThread.sourceChannelHandle ?? '')
+                          }
+                        >
+                          {selectedThread.contextLabel}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1774,7 +1839,19 @@ export default function AdminApp() {
                     </div>
                     <div>
                       <dt>Контекст</dt>
-                      <dd>{selectedThread.contextLabel}</dd>
+                      <dd>
+                        <button
+                          type="button"
+                          className="admin-inline-link"
+                          onClick={() =>
+                            selectedThread.kind === 'group'
+                              ? void openGroupFromAdmin(selectedThread.sourceGroupId ?? '')
+                              : void openChannelFromAdmin(selectedThread.sourceChannelHandle ?? '')
+                          }
+                        >
+                          {selectedThread.contextLabel}
+                        </button>
+                      </dd>
                     </div>
                     <div>
                       <dt>Текст корневого сообщения</dt>
@@ -1896,21 +1973,21 @@ export default function AdminApp() {
                 <>
                   <div className="admin-panel-heading">
                     <div className="admin-user-identity">
-                      <h2>Диалоги пользователя</h2>
+                      <h2>{dialogDetail ? `${dialogDetail.owner.displayName} ↔ ${dialogDetail.peer.displayName}` : 'Диалоги пользователя'}</h2>
                       <div className="admin-user-identity-meta">
                         <span>{selectedDialogOwner.displayName}</span>
                         <span>{selectedDialogOwner.identifier}</span>
-                        <span>{`${dialogs.length} найдено`}</span>
+                        {!dialogDetail ? <span>{`${dialogs.length} найдено`}</span> : null}
                       </div>
                     </div>
                   </div>
-                  {dialogs.length > 0 ? (
+                  {!dialogDetail && dialogs.length > 0 ? (
                     <div className="admin-list admin-dialog-list">
                       {dialogs.map((dialog) => (
                         <button
                           key={dialog.sharedKey}
                           type="button"
-                          className={dialogDetail?.sharedKey === dialog.sharedKey ? 'admin-list-item active' : 'admin-list-item'}
+                          className="admin-list-item"
                           onClick={() => handleSelectDialog(dialog)}
                         >
                           <strong>{dialog.peer.displayName}</strong>
@@ -1920,13 +1997,13 @@ export default function AdminApp() {
                         </button>
                       ))}
                     </div>
-                  ) : (
+                  ) : !dialogDetail ? (
                     <div className="admin-empty-state">
                       {dialogPeerQuery.trim()
                         ? 'Диалоги по текущему фильтру не найдены.'
                         : 'У выбранного пользователя пока нет доступных диалогов.'}
                     </div>
-                  )}
+                  ) : null}
 
                   {dialogDetail ? (
                     <>
@@ -1942,10 +2019,6 @@ export default function AdminApp() {
                         <div>
                           <dt>Количество сообщений</dt>
                           <dd>{dialogDetail.messageCount}</dd>
-                        </div>
-                        <div>
-                          <dt>Preview</dt>
-                          <dd>{dialogDetail.preview}</dd>
                         </div>
                       </dl>
                       <div className="admin-actions-panel">

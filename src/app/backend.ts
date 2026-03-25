@@ -424,6 +424,8 @@ export async function searchAdminUsers(sessionToken: string, query: string) {
 
   const payload = await readJsonResponse<AdminUsersResponse>(response)
   return {
+    blockedUsers: payload.blockedUsers,
+    totalUsers: payload.totalUsers,
     users: payload.users.map((user) => ({
       ...user,
       avatarImage: user.avatarImage ? resolveMediaUrl(user.avatarImage) : user.avatarImage,
