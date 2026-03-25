@@ -73,9 +73,12 @@ npm run bootstrap:staff -- <identifier> owner
 ```
 
 - channels в admin считаются reference implementation для dedupe:
-  - одна строка в списке должна соответствовать одному продуктового каналу
+  - одна строка в списке должна соответствовать одному продуктовому каналу
   - viewer-copies и subscription-copies не должны дублироваться в moderation UI
   - canonical aggregation должна идти по владельцу + нормализованному handle, а не по внутренним fan-out копиям
+- groups в admin должны отображаться один раз на группу, а не по числу участников
+- threads в admin должны отображаться один раз на корневое сообщение треда, а не по числу комментариев
+- dashboard обязан брать метрики из тех же canonical aggregate-источников, что и detail screens, иначе staff увидит рассинхрон между `Сводкой` и самим разделом
 
 ## Standard Deploy Flow
 
@@ -124,8 +127,20 @@ curl -s https://api.staging.tinychok.ru/healthz
 - avatar update
 - storage quota warning / block
 - admin login под staff account
-- dashboard cards в admin
-- user search, block / unblock, premium toggle
-- report queue, note, close, restrict user
-- media hide / delete
-- audit log
+- dashboard cards в admin:
+  - пользователи
+  - открытые / закрытые жалобы
+  - monthly / yearly premium split
+  - группы
+  - каналы
+  - треды
+- `Пользователи`: search, block / unblock, premium toggle, avatar view
+- `Жалобы`: unread badge, open / close, note trail, блокировка пользователя
+- `Жалобы` для media:
+  - `Посмотреть` пишет audit entry
+  - `Hide` скрывает из чата целиком сообщение / пост / комментарий
+  - `Delete` скрывает из UI и физически удаляет media-object
+- `Медиа`: timestamp sort, download, hide / delete
+- `Каналы` / `Группы` / `Треды`: одна строка на одну каноническую сущность без fan-out дублей
+- `Диалоги`: выбор двух пользователей и CSV export одного канонического диалога
+- `Аудит лог`: actor filter, period filter, CSV export и запись admin-действий

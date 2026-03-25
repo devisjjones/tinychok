@@ -21,11 +21,22 @@
 
 Остальные получают понятную ошибку о том, что номер пока не включён в список тестеров.
 
+### Admin Guard
+
+- одного `basic auth` для админки недостаточно
+- admin frontend должен открываться только на разрешённых admin host-ах
+- admin API дополнительно режется server-side:
+  - по staff role
+  - по permission matrix
+  - по admin origin / host gating
+- production admin остаётся выключенным по умолчанию через `ADMIN_PANEL_ENABLED=false`
+
 ## Why Both Locks Matter
 
 - frontend guard закрывает сам UI от случайных посетителей
 - отдельный guard на `admin.staging.tinychok.ru` закрывает internal staff UI от случайного открытия
 - backend allowlist не даёт использовать staging auth любому номеру, даже если кто-то знает URL API
+- staff role и permission matrix не дают обычному staging-пользователю получить доступ к admin API даже после логина
 
 Эти два замка дополняют друг друга и не заменяют один другой.
 
@@ -39,6 +50,8 @@
 - admin API
 - websocket connect
 - auth request / verify / register flow
+- CSV export из admin
+- content preview и media download из admin
 
 Новые product-механики не должны требовать ослабления `basic auth` или allowlist-а.
 
@@ -53,6 +66,14 @@ curl -s https://api.staging.tinychok.ru/healthz
 ```
 
 Если user frontend или admin frontend внезапно открываются без basic auth, либо неподдерживаемый номер снова может пройти auth, проблема уже не в UI, а в `nginx` или staging `.env`.
+
+Если браузер показывает предупреждение о сертификате, а `curl -Iv https://admin.staging.tinychok.ru` возвращает:
+
+- `subjectAltName matched`
+- `issuer: Let's Encrypt`
+- `SSL certificate verify ok`
+
+то проблема уже не в серверном сертификате, а в локальном кэше браузера / stale site state.
 
 ## Secrets That Must Stay Out Of Chat And Git
 
