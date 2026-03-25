@@ -760,7 +760,7 @@ function getAdminGroupCanonicalOwnerIdentifier(
 ) {
   return (
     normalizeIdentifier(group.creatorIdentifier ?? '') ||
-    normalizeIdentifier(group.participants[0]?.identifier ?? '') ||
+    normalizeIdentifier(group.participants?.[0]?.identifier ?? '') ||
     group.ownerIdentifier
   )
 }

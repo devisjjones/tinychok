@@ -181,7 +181,7 @@ const reportActionLabels: Record<AdminReportAction, string> = {
   close_report: 'Закрыть жалобу',
   delete_entity: 'Удалить сущность',
   hide_entity: 'Скрыть сущность',
-  restrict_user: 'Ограничить пользователя',
+  restrict_user: 'Заблокировать пользователя',
 }
 
 function getErrorMessage(error: unknown) {
@@ -1547,7 +1547,7 @@ export default function AdminApp() {
                       </button>
                       {selectedReport.canRestrictUser ? (
                         <button type="button" className="admin-secondary-button" onClick={() => void handleApplyReportAction('restrict_user')}>
-                          Ограничить пользователя
+                          Заблокировать пользователя
                         </button>
                       ) : null}
                       {selectedReport.canHide ? (
