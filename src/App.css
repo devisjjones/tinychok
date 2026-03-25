@@ -1451,7 +1451,18 @@
 }
 
 .channel-avatar-device-card {
+  display: grid;
   gap: 12px;
+  justify-items: center;
+  text-align: center;
+}
+
+.channel-avatar-device-button {
+  justify-self: center;
+}
+
+.channel-avatar-device-link {
+  font-size: 0.82rem;
 }
 
 .channel-avatar-picker-actions {

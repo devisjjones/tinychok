@@ -7095,6 +7095,45 @@ function App() {
     openChannelsView('create')
   }
 
+  function openManagedChannelRoom(channel: Channel) {
+    const normalizedHandle = sanitizeChannelDirectLink(channel.directLink)
+    const existingSubscriptionChannel = subscriptionChannels.find(
+      (candidate) =>
+        candidate.id === channel.id ||
+        (normalizedHandle !== '' &&
+          sanitizeChannelDirectLink(candidate.handle) === normalizedHandle),
+    )
+
+    if (existingSubscriptionChannel) {
+      openSubscriptionChannel(existingSubscriptionChannel.id)
+      return
+    }
+
+    setStageView('main')
+    setRetainedAllChatId(null)
+    setRetainedFavoriteChatId(null)
+    setRetainedGroupId(null)
+    setRetainedSubscriptionChannelId(null)
+    setActiveChatId(null)
+    setActiveGroupId(null)
+    resetGroupMessageActions()
+    setPreviewSubscriptionChannel(buildPreviewSubscriptionChannelFromManagedChannel(channel))
+    setActiveSubscriptionChannelId(null)
+    setChannelPostReplyTarget(null)
+    resetSubscriptionPostActions()
+    setChannelActionsAnchor(null)
+    setChannelShareOpen(false)
+    setChannelShareBusy(false)
+    setChannelShareError('')
+    setChannelReportOpen(false)
+    setChannelReportBusy(false)
+    setChannelReportError('')
+    setChannelReportSuccessOpen(false)
+    setConfirmingLeaveSubscriptionChannelId(null)
+    setTopListView('channels')
+    setSearchOpen(false)
+  }
+
   function openChannelDetailView(channelId: number) {
     setChannelManagementOpenId(null)
     setActiveChannelId(channelId)
@@ -7206,11 +7245,15 @@ function App() {
     const currentHandle = sanitizeChannelDirectLink(existingChannel?.directLink ?? '')
     const nextHandle = sanitizeChannelDirectLink(normalizedPatch.directLink ?? existingChannel?.directLink ?? '')
     const shouldSyncRoomChannel =
+      normalizedPatch.directLink !== undefined ||
       normalizedPatch.title !== undefined ||
       normalizedPatch.visibility !== undefined ||
+      normalizedPatch.avatarTone !== undefined ||
+      normalizedPatch.avatarImage !== undefined ||
       normalizedPatch.commentsEnabledForAll !== undefined ||
       normalizedPatch.commentsEnabledForPremium !== undefined ||
-      normalizedPatch.commentBlacklistIdentifiers !== undefined
+      normalizedPatch.commentBlacklistIdentifiers !== undefined ||
+      normalizedPatch.status !== undefined
 
     if (shouldSyncRoomChannel) {
       setSubscriptionChannels((currentChannels) =>
@@ -7224,9 +7267,16 @@ function App() {
           return matchesManagedChannel
             ? {
                 ...channel,
+                ...(normalizedPatch.directLink !== undefined ? { handle: normalizedPatch.directLink } : {}),
                 ...(normalizedPatch.title !== undefined ? { title: normalizedPatch.title } : {}),
                 ...(normalizedPatch.visibility !== undefined
                   ? { visibility: normalizedPatch.visibility }
+                  : {}),
+                ...(normalizedPatch.avatarTone !== undefined
+                  ? { accent: normalizedPatch.avatarTone }
+                  : {}),
+                ...(normalizedPatch.avatarImage !== undefined
+                  ? { avatarImage: normalizedPatch.avatarImage }
                   : {}),
                 ...(normalizedPatch.commentsEnabledForAll !== undefined
                   ? { commentsEnabledForAll: normalizedPatch.commentsEnabledForAll }
@@ -7236,6 +7286,9 @@ function App() {
                   : {}),
                 ...(normalizedPatch.commentBlacklistIdentifiers !== undefined
                   ? { commentBlacklistIdentifiers: normalizedPatch.commentBlacklistIdentifiers }
+                  : {}),
+                ...(normalizedPatch.status !== undefined
+                  ? { draft: normalizedPatch.status === 'draft' }
                   : {}),
               }
             : channel
@@ -7254,9 +7307,16 @@ function App() {
         return matchesManagedChannel
           ? {
               ...currentChannel,
+              ...(normalizedPatch.directLink !== undefined ? { handle: normalizedPatch.directLink } : {}),
               ...(normalizedPatch.title !== undefined ? { title: normalizedPatch.title } : {}),
               ...(normalizedPatch.visibility !== undefined
                 ? { visibility: normalizedPatch.visibility }
+                : {}),
+              ...(normalizedPatch.avatarTone !== undefined
+                ? { accent: normalizedPatch.avatarTone }
+                : {}),
+              ...(normalizedPatch.avatarImage !== undefined
+                ? { avatarImage: normalizedPatch.avatarImage }
                 : {}),
               ...(normalizedPatch.commentsEnabledForAll !== undefined
                 ? { commentsEnabledForAll: normalizedPatch.commentsEnabledForAll }
@@ -7266,6 +7326,9 @@ function App() {
                 : {}),
               ...(normalizedPatch.commentBlacklistIdentifiers !== undefined
                 ? { commentBlacklistIdentifiers: normalizedPatch.commentBlacklistIdentifiers }
+                : {}),
+              ...(normalizedPatch.status !== undefined
+                ? { draft: normalizedPatch.status === 'draft' }
                 : {}),
             }
           : currentChannel
@@ -9929,7 +9992,11 @@ function App() {
                 onClick={() => openSubscriptionChannelCard(channel)}
               >
                 <span className="avatar" style={{ backgroundColor: channel.accent }}>
-                  {channel.title.slice(0, 1)}
+                  {channel.avatarImage ? (
+                    <img src={channel.avatarImage} alt="" className="channel-avatar-image" />
+                  ) : (
+                    formatChannelAvatarLabel(channel.title)
+                  )}
                 </span>
                 <span className="chat-copy">
                   <span className="chat-topline">
@@ -11426,7 +11493,18 @@ function App() {
               )}
 
               <div className="settings-actions channels-detail-actions">
-                <button type="button" className="soft-button" onClick={openChannelsListView}>
+                <button
+                  type="button"
+                  className="soft-button"
+                  onClick={() => {
+                    if (!activeChannel) {
+                      openChannelsListView()
+                      return
+                    }
+
+                    openManagedChannelRoom(activeChannel)
+                  }}
+                >
                   Назад
                 </button>
                 {activeChannel ? (
@@ -12236,23 +12314,23 @@ function App() {
               </div>
 
               <article className="settings-item channel-avatar-device-card">
-                <a
-                  className="settings-inline-link"
-                  href="/avatar-upload-rules.html"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Правила загрузки аватарки
-                </a>
                 <button
                   type="button"
-                  className="soft-button"
+                  className="soft-button channel-avatar-device-button"
                   onClick={triggerProfileAvatarUpload}
                 >
                   {profileAvatarPickerDraft?.kind === 'upload' || profileAvatarPickerDraft?.kind === 'uploaded'
                     ? 'Выбрать другой файл'
                     : 'Загрузить с устройства'}
                 </button>
+                <a
+                  className="settings-inline-link channel-avatar-device-link"
+                  href="/avatar-upload-rules.html"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Правила загрузки аватарки
+                </a>
               </article>
 
               {profileAvatarPickerError ? <p className="auth-error">{profileAvatarPickerError}</p> : null}
@@ -12316,23 +12394,23 @@ function App() {
               </div>
 
               <article className="settings-item channel-avatar-device-card">
-                <a
-                  className="settings-inline-link"
-                  href="/avatar-upload-rules.html"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Правила загрузки аватарки
-                </a>
                 <button
                   type="button"
-                  className="soft-button"
+                  className="soft-button channel-avatar-device-button"
                   onClick={triggerChannelAvatarUpload}
                 >
                   {channelAvatarPickerDraft?.kind === 'upload' || channelAvatarPickerDraft?.kind === 'uploaded'
                     ? 'Выбрать другой файл'
                     : 'Загрузить с устройства'}
                 </button>
+                <a
+                  className="settings-inline-link channel-avatar-device-link"
+                  href="/avatar-upload-rules.html"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Правила загрузки аватарки
+                </a>
               </article>
 
               {channelAvatarPickerError ? <p className="auth-error">{channelAvatarPickerError}</p> : null}
@@ -12628,19 +12706,23 @@ function App() {
               </div>
             </div>
             <article className="settings-item channel-avatar-device-card">
+              <button
+                type="button"
+                className="soft-button channel-avatar-device-button"
+                onClick={triggerGroupAvatarUpload}
+              >
+                {groupAvatarPickerDraft?.kind === 'upload' || groupAvatarPickerDraft?.kind === 'uploaded'
+                  ? 'Выбрать другой файл'
+                  : 'Загрузить с устройства'}
+              </button>
               <a
-                className="settings-inline-link"
+                className="settings-inline-link channel-avatar-device-link"
                 href="/avatar-upload-rules.html"
                 target="_blank"
                 rel="noreferrer"
               >
                 Правила загрузки аватарки
               </a>
-              <button type="button" className="soft-button" onClick={triggerGroupAvatarUpload}>
-                {groupAvatarPickerDraft?.kind === 'upload' || groupAvatarPickerDraft?.kind === 'uploaded'
-                  ? 'Выбрать другой файл'
-                  : 'Загрузить с устройства'}
-              </button>
             </article>
             <input
               ref={groupAvatarInputRef}
