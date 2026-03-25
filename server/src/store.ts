@@ -750,7 +750,7 @@ function buildAdminChannelAggregateKey(channel: Pick<PersistedManagedChannel, 'd
 function getAdminGroupParticipantIdentifiers(
   group: Pick<PersistedGroup, 'participants'>,
 ) {
-  return [...new Set(group.participants
+  return [...new Set((group.participants ?? [])
     .map((participant) => normalizeIdentifier(participant.identifier ?? ''))
     .filter(Boolean))].sort()
 }
@@ -777,6 +777,51 @@ function buildAdminGroupAggregateKey(
   const participantKey = getAdminGroupParticipantIdentifiers(group).join(',')
   const ownerKey = getAdminGroupCanonicalOwnerIdentifier(group)
   return `${handleKey || titleKey}:${participantKey || ownerKey}`
+}
+
+function buildAdminGroupThreadKey(
+  group: Pick<PersistedGroup, 'creatorIdentifier' | 'handle' | 'id' | 'ownerIdentifier' | 'participants' | 'sharedId' | 'title'>,
+  message: Pick<Message, 'attachment' | 'createdAt' | 'deliveryId' | 'id' | 'text' | 'threadId' | 'time'>,
+) {
+  const groupKey = buildAdminGroupAggregateKey(group)
+  if (message.threadId?.trim()) {
+    return `admin-group-thread:${groupKey}:${message.threadId.trim()}`
+  }
+
+  if (message.deliveryId?.trim()) {
+    return `admin-group-thread:${groupKey}:delivery:${message.deliveryId.trim()}`
+  }
+
+  if (message.createdAt?.trim()) {
+    return `admin-group-thread:${groupKey}:created:${message.createdAt.trim()}`
+  }
+
+  return `admin-group-thread:${groupKey}:legacy:${message.id}:${message.time}:${message.text.trim()}:${message.attachment?.fileName ?? ''}`
+}
+
+function buildAdminChannelThreadKey(
+  channel: Pick<PersistedSubscriptionChannel, 'handle' | 'id' | 'ownerIdentifier'>,
+  post: Pick<SubscriptionPost, 'attachment' | 'createdAt' | 'id' | 'text' | 'threadId' | 'time'>,
+) {
+  const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle.trim()
+  if (post.threadId?.trim()) {
+    return `admin-channel-thread:${normalizedHandle}:${post.threadId.trim()}`
+  }
+
+  if (post.createdAt?.trim()) {
+    return `admin-channel-thread:${normalizedHandle}:created:${post.createdAt.trim()}`
+  }
+
+  return `admin-channel-thread:${normalizedHandle}:legacy:${post.id}:${post.time}:${post.text.trim()}:${post.attachment?.fileName ?? ''}`
+}
+
+function buildAdminThreadCommentAggregateKey(
+  parentThreadKey: string,
+  fallbackAuthorIdentifier: string,
+  comment: Pick<ThreadComment, 'attachment' | 'authorIdentifier' | 'createdAt' | 'id' | 'text'>,
+) {
+  const authorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || fallbackAuthorIdentifier
+  return `${parentThreadKey}:${authorIdentifier}:${comment.createdAt?.trim() ?? ''}:${comment.id}:${comment.text.trim()}:${comment.attachment?.fileName ?? ''}`
 }
 
 function buildAttachmentReportState(
@@ -2179,14 +2224,14 @@ export class TinychokStore {
       const group = this.findGroup(message.ownerIdentifier, message.groupId)
       if (!group) continue
       if (compactThreadComments(message.threadComments).length === 0) continue
-      threadIds.add(getGroupMessageThreadId(group, message))
+      threadIds.add(buildAdminGroupThreadKey(group, message))
     }
 
     for (const post of this.database.subscriptionPosts) {
       const channel = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
       if (!channel) continue
       if (compactThreadComments(post.threadComments).length === 0) continue
-      threadIds.add(getSubscriptionPostThreadId(channel, post))
+      threadIds.add(buildAdminChannelThreadKey(channel, post))
     }
 
     const usedStorageBytes = this.database.accounts.reduce(
@@ -2541,12 +2586,22 @@ export class TinychokStore {
           (item) => (sanitizeChannelDirectLink(item.handle) || item.handle) === handle,
         )
         const posts = this.database.subscriptionPosts.filter(
-          (post) => post.ownerIdentifier === channel.ownerIdentifier && post.channelId === channel.id,
+          (post) => {
+            const parent = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+            return Boolean(parent && (sanitizeChannelDirectLink(parent.handle) || parent.handle) === handle)
+          },
         )
+        const uniquePosts = [...new Map(
+          posts.map((post) => {
+            const parent = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+            const key = parent ? buildAdminChannelThreadKey(parent, post) : `${post.ownerIdentifier}:${post.channelId}:${post.id}`
+            return [key, post] as const
+          }),
+        ).values()]
         const latestActivityAt = [
           ...copies.map((item) => item.latestActivityAt),
-          ...posts.map((post) => post.createdAt),
-          ...posts.flatMap((post) => compactThreadComments(post.threadComments).map((comment) => comment.createdAt)),
+          ...uniquePosts.map((post) => post.createdAt),
+          ...uniquePosts.flatMap((post) => compactThreadComments(post.threadComments).map((comment) => comment.createdAt)),
         ]
           .filter((value): value is string => Boolean(value))
           .sort(compareIsoDateDesc)[0]
@@ -2557,8 +2612,8 @@ export class TinychokStore {
           id: channel.id,
           latestActivityAt,
           owner: buildAdminLinkedUser(channel.ownerIdentifier),
-          postsCount: posts.length,
-          readers: copies.length,
+          postsCount: uniquePosts.length,
+          readers: new Set(copies.map((item) => item.ownerIdentifier)).size,
           relatedReportCount: reportCountByHandle.get(handle) ?? 0,
           status: channel.status,
           title: channel.title,
@@ -2675,15 +2730,21 @@ export class TinychokStore {
 
       const comments = compactThreadComments(message.threadComments)
       if (comments.length === 0) continue
+      const rootAuthorIdentifier =
+        normalizeIdentifier(
+          group.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
+        ) ||
+        normalizeIdentifier(group.creatorIdentifier ?? '') ||
+        message.ownerIdentifier
 
       upsertThread({
         commentCount: comments.length,
         contextLabel: `Группа: ${group.title}`,
         csvFileName: `thread-${sanitizeExportFileName(group.title) || 'group'}-${message.id}-${formatExportDateStamp()}.csv`,
-        id: getGroupMessageThreadId(group, message),
+        id: buildAdminGroupThreadKey(group, message),
         kind: 'group',
         latestActivityAt: comments.at(-1)?.createdAt ?? message.createdAt,
-        owner: buildAdminLinkedUser(message.ownerIdentifier),
+        owner: buildAdminLinkedUser(rootAuthorIdentifier),
         relatedReportCount: 0,
         sourceGroupId: buildAdminGroupAggregateKey(group),
         sourceText: message.text || message.attachment?.fileName || 'Без текста',
@@ -2694,6 +2755,8 @@ export class TinychokStore {
     for (const post of this.database.subscriptionPosts) {
       const channel = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
       if (!channel) continue
+      const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
+      const managedChannel = this.findManagedChannelByHandle(normalizedHandle)
 
       const comments = compactThreadComments(post.threadComments)
       if (comments.length === 0) continue
@@ -2702,12 +2765,12 @@ export class TinychokStore {
         commentCount: comments.length,
         contextLabel: `Канал: ${channel.title}`,
         csvFileName: `thread-${sanitizeExportFileName(channel.title) || 'channel'}-${post.id}-${formatExportDateStamp()}.csv`,
-        id: getSubscriptionPostThreadId(channel, post),
+        id: buildAdminChannelThreadKey(channel, post),
         kind: 'channel',
         latestActivityAt: comments.at(-1)?.createdAt ?? post.createdAt,
-        owner: buildAdminLinkedUser(post.ownerIdentifier),
+        owner: buildAdminLinkedUser(managedChannel?.ownerIdentifier ?? post.ownerIdentifier),
         relatedReportCount: 0,
-        sourceChannelHandle: sanitizeChannelDirectLink(channel.handle) || channel.handle,
+        sourceChannelHandle: normalizedHandle,
         sourceText: post.text || post.attachment?.fileName || 'Без текста',
         title: post.text || post.attachment?.fileName || 'Пост без текста',
       })
@@ -2807,21 +2870,40 @@ export class TinychokStore {
       const parent = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
       return Boolean(parent && (sanitizeChannelDirectLink(parent.handle) || parent.handle) === normalizedHandle)
     })
+    const uniquePosts = [...new Map(
+      posts.map((post) => {
+        const parent = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+        const key = parent ? buildAdminChannelThreadKey(parent, post) : `${post.ownerIdentifier}:${post.channelId}:${post.id}`
+        return [key, post] as const
+      }),
+    ).values()]
 
     const csv = [
       ['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл'],
-      ...posts.flatMap((post) => {
-        const author = this.findAccount(post.ownerIdentifier)
+      ...uniquePosts.flatMap((post) => {
+        const parent = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+        const threadKey = parent ? buildAdminChannelThreadKey(parent, post) : `${post.ownerIdentifier}:${post.channelId}:${post.id}`
+        const normalizedHandleForPost = parent ? sanitizeChannelDirectLink(parent.handle) || parent.handle : normalizedHandle
+        const managedChannel = this.findManagedChannelByHandle(normalizedHandleForPost)
+        const authorIdentifier = managedChannel?.ownerIdentifier ?? post.ownerIdentifier
+        const author = this.findAccount(authorIdentifier)
         const rows: string[][] = [[
           post.createdAt ?? '',
           'post',
-          author ? buildAccountDisplayLabel(author) : post.ownerIdentifier,
-          post.ownerIdentifier,
+          author ? buildAccountDisplayLabel(author) : authorIdentifier,
+          authorIdentifier,
           post.text,
           post.attachment?.fileName ?? '',
         ]]
 
-        for (const comment of compactThreadComments(post.threadComments)) {
+        const uniqueComments = [...new Map(
+          compactThreadComments(post.threadComments).map((comment) => {
+            const key = buildAdminThreadCommentAggregateKey(threadKey, authorIdentifier, comment)
+            return [key, comment] as const
+          }),
+        ).values()]
+
+        for (const comment of uniqueComments) {
           const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
           const commentAuthor = this.findAccount(commentAuthorIdentifier)
           rows.push([
@@ -2866,16 +2948,25 @@ export class TinychokStore {
     const messages = this.database.groupMessages.filter((message) =>
       copies.some((group) => group.ownerIdentifier === message.ownerIdentifier && group.id === message.groupId),
     )
+    const uniqueMessages = [...new Map(
+      messages.map((message) => {
+        const parentGroup = this.findGroup(message.ownerIdentifier, message.groupId)
+        const key = parentGroup ? buildAdminGroupThreadKey(parentGroup, message) : `${message.ownerIdentifier}:${message.groupId}:${message.id}`
+        return [key, message] as const
+      }),
+    ).values()]
 
     const csv = [
       ['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл'],
-      ...messages.flatMap((message) => {
+      ...uniqueMessages.flatMap((message) => {
+        const parentGroup = this.findGroup(message.ownerIdentifier, message.groupId) ?? primaryGroup
+        const messageKey = buildAdminGroupThreadKey(parentGroup, message)
         const messageAuthorIdentifier =
-          message.author === 'me'
-            ? message.ownerIdentifier
-            : normalizeIdentifier(
-                primaryGroup.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
-              ) || message.ownerIdentifier
+          normalizeIdentifier(
+            parentGroup.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
+          ) ||
+          normalizeIdentifier(parentGroup.creatorIdentifier ?? '') ||
+          message.ownerIdentifier
         const author = this.findAccount(messageAuthorIdentifier)
         const rows: string[][] = [[
           message.createdAt ?? '',
@@ -2886,7 +2977,14 @@ export class TinychokStore {
           message.attachment?.fileName ?? '',
         ]]
 
-        for (const comment of compactThreadComments(message.threadComments)) {
+        const uniqueComments = [...new Map(
+          compactThreadComments(message.threadComments).map((comment) => {
+            const key = buildAdminThreadCommentAggregateKey(messageKey, messageAuthorIdentifier, comment)
+            return [key, comment] as const
+          }),
+        ).values()]
+
+        for (const comment of uniqueComments) {
           const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
           const commentAuthor = this.findAccount(commentAuthorIdentifier)
           rows.push([
@@ -2929,10 +3027,10 @@ export class TinychokStore {
 
     const csvRows: string[][] = [['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл']]
 
-    if (threadId.startsWith('group:')) {
+    if (threadId.startsWith('admin-group-thread:')) {
       const message = this.database.groupMessages.find((candidate) => {
         const group = this.findGroup(candidate.ownerIdentifier, candidate.groupId)
-        return Boolean(group && getGroupMessageThreadId(group, candidate) === threadId)
+        return Boolean(group && buildAdminGroupThreadKey(group, candidate) === threadId)
       })
       if (!message) throw new Error('Тред группы не найден.')
 
@@ -2959,7 +3057,7 @@ export class TinychokStore {
     } else {
       const post = this.database.subscriptionPosts.find((candidate) => {
         const channel = this.findSubscriptionChannel(candidate.ownerIdentifier, candidate.channelId)
-        return Boolean(channel && getSubscriptionPostThreadId(channel, candidate) === threadId)
+        return Boolean(channel && buildAdminChannelThreadKey(channel, candidate) === threadId)
       })
       if (!post) throw new Error('Тред канала не найден.')
 

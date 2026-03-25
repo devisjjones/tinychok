@@ -147,6 +147,43 @@ function formatBytes(value: number) {
   return `${size >= 100 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`
 }
 
+function formatAdminBannerLabel(value: 'DEVELOPMENT' | 'STAGING' | 'PRODUCTION') {
+  if (value === 'STAGING') return 'СТЕЙДЖИНГ'
+  if (value === 'PRODUCTION') return 'ПРОД'
+  return 'РАЗРАБОТКА'
+}
+
+function formatReportStatus(value: 'open' | 'closed') {
+  return value === 'open' ? 'Открыта' : 'Закрыта'
+}
+
+function formatChannelStatus(value: 'draft' | 'active') {
+  return value === 'draft' ? 'Черновик' : 'Активен'
+}
+
+function formatVisibility(value: 'private' | 'public' | 'closed') {
+  if (value === 'private') return 'Приватный'
+  if (value === 'public') return 'Публичный'
+  return 'Закрытый'
+}
+
+function formatStaffRole(value: 'owner' | 'moderator' | 'support') {
+  if (value === 'owner') return 'Владелец'
+  if (value === 'moderator') return 'Модератор'
+  return 'Поддержка'
+}
+
+function formatUserRole(value?: 'owner' | 'moderator' | 'support') {
+  return value ? formatStaffRole(value) : 'Пользователь'
+}
+
+const reportActionLabels: Record<AdminReportAction, string> = {
+  close_report: 'Закрыть жалобу',
+  delete_entity: 'Удалить сущность',
+  hide_entity: 'Скрыть сущность',
+  restrict_user: 'Ограничить пользователя',
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError || error instanceof Error) {
     return error.message
@@ -601,7 +638,7 @@ export default function AdminApp() {
       setAuthHint(
         response.existingAccount
           ? `Код отправлен staff-аккаунту ${response.existingAccount.displayName}.`
-          : 'Код отправлен. В admin panel войти смогут только уже существующие staff-аккаунты.',
+          : 'Код отправлен. Войти в админку смогут только уже существующие staff-аккаунты.',
       )
       setAuthStep('code')
     } catch (error) {
@@ -622,7 +659,7 @@ export default function AdminApp() {
       })
 
       if (response.status !== 'authenticated') {
-        setAuthError('Для входа в admin panel нужен уже существующий staff-аккаунт.')
+        setAuthError('Для входа в админку нужен уже существующий staff-аккаунт.')
         return
       }
 
@@ -775,13 +812,13 @@ export default function AdminApp() {
   async function handleViewReportEntity() {
     if (!sessionToken || !selectedReport) return
 
-    const reason = getActionReason('Причина просмотра содержимого жалобы', 'Проверка жалобы')
+      const reason = getActionReason('Причина просмотра содержимого жалобы', 'Проверка жалобы')
     if (!reason) return
 
     try {
       const response = await viewAdminReportEntity(sessionToken, selectedReport.id, { reason })
       if (!response.previewUrl) {
-        setAppError('Для этой жалобы сейчас нет отдельного preview.')
+        setAppError('Для этой жалобы сейчас нет отдельного предпросмотра.')
         return
       }
 
@@ -799,7 +836,7 @@ export default function AdminApp() {
     const reason = getActionReason('Причина admin-действия', 'Решение staff-команды')
     if (!reason) return
 
-    if (!window.confirm(`Подтвердить действие ${action} для жалобы ${selectedReport.id}?`)) {
+    if (!window.confirm(`Подтвердить действие «${reportActionLabels[action]}» для жалобы ${selectedReport.id}?`)) {
       return
     }
 
@@ -876,7 +913,7 @@ export default function AdminApp() {
     if (!sessionToken) return
 
     try {
-      const reason = getActionReason('Причина выгрузки audit CSV', 'Внутренняя проверка staff-активности')
+      const reason = getActionReason('Причина выгрузки CSV аудита', 'Внутренняя проверка staff-активности')
       if (!reason) return
       const response = await downloadAdminAuditCsv(sessionToken, {
         actorIdentifier: auditActorIdentifier || undefined,
@@ -906,7 +943,7 @@ export default function AdminApp() {
     }
 
     try {
-      const reason = getActionReason('Причина выгрузки audit CSV по пользователю', 'Проверка staff-действий по пользователю')
+      const reason = getActionReason('Причина выгрузки CSV аудита по пользователю', 'Проверка staff-действий по пользователю')
       if (!reason) return
       const response = await downloadAdminAuditCsv(sessionToken, {
         targetIdentifier: user.identifier,
@@ -1056,7 +1093,7 @@ export default function AdminApp() {
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null
 
   if (appLoading) {
-    return <main className="admin-shell admin-loading">Подготавливаем admin panel...</main>
+    return <main className="admin-shell admin-loading">Подготавливаем админку...</main>
   }
 
   if (!runtimeConfig) {
@@ -1067,7 +1104,7 @@ export default function AdminApp() {
     return (
       <main className="admin-shell admin-guard-screen">
         <div className="admin-guard-card">
-          <strong>Admin panel выключена</strong>
+          <strong>Админка выключена</strong>
           <p>В этой среде `ADMIN_PANEL_ENABLED=false`, поэтому internal admin UI недоступен.</p>
         </div>
       </main>
@@ -1079,7 +1116,7 @@ export default function AdminApp() {
       <main className="admin-shell admin-guard-screen">
         <div className="admin-guard-card">
           <strong>Неподходящий host</strong>
-          <p>Admin UI разрешён только на `admin.staging.tinychok.ru`, `admin.tinychok.ru` и local dev host.</p>
+          <p>Админка разрешена только на `admin.staging.tinychok.ru`, `admin.tinychok.ru` и локальном dev-хосте.</p>
         </div>
       </main>
     )
@@ -1090,10 +1127,10 @@ export default function AdminApp() {
       <main className="admin-shell admin-auth-shell">
         <section className="admin-auth-copy">
           <span className="admin-badge">{runtimeConfig.admin.bannerLabel}</span>
-          <h1>Tinychok Admin</h1>
+          <h1>Админка Tinychok</h1>
           <p>
-            Internal staff console для moderation, premium support, media review и audit log.
-            Вход разрешён только для staff-аккаунтов с ролью `owner`, `moderator` или `support`.
+            Внутренняя панель модерации, поддержки премиума, проверки медиа и аудита.
+            Вход разрешён только для staff-аккаунтов с ролью `владелец`, `модератор` или `поддержка`.
           </p>
           {appError ? <p className="admin-auth-error">{appError}</p> : null}
         </section>
@@ -1156,21 +1193,21 @@ export default function AdminApp() {
     <main className="admin-shell">
       <aside className="admin-sidebar">
         <div className="admin-brand">
-          <span className="admin-badge">{bootstrap.config.bannerLabel}</span>
-          <strong>Tinychok Admin</strong>
+          <span className="admin-badge">{formatAdminBannerLabel(bootstrap.config.bannerLabel)}</span>
+          <strong>Админка Tinychok</strong>
         </div>
 
         <nav className="admin-nav">
           {([
-            ['dashboard', 'Dashboard'],
-            ['users', 'Users'],
-            ['reports', 'Reports'],
-            ['channels', 'Channels'],
-            ['groups', 'Groups'],
-            ['threads', 'Threads'],
-            ['dialogs', 'Dialogs'],
-            ['media', 'Media'],
-            ['audit', 'Audit Log'],
+            ['dashboard', 'Сводка'],
+            ['users', 'Пользователи'],
+            ['reports', 'Жалобы'],
+            ['channels', 'Каналы'],
+            ['groups', 'Группы'],
+            ['threads', 'Треды'],
+            ['dialogs', 'Диалоги'],
+            ['media', 'Медиа'],
+            ['audit', 'Аудит лог'],
           ] as Array<[AdminSection, string]>).map(([item, label]) => (
             <button
               key={item}
@@ -1193,7 +1230,7 @@ export default function AdminApp() {
               <strong>{bootstrap.actor.displayName}</strong>
               <div className="admin-actor-subline">
                 <span className="admin-actor-identifier">{bootstrap.actor.identifier}</span>
-                <span className="admin-role-badge">{bootstrap.actor.role}</span>
+                <span className="admin-role-badge">{formatStaffRole(bootstrap.actor.role)}</span>
               </div>
             </div>
           </div>
@@ -1206,15 +1243,15 @@ export default function AdminApp() {
 
       <section className="admin-content">
         <div className="admin-environment-strip">
-          <span className="admin-badge">{bootstrap.config.bannerLabel}</span>
-          <span className="admin-environment-copy">Internal staff-only environment</span>
+          <span className="admin-badge">{formatAdminBannerLabel(bootstrap.config.bannerLabel)}</span>
+          <span className="admin-environment-copy">Внутренняя среда модерации</span>
           {appError ? <p className="admin-inline-error">{appError}</p> : null}
         </div>
 
         {section === 'dashboard' ? (
           <section className="admin-panel">
             <div className="admin-panel-heading">
-              <h2>Dashboard</h2>
+              <h2>Сводка</h2>
               <button type="button" className="admin-secondary-button" onClick={() => void refreshDashboard()}>
                 Обновить
               </button>
@@ -1226,19 +1263,19 @@ export default function AdminApp() {
                 <strong>{dashboard?.metrics.totalUsers ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
-                <span>Reports · Открытые</span>
+                <span>Жалобы · Открытые</span>
                 <strong>{dashboard?.metrics.openReports ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
-                <span>Reports · Закрытые</span>
+                <span>Жалобы · Закрытые</span>
                 <strong>{dashboard?.metrics.closedReports ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
-                <span>Premium · Месячные</span>
+                <span>Премиум · Месячные</span>
                 <strong>{dashboard?.metrics.monthlyPremiumUsers ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
-                <span>Premium · Годовые</span>
+                <span>Премиум · Годовые</span>
                 <strong>{dashboard?.metrics.yearlyPremiumUsers ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
@@ -1254,7 +1291,7 @@ export default function AdminApp() {
                 <strong>{dashboard?.metrics.totalThreads ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
-                <span>Media items</span>
+                <span>Медиаобъекты</span>
                 <strong>{dashboard?.metrics.totalMediaItems ?? '...'}</strong>
               </article>
               <article className="admin-metric-card admin-metric-card-wide">
@@ -1295,7 +1332,7 @@ export default function AdminApp() {
               <input
                 className="admin-search-input"
                 type="search"
-                placeholder="Поиск по id, username, телефону"
+                placeholder="Поиск по id, юзернейму, телефону"
                 value={userQuery}
                 onChange={(event) => setUserQuery(event.target.value)}
               />
@@ -1320,9 +1357,9 @@ export default function AdminApp() {
                         {user.displayName}
                       </strong>
                     </div>
-                    <span>{user.nickname ? `@${user.nickname}` : 'Нет username'}</span>
+                    <span>{user.nickname ? `@${user.nickname}` : 'Нет юзернейма'}</span>
                     <span className={user.blocked ? 'admin-user-status blocked' : 'admin-user-status'}>
-                      {user.status || (user.blocked ? 'Заблокирован' : user.staffRole ?? 'user')}
+                      {user.status || (user.blocked ? 'Заблокирован' : formatUserRole(user.staffRole))}
                     </span>
                     <span>{user.identifier}</span>
                   </button>
@@ -1344,7 +1381,7 @@ export default function AdminApp() {
                     <div className="admin-user-identity">
                       <h2>{selectedUser.displayName}</h2>
                       <div className="admin-user-identity-meta">
-                        <span>{selectedUser.nickname ? `@${selectedUser.nickname}` : 'Нет username'}</span>
+                        <span>{selectedUser.nickname ? `@${selectedUser.nickname}` : 'Нет юзернейма'}</span>
                         <span>{selectedUser.status || 'Нет статуса'}</span>
                       </div>
                     </div>
@@ -1374,15 +1411,15 @@ export default function AdminApp() {
                     </div>
                     <div>
                       <dt>Username</dt>
-                      <dd>{selectedUser.nickname || 'Нет username'}</dd>
+                      <dd>{selectedUser.nickname || 'Нет юзернейма'}</dd>
                     </div>
                     <div>
-                      <dt>Premium</dt>
+                      <dt>Премиум</dt>
                       <dd>{selectedUser.premium ? `Да, до ${formatDateTime(selectedUser.premiumExpiresAt)}` : 'Нет'}</dd>
                     </div>
                     <div>
-                      <dt>Role</dt>
-                      <dd>{selectedUser.staffRole ?? 'user'}</dd>
+                      <dt>Роль</dt>
+                      <dd>{formatUserRole(selectedUser.staffRole)}</dd>
                     </div>
                     <div>
                       <dt>Зарегистрирован</dt>
@@ -1421,7 +1458,7 @@ export default function AdminApp() {
                           <option value="7d">7 дней</option>
                           <option value="30d">30 дней</option>
                           <option value="90d">90 дней</option>
-                          <option value="all">All</option>
+                          <option value="all">За всё время</option>
                         </select>
                       </label>
                       <button
@@ -1460,15 +1497,15 @@ export default function AdminApp() {
           <section className="admin-two-column admin-section-split">
             <div className="admin-panel admin-list-panel">
               <div className="admin-panel-heading">
-                <h2>Reports</h2>
+                <h2>Жалобы</h2>
                 <select
                   className="admin-select"
                   value={reportStatus}
                   onChange={(event) => setReportStatus(event.target.value as typeof reportStatus)}
                 >
-                  <option value="open">Open</option>
-                  <option value="closed">Closed</option>
-                  <option value="all">All</option>
+                  <option value="open">Открытые</option>
+                  <option value="closed">Закрытые</option>
+                  <option value="all">Все</option>
                 </select>
               </div>
 
@@ -1490,7 +1527,7 @@ export default function AdminApp() {
                       ) : null}
                     </div>
                     <span>{report.entityType}</span>
-                    <span>{report.status}</span>
+                    <span>{formatReportStatus(report.status)}</span>
                   </button>
                 ))}
               </div>
@@ -1503,24 +1540,24 @@ export default function AdminApp() {
                     <h2>{selectedReport.entityLabel}</h2>
                     <div className="admin-toolbar">
                       <button type="button" className="admin-secondary-button" onClick={() => void handleAddReportNote(selectedReport.id)}>
-                        Add note
+                        Добавить заметку
                       </button>
                       <button type="button" className="admin-secondary-button" onClick={() => void handleApplyReportAction('close_report')}>
-                        Close
+                        Закрыть
                       </button>
                       {selectedReport.canRestrictUser ? (
                         <button type="button" className="admin-secondary-button" onClick={() => void handleApplyReportAction('restrict_user')}>
-                          Restrict user
+                          Ограничить пользователя
                         </button>
                       ) : null}
                       {selectedReport.canHide ? (
                         <button type="button" className="admin-secondary-button" onClick={() => void handleApplyReportAction('hide_entity')}>
-                          Hide entity
+                          Скрыть сущность
                         </button>
                       ) : null}
                       {selectedReport.canDelete ? (
                         <button type="button" className="admin-primary-button" onClick={() => void handleApplyReportAction('delete_entity')}>
-                          Delete entity
+                          Удалить сущность
                         </button>
                       ) : null}
                     </div>
@@ -1537,7 +1574,7 @@ export default function AdminApp() {
                     </div>
                     <div>
                       <dt>Статус</dt>
-                      <dd>{selectedReport.status}</dd>
+                      <dd>{formatReportStatus(selectedReport.status)}</dd>
                     </div>
                     <div>
                       <dt>Причина</dt>
@@ -1562,8 +1599,8 @@ export default function AdminApp() {
                   </dl>
 
                   <div className="admin-note-block">
-                    <strong>Entity preview</strong>
-                    <p>{selectedReport.entityPreview || 'Без текстового preview.'}</p>
+                    <strong>Предпросмотр сущности</strong>
+                    <p>{selectedReport.entityPreview || 'Нет текстового превью.'}</p>
                     {['media', 'avatar', 'gif'].includes(selectedReport.entityType) ? (
                       <div className="admin-toolbar">
                         <button type="button" className="admin-secondary-button" onClick={() => void handleViewReportEntity()}>
@@ -1574,7 +1611,7 @@ export default function AdminApp() {
                   </div>
 
                   <div className="admin-note-block">
-                    <strong>Internal notes</strong>
+                    <strong>Внутренние заметки</strong>
                     {selectedReport.notes.length > 0 ? (
                       <div className="admin-note-list">
                         {selectedReport.notes.map((note) => (
@@ -1600,7 +1637,7 @@ export default function AdminApp() {
         {section === 'media' ? (
           <section className="admin-panel">
             <div className="admin-panel-heading">
-              <h2>Media</h2>
+              <h2>Медиа</h2>
             </div>
             <input
               className="admin-search-input"
@@ -1669,10 +1706,10 @@ export default function AdminApp() {
                       Скачать
                     </button>
                     <button type="button" className="admin-secondary-button" onClick={() => void handleModerateMedia(item, 'hide')}>
-                      Hide
+                      Скрыть
                     </button>
                     <button type="button" className="admin-primary-button" onClick={() => void handleModerateMedia(item, 'delete')}>
-                      Delete
+                      Удалить
                     </button>
                   </span>
                 </div>
@@ -1685,7 +1722,7 @@ export default function AdminApp() {
           <section className="admin-two-column admin-section-split">
             <div className="admin-panel admin-list-panel">
               <div className="admin-panel-heading">
-                <h2>Channels</h2>
+                <h2>Каналы</h2>
               </div>
               <input
                 className="admin-search-input"
@@ -1704,7 +1741,7 @@ export default function AdminApp() {
                   >
                     <strong>{channel.title}</strong>
                     <span>{`@${channel.handle}`}</span>
-                    <span>{`${channel.status} · ${channel.visibility}`}</span>
+                    <span>{`${formatChannelStatus(channel.status)} · ${formatVisibility(channel.visibility)}`}</span>
                   </button>
                 ))}
                 {channels.length === 0 ? (
@@ -1721,7 +1758,7 @@ export default function AdminApp() {
                       <h2>{selectedChannel.title}</h2>
                       <div className="admin-user-identity-meta">
                         <span>{`@${selectedChannel.handle}`}</span>
-                        <span>{`${selectedChannel.status} · ${selectedChannel.visibility}`}</span>
+                        <span>{`${formatChannelStatus(selectedChannel.status)} · ${formatVisibility(selectedChannel.visibility)}`}</span>
                       </div>
                     </div>
                   </div>
@@ -1736,7 +1773,7 @@ export default function AdminApp() {
                         >
                           {selectedChannel.owner.displayName}
                         </button>
-                        <span>{selectedChannel.owner.nickname ? `@${selectedChannel.owner.nickname}` : 'Нет username'}</span>
+                        <span>{selectedChannel.owner.nickname ? `@${selectedChannel.owner.nickname}` : 'Нет юзернейма'}</span>
                         <span>{selectedChannel.owner.identifier}</span>
                       </dd>
                     </div>
@@ -1776,7 +1813,7 @@ export default function AdminApp() {
           <section className="admin-two-column admin-section-split">
             <div className="admin-panel admin-list-panel">
               <div className="admin-panel-heading">
-                <h2>Groups</h2>
+                <h2>Группы</h2>
               </div>
               <input
                 className="admin-search-input"
@@ -1864,7 +1901,7 @@ export default function AdminApp() {
           <section className="admin-two-column admin-section-split">
             <div className="admin-panel admin-list-panel">
               <div className="admin-panel-heading">
-                <h2>Threads</h2>
+                <h2>Треды</h2>
               </div>
               <input
                 className="admin-search-input"
@@ -1983,7 +2020,7 @@ export default function AdminApp() {
           <section className="admin-two-column admin-section-split">
             <div className="admin-panel admin-list-panel">
               <div className="admin-panel-heading">
-                <h2>Dialogs</h2>
+                <h2>Диалоги</h2>
               </div>
               <label className="admin-inline-field">
                 <span>Первый пользователь</span>
@@ -2010,7 +2047,7 @@ export default function AdminApp() {
                   <input
                     className="admin-search-input"
                     type="search"
-                    placeholder="+79990000000 или username"
+                    placeholder="+79990000000 или юзернейм"
                     value={dialogOwnerQuery}
                     onChange={(event) => setDialogOwnerQuery(event.target.value)}
                   />
@@ -2037,7 +2074,7 @@ export default function AdminApp() {
                   <input
                     className="admin-search-input"
                     type="search"
-                    placeholder="+79990000000 или username"
+                    placeholder="+79990000000 или юзернейм"
                     value={dialogPeerQuery}
                     onChange={(event) => setDialogPeerQuery(event.target.value)}
                     disabled={!selectedDialogOwner}
@@ -2062,7 +2099,7 @@ export default function AdminApp() {
                           onClick={() => handleSelectDialogOwner(user)}
                         >
                           <strong>{user.displayName}</strong>
-                          <span>{user.nickname ? `@${user.nickname}` : 'Нет username'}</span>
+                          <span>{user.nickname ? `@${user.nickname}` : 'Нет юзернейма'}</span>
                           <span>{user.identifier}</span>
                         </button>
                       ))}
@@ -2145,7 +2182,7 @@ export default function AdminApp() {
         {section === 'audit' ? (
           <section className="admin-panel">
             <div className="admin-panel-heading">
-              <h2>Audit Log</h2>
+              <h2>Аудит лог</h2>
             </div>
 
             <div className="admin-inline-controls admin-audit-controls">
@@ -2177,7 +2214,7 @@ export default function AdminApp() {
                   <option value="7d">7 дней</option>
                   <option value="30d">30 дней</option>
                   <option value="90d">90 дней</option>
-                  <option value="all">All</option>
+                  <option value="all">За всё время</option>
                 </select>
               </label>
               <button type="button" className="admin-secondary-button" onClick={() => void refreshAuditLog()}>
@@ -2195,15 +2232,15 @@ export default function AdminApp() {
                 <span>Действие</span>
                 <span>Объект</span>
                 <span>Причина</span>
-                <span>Summary</span>
+                <span>Сводка</span>
               </div>
               {auditEntries.map((entry) => (
                 <div key={entry.id} className="admin-table-row">
                   <span>{formatDateTime(entry.createdAt)}</span>
                   <span>
                     {entry.actorNickname
-                      ? `${entry.actorDisplayName} (@${entry.actorNickname}) · ${entry.actorRole}`
-                      : `${entry.actorDisplayName} · ${entry.actorRole}`}
+                      ? `${entry.actorDisplayName} (@${entry.actorNickname}) · ${formatStaffRole(entry.actorRole)}`
+                      : `${entry.actorDisplayName} · ${formatStaffRole(entry.actorRole)}`}
                   </span>
                   <span>{entry.action}</span>
                   <span>{entry.targetLabel}</span>
