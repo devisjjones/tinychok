@@ -115,6 +115,10 @@ function getSearchQuery(request: FastifyRequest) {
   return ((request.query as Record<string, string | undefined> | undefined)?.q ?? '').trim()
 }
 
+function normalizeUploadMimeType(mimeType: string | undefined) {
+  return mimeType?.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+}
+
 function getRequestedMediaKey(request: FastifyRequest) {
   const rawKey = (request.params as Record<string, string | undefined> | undefined)?.['*']
   const storageKey = rawKey?.replace(/^\/+/u, '').trim()
@@ -201,6 +205,36 @@ await app.register(cors, {
 
 await app.register(multipart)
 await app.register(websocket)
+
+function mapMediaUploadError(kind: UploadMediaKind, error: unknown) {
+  if (error instanceof app.multipartErrors.RequestFileTooLargeError) {
+    if (kind === 'user-gif') {
+      return new Error('GIF слишком большая. Максимальный размер 5 МБ.')
+    }
+
+    return new Error('Файл слишком большой для этого действия.')
+  }
+
+  if (
+    error instanceof app.multipartErrors.FilesLimitError ||
+    error instanceof app.multipartErrors.PartsLimitError ||
+    error instanceof app.multipartErrors.FieldsLimitError ||
+    error instanceof app.multipartErrors.InvalidMultipartContentTypeError
+  ) {
+    return new Error('Не удалось прочитать загружаемый файл. Попробуйте выбрать его заново.')
+  }
+
+  if (error instanceof Error) {
+    if (
+      error.message === 'Unexpected end of multipart data' ||
+      error.message === 'Multipart: Boundary not found'
+    ) {
+      return new Error('Не удалось прочитать загружаемый файл. Попробуйте выбрать его заново.')
+    }
+  }
+
+  return error
+}
 
 if (getMediaBackend() === 'local') {
   await app.register(fastifyStatic, {
@@ -490,45 +524,134 @@ app.post('/api/media', async (request, reply) => {
     return reply.code(401).send({ message: 'Не найдена активная сессия.' })
   }
 
+  const uploadDiagnostic = {
+    fileName: '',
+    kind: 'attachment' as UploadMediaKind,
+    mimeType: '',
+    size: null as number | null,
+    stage: 'init',
+  }
+
   try {
     const kind = getUploadKind(request)
+    uploadDiagnostic.kind = kind
     const kindConfig = getUploadKindConfig(kind)
-    const file = await request.file({
-      limits: {
-        files: 1,
-        fileSize: kindConfig.maxSizeBytes,
-      },
-    })
+    const file = await (async () => {
+      try {
+        uploadDiagnostic.stage = 'request.file'
+        return await request.file({
+          limits: {
+            files: 1,
+            fileSize: kindConfig.maxSizeBytes,
+          },
+        })
+      } catch (error) {
+        if (kind === 'user-gif') {
+          request.log.error(
+            {
+              err: error,
+              fileName: uploadDiagnostic.fileName,
+              kind,
+              mimeType: uploadDiagnostic.mimeType,
+              size: uploadDiagnostic.size,
+              stage: uploadDiagnostic.stage,
+            },
+            'gif upload failed',
+          )
+        }
+        throw mapMediaUploadError(kind, error)
+      }
+    })()
 
     if (!file) {
       throw new Error('Файл не найден в запросе.')
     }
 
-    const fileBuffer = await file.toBuffer()
+    uploadDiagnostic.fileName = file.filename
+    uploadDiagnostic.mimeType = normalizeUploadMimeType(file.mimetype)
+
+    const fileBuffer = await (async () => {
+      try {
+        uploadDiagnostic.stage = 'file.toBuffer'
+        const nextBuffer = await file.toBuffer()
+        uploadDiagnostic.size = nextBuffer.byteLength
+        return nextBuffer
+      } catch (error) {
+        if (kind === 'user-gif') {
+          request.log.error(
+            {
+              err: error,
+              fileName: uploadDiagnostic.fileName,
+              kind,
+              mimeType: uploadDiagnostic.mimeType,
+              size: uploadDiagnostic.size,
+              stage: uploadDiagnostic.stage,
+            },
+            'gif upload failed',
+          )
+        }
+        throw mapMediaUploadError(kind, error)
+      }
+    })()
+
     store.assertMediaUploadWithinQuota(token, fileBuffer.byteLength)
     const ownerIdentifier = store.getIdentifierByToken(token)
     if (!ownerIdentifier) {
       return reply.code(401).send({ message: 'Сессия устарела. Войдите снова.' })
     }
 
-    const storedFile = await storeMediaBuffer({
-      buffer: fileBuffer,
-      fileName: file.filename,
-      kind,
-      mimeType: file.mimetype,
-      ownerIdentifier,
-    })
+    const storedFile = await (async () => {
+      try {
+        uploadDiagnostic.stage = 'storeMediaBuffer'
+        return await storeMediaBuffer({
+          buffer: fileBuffer,
+          fileName: file.filename,
+          kind,
+          mimeType: uploadDiagnostic.mimeType,
+          ownerIdentifier,
+        })
+      } catch (error) {
+        if (kind === 'user-gif') {
+          request.log.error(
+            {
+              err: error,
+              fileName: uploadDiagnostic.fileName,
+              kind,
+              mimeType: uploadDiagnostic.mimeType,
+              size: uploadDiagnostic.size,
+              stage: uploadDiagnostic.stage,
+            },
+            'gif upload failed',
+          )
+        }
+        throw error
+      }
+    })()
 
     try {
+      uploadDiagnostic.stage = 'registerPendingMediaUpload'
       await store.registerPendingMediaUpload(token, {
         fileName: file.filename,
         kind,
         mediaUrl: storedFile.mediaUrl,
-        mimeType: file.mimetype,
+        mimeType: uploadDiagnostic.mimeType,
         size: storedFile.size,
         storageKey: storedFile.storageKey,
       })
     } catch (error) {
+      if (kind === 'user-gif') {
+        request.log.error(
+          {
+            err: error,
+            fileName: uploadDiagnostic.fileName,
+            kind,
+            mimeType: uploadDiagnostic.mimeType,
+            size: uploadDiagnostic.size,
+            stage: uploadDiagnostic.stage,
+          },
+          'gif upload failed',
+        )
+      }
       try {
         await deleteStoredMediaByUrl(storedFile.mediaUrl, kind)
       } catch (cleanupError) {
@@ -541,12 +664,12 @@ app.post('/api/media', async (request, reply) => {
       fileName: file.filename,
       kind,
       mediaUrl: storedFile.mediaUrl,
-      mimeType: file.mimetype,
+      mimeType: uploadDiagnostic.mimeType,
       size: storedFile.size,
       storageKey: storedFile.storageKey,
     }
   } catch (error) {
-    return sendError(reply, error)
+    return sendError(reply, mapMediaUploadError(uploadDiagnostic.kind, error))
   }
 })
 

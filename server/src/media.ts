@@ -88,6 +88,10 @@ function sanitizeOwnerStorageSegment(ownerIdentifier?: string) {
   return normalized || null
 }
 
+function normalizeMimeType(mimeType: string) {
+  return mimeType.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+}
+
 function buildStorageKey(
   kind: UploadMediaKind,
   fileName: string,
@@ -289,9 +293,20 @@ export async function storeMediaBuffer(options: {
   mimeType: string
   ownerIdentifier?: string
 }) {
+  const normalizedMimeType = normalizeMimeType(options.mimeType)
+  const normalizedOptions = normalizedMimeType === options.mimeType
+    ? options
+    : {
+        ...options,
+        mimeType: normalizedMimeType,
+      }
   const kindConfig = getUploadKindConfig(options.kind)
 
-  if (kindConfig.allowedMimeTypes && !kindConfig.allowedMimeTypes.has(options.mimeType)) {
+  if (
+    options.kind !== 'user-gif' &&
+    kindConfig.allowedMimeTypes &&
+    !kindConfig.allowedMimeTypes.has(normalizedMimeType)
+  ) {
     throw new Error('Неподдерживаемый тип файла для этого действия.')
   }
 
@@ -304,7 +319,7 @@ export async function storeMediaBuffer(options: {
     options.kind === 'group-avatar' ||
     options.kind === 'profile-avatar'
   ) {
-    if (!isSupportedImageAttachmentMimeType(options.mimeType)) {
+    if (!isSupportedImageAttachmentMimeType(normalizedMimeType)) {
       throw new Error('Для аватарки поддерживаются только JPG, PNG и WebP.')
     }
 
@@ -312,17 +327,17 @@ export async function storeMediaBuffer(options: {
       throw new Error('Файл слишком большой. Максимальный размер аватарки 5 МБ.')
     }
 
-    if (!hasValidImageSignature(options.buffer, options.mimeType)) {
+    if (!hasValidImageSignature(options.buffer, normalizedMimeType)) {
       throw new Error('Не удалось проверить изображение для аватарки. Выберите другой файл.')
     }
 
     return runtimeConfig.storage.mediaBackend === 'object-storage'
-      ? storeMediaBufferInObjectStorage(options)
-      : storeMediaBufferLocally(options)
+      ? storeMediaBufferInObjectStorage(normalizedOptions)
+      : storeMediaBufferLocally(normalizedOptions)
   }
 
-  if (options.kind === 'attachment' && options.mimeType.startsWith('image/')) {
-    if (!isSupportedImageAttachmentMimeType(options.mimeType)) {
+  if (options.kind === 'attachment' && normalizedMimeType.startsWith('image/')) {
+    if (!isSupportedImageAttachmentMimeType(normalizedMimeType)) {
       throw new Error('Для фотографии поддерживаются только JPEG, PNG и WebP.')
     }
 
@@ -330,13 +345,13 @@ export async function storeMediaBuffer(options: {
       throw new Error('Фотография слишком большая. Максимальный размер 10 МБ.')
     }
 
-    if (!hasValidImageSignature(options.buffer, options.mimeType)) {
+    if (!hasValidImageSignature(options.buffer, normalizedMimeType)) {
       throw new Error('Не удалось проверить фотографию. Выберите другой файл.')
     }
 
     return runtimeConfig.storage.mediaBackend === 'object-storage'
-      ? storeMediaBufferInObjectStorage(options)
-      : storeMediaBufferLocally(options)
+      ? storeMediaBufferInObjectStorage(normalizedOptions)
+      : storeMediaBufferLocally(normalizedOptions)
   }
 
   if (options.kind === 'attachment') {
@@ -344,13 +359,13 @@ export async function storeMediaBuffer(options: {
       throw new Error('Файл слишком большой. Максимальный размер 10 МБ.')
     }
 
-    if (!isSupportedFileAttachment(options.fileName, options.mimeType)) {
+    if (!isSupportedFileAttachment(options.fileName, normalizedMimeType)) {
       throw new Error('Поддерживаются только PDF, DOC, DOCX, XLS, XLSX, TXT и ZIP.')
     }
 
     return runtimeConfig.storage.mediaBackend === 'object-storage'
-      ? storeMediaBufferInObjectStorage(options)
-      : storeMediaBufferLocally(options)
+      ? storeMediaBufferInObjectStorage(normalizedOptions)
+      : storeMediaBufferLocally(normalizedOptions)
   }
 
   if (options.kind === 'user-gif') {
@@ -358,7 +373,6 @@ export async function storeMediaBuffer(options: {
       throw new Error('Не удалось определить владельца GIF.')
     }
 
-    const normalizedMimeType = options.mimeType.trim().toLowerCase()
     if (
       normalizedMimeType &&
       normalizedMimeType !== 'image/gif' &&
@@ -377,13 +391,13 @@ export async function storeMediaBuffer(options: {
     }
 
     return runtimeConfig.storage.mediaBackend === 'object-storage'
-      ? storeMediaBufferInObjectStorage(options)
-      : storeMediaBufferLocally(options)
+      ? storeMediaBufferInObjectStorage(normalizedOptions)
+      : storeMediaBufferLocally(normalizedOptions)
   }
 
   return runtimeConfig.storage.mediaBackend === 'object-storage'
-    ? storeMediaBufferInObjectStorage(options)
-    : storeMediaBufferLocally(options)
+    ? storeMediaBufferInObjectStorage(normalizedOptions)
+    : storeMediaBufferLocally(normalizedOptions)
 }
 
 export async function storeMediaFile(options: {
