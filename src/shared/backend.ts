@@ -73,6 +73,7 @@ export type AdminMediaItemEntityType =
 export type AdminLinkedUser = {
   displayName: string
   identifier: string
+  nickname?: string
 }
 
 export type RequestCodeBody = {
@@ -217,7 +218,16 @@ export type AdminReportNoteBody = {
   text: string
 }
 
+export type AdminReportViewBody = {
+  reason: string
+}
+
+export type AdminReportViewResponse = {
+  previewUrl: string | null
+}
+
 export type AdminMediaItem = {
+  createdAt?: string
   contextLabel: string
   entityId?: string
   entityLabel: string

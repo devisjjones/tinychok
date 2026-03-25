@@ -18,6 +18,8 @@ import type {
   AdminReportActionBody,
   AdminReportDetailResponse,
   AdminReportNoteBody,
+  AdminReportViewBody,
+  AdminReportViewResponse,
   AdminReportsResponse,
   AdminUserAvatarBody,
   AdminUserAvatarResponse,
@@ -326,6 +328,22 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       return {
         report: await store.adminAddReportNote(auth.token, getRouteParam(request, 'reportId'), body.text),
       } satisfies AdminReportDetailResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/reports/:reportId/view', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'reports.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminReportViewBody>(request.body)
+      return await store.adminViewReportEntity(
+        auth.token,
+        getRouteParam(request, 'reportId'),
+        body.reason,
+      ) satisfies AdminReportViewResponse
     } catch (error) {
       return sendError(reply, error)
     }

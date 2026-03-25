@@ -641,6 +641,18 @@ function buildAdminAuditAccountLabel(
     : `${displayName} (${account.identifier})`
 }
 
+function buildAdminLinkedUserSummary(
+  account: Pick<Account, 'displayName' | 'identifier' | 'nickname' | 'surname'> | undefined,
+  identifier: string,
+): AdminLinkedUser {
+  const normalizedNickname = normalizeNickname(account?.nickname ?? '')
+  return {
+    displayName: account ? buildAccountDisplayLabel(account) : identifier,
+    identifier,
+    nickname: normalizedNickname || undefined,
+  }
+}
+
 function parseIsoDate(value?: string) {
   if (!value) {
     return null
@@ -735,15 +747,36 @@ function buildAdminChannelAggregateKey(channel: Pick<PersistedManagedChannel, 'd
   return `${channel.ownerIdentifier}:${handle || sanitizeExportFileName(channel.title)}`
 }
 
-function buildAdminGroupAggregateKey(group: Pick<PersistedGroup, 'creatorIdentifier' | 'handle' | 'ownerIdentifier' | 'sharedId' | 'title'>) {
-  const creatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? '') || group.ownerIdentifier
+function getAdminGroupParticipantIdentifiers(
+  group: Pick<PersistedGroup, 'participants'>,
+) {
+  return [...new Set(group.participants
+    .map((participant) => normalizeIdentifier(participant.identifier ?? ''))
+    .filter(Boolean))].sort()
+}
+
+function getAdminGroupCanonicalOwnerIdentifier(
+  group: Pick<PersistedGroup, 'creatorIdentifier' | 'ownerIdentifier' | 'participants'>,
+) {
+  return (
+    normalizeIdentifier(group.creatorIdentifier ?? '') ||
+    normalizeIdentifier(group.participants[0]?.identifier ?? '') ||
+    group.ownerIdentifier
+  )
+}
+
+function buildAdminGroupAggregateKey(
+  group: Pick<PersistedGroup, 'creatorIdentifier' | 'handle' | 'ownerIdentifier' | 'participants' | 'sharedId' | 'title'>,
+) {
   const normalizedHandle = group.handle.trim().toLowerCase()
   const handleKey =
     normalizedHandle && !/^@?group[_-]?\d+$/u.test(normalizedHandle)
       ? normalizedHandle
       : ''
   const titleKey = sanitizeExportFileName(group.title).toLowerCase() || 'group'
-  return `${creatorIdentifier}:${handleKey || titleKey}`
+  const participantKey = getAdminGroupParticipantIdentifiers(group).join(',')
+  const ownerKey = getAdminGroupCanonicalOwnerIdentifier(group)
+  return `${handleKey || titleKey}:${participantKey || ownerKey}`
 }
 
 function buildAttachmentReportState(
@@ -2367,6 +2400,36 @@ export class TinychokStore {
     return this.buildAdminReportDetail(report)
   }
 
+  async adminViewReportEntity(actorToken: string, reportId: string, reason?: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const report = this.findAdminReport(reportId)
+    if (!report) {
+      throw new Error('Жалоба не найдена.')
+    }
+
+    const previewUrl =
+      report.entityType === 'media' || report.entityType === 'avatar' || report.entityType === 'gif'
+        ? report.entityKey
+        : null
+    const normalizedReason = sanitizeAdminText(reason, 280)
+
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.report.view-entity',
+      nextValue: {
+        previewUrl,
+        reportId,
+      },
+      reason: normalizedReason || undefined,
+      summary: `Просмотрено содержимое жалобы ${report.id}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
+      targetId: report.id,
+      targetType: 'report',
+    })
+
+    return {
+      previewUrl,
+    }
+  }
+
   async adminAddReportNote(actorToken: string, reportId: string, text: string) {
     const actor = this.getStaffAccountByTokenOrThrow(actorToken)
     const report = this.findAdminReport(reportId)
@@ -2434,6 +2497,12 @@ export class TinychokStore {
     report.resolutionReason = reason || undefined
     report.status = 'closed'
     report.updatedAt = report.closedAt
+    report.notes.push(
+      this.createAdminNote(
+        actor,
+        `Действие по тикету: ${payload.action}${reason ? ` · ${reason}` : ''}`,
+      ),
+    )
 
     await this.persist()
     await this.appendAdminAuditLog(actor, {
@@ -2461,10 +2530,7 @@ export class TinychokStore {
 
     const buildAdminLinkedUser = (identifier: string): AdminLinkedUser => {
       const account = this.findAccount(identifier)
-      return {
-        displayName: account ? buildAccountDisplayLabel(account) : identifier,
-        identifier,
-      }
+      return buildAdminLinkedUserSummary(account ?? undefined, identifier)
     }
 
     const channelsByKey = new Map<string, AdminManagedChannelSummary>()
@@ -2531,10 +2597,7 @@ export class TinychokStore {
 
     const buildAdminLinkedUser = (identifier: string): AdminLinkedUser => {
       const account = this.findAccount(identifier)
-      return {
-        displayName: account ? buildAccountDisplayLabel(account) : identifier,
-        identifier,
-      }
+      return buildAdminLinkedUserSummary(account ?? undefined, identifier)
     }
 
     const groupKeys = [...new Set(this.database.groups.map((group) => buildAdminGroupAggregateKey(group)))]
@@ -2544,8 +2607,7 @@ export class TinychokStore {
         const primaryGroup = [...copies].sort((left, right) => compareIsoDateDesc(left.latestActivityAt, right.latestActivityAt))[0]
         if (!primaryGroup) return null
 
-        const ownerIdentifier =
-          normalizeIdentifier(primaryGroup.creatorIdentifier ?? '') || primaryGroup.ownerIdentifier
+        const ownerIdentifier = getAdminGroupCanonicalOwnerIdentifier(primaryGroup)
         const messages = this.database.groupMessages.filter((message) =>
           copies.some(
             (group) =>
@@ -2597,10 +2659,7 @@ export class TinychokStore {
 
     const buildAdminLinkedUser = (identifier: string): AdminLinkedUser => {
       const account = this.findAccount(identifier)
-      return {
-        displayName: account ? buildAccountDisplayLabel(account) : identifier,
-        identifier,
-      }
+      return buildAdminLinkedUserSummary(account ?? undefined, identifier)
     }
 
     const upsertThread = (summary: AdminThreadSummary) => {
@@ -6198,10 +6257,7 @@ export class TinychokStore {
 
     const buildAdminLinkedUser = (identifier: string): AdminLinkedUser => {
       const account = this.findAccount(identifier)
-      return {
-        displayName: account ? buildAccountDisplayLabel(account) : identifier,
-        identifier,
-      }
+      return buildAdminLinkedUserSummary(account ?? undefined, identifier)
     }
 
     const countRelatedReports = (...keys: Array<string | undefined>) =>
@@ -6211,6 +6267,7 @@ export class TinychokStore {
 
     const pushItem = (payload: {
       attachment?: Pick<MessageAttachment, 'fileName' | 'mimeType'> | null
+      createdAt?: string
       entityId?: string
       entityLabel: string
       entityType: AdminMediaItemEntityType
@@ -6228,6 +6285,7 @@ export class TinychokStore {
       const resolvedKind = payload.kindOverride ?? inferStoredMediaKind(payload.mediaUrl) ?? 'unknown'
 
       items.push({
+        createdAt: payload.createdAt,
         contextLabel: payload.entityLabel,
         entityId: payload.entityId,
         entityLabel: payload.entityLabel,
@@ -6251,6 +6309,7 @@ export class TinychokStore {
     for (const upload of this.database.pendingMediaUploads) {
       pushItem({
         attachment: { fileName: upload.fileName, mimeType: upload.mimeType },
+        createdAt: upload.createdAt,
         entityLabel: upload.linked ? 'Черновик вложения' : 'Сиротский media upload',
         entityType: 'pending-upload',
         fileName: upload.fileName,
@@ -6281,6 +6340,7 @@ export class TinychokStore {
       for (const gif of account.gifLibrary ?? []) {
         pushItem({
           attachment: { fileName: gif.fileName, mimeType: gif.mimeType },
+          createdAt: gif.createdAt,
           entityLabel: `GIF-панель: ${buildAccountDisplayLabel(account)}`,
           entityType: 'user-gif',
           fileName: gif.fileName,
@@ -6342,6 +6402,7 @@ export class TinychokStore {
 
       pushItem({
         attachment: message.attachment,
+        createdAt: message.createdAt,
         entityId: dialogEntityId,
         entityLabel: 'Личный диалог',
         entityType: 'dialog-message',
@@ -6367,6 +6428,7 @@ export class TinychokStore {
 
         pushItem({
           attachment: message.attachment,
+          createdAt: message.createdAt,
           entityId: groupMessageEntityId,
           entityLabel: `Группа: ${group?.title ?? `#${message.groupId}`}`,
           entityType: 'group-message',
@@ -6392,6 +6454,7 @@ export class TinychokStore {
 
         pushItem({
           attachment: comment.attachment,
+          createdAt: comment.createdAt,
           entityId: groupCommentEntityId,
           entityLabel: `Комментарии группы: ${group?.title ?? `#${message.groupId}`}`,
           entityType: 'group-comment',
@@ -6420,6 +6483,7 @@ export class TinychokStore {
 
         pushItem({
           attachment: post.attachment,
+          createdAt: post.createdAt,
           entityId: channelPostEntityId,
           entityLabel: `Канал: ${channel?.title ?? `#${post.channelId}`}`,
           entityType: 'channel-post',
@@ -6445,6 +6509,7 @@ export class TinychokStore {
 
         pushItem({
           attachment: comment.attachment,
+          createdAt: comment.createdAt,
           entityId: channelCommentEntityId,
           entityLabel: `Комментарии канала: ${channel?.title ?? `#${post.channelId}`}`,
           entityType: 'channel-comment',
@@ -6458,7 +6523,14 @@ export class TinychokStore {
       }
     }
 
-    return items.sort((left, right) => right.size - left.size)
+    return items.sort((left, right) => {
+      const timeDiff = (parseIsoDate(right.createdAt) ?? 0) - (parseIsoDate(left.createdAt) ?? 0)
+      if (timeDiff !== 0) {
+        return timeDiff
+      }
+
+      return right.size - left.size
+    })
   }
 
   private findVisibleMediaContextForReporter(viewerIdentifier: string, mediaUrl: string) {
@@ -6870,6 +6942,7 @@ export class TinychokStore {
 
   private stripMediaReferences(mediaUrl: string) {
     let didChange = false
+    const removedThreadIds = new Set<string>()
 
     for (const account of this.database.accounts) {
       if (account.avatarImage === mediaUrl) {
@@ -6905,51 +6978,90 @@ export class TinychokStore {
       }
     }
 
-    for (const message of this.database.dialogMessages) {
-      if (message.attachment?.mediaUrl === mediaUrl) {
-        message.attachment = undefined
-        didChange = true
+    const removedDialogMessages = this.database.dialogMessages.filter(
+      (message) => message.attachment?.mediaUrl === mediaUrl,
+    )
+    if (removedDialogMessages.length > 0) {
+      const removedKeys = new Set(
+        removedDialogMessages.map((message) => `${message.ownerIdentifier}:${message.dialogId}:${message.id}`),
+      )
+      this.database.dialogMessages = this.database.dialogMessages.filter(
+        (message) => !removedKeys.has(`${message.ownerIdentifier}:${message.dialogId}:${message.id}`),
+      )
+      for (const dialog of this.database.dialogs) {
+        if (
+          dialog.pinnedMessageId !== undefined &&
+          removedDialogMessages.some(
+            (message) =>
+              message.ownerIdentifier === dialog.ownerIdentifier &&
+              message.dialogId === dialog.id &&
+              message.id === dialog.pinnedMessageId,
+          )
+        ) {
+          dialog.pinnedMessageId = undefined
+        }
       }
+      didChange = true
     }
 
+    const nextGroupMessages: PersistedGroupMessage[] = []
     for (const message of this.database.groupMessages) {
       if (message.attachment?.mediaUrl === mediaUrl) {
-        message.attachment = undefined
+        if (message.threadId) {
+          removedThreadIds.add(message.threadId)
+        }
         didChange = true
+        continue
       }
 
-      const nextComments = (message.threadComments ?? []).map((comment) =>
-        comment.attachment?.mediaUrl === mediaUrl
-          ? {
-              ...comment,
-              attachment: undefined,
-            }
-          : comment,
+      const originalComments = compactThreadComments(message.threadComments)
+      const filteredComments = originalComments.filter(
+        (comment) => comment.attachment?.mediaUrl !== mediaUrl,
       )
-      if (JSON.stringify(nextComments) !== JSON.stringify(message.threadComments ?? [])) {
-        message.threadComments = nextComments
+      if (filteredComments.length !== originalComments.length) {
         didChange = true
+        nextGroupMessages.push({
+          ...message,
+          threadComments: filteredComments,
+        })
+        continue
       }
-    }
 
+      nextGroupMessages.push(message)
+    }
+    this.database.groupMessages = nextGroupMessages
+
+    const nextSubscriptionPosts: PersistedSubscriptionPost[] = []
     for (const post of this.database.subscriptionPosts) {
       if (post.attachment?.mediaUrl === mediaUrl) {
-        post.attachment = undefined
+        if (post.threadId) {
+          removedThreadIds.add(post.threadId)
+        }
         didChange = true
+        continue
       }
 
-      const nextComments = (post.threadComments ?? []).map((comment) =>
-        comment.attachment?.mediaUrl === mediaUrl
-          ? {
-              ...comment,
-              attachment: undefined,
-            }
-          : comment,
+      const originalComments = compactThreadComments(post.threadComments)
+      const filteredComments = originalComments.filter(
+        (comment) => comment.attachment?.mediaUrl !== mediaUrl,
       )
-      if (JSON.stringify(nextComments) !== JSON.stringify(post.threadComments ?? [])) {
-        post.threadComments = nextComments
+      if (filteredComments.length !== originalComments.length) {
         didChange = true
+        nextSubscriptionPosts.push({
+          ...post,
+          threadComments: filteredComments,
+        })
+        continue
       }
+
+      nextSubscriptionPosts.push(post)
+    }
+    this.database.subscriptionPosts = nextSubscriptionPosts
+
+    if (removedThreadIds.size > 0) {
+      this.database.threadStates = this.database.threadStates.filter(
+        (state) => !removedThreadIds.has(state.threadId),
+      )
     }
 
     return didChange

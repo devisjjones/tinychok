@@ -10,6 +10,7 @@ export type AppStore = Pick<
   | 'adminAddReportNote'
   | 'adminApplyReportAction'
   | 'adminGetReport'
+  | 'adminViewReportEntity'
   | 'adminGetMediaDownload'
   | 'adminGetUser'
   | 'adminExportAuditLogsCsv'

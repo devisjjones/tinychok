@@ -17,6 +17,8 @@ import type {
   AdminReportActionBody,
   AdminReportDetailResponse,
   AdminReportNoteBody,
+  AdminReportViewBody,
+  AdminReportViewResponse,
   AdminReportsResponse,
   AdminUserBlockBody,
   AdminUserAvatarBody,
@@ -527,6 +529,22 @@ export async function addAdminReportNote(
   )
 
   return readJsonResponse<AdminReportDetailResponse>(response)
+}
+
+export async function viewAdminReportEntity(
+  sessionToken: string,
+  reportId: string,
+  body: AdminReportViewBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/reports/${encodeURIComponent(reportId)}/view`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  const payload = await readJsonResponse<AdminReportViewResponse>(response)
+  return {
+    previewUrl: payload.previewUrl ? resolveMediaUrl(payload.previewUrl) : null,
+  }
 }
 
 export async function applyAdminReportAction(

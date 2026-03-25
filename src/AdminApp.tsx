@@ -29,6 +29,7 @@ import {
   searchAdminUsers,
   setAdminUserPremium,
   unblockAdminUser,
+  viewAdminReportEntity,
   verifyAuthCode,
 } from './app/backend'
 import { isAllowedAdminHost } from './app/runtimeMode'
@@ -63,6 +64,7 @@ type AdminUserListFilter = 'all' | 'blocked'
 type AdminAuditPeriod = '24h' | '7d' | '30d' | '90d' | 'all'
 
 const adminSessionStorageKey = 'tinychok.admin.session'
+const adminViewedReportsStoragePrefix = 'tinychok.admin.viewedReports'
 
 function loadAdminSessionToken() {
   if (typeof window === 'undefined') {
@@ -83,6 +85,35 @@ function saveAdminSessionToken(token: string) {
   }
 
   window.localStorage.removeItem(adminSessionStorageKey)
+}
+
+function buildViewedReportsStorageKey(actorIdentifier: string) {
+  return `${adminViewedReportsStoragePrefix}:${actorIdentifier}`
+}
+
+function loadViewedReportIds(actorIdentifier: string) {
+  if (typeof window === 'undefined' || !actorIdentifier.trim()) {
+    return [] as string[]
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(buildViewedReportsStorageKey(actorIdentifier))
+    const parsed = rawValue ? JSON.parse(rawValue) : []
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function saveViewedReportIds(actorIdentifier: string, reportIds: string[]) {
+  if (typeof window === 'undefined' || !actorIdentifier.trim()) {
+    return
+  }
+
+  window.localStorage.setItem(
+    buildViewedReportsStorageKey(actorIdentifier),
+    JSON.stringify([...new Set(reportIds)]),
+  )
 }
 
 function formatDateTime(value?: string) {
@@ -195,9 +226,11 @@ export default function AdminApp() {
   const [selectedUserAvatarState, setSelectedUserAvatarState] = useState<'idle' | 'loading' | 'ready' | 'none'>('idle')
 
   const [reports, setReports] = useState<AdminReportSummary[]>([])
+  const [openReportsInbox, setOpenReportsInbox] = useState<AdminReportSummary[]>([])
   const [reportStatus, setReportStatus] = useState<'open' | 'closed' | 'all'>('open')
   const [selectedReportId, setSelectedReportId] = useState('')
   const [selectedReport, setSelectedReport] = useState<Awaited<ReturnType<typeof fetchAdminReport>>['report'] | null>(null)
+  const [viewedReportIds, setViewedReportIds] = useState<string[]>([])
 
   const [mediaQuery, setMediaQuery] = useState('')
   const [mediaItems, setMediaItems] = useState<AdminMediaItem[]>([])
@@ -230,6 +263,15 @@ export default function AdminApp() {
       document.title = previousTitle
     }
   }, [])
+
+  useEffect(() => {
+    if (!bootstrap) {
+      setViewedReportIds([])
+      return
+    }
+
+    setViewedReportIds(loadViewedReportIds(bootstrap.actor.identifier))
+  }, [bootstrap])
 
   useEffect(() => {
     let cancelled = false
@@ -306,10 +348,32 @@ export default function AdminApp() {
       statusFilter === 'all' ? undefined : statusFilter,
     )
     setReports(response.reports)
+    if (statusFilter === 'open') {
+      setOpenReportsInbox(response.reports)
+    } else if (statusFilter === 'all') {
+      setOpenReportsInbox(response.reports.filter((report) => report.status === 'open'))
+    } else {
+      const openResponse = await fetchAdminReports(sessionToken, 'open')
+      setOpenReportsInbox(openResponse.reports)
+    }
     if (selectedReportId && !response.reports.some((report) => report.id === selectedReportId)) {
       setSelectedReportId('')
       setSelectedReport(null)
     }
+  }
+
+  function markReportViewed(reportId: string) {
+    if (!bootstrap || !reportId) return
+
+    setViewedReportIds((currentIds) => {
+      if (currentIds.includes(reportId)) {
+        return currentIds
+      }
+
+      const nextIds = [...currentIds, reportId]
+      saveViewedReportIds(bootstrap.actor.identifier, nextIds)
+      return nextIds
+    })
   }
 
   async function refreshSelectedReport(reportId = selectedReportId) {
@@ -318,6 +382,7 @@ export default function AdminApp() {
     const response = await fetchAdminReport(sessionToken, reportId)
     setSelectedReportId(reportId)
     setSelectedReport(response.report)
+    markReportViewed(reportId)
   }
 
   async function refreshMedia(query = mediaQuery) {
@@ -707,6 +772,27 @@ export default function AdminApp() {
     }
   }
 
+  async function handleViewReportEntity() {
+    if (!sessionToken || !selectedReport) return
+
+    const reason = getActionReason('Причина просмотра содержимого жалобы', 'Проверка жалобы')
+    if (!reason) return
+
+    try {
+      const response = await viewAdminReportEntity(sessionToken, selectedReport.id, { reason })
+      if (!response.previewUrl) {
+        setAppError('Для этой жалобы сейчас нет отдельного preview.')
+        return
+      }
+
+      markReportViewed(selectedReport.id)
+      window.open(response.previewUrl, '_blank', 'noopener,noreferrer')
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   async function handleApplyReportAction(action: AdminReportAction) {
     if (!sessionToken || !selectedReport) return
 
@@ -960,6 +1046,9 @@ export default function AdminApp() {
   }
 
   const blockedUsersCount = blockedUserTotalCount
+  const unviewedOpenReportCount = openReportsInbox.filter(
+    (report) => !viewedReportIds.includes(report.id),
+  ).length
   const visibleUsers =
     userListFilter === 'blocked' ? users.filter((user) => user.blocked) : users
   const selectedChannel = channels.find((channel) => channel.handle === selectedChannelHandle) ?? null
@@ -1089,7 +1178,10 @@ export default function AdminApp() {
               className={section === item ? 'admin-nav-item active' : 'admin-nav-item'}
               onClick={() => setSection(item)}
             >
-              {label}
+              <span>{label}</span>
+              {item === 'reports' && unviewedOpenReportCount > 0 ? (
+                <span className="admin-nav-badge">{unviewedOpenReportCount}</span>
+              ) : null}
             </button>
           ))}
         </nav>
@@ -1099,8 +1191,10 @@ export default function AdminApp() {
             <span className="admin-actor-avatar">{getInitials(bootstrap.actor.displayName)}</span>
             <div className="admin-actor-meta">
               <strong>{bootstrap.actor.displayName}</strong>
-              <span className="admin-actor-identifier">{bootstrap.actor.identifier}</span>
-              <span className="admin-role-badge">{bootstrap.actor.role}</span>
+              <div className="admin-actor-subline">
+                <span className="admin-actor-identifier">{bootstrap.actor.identifier}</span>
+                <span className="admin-role-badge">{bootstrap.actor.role}</span>
+              </div>
             </div>
           </div>
 
@@ -1389,7 +1483,12 @@ export default function AdminApp() {
                       void refreshSelectedReport(report.id)
                     }}
                   >
-                    <strong>{report.entityLabel}</strong>
+                    <div className="admin-report-title-row">
+                      <strong>{report.entityLabel}</strong>
+                      {report.status === 'open' && !viewedReportIds.includes(report.id) ? (
+                        <span className="admin-report-unread-dot" aria-hidden="true" />
+                      ) : null}
+                    </div>
                     <span>{report.entityType}</span>
                     <span>{report.status}</span>
                   </button>
@@ -1465,6 +1564,13 @@ export default function AdminApp() {
                   <div className="admin-note-block">
                     <strong>Entity preview</strong>
                     <p>{selectedReport.entityPreview || 'Без текстового preview.'}</p>
+                    {['media', 'avatar', 'gif'].includes(selectedReport.entityType) ? (
+                      <div className="admin-toolbar">
+                        <button type="button" className="admin-secondary-button" onClick={() => void handleViewReportEntity()}>
+                          Посмотреть
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="admin-note-block">
@@ -1510,6 +1616,7 @@ export default function AdminApp() {
                 <span>Владелец</span>
                 <span>Где находится</span>
                 <span>Файл</span>
+                <span>Дата и время</span>
                 <span>Размер</span>
                 <span>Жалобы</span>
                 <span>Действия</span>
@@ -1550,6 +1657,7 @@ export default function AdminApp() {
                     <strong>{item.fileName}</strong>
                     <span>{item.mediaUrl.split('/').at(-1) ?? item.mediaUrl}</span>
                   </span>
+                  <span>{formatDateTime(item.createdAt)}</span>
                   <span>{formatBytes(item.size)}</span>
                   <span>
                     <span className={item.relatedReportCount > 0 ? 'admin-report-count has-reports' : 'admin-report-count'}>
@@ -1620,7 +1728,7 @@ export default function AdminApp() {
                   <dl className="admin-detail-grid">
                     <div>
                       <dt>Владелец</dt>
-                      <dd>
+                      <dd className="admin-contact-card">
                         <button
                           type="button"
                           className="admin-inline-link"
@@ -1628,11 +1736,9 @@ export default function AdminApp() {
                         >
                           {selectedChannel.owner.displayName}
                         </button>
+                        <span>{selectedChannel.owner.nickname ? `@${selectedChannel.owner.nickname}` : 'Нет username'}</span>
+                        <span>{selectedChannel.owner.identifier}</span>
                       </dd>
-                    </div>
-                    <div>
-                      <dt>Телефон владельца</dt>
-                      <dd>{selectedChannel.owner.identifier}</dd>
                     </div>
                     <div>
                       <dt>Постов</dt>
