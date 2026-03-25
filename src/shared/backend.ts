@@ -229,6 +229,51 @@ export type AdminMediaListResponse = {
   items: AdminMediaItem[]
 }
 
+export type AdminManagedChannelSummary = {
+  handle: string
+  id: number
+  latestActivityAt?: string
+  owner: AdminLinkedUser
+  postsCount: number
+  readers: number
+  relatedReportCount: number
+  status: Channel['status']
+  title: string
+  visibility: Channel['visibility']
+}
+
+export type AdminManagedChannelsResponse = {
+  channels: AdminManagedChannelSummary[]
+}
+
+export type AdminManagedGroupSummary = {
+  id: string
+  latestActivityAt?: string
+  members: number
+  owner: AdminLinkedUser
+  relatedReportCount: number
+  title: string
+}
+
+export type AdminManagedGroupsResponse = {
+  groups: AdminManagedGroupSummary[]
+}
+
+export type AdminThreadSummary = {
+  commentCount: number
+  id: string
+  kind: 'group' | 'channel'
+  latestActivityAt?: string
+  owner: AdminLinkedUser
+  relatedReportCount: number
+  sourceText: string
+  title: string
+}
+
+export type AdminThreadsResponse = {
+  threads: AdminThreadSummary[]
+}
+
 export type AdminMediaActionBody = {
   action: 'hide' | 'delete'
   mediaUrl: string
@@ -248,10 +293,18 @@ export type AdminUserAvatarResponse = {
   avatarUrl: string | null
 }
 
+export type AdminAuditActor = {
+  displayName: string
+  identifier: string
+  nickname?: string
+  role: StaffRole
+}
+
 export type AdminAuditLogEntry = {
   action: string
   actorDisplayName: string
   actorIdentifier: string
+  actorNickname?: string
   actorRole: StaffRole
   createdAt: string
   id: string
@@ -259,10 +312,12 @@ export type AdminAuditLogEntry = {
   previousValue?: unknown
   summary: string
   targetId: string
+  targetLabel: string
   targetType: string
 }
 
 export type AdminAuditLogResponse = {
+  actors: AdminAuditActor[]
   entries: AdminAuditLogEntry[]
 }
 

@@ -3221,11 +3221,11 @@ function App() {
   }, [mediaViewerReportToast])
 
   async function reportOpenedMediaAttachment() {
-    if (!mediaViewerAttachment?.reportState || mediaViewerReportBusy) {
+    if (!mediaViewerAttachment || mediaViewerReportBusy) {
       return
     }
 
-    if (mediaViewerAttachment.reportState.alreadyReported) {
+    if (mediaViewerAttachment.reportState?.alreadyReported) {
       setMediaViewerReportToast('Вы уже отправляли жалобу')
       return
     }
@@ -3233,12 +3233,12 @@ function App() {
     if (!(backendReady && session?.sessionToken)) {
       setMediaViewerReportToast('Жалоба отправлена')
       setMediaViewerAttachment((current) =>
-        current
-          ? {
-              ...current,
-              reportState: {
-                alreadyReported: true,
-                reportCount: (current.reportState?.reportCount ?? 0) + 1,
+            current
+              ? {
+                  ...current,
+                  reportState: {
+                    alreadyReported: true,
+                    reportCount: (current.reportState?.reportCount ?? 0) + 1,
               },
             }
           : current,
@@ -3254,12 +3254,12 @@ function App() {
       })
       applySnapshot(response.snapshot)
       setMediaViewerAttachment((current) =>
-        current
-          ? {
-              ...current,
-              reportState: {
-                alreadyReported: true,
-                reportCount: (current.reportState?.reportCount ?? 0) + 1,
+            current
+              ? {
+                  ...current,
+                  reportState: {
+                    alreadyReported: true,
+                    reportCount: (current.reportState?.reportCount ?? 0) + 1,
               },
             }
           : current,
@@ -13072,7 +13072,7 @@ function App() {
           attachment={mediaViewerAttachment}
           onClose={closeMediaViewer}
           allowDownload={mediaViewerDownloadEnabled}
-          onReport={mediaViewerDownloadEnabled ? () => void reportOpenedMediaAttachment() : undefined}
+          onReport={() => void reportOpenedMediaAttachment()}
           reportBusy={mediaViewerReportBusy}
           reportToast={mediaViewerReportToast}
         />

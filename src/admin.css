@@ -22,6 +22,7 @@
   min-height: 100vh;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
+  align-items: start;
   color: var(--admin-text);
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
@@ -165,6 +166,10 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
   padding: 24px;
   background: rgba(255, 249, 240, 0.78);
   backdrop-filter: blur(18px);
@@ -182,6 +187,9 @@
   display: grid;
   gap: 10px;
   margin: 32px 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .admin-nav-item,
@@ -207,6 +215,27 @@
   align-items: center;
 }
 
+.admin-actor-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-actor-identifier {
+  color: var(--admin-muted);
+  font-size: 13px;
+}
+
+.admin-role-badge {
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(157, 78, 47, 0.14);
+  color: var(--admin-accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .admin-actor-avatar {
   width: 44px;
   height: 44px;
@@ -224,6 +253,7 @@
   display: grid;
   gap: 16px;
   align-content: start;
+  min-width: 0;
 }
 
 .admin-topbar,
@@ -232,6 +262,7 @@
   border-radius: 28px;
   padding: 24px;
   backdrop-filter: blur(14px);
+  min-width: 0;
 }
 
 .admin-topbar {
@@ -312,17 +343,22 @@
   gap: 14px;
   min-height: 0;
   align-content: start;
+  align-self: start;
+  min-width: 0;
 }
 
 .admin-filter-tabs {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .admin-filter-tab {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
+  min-height: 44px;
   border: 1px solid var(--admin-border);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.82);
@@ -357,6 +393,11 @@
 .admin-list-item strong,
 .admin-note-card strong {
   display: block;
+}
+
+.admin-list-item {
+  min-height: auto;
+  align-content: start;
 }
 
 .admin-user-name-row {
@@ -406,6 +447,37 @@
   gap: 10px;
   color: var(--admin-muted);
   font-size: 14px;
+}
+
+.admin-actions-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--admin-border);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.admin-inline-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.admin-inline-field {
+  min-width: 180px;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-inline-field span {
+  font-size: 13px;
+  color: var(--admin-muted);
+}
+
+.admin-audit-controls {
+  margin-bottom: 18px;
 }
 
 .admin-avatar-preview-card {
@@ -515,6 +587,7 @@
 .admin-table {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .admin-table-row {
@@ -526,6 +599,7 @@
   border: 1px solid var(--admin-border);
   border-radius: 18px;
   background: white;
+  min-width: 0;
 }
 
 .admin-media-row {
@@ -544,6 +618,9 @@
   }
 
   .admin-sidebar {
+    position: static;
+    height: auto;
+    overflow: visible;
     border-radius: 0 0 24px 24px;
   }
 

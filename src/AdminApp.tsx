@@ -5,16 +5,20 @@ import {
   addAdminReportNote,
   applyAdminReportAction,
   blockAdminUser,
+  downloadAdminAuditCsv,
   downloadAdminMedia,
-  fetchAdminAuditLog,
+  fetchAdminChannels,
   fetchAdminBootstrap,
   fetchAdminDashboard,
+  fetchAdminGroups,
   fetchAdminMedia,
   fetchAdminReport,
   fetchAdminReports,
+  fetchAdminThreads,
   fetchAdminUser,
   fetchAdminUserAvatar,
   fetchClientRuntimeConfig,
+  fetchFilteredAdminAuditLog,
   moderateAdminMedia,
   requestAuthCode,
   searchAdminUsers,
@@ -24,19 +28,32 @@ import {
 } from './app/backend'
 import { isAllowedAdminHost } from './app/runtimeMode'
 import type {
+  AdminAuditActor,
   AdminAuditLogEntry,
   AdminBootstrapResponse,
   AdminDashboardResponse,
+  AdminManagedChannelSummary,
+  AdminManagedGroupSummary,
   AdminMediaItem,
   AdminReportAction,
   AdminReportSummary,
+  AdminThreadSummary,
   AdminUserSummary,
   ClientRuntimeConfigResponse,
 } from './shared/backend'
 
-type AdminSection = 'dashboard' | 'users' | 'reports' | 'media' | 'audit'
+type AdminSection =
+  | 'dashboard'
+  | 'users'
+  | 'reports'
+  | 'channels'
+  | 'groups'
+  | 'threads'
+  | 'media'
+  | 'audit'
 type AdminAuthStep = 'phone' | 'code'
 type AdminUserListFilter = 'all' | 'blocked'
+type AdminAuditPeriod = '24h' | '7d' | '30d' | '90d' | 'all'
 
 const adminSessionStorageKey = 'tinychok.admin.session'
 
@@ -118,6 +135,32 @@ function getInitials(label: string) {
     .join('')
 }
 
+function buildAuditWindow(period: AdminAuditPeriod) {
+  if (period === 'all') {
+    return {}
+  }
+
+  const hours =
+    period === '24h' ? 24 : period === '7d' ? 24 * 7 : period === '30d' ? 24 * 30 : 24 * 90
+
+  return {
+    from: new Date(Date.now() - hours * 60 * 60 * 1000).toISOString(),
+    to: new Date().toISOString(),
+  }
+}
+
+function downloadCsvFile(fileName: string, csv: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
+}
+
 export default function AdminApp() {
   const [section, setSection] = useState<AdminSection>('dashboard')
   const [runtimeConfig, setRuntimeConfig] = useState<ClientRuntimeConfigResponse | null>(null)
@@ -149,7 +192,20 @@ export default function AdminApp() {
 
   const [mediaQuery, setMediaQuery] = useState('')
   const [mediaItems, setMediaItems] = useState<AdminMediaItem[]>([])
+  const [channelQuery, setChannelQuery] = useState('')
+  const [channels, setChannels] = useState<AdminManagedChannelSummary[]>([])
+  const [selectedChannelHandle, setSelectedChannelHandle] = useState('')
+  const [groupQuery, setGroupQuery] = useState('')
+  const [groups, setGroups] = useState<AdminManagedGroupSummary[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState('')
+  const [threadQuery, setThreadQuery] = useState('')
+  const [threads, setThreads] = useState<AdminThreadSummary[]>([])
+  const [selectedThreadId, setSelectedThreadId] = useState('')
+  const [auditActors, setAuditActors] = useState<AdminAuditActor[]>([])
+  const [auditActorIdentifier, setAuditActorIdentifier] = useState('')
+  const [auditPeriod, setAuditPeriod] = useState<AdminAuditPeriod>('30d')
   const [auditEntries, setAuditEntries] = useState<AdminAuditLogEntry[]>([])
+  const [userLogPeriod, setUserLogPeriod] = useState<AdminAuditPeriod>('30d')
 
   useEffect(() => {
     const previousTitle = document.title
@@ -233,6 +289,10 @@ export default function AdminApp() {
       statusFilter === 'all' ? undefined : statusFilter,
     )
     setReports(response.reports)
+    if (selectedReportId && !response.reports.some((report) => report.id === selectedReportId)) {
+      setSelectedReportId('')
+      setSelectedReport(null)
+    }
   }
 
   async function refreshSelectedReport(reportId = selectedReportId) {
@@ -250,10 +310,44 @@ export default function AdminApp() {
     setMediaItems(response.items)
   }
 
+  async function refreshChannels(query = channelQuery) {
+    if (!sessionToken) return
+
+    const response = await fetchAdminChannels(sessionToken, query)
+    setChannels(response.channels)
+    if (selectedChannelHandle && !response.channels.some((channel) => channel.handle === selectedChannelHandle)) {
+      setSelectedChannelHandle('')
+    }
+  }
+
+  async function refreshGroups(query = groupQuery) {
+    if (!sessionToken) return
+
+    const response = await fetchAdminGroups(sessionToken, query)
+    setGroups(response.groups)
+    if (selectedGroupId && !response.groups.some((group) => group.id === selectedGroupId)) {
+      setSelectedGroupId('')
+    }
+  }
+
+  async function refreshThreads(query = threadQuery) {
+    if (!sessionToken) return
+
+    const response = await fetchAdminThreads(sessionToken, query)
+    setThreads(response.threads)
+    if (selectedThreadId && !response.threads.some((thread) => thread.id === selectedThreadId)) {
+      setSelectedThreadId('')
+    }
+  }
+
   async function refreshAuditLog() {
     if (!sessionToken) return
 
-    const response = await fetchAdminAuditLog(sessionToken)
+    const response = await fetchFilteredAdminAuditLog(sessionToken, {
+      actorIdentifier: auditActorIdentifier || undefined,
+      ...buildAuditWindow(auditPeriod),
+    })
+    setAuditActors(response.actors)
     setAuditEntries(response.entries)
   }
 
@@ -261,6 +355,9 @@ export default function AdminApp() {
     await refreshDashboard()
     await refreshUsers(userQuery)
     await refreshReports(reportStatus)
+    await refreshChannels(channelQuery)
+    await refreshGroups(groupQuery)
+    await refreshThreads(threadQuery)
     await refreshMedia(mediaQuery)
     await refreshAuditLog()
   })
@@ -275,6 +372,22 @@ export default function AdminApp() {
 
   const syncMediaSearch = useEffectEvent(async () => {
     await refreshMedia(mediaQuery)
+  })
+
+  const syncChannelSearch = useEffectEvent(async () => {
+    await refreshChannels(channelQuery)
+  })
+
+  const syncGroupSearch = useEffectEvent(async () => {
+    await refreshGroups(groupQuery)
+  })
+
+  const syncThreadSearch = useEffectEvent(async () => {
+    await refreshThreads(threadQuery)
+  })
+
+  const syncAuditFilters = useEffectEvent(async () => {
+    await refreshAuditLog()
   })
 
   useEffect(() => {
@@ -308,6 +421,38 @@ export default function AdminApp() {
 
     void syncMediaSearch()
   }, [sessionToken, bootstrap, mediaQuery])
+
+  useEffect(() => {
+    if (!sessionToken || !bootstrap) {
+      return
+    }
+
+    void syncChannelSearch()
+  }, [sessionToken, bootstrap, channelQuery])
+
+  useEffect(() => {
+    if (!sessionToken || !bootstrap) {
+      return
+    }
+
+    void syncGroupSearch()
+  }, [sessionToken, bootstrap, groupQuery])
+
+  useEffect(() => {
+    if (!sessionToken || !bootstrap) {
+      return
+    }
+
+    void syncThreadSearch()
+  }, [sessionToken, bootstrap, threadQuery])
+
+  useEffect(() => {
+    if (!sessionToken || !bootstrap) {
+      return
+    }
+
+    void syncAuditFilters()
+  }, [sessionToken, bootstrap, auditActorIdentifier, auditPeriod])
 
   async function handleRequestCode() {
     setAuthBusy(true)
@@ -384,6 +529,7 @@ export default function AdminApp() {
 
         const response = await unblockAdminUser(sessionToken, user.identifier)
         setSelectedUser(response.user)
+        await refreshSelectedUser(response.user.identifier)
       } else {
         const reason = getActionReason('Причина блокировки', 'Нарушение правил сервиса')
         if (!reason) return
@@ -393,6 +539,7 @@ export default function AdminApp() {
 
         const response = await blockAdminUser(sessionToken, user.identifier, { reason })
         setSelectedUser(response.user)
+        await refreshSelectedUser(response.user.identifier)
       }
 
       await refreshUsers()
@@ -435,6 +582,7 @@ export default function AdminApp() {
         reason,
       })
       setSelectedUser(response.user)
+      await refreshSelectedUser(response.user.identifier)
       await refreshUsers()
       await refreshDashboard()
       await refreshAuditLog()
@@ -496,8 +644,14 @@ export default function AdminApp() {
         action,
         reason,
       })
-      setSelectedReport(response.report)
       await refreshReports()
+      if (reportStatus === 'all' || response.report.status === reportStatus) {
+        setSelectedReport(response.report)
+        setSelectedReportId(response.report.id)
+      } else {
+        setSelectedReport(null)
+        setSelectedReportId('')
+      }
       await refreshDashboard()
       await refreshUsers()
       await refreshMedia()
@@ -552,6 +706,49 @@ export default function AdminApp() {
     }
   }
 
+  async function handleDownloadAuditCsv() {
+    if (!sessionToken) return
+
+    try {
+      const response = await downloadAdminAuditCsv(sessionToken, {
+        actorIdentifier: auditActorIdentifier || undefined,
+        ...buildAuditWindow(auditPeriod),
+      })
+      downloadCsvFile('tinychok-admin-audit.csv', response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDownloadUserAuditCsv(user: AdminUserSummary) {
+    if (!sessionToken || !bootstrap) return
+
+    const confirmation = window.prompt(
+      'Для подтверждения экспорта введите номер текущего staff-аккаунта',
+      bootstrap.actor.identifier,
+    )
+    if (confirmation === null) {
+      return
+    }
+    if (confirmation.trim() !== bootstrap.actor.identifier) {
+      setAppError('Подтверждение экспорта не прошло.')
+      return
+    }
+
+    try {
+      const response = await downloadAdminAuditCsv(sessionToken, {
+        targetIdentifier: user.identifier,
+        ...buildAuditWindow(userLogPeriod),
+      })
+      const safeIdentifier = user.identifier.replace(/[^\dA-Za-z_-]/g, '')
+      downloadCsvFile(`tinychok-user-${safeIdentifier || 'logs'}.csv`, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   async function openUserFromAdmin(identifierToOpen: string) {
     if (!sessionToken) return
 
@@ -570,6 +767,9 @@ export default function AdminApp() {
   const blockedUsersCount = users.filter((user) => user.blocked).length
   const visibleUsers =
     userListFilter === 'blocked' ? users.filter((user) => user.blocked) : users
+  const selectedChannel = channels.find((channel) => channel.handle === selectedChannelHandle) ?? null
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null
+  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null
 
   if (appLoading) {
     return <main className="admin-shell admin-loading">Подготавливаем admin panel...</main>
@@ -681,6 +881,9 @@ export default function AdminApp() {
             ['dashboard', 'Dashboard'],
             ['users', 'Users'],
             ['reports', 'Reports'],
+            ['channels', 'Channels'],
+            ['groups', 'Groups'],
+            ['threads', 'Threads'],
             ['media', 'Media'],
             ['audit', 'Audit Log'],
           ] as Array<[AdminSection, string]>).map(([item, label]) => (
@@ -698,9 +901,10 @@ export default function AdminApp() {
         <div className="admin-sidebar-footer">
           <div className="admin-actor-card">
             <span className="admin-actor-avatar">{getInitials(bootstrap.actor.displayName)}</span>
-            <div>
+            <div className="admin-actor-meta">
               <strong>{bootstrap.actor.displayName}</strong>
-              <span>{bootstrap.actor.role}</span>
+              <span className="admin-actor-identifier">{bootstrap.actor.identifier}</span>
+              <span className="admin-role-badge">{bootstrap.actor.role}</span>
             </div>
           </div>
 
@@ -829,21 +1033,6 @@ export default function AdminApp() {
                         <span>{selectedUser.status || 'Нет статуса'}</span>
                       </div>
                     </div>
-                    <div className="admin-toolbar">
-                      <button
-                        type="button"
-                        className="admin-secondary-button"
-                        onClick={() => void handleRevealAvatar(selectedUser)}
-                      >
-                        {selectedUserAvatarState === 'ready' ? 'Скрыть аватарку' : 'Аватарка'}
-                      </button>
-                      <button type="button" className="admin-secondary-button" onClick={() => void handleToggleBlock(selectedUser)}>
-                        {selectedUser.blocked ? 'Разблокировать' : 'Заблокировать'}
-                      </button>
-                      <button type="button" className="admin-primary-button" onClick={() => void handleTogglePremium(selectedUser)}>
-                        {selectedUser.premium ? 'Снять premium' : 'Выдать premium'}
-                      </button>
-                    </div>
                   </div>
 
                   {selectedUserAvatarState !== 'idle' ? (
@@ -900,6 +1089,46 @@ export default function AdminApp() {
                       <dd>{selectedUser.blocked ? `Да · ${selectedUser.blockedAt ? formatDateTime(selectedUser.blockedAt) : 'без даты'}` : 'Нет'}</dd>
                     </div>
                   </dl>
+
+                  <div className="admin-actions-panel">
+                    <div className="admin-inline-controls">
+                      <label className="admin-inline-field">
+                        <span>Логи пользователя</span>
+                        <select
+                          className="admin-select"
+                          value={userLogPeriod}
+                          onChange={(event) => setUserLogPeriod(event.target.value as AdminAuditPeriod)}
+                        >
+                          <option value="7d">7 дней</option>
+                          <option value="30d">30 дней</option>
+                          <option value="90d">90 дней</option>
+                          <option value="all">All</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="admin-secondary-button"
+                        onClick={() => void handleDownloadUserAuditCsv(selectedUser)}
+                      >
+                        Скачать логи CSV
+                      </button>
+                    </div>
+                    <div className="admin-toolbar">
+                      <button
+                        type="button"
+                        className="admin-secondary-button"
+                        onClick={() => void handleRevealAvatar(selectedUser)}
+                      >
+                        {selectedUserAvatarState === 'ready' ? 'Скрыть аватарку' : 'Аватарка'}
+                      </button>
+                      <button type="button" className="admin-secondary-button" onClick={() => void handleToggleBlock(selectedUser)}>
+                        {selectedUser.blocked ? 'Разблокировать' : 'Заблокировать'}
+                      </button>
+                      <button type="button" className="admin-primary-button" onClick={() => void handleTogglePremium(selectedUser)}>
+                        {selectedUser.premium ? 'Снять premium' : 'Выдать premium'}
+                      </button>
+                    </div>
+                  </div>
                 </>
               ) : (
                 <div className="admin-empty-state">Выберите пользователя слева.</div>
@@ -909,8 +1138,8 @@ export default function AdminApp() {
         ) : null}
 
         {section === 'reports' ? (
-          <section className="admin-panel admin-two-column">
-            <div className="admin-list-panel">
+          <section className="admin-two-column admin-section-split">
+            <div className="admin-panel admin-list-panel">
               <div className="admin-panel-heading">
                 <h2>Reports</h2>
                 <select
@@ -943,7 +1172,7 @@ export default function AdminApp() {
               </div>
             </div>
 
-            <div className="admin-detail-panel">
+            <div className="admin-panel admin-detail-panel">
               {selectedReport ? (
                 <>
                   <div className="admin-panel-heading">
@@ -1119,29 +1348,323 @@ export default function AdminApp() {
           </section>
         ) : null}
 
+        {section === 'channels' ? (
+          <section className="admin-two-column admin-section-split">
+            <div className="admin-panel admin-list-panel">
+              <div className="admin-panel-heading">
+                <h2>Channels</h2>
+              </div>
+              <input
+                className="admin-search-input"
+                type="search"
+                placeholder="Поиск по названию, @handle или владельцу"
+                value={channelQuery}
+                onChange={(event) => setChannelQuery(event.target.value)}
+              />
+              <div className="admin-list">
+                {channels.map((channel) => (
+                  <button
+                    key={channel.handle}
+                    type="button"
+                    className={selectedChannelHandle === channel.handle ? 'admin-list-item active' : 'admin-list-item'}
+                    onClick={() => setSelectedChannelHandle(channel.handle)}
+                  >
+                    <strong>{channel.title}</strong>
+                    <span>{`@${channel.handle}`}</span>
+                    <span>{`${channel.status} · ${channel.visibility}`}</span>
+                  </button>
+                ))}
+                {channels.length === 0 ? (
+                  <div className="admin-empty-state admin-empty-state-inline">Каналы по текущему поиску не найдены.</div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="admin-panel admin-detail-panel">
+              {selectedChannel ? (
+                <>
+                  <div className="admin-panel-heading">
+                    <div className="admin-user-identity">
+                      <h2>{selectedChannel.title}</h2>
+                      <div className="admin-user-identity-meta">
+                        <span>{`@${selectedChannel.handle}`}</span>
+                        <span>{`${selectedChannel.status} · ${selectedChannel.visibility}`}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <dl className="admin-detail-grid">
+                    <div>
+                      <dt>Владелец</dt>
+                      <dd>
+                        <button
+                          type="button"
+                          className="admin-inline-link"
+                          onClick={() => void openUserFromAdmin(selectedChannel.owner.identifier)}
+                        >
+                          {selectedChannel.owner.displayName}
+                        </button>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Телефон владельца</dt>
+                      <dd>{selectedChannel.owner.identifier}</dd>
+                    </div>
+                    <div>
+                      <dt>Постов</dt>
+                      <dd>{selectedChannel.postsCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Читателей</dt>
+                      <dd>{selectedChannel.readers}</dd>
+                    </div>
+                    <div>
+                      <dt>Жалоб</dt>
+                      <dd>{selectedChannel.relatedReportCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Последняя активность</dt>
+                      <dd>{formatDateTime(selectedChannel.latestActivityAt)}</dd>
+                    </div>
+                  </dl>
+                </>
+              ) : (
+                <div className="admin-empty-state">Выберите канал слева.</div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {section === 'groups' ? (
+          <section className="admin-two-column admin-section-split">
+            <div className="admin-panel admin-list-panel">
+              <div className="admin-panel-heading">
+                <h2>Groups</h2>
+              </div>
+              <input
+                className="admin-search-input"
+                type="search"
+                placeholder="Поиск по названию, shared id или владельцу"
+                value={groupQuery}
+                onChange={(event) => setGroupQuery(event.target.value)}
+              />
+              <div className="admin-list">
+                {groups.map((group) => (
+                  <button
+                    key={group.id}
+                    type="button"
+                    className={selectedGroupId === group.id ? 'admin-list-item active' : 'admin-list-item'}
+                    onClick={() => setSelectedGroupId(group.id)}
+                  >
+                    <strong>{group.title}</strong>
+                    <span>{group.id}</span>
+                    <span>{`${group.members} участников`}</span>
+                  </button>
+                ))}
+                {groups.length === 0 ? (
+                  <div className="admin-empty-state admin-empty-state-inline">Группы по текущему поиску не найдены.</div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="admin-panel admin-detail-panel">
+              {selectedGroup ? (
+                <>
+                  <div className="admin-panel-heading">
+                    <div className="admin-user-identity">
+                      <h2>{selectedGroup.title}</h2>
+                      <div className="admin-user-identity-meta">
+                        <span>{selectedGroup.id}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <dl className="admin-detail-grid">
+                    <div>
+                      <dt>Владелец</dt>
+                      <dd>
+                        <button
+                          type="button"
+                          className="admin-inline-link"
+                          onClick={() => void openUserFromAdmin(selectedGroup.owner.identifier)}
+                        >
+                          {selectedGroup.owner.displayName}
+                        </button>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Телефон владельца</dt>
+                      <dd>{selectedGroup.owner.identifier}</dd>
+                    </div>
+                    <div>
+                      <dt>Участников</dt>
+                      <dd>{selectedGroup.members}</dd>
+                    </div>
+                    <div>
+                      <dt>Жалоб</dt>
+                      <dd>{selectedGroup.relatedReportCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Последняя активность</dt>
+                      <dd>{formatDateTime(selectedGroup.latestActivityAt)}</dd>
+                    </div>
+                  </dl>
+                </>
+              ) : (
+                <div className="admin-empty-state">Выберите группу слева.</div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {section === 'threads' ? (
+          <section className="admin-two-column admin-section-split">
+            <div className="admin-panel admin-list-panel">
+              <div className="admin-panel-heading">
+                <h2>Threads</h2>
+              </div>
+              <input
+                className="admin-search-input"
+                type="search"
+                placeholder="Поиск по треду, источнику или владельцу"
+                value={threadQuery}
+                onChange={(event) => setThreadQuery(event.target.value)}
+              />
+              <div className="admin-list">
+                {threads.map((thread) => (
+                  <button
+                    key={thread.id}
+                    type="button"
+                    className={selectedThreadId === thread.id ? 'admin-list-item active' : 'admin-list-item'}
+                    onClick={() => setSelectedThreadId(thread.id)}
+                  >
+                    <strong>{thread.title}</strong>
+                    <span>{thread.kind === 'group' ? 'Тред группы' : 'Тред канала'}</span>
+                    <span>{`${thread.commentCount} комментариев`}</span>
+                  </button>
+                ))}
+                {threads.length === 0 ? (
+                  <div className="admin-empty-state admin-empty-state-inline">Треды по текущему поиску не найдены.</div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="admin-panel admin-detail-panel">
+              {selectedThread ? (
+                <>
+                  <div className="admin-panel-heading">
+                    <div className="admin-user-identity">
+                      <h2>{selectedThread.title}</h2>
+                      <div className="admin-user-identity-meta">
+                        <span>{selectedThread.kind === 'group' ? 'Тред группы' : 'Тред канала'}</span>
+                        <span>{selectedThread.id}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <dl className="admin-detail-grid">
+                    <div>
+                      <dt>Владелец</dt>
+                      <dd>
+                        <button
+                          type="button"
+                          className="admin-inline-link"
+                          onClick={() => void openUserFromAdmin(selectedThread.owner.identifier)}
+                        >
+                          {selectedThread.owner.displayName}
+                        </button>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Телефон владельца</dt>
+                      <dd>{selectedThread.owner.identifier}</dd>
+                    </div>
+                    <div>
+                      <dt>Комментариев</dt>
+                      <dd>{selectedThread.commentCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Жалоб</dt>
+                      <dd>{selectedThread.relatedReportCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Последняя активность</dt>
+                      <dd>{formatDateTime(selectedThread.latestActivityAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Источник</dt>
+                      <dd>{selectedThread.sourceText || 'Без текста'}</dd>
+                    </div>
+                  </dl>
+                </>
+              ) : (
+                <div className="admin-empty-state">Выберите тред слева.</div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
         {section === 'audit' ? (
           <section className="admin-panel">
             <div className="admin-panel-heading">
               <h2>Audit Log</h2>
+            </div>
+
+            <div className="admin-inline-controls admin-audit-controls">
+              <label className="admin-inline-field">
+                <span>Актёр</span>
+                <select
+                  className="admin-select"
+                  value={auditActorIdentifier}
+                  onChange={(event) => setAuditActorIdentifier(event.target.value)}
+                >
+                  <option value="">Все актёры</option>
+                  {auditActors.map((actor) => (
+                    <option key={actor.identifier} value={actor.identifier}>
+                      {actor.nickname
+                        ? `${actor.displayName} (@${actor.nickname})`
+                        : actor.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="admin-inline-field">
+                <span>Период</span>
+                <select
+                  className="admin-select"
+                  value={auditPeriod}
+                  onChange={(event) => setAuditPeriod(event.target.value as AdminAuditPeriod)}
+                >
+                  <option value="24h">24 часа</option>
+                  <option value="7d">7 дней</option>
+                  <option value="30d">30 дней</option>
+                  <option value="90d">90 дней</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
               <button type="button" className="admin-secondary-button" onClick={() => void refreshAuditLog()}>
                 Обновить
+              </button>
+              <button type="button" className="admin-primary-button" onClick={() => void handleDownloadAuditCsv()}>
+                Сформировать CSV
               </button>
             </div>
 
             <div className="admin-table">
               <div className="admin-table-row admin-table-head">
-                <span>When</span>
-                <span>Actor</span>
-                <span>Action</span>
-                <span>Target</span>
+                <span>Когда</span>
+                <span>Актёр</span>
+                <span>Действие</span>
+                <span>Объект</span>
                 <span>Summary</span>
               </div>
               {auditEntries.map((entry) => (
                 <div key={entry.id} className="admin-table-row">
                   <span>{formatDateTime(entry.createdAt)}</span>
-                  <span>{`${entry.actorDisplayName} · ${entry.actorRole}`}</span>
+                  <span>
+                    {entry.actorNickname
+                      ? `${entry.actorDisplayName} (@${entry.actorNickname}) · ${entry.actorRole}`
+                      : `${entry.actorDisplayName} · ${entry.actorRole}`}
+                  </span>
                   <span>{entry.action}</span>
-                  <span>{`${entry.targetType}:${entry.targetId}`}</span>
+                  <span>{entry.targetLabel}</span>
                   <span>{entry.summary}</span>
                 </div>
               ))}

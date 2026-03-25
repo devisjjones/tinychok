@@ -66,7 +66,7 @@ export function MediaViewerOverlay({
             <span className="media-viewer-download-label">Скачать</span>
           </button>
         ) : null}
-        {allowDownload && onReport ? (
+        {onReport ? (
           <button
             type="button"
             className="media-viewer-report"

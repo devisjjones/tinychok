@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type {
   AdminAuditLogResponse,
   AdminBootstrapResponse,
+  AdminManagedChannelsResponse,
+  AdminManagedGroupsResponse,
   AdminMediaDownloadBody,
   AdminMediaDownloadResponse,
   AdminMediaActionBody,
@@ -16,6 +18,7 @@ import type {
   AdminUserDetailResponse,
   AdminUserPremiumBody,
   AdminUsersResponse,
+  AdminThreadsResponse,
 } from '../../src/shared/backend'
 import { getAdminPermissionsForRole, hasAdminPermission } from './admin-permissions'
 import { runtimeConfig } from './config'
@@ -49,6 +52,16 @@ function getSearchQuery(request: FastifyRequest) {
 function getStatusQuery(request: FastifyRequest) {
   const status = ((request.query as Record<string, string | undefined> | undefined)?.status ?? '').trim()
   return status === 'closed' ? 'closed' : status === 'open' ? 'open' : undefined
+}
+
+function getAuditQuery(request: FastifyRequest) {
+  const query = (request.query as Record<string, string | undefined> | undefined) ?? {}
+  return {
+    actorIdentifier: (query.actor ?? '').trim() || undefined,
+    from: (query.from ?? '').trim() || undefined,
+    targetIdentifier: (query.target ?? '').trim() || undefined,
+    to: (query.to ?? '').trim() || undefined,
+  }
 }
 
 function toOrigin(value: string | undefined) {
@@ -317,6 +330,45 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
     }
   })
 
+  app.get('/api/admin/channels', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'media.read')
+      if (!auth) return reply
+
+      return {
+        channels: store.adminListChannels(getSearchQuery(request)),
+      } satisfies AdminManagedChannelsResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.get('/api/admin/groups', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'media.read')
+      if (!auth) return reply
+
+      return {
+        groups: store.adminListGroups(getSearchQuery(request)),
+      } satisfies AdminManagedGroupsResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.get('/api/admin/threads', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'media.read')
+      if (!auth) return reply
+
+      return {
+        threads: store.adminListThreads(getSearchQuery(request)),
+      } satisfies AdminThreadsResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
   app.post('/api/admin/media/actions', async (request, reply) => {
     try {
       const auth = requireAdminActor(store, request, reply, 'media.moderate')
@@ -349,9 +401,25 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       const auth = requireAdminActor(store, request, reply, 'audit.read')
       if (!auth) return reply
 
+      const filters = getAuditQuery(request)
       return {
-        entries: store.adminListAuditLogs(),
+        actors: store.adminListAuditActors(),
+        entries: store.adminListAuditLogs(filters),
       } satisfies AdminAuditLogResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.get('/api/admin/audit-log/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'audit.read')
+      if (!auth) return reply
+
+      const csv = await store.adminExportAuditLogsCsv(auth.token, getAuditQuery(request))
+      reply.header('Content-Type', 'text/csv; charset=utf-8')
+      reply.header('Content-Disposition', 'attachment; filename="tinychok-admin-audit.csv"')
+      return reply.send(csv)
     } catch (error) {
       return sendError(reply, error)
     }

@@ -2,6 +2,8 @@ import type {
   AdminDashboardResponse,
   AdminAuditLogResponse,
   AdminBootstrapResponse,
+  AdminManagedChannelsResponse,
+  AdminManagedGroupsResponse,
   AdminMediaDownloadBody,
   AdminMediaDownloadResponse,
   AdminMediaActionBody,
@@ -15,6 +17,7 @@ import type {
   AdminUserDetailResponse,
   AdminUserPremiumBody,
   AdminUsersResponse,
+  AdminThreadsResponse,
   AppSnapshot,
   ClientRuntimeConfigResponse,
   CreateGroupBody,
@@ -545,6 +548,45 @@ export async function fetchAdminMedia(sessionToken: string, query: string) {
   }
 }
 
+export async function fetchAdminChannels(sessionToken: string, query: string) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/channels'), window.location.origin)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminManagedChannelsResponse>(response)
+}
+
+export async function fetchAdminGroups(sessionToken: string, query: string) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/groups'), window.location.origin)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminManagedGroupsResponse>(response)
+}
+
+export async function fetchAdminThreads(sessionToken: string, query: string) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/threads'), window.location.origin)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminThreadsResponse>(response)
+}
+
 export async function moderateAdminMedia(
   sessionToken: string,
   body: AdminMediaActionBody,
@@ -597,6 +639,81 @@ export async function fetchAdminAuditLog(sessionToken: string) {
   })
 
   return readJsonResponse<AdminAuditLogResponse>(response)
+}
+
+export async function fetchFilteredAdminAuditLog(
+  sessionToken: string,
+  filters: {
+    actorIdentifier?: string
+    from?: string
+    to?: string
+    targetIdentifier?: string
+  },
+) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/audit-log'), window.location.origin)
+  if (filters.actorIdentifier) {
+    requestUrl.searchParams.set('actor', filters.actorIdentifier)
+  }
+  if (filters.from) {
+    requestUrl.searchParams.set('from', filters.from)
+  }
+  if (filters.to) {
+    requestUrl.searchParams.set('to', filters.to)
+  }
+  if (filters.targetIdentifier) {
+    requestUrl.searchParams.set('target', filters.targetIdentifier)
+  }
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminAuditLogResponse>(response)
+}
+
+export async function downloadAdminAuditCsv(
+  sessionToken: string,
+  filters: {
+    actorIdentifier?: string
+    from?: string
+    to?: string
+    targetIdentifier?: string
+  },
+) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/audit-log/export'), window.location.origin)
+  if (filters.actorIdentifier) {
+    requestUrl.searchParams.set('actor', filters.actorIdentifier)
+  }
+  if (filters.from) {
+    requestUrl.searchParams.set('from', filters.from)
+  }
+  if (filters.to) {
+    requestUrl.searchParams.set('to', filters.to)
+  }
+  if (filters.targetIdentifier) {
+    requestUrl.searchParams.set('target', filters.targetIdentifier)
+  }
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    const message =
+      typeof (payload as { message?: string }).message === 'string'
+        ? (payload as { message?: string }).message!
+        : 'Не удалось выгрузить CSV.'
+    throw new ApiError(message, response.status)
+  }
+
+  return {
+    csv: await response.text(),
+  }
 }
 
 export async function saveSnapshot(sessionToken: string, snapshot: AppSnapshot) {
