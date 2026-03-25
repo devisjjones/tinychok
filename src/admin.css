@@ -476,6 +476,46 @@
   color: var(--admin-muted);
 }
 
+.admin-selector-token {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--admin-border);
+  border-radius: 16px;
+  background: white;
+}
+
+.admin-selector-token-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-selector-token-copy span {
+  color: var(--admin-muted);
+  font-size: 13px;
+}
+
+.admin-selector-token-clear {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 1px solid var(--admin-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--admin-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.admin-selector-token-clear:hover {
+  border-color: rgba(157, 78, 47, 0.28);
+}
+
 .admin-audit-controls {
   margin-bottom: 18px;
 }
@@ -606,9 +646,16 @@
   grid-template-columns: 140px 180px minmax(220px, 1.2fr) minmax(220px, 1fr) 100px 90px 220px;
 }
 
+.admin-audit-table {
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
 .admin-audit-table .admin-table-row {
   grid-template-columns: 170px 220px 190px minmax(240px, 1.1fr) minmax(180px, 0.8fr) minmax(320px, 1.4fr);
   align-items: start;
+  min-width: 1520px;
+  width: max-content;
 }
 
 .admin-table-head {

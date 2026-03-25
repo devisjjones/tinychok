@@ -360,6 +360,10 @@ export type AdminDialogSummary = {
   updatedAt?: string
 }
 
+export type AdminDialogsResponse = {
+  dialogs: AdminDialogSummary[]
+}
+
 export type AdminDialogLookupBody = {
   ownerIdentifier: string
   peerIdentifier: string

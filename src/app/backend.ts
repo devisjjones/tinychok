@@ -5,6 +5,7 @@ import type {
   AdminBootstrapResponse,
   AdminContentCsvExportBody,
   AdminCsvExportResponse,
+  AdminDialogsResponse,
   AdminDialogDetailResponse,
   AdminDialogLookupBody,
   AdminManagedChannelsResponse,
@@ -603,6 +604,24 @@ export async function fetchAdminThreads(sessionToken: string, query: string) {
   })
 
   return readJsonResponse<AdminThreadsResponse>(response)
+}
+
+export async function fetchAdminDialogs(
+  sessionToken: string,
+  ownerIdentifier: string,
+  query: string,
+) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/dialogs'), window.location.origin)
+  requestUrl.searchParams.set('owner', ownerIdentifier)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminDialogsResponse>(response)
 }
 
 export async function moderateAdminMedia(

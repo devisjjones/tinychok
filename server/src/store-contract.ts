@@ -19,6 +19,7 @@ export type AppStore = Pick<
   | 'adminExportThreadCsv'
   | 'adminListAuditActors'
   | 'adminListChannels'
+  | 'adminListDialogs'
   | 'adminLookupDialog'
   | 'adminListGroups'
   | 'adminListAuditLogs'

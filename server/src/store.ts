@@ -736,14 +736,14 @@ function buildAdminChannelAggregateKey(channel: Pick<PersistedManagedChannel, 'd
 }
 
 function buildAdminGroupAggregateKey(group: Pick<PersistedGroup, 'creatorIdentifier' | 'handle' | 'ownerIdentifier' | 'sharedId' | 'title'>) {
-  const sharedId = group.sharedId?.trim()
-  if (sharedId) {
-    return sharedId
-  }
-
   const creatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? '') || group.ownerIdentifier
-  const handle = group.handle.trim()
-  return `${creatorIdentifier}:${handle || sanitizeExportFileName(group.title)}`
+  const normalizedHandle = group.handle.trim().toLowerCase()
+  const handleKey =
+    normalizedHandle && !/^@?group[_-]?\d+$/u.test(normalizedHandle)
+      ? normalizedHandle
+      : ''
+  const titleKey = sanitizeExportFileName(group.title).toLowerCase() || 'group'
+  return `${creatorIdentifier}:${handleKey || titleKey}`
 }
 
 function buildAttachmentReportState(
@@ -2491,7 +2491,7 @@ export class TinychokStore {
     const groups = groupKeys
       .map((groupKey): AdminManagedGroupSummary | null => {
         const copies = this.database.groups.filter((group) => buildAdminGroupAggregateKey(group) === groupKey)
-        const primaryGroup = copies[0]
+        const primaryGroup = [...copies].sort((left, right) => compareIsoDateDesc(left.latestActivityAt, right.latestActivityAt))[0]
         if (!primaryGroup) return null
 
         const ownerIdentifier =
@@ -2519,7 +2519,10 @@ export class TinychokStore {
           latestActivityAt,
           members: Math.max(...copies.map((group) => group.members), 0),
           owner: buildAdminLinkedUser(ownerIdentifier),
-          relatedReportCount: (primaryGroup.sharedId?.trim() ? reportCountBySharedId.get(primaryGroup.sharedId.trim()) : 0) ?? 0,
+          relatedReportCount: copies.reduce((count, group) => {
+            const sharedId = group.sharedId?.trim()
+            return count + (sharedId ? reportCountBySharedId.get(sharedId) ?? 0 : 0)
+          }, 0),
           title: primaryGroup.title,
         }
       })
@@ -2540,13 +2543,20 @@ export class TinychokStore {
 
   adminListThreads(query: string) {
     const trimmedQuery = query.trim().toLowerCase()
-    const threads: AdminThreadSummary[] = []
+    const threadsById = new Map<string, AdminThreadSummary>()
 
     const buildAdminLinkedUser = (identifier: string): AdminLinkedUser => {
       const account = this.findAccount(identifier)
       return {
         displayName: account ? buildAccountDisplayLabel(account) : identifier,
         identifier,
+      }
+    }
+
+    const upsertThread = (summary: AdminThreadSummary) => {
+      const existing = threadsById.get(summary.id)
+      if (!existing || compareIsoDateDesc(summary.latestActivityAt, existing.latestActivityAt) < 0) {
+        threadsById.set(summary.id, summary)
       }
     }
 
@@ -2557,7 +2567,7 @@ export class TinychokStore {
       const comments = compactThreadComments(message.threadComments)
       if (comments.length === 0) continue
 
-      threads.push({
+      upsertThread({
         commentCount: comments.length,
         contextLabel: `Группа: ${group.title}`,
         csvFileName: `thread-${sanitizeExportFileName(group.title) || 'group'}-${message.id}-${formatExportDateStamp()}.csv`,
@@ -2578,7 +2588,7 @@ export class TinychokStore {
       const comments = compactThreadComments(post.threadComments)
       if (comments.length === 0) continue
 
-      threads.push({
+      upsertThread({
         commentCount: comments.length,
         contextLabel: `Канал: ${channel.title}`,
         csvFileName: `thread-${sanitizeExportFileName(channel.title) || 'channel'}-${post.id}-${formatExportDateStamp()}.csv`,
@@ -2592,7 +2602,7 @@ export class TinychokStore {
       })
     }
 
-    return threads
+    return [...threadsById.values()]
       .filter((thread) => {
         if (!trimmedQuery) return true
         return (
@@ -2605,6 +2615,73 @@ export class TinychokStore {
       })
       .sort((left, right) => compareIsoDateDesc(left.latestActivityAt, right.latestActivityAt))
       .slice(0, 20)
+  }
+
+  adminListDialogs(ownerIdentifierInput: string, query: string) {
+    const owner = this.findAccountForAdmin(ownerIdentifierInput)
+    if (!owner) {
+      return []
+    }
+
+    const trimmedQuery = query.trim().toLowerCase()
+    const dialogs = this.database.dialogs
+      .filter(
+        (dialog) =>
+          dialog.ownerIdentifier === owner.identifier &&
+          normalizeIdentifier(dialog.phone) !== owner.identifier,
+      )
+      .map((dialog): AdminDialogSummary | null => {
+        const peerIdentifier = normalizeIdentifier(dialog.phone)
+        if (!peerIdentifier) {
+          return null
+        }
+
+        const peer = this.findAccountForAdmin(peerIdentifier)
+        const messages = this.database.dialogMessages
+          .filter(
+            (message) =>
+              message.ownerIdentifier === owner.identifier &&
+              message.dialogId === dialog.id,
+          )
+          .sort((left, right) => compareIsoDateDesc(right.createdAt, left.createdAt))
+
+        const firstMessageAt = messages[0]?.createdAt
+        const latestMessageAt = messages.at(-1)?.createdAt
+        const preview =
+          messages.at(-1)?.text || messages.at(-1)?.attachment?.fileName || 'Без сообщений'
+        const summary: AdminDialogSummary = {
+          csvFileName: `dialog-${sanitizeExportFileName(owner.displayName)}-${sanitizeExportFileName(peer?.displayName ?? dialog.title)}-${formatExportDateStamp()}.csv`,
+          firstMessageAt,
+          messageCount: messages.length,
+          owner: {
+            displayName: buildAccountDisplayLabel(owner),
+            identifier: owner.identifier,
+          },
+          peer: {
+            displayName: peer ? buildAccountDisplayLabel(peer) : dialog.title,
+            identifier: peerIdentifier,
+          },
+          preview,
+          sharedKey: [owner.identifier, peerIdentifier].sort().join('::'),
+          updatedAt: latestMessageAt,
+        }
+
+        if (!trimmedQuery) {
+          return summary
+        }
+
+        const searchable = [
+          summary.peer.displayName,
+          summary.peer.identifier,
+          preview,
+        ].join(' ').toLowerCase()
+
+        return searchable.includes(trimmedQuery) ? summary : null
+      })
+      .filter((dialog): dialog is AdminDialogSummary => Boolean(dialog))
+      .sort((left, right) => compareIsoDateDesc(left.updatedAt, right.updatedAt))
+
+    return dialogs.slice(0, 20)
   }
 
   async adminExportChannelCsv(actorToken: string, handle: string, reason: string) {
@@ -2819,44 +2896,11 @@ export class TinychokStore {
       return null
     }
 
-    const ownerDialog = this.database.dialogs.find(
-      (dialog) =>
-        dialog.ownerIdentifier === owner.identifier &&
-        normalizeIdentifier(dialog.phone) === peer.identifier,
+    return (
+      this.adminListDialogs(owner.identifier, peer.identifier).find(
+        (dialog) => normalizeIdentifier(dialog.peer.identifier) === peer.identifier,
+      ) ?? null
     )
-    if (!ownerDialog) {
-      return null
-    }
-
-    const messages = this.database.dialogMessages
-      .filter(
-        (message) =>
-          message.ownerIdentifier === owner.identifier &&
-          message.dialogId === ownerDialog.id,
-      )
-      .sort((left, right) => compareIsoDateDesc(right.createdAt, left.createdAt))
-
-    const firstMessageAt = messages[0]?.createdAt
-    const latestMessageAt = messages.at(-1)?.createdAt
-    const preview = messages.at(-1)?.text || messages.at(-1)?.attachment?.fileName || 'Без сообщений'
-    const sharedKey = [owner.identifier, peer.identifier].sort().join('::')
-
-    return {
-      csvFileName: `dialog-${sanitizeExportFileName(owner.displayName)}-${sanitizeExportFileName(peer.displayName)}-${formatExportDateStamp()}.csv`,
-      firstMessageAt,
-      messageCount: messages.length,
-      owner: {
-        displayName: buildAccountDisplayLabel(owner),
-        identifier: owner.identifier,
-      },
-      peer: {
-        displayName: buildAccountDisplayLabel(peer),
-        identifier: peer.identifier,
-      },
-      preview,
-      sharedKey,
-      updatedAt: latestMessageAt,
-    }
   }
 
   async adminExportDialogCsv(actorToken: string, sharedKey: string, reason: string) {

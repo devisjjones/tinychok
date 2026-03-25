@@ -5,6 +5,7 @@ import type {
   AdminBootstrapResponse,
   AdminContentCsvExportBody,
   AdminCsvExportResponse,
+  AdminDialogsResponse,
   AdminDialogDetailResponse,
   AdminDialogLookupBody,
   AdminManagedChannelsResponse,
@@ -68,6 +69,10 @@ function getAuditQuery(request: FastifyRequest) {
     targetIdentifier: (query.target ?? '').trim() || undefined,
     to: (query.to ?? '').trim() || undefined,
   }
+}
+
+function getOwnerQuery(request: FastifyRequest) {
+  return ((request.query as Record<string, string | undefined> | undefined)?.owner ?? '').trim()
 }
 
 function toOrigin(value: string | undefined) {
@@ -389,6 +394,19 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       return {
         threads: store.adminListThreads(getSearchQuery(request)),
       } satisfies AdminThreadsResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.get('/api/admin/dialogs', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.read')
+      if (!auth) return reply
+
+      return {
+        dialogs: store.adminListDialogs(getOwnerQuery(request), getSearchQuery(request)),
+      } satisfies AdminDialogsResponse
     } catch (error) {
       return sendError(reply, error)
     }

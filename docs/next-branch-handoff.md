@@ -133,6 +133,11 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - moderation queue по жалобам
   - media hide / delete
   - audit log
+- для admin-списков, где сущность размножается по пользовательским копиям, каналы являются эталонной схемой агрегации:
+  - canonical key строится по владельцу канала и нормализованному `@handle`
+  - admin UI показывает один канал, даже если backend хранит несколько подписочных копий
+  - detail / export / moderation всегда должны цепляться к canonical entity, а не к viewer-copy
+  - такой подход нужен, чтобы staff видел продуктовую сущность, а не дубликаты из fan-out storage модели
 
 ## Operational Invariants
 

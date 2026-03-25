@@ -12,6 +12,7 @@ import {
   exportAdminGroupCsv,
   exportAdminThreadCsv,
   fetchAdminChannels,
+  fetchAdminDialogs,
   fetchAdminBootstrap,
   fetchAdminDashboard,
   fetchAdminGroups,
@@ -23,7 +24,6 @@ import {
   fetchAdminUserAvatar,
   fetchClientRuntimeConfig,
   fetchFilteredAdminAuditLog,
-  lookupAdminDialog,
   moderateAdminMedia,
   requestAuthCode,
   searchAdminUsers,
@@ -208,8 +208,11 @@ export default function AdminApp() {
   const [threadQuery, setThreadQuery] = useState('')
   const [threads, setThreads] = useState<AdminThreadSummary[]>([])
   const [selectedThreadId, setSelectedThreadId] = useState('')
-  const [dialogOwnerIdentifier, setDialogOwnerIdentifier] = useState('')
-  const [dialogPeerIdentifier, setDialogPeerIdentifier] = useState('')
+  const [dialogOwnerQuery, setDialogOwnerQuery] = useState('')
+  const [dialogOwnerMatches, setDialogOwnerMatches] = useState<AdminUserSummary[]>([])
+  const [selectedDialogOwner, setSelectedDialogOwner] = useState<AdminUserSummary | null>(null)
+  const [dialogPeerQuery, setDialogPeerQuery] = useState('')
+  const [dialogs, setDialogs] = useState<AdminDialogSummary[]>([])
   const [dialogDetail, setDialogDetail] = useState<AdminDialogSummary | null>(null)
   const [auditActors, setAuditActors] = useState<AdminAuditActor[]>([])
   const [auditActorIdentifier, setAuditActorIdentifier] = useState('')
@@ -350,6 +353,38 @@ export default function AdminApp() {
     }
   }
 
+  async function refreshDialogOwnerMatches(query = dialogOwnerQuery) {
+    if (!sessionToken) return
+
+    const trimmedQuery = query.trim()
+    if (!trimmedQuery) {
+      setDialogOwnerMatches([])
+      return
+    }
+
+    const response = await searchAdminUsers(sessionToken, trimmedQuery)
+    setDialogOwnerMatches(response.users)
+  }
+
+  async function refreshDialogs(
+    ownerIdentifier = selectedDialogOwner?.identifier ?? '',
+    query = dialogPeerQuery,
+  ) {
+    if (!sessionToken || !ownerIdentifier) {
+      setDialogs([])
+      return
+    }
+
+    const response = await fetchAdminDialogs(sessionToken, ownerIdentifier, query)
+    setDialogs(response.dialogs)
+
+    if (dialogDetail) {
+      const nextSelectedDialog =
+        response.dialogs.find((dialog) => dialog.sharedKey === dialogDetail.sharedKey) ?? null
+      setDialogDetail(nextSelectedDialog)
+    }
+  }
+
   async function refreshAuditLog() {
     if (!sessionToken) return
 
@@ -394,6 +429,14 @@ export default function AdminApp() {
 
   const syncThreadSearch = useEffectEvent(async () => {
     await refreshThreads(threadQuery)
+  })
+
+  const syncDialogOwnerSearch = useEffectEvent(async () => {
+    await refreshDialogOwnerMatches(dialogOwnerQuery)
+  })
+
+  const syncDialogSearch = useEffectEvent(async () => {
+    await refreshDialogs(selectedDialogOwner?.identifier ?? '', dialogPeerQuery)
   })
 
   const syncAuditFilters = useEffectEvent(async () => {
@@ -455,6 +498,22 @@ export default function AdminApp() {
 
     void syncThreadSearch()
   }, [sessionToken, bootstrap, threadQuery])
+
+  useEffect(() => {
+    if (!sessionToken || !bootstrap || selectedDialogOwner) {
+      return
+    }
+
+    void syncDialogOwnerSearch()
+  }, [sessionToken, bootstrap, selectedDialogOwner, dialogOwnerQuery])
+
+  useEffect(() => {
+    if (!sessionToken || !bootstrap || !selectedDialogOwner) {
+      return
+    }
+
+    void syncDialogSearch()
+  }, [sessionToken, bootstrap, selectedDialogOwner, dialogPeerQuery])
 
   useEffect(() => {
     if (!sessionToken || !bootstrap) {
@@ -813,20 +872,6 @@ export default function AdminApp() {
     }
   }
 
-  async function handleLookupDialog() {
-    if (!sessionToken) return
-
-    try {
-      const response = await lookupAdminDialog(sessionToken, {
-        ownerIdentifier: dialogOwnerIdentifier,
-        peerIdentifier: dialogPeerIdentifier,
-      })
-      setDialogDetail(response.dialog)
-    } catch (error) {
-      setAppError(getErrorMessage(error))
-    }
-  }
-
   async function handleDownloadDialogCsv(dialog: AdminDialogSummary) {
     if (!sessionToken) return
     const reason = getActionReason('Причина выгрузки CSV диалога', 'Проверка диалога')
@@ -854,6 +899,34 @@ export default function AdminApp() {
     } catch (error) {
       setAppError(getErrorMessage(error))
     }
+  }
+
+  function handleSelectDialogOwner(user: AdminUserSummary) {
+    setSelectedDialogOwner(user)
+    setDialogOwnerQuery('')
+    setDialogOwnerMatches([])
+    setDialogPeerQuery('')
+    setDialogs([])
+    setDialogDetail(null)
+  }
+
+  function handleClearDialogOwner() {
+    setSelectedDialogOwner(null)
+    setDialogOwnerQuery('')
+    setDialogOwnerMatches([])
+    setDialogPeerQuery('')
+    setDialogs([])
+    setDialogDetail(null)
+  }
+
+  function handleSelectDialog(dialog: AdminDialogSummary) {
+    setDialogDetail(dialog)
+    setDialogPeerQuery('')
+  }
+
+  function handleClearDialogPeer() {
+    setDialogDetail(null)
+    setDialogPeerQuery('')
   }
 
   const blockedUsersCount = users.filter((user) => user.blocked).length
@@ -1731,69 +1804,160 @@ export default function AdminApp() {
               </div>
               <label className="admin-inline-field">
                 <span>Первый пользователь</span>
-                <input
-                  className="admin-search-input"
-                  type="search"
-                  placeholder="+79990000000 или username"
-                  value={dialogOwnerIdentifier}
-                  onChange={(event) => setDialogOwnerIdentifier(event.target.value)}
-                />
+                {selectedDialogOwner ? (
+                  <div className="admin-selector-token">
+                    <div className="admin-selector-token-copy">
+                      <strong>{selectedDialogOwner.displayName}</strong>
+                      <span>
+                        {selectedDialogOwner.nickname
+                          ? `@${selectedDialogOwner.nickname} · ${selectedDialogOwner.identifier}`
+                          : selectedDialogOwner.identifier}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="admin-selector-token-clear"
+                      onClick={handleClearDialogOwner}
+                      aria-label="Сбросить первого пользователя"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    className="admin-search-input"
+                    type="search"
+                    placeholder="+79990000000 или username"
+                    value={dialogOwnerQuery}
+                    onChange={(event) => setDialogOwnerQuery(event.target.value)}
+                  />
+                )}
               </label>
               <label className="admin-inline-field">
                 <span>Второй пользователь</span>
-                <input
-                  className="admin-search-input"
-                  type="search"
-                  placeholder="+79990000000 или username"
-                  value={dialogPeerIdentifier}
-                  onChange={(event) => setDialogPeerIdentifier(event.target.value)}
-                />
+                {dialogDetail ? (
+                  <div className="admin-selector-token">
+                    <div className="admin-selector-token-copy">
+                      <strong>{dialogDetail.peer.displayName}</strong>
+                      <span>{dialogDetail.peer.identifier}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="admin-selector-token-clear"
+                      onClick={handleClearDialogPeer}
+                      aria-label="Сбросить второго пользователя"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    className="admin-search-input"
+                    type="search"
+                    placeholder="+79990000000 или username"
+                    value={dialogPeerQuery}
+                    onChange={(event) => setDialogPeerQuery(event.target.value)}
+                    disabled={!selectedDialogOwner}
+                  />
+                )}
               </label>
-              <button type="button" className="admin-primary-button" onClick={() => void handleLookupDialog()}>
-                Показать диалог
-              </button>
             </div>
 
             <div className="admin-panel admin-detail-panel">
-              {dialogDetail ? (
+              {!selectedDialogOwner ? (
+                <>
+                  <div className="admin-panel-heading">
+                    <h2>Найденные пользователи</h2>
+                  </div>
+                  {dialogOwnerMatches.length > 0 ? (
+                    <div className="admin-list">
+                      {dialogOwnerMatches.map((user) => (
+                        <button
+                          key={user.identifier}
+                          type="button"
+                          className="admin-list-item"
+                          onClick={() => handleSelectDialogOwner(user)}
+                        >
+                          <strong>{user.displayName}</strong>
+                          <span>{user.nickname ? `@${user.nickname}` : 'Нет username'}</span>
+                          <span>{user.identifier}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="admin-empty-state">
+                      {dialogOwnerQuery.trim()
+                        ? 'По текущему запросу пользователи не найдены.'
+                        : 'Начните вводить первого пользователя, и здесь появятся результаты поиска.'}
+                    </div>
+                  )}
+                </>
+              ) : (
                 <>
                   <div className="admin-panel-heading">
                     <div className="admin-user-identity">
-                      <h2>{`${dialogDetail.owner.displayName} ↔ ${dialogDetail.peer.displayName}`}</h2>
+                      <h2>Диалоги пользователя</h2>
                       <div className="admin-user-identity-meta">
-                        <span>{dialogDetail.owner.identifier}</span>
-                        <span>{dialogDetail.peer.identifier}</span>
+                        <span>{selectedDialogOwner.displayName}</span>
+                        <span>{selectedDialogOwner.identifier}</span>
+                        <span>{`${dialogs.length} найдено`}</span>
                       </div>
                     </div>
                   </div>
-                  <dl className="admin-detail-grid">
-                    <div>
-                      <dt>Первое сообщение</dt>
-                      <dd>{formatDateTime(dialogDetail.firstMessageAt)}</dd>
+                  {dialogs.length > 0 ? (
+                    <div className="admin-list admin-dialog-list">
+                      {dialogs.map((dialog) => (
+                        <button
+                          key={dialog.sharedKey}
+                          type="button"
+                          className={dialogDetail?.sharedKey === dialog.sharedKey ? 'admin-list-item active' : 'admin-list-item'}
+                          onClick={() => handleSelectDialog(dialog)}
+                        >
+                          <strong>{dialog.peer.displayName}</strong>
+                          <span>{dialog.peer.identifier}</span>
+                          <span>{`Сообщений: ${dialog.messageCount}`}</span>
+                          <span>{`Последнее: ${formatDateTime(dialog.updatedAt)}`}</span>
+                        </button>
+                      ))}
                     </div>
-                    <div>
-                      <dt>Последнее сообщение</dt>
-                      <dd>{formatDateTime(dialogDetail.updatedAt)}</dd>
+                  ) : (
+                    <div className="admin-empty-state">
+                      {dialogPeerQuery.trim()
+                        ? 'Диалоги по текущему фильтру не найдены.'
+                        : 'У выбранного пользователя пока нет доступных диалогов.'}
                     </div>
-                    <div>
-                      <dt>Количество сообщений</dt>
-                      <dd>{dialogDetail.messageCount}</dd>
-                    </div>
-                    <div>
-                      <dt>Preview</dt>
-                      <dd>{dialogDetail.preview}</dd>
-                    </div>
-                  </dl>
-                  <div className="admin-actions-panel">
-                    <div className="admin-toolbar">
-                      <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadDialogCsv(dialogDetail)}>
-                        Скачать CSV
-                      </button>
-                    </div>
-                  </div>
+                  )}
+
+                  {dialogDetail ? (
+                    <>
+                      <dl className="admin-detail-grid">
+                        <div>
+                          <dt>Первое сообщение</dt>
+                          <dd>{formatDateTime(dialogDetail.firstMessageAt)}</dd>
+                        </div>
+                        <div>
+                          <dt>Последнее сообщение</dt>
+                          <dd>{formatDateTime(dialogDetail.updatedAt)}</dd>
+                        </div>
+                        <div>
+                          <dt>Количество сообщений</dt>
+                          <dd>{dialogDetail.messageCount}</dd>
+                        </div>
+                        <div>
+                          <dt>Preview</dt>
+                          <dd>{dialogDetail.preview}</dd>
+                        </div>
+                      </dl>
+                      <div className="admin-actions-panel">
+                        <div className="admin-toolbar">
+                          <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadDialogCsv(dialogDetail)}>
+                            Скачать CSV
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
                 </>
-              ) : (
-                <div className="admin-empty-state">Выберите двух пользователей и откройте диалог.</div>
               )}
             </div>
           </section>

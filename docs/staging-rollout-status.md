@@ -72,6 +72,11 @@ cd /home/devis/tinychok
 npm run bootstrap:staff -- <identifier> owner
 ```
 
+- channels в admin считаются reference implementation для dedupe:
+  - одна строка в списке должна соответствовать одному продуктового каналу
+  - viewer-copies и subscription-copies не должны дублироваться в moderation UI
+  - canonical aggregation должна идти по владельцу + нормализованному handle, а не по внутренним fan-out копиям
+
 ## Standard Deploy Flow
 
 ```bash
