@@ -46,6 +46,7 @@ type DirectChatRoomProps = {
   quietMode: boolean
   replyTarget: ReplyTarget | null
   visibleMessages: Message[]
+  composerDisabledNotice?: string | null
   onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
   onBack: () => void
   onBlockChat: () => void
@@ -94,6 +95,7 @@ export function DirectChatRoom({
   quietMode,
   replyTarget,
   visibleMessages,
+  composerDisabledNotice = null,
   onAttachmentChange,
   onBack,
   onBlockChat,
@@ -212,6 +214,11 @@ export function DirectChatRoom({
             <div className="room-title">
               <div className="room-title-name">
                 <h3>{activeChat.title}</h3>
+                {activeChat.blockedByAdmin ? (
+                  <span className="blocked-contact-badge" aria-label="Пользователь заблокирован администрацией">
+                    <img src="/icons/blocked.png" alt="" aria-hidden="true" />
+                  </span>
+                ) : null}
                 {activeChat.muted ? (
                   <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                     <img src="/icons/bell-100.png" alt="" />
@@ -476,92 +483,98 @@ export function DirectChatRoom({
         ) : null}
       </div>
 
-      <form
-        className="composer"
-        onSubmit={async (event: FormEvent<HTMLFormElement>) => {
-          event.preventDefault()
-          await submitComposer()
-        }}
-      >
-        <div className="composer-input">
-          {replyTarget ? (
-            <div className="composer-reply">
-              <div>
-                <span className="settings-label">Ответ</span>
-                <p>{replyTarget.text}</p>
+      {composerDisabledNotice ? (
+        <div className="composer composer-disabled">
+          <p className="composer-disabled-note">{composerDisabledNotice}</p>
+        </div>
+      ) : (
+        <form
+          className="composer"
+          onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault()
+            await submitComposer()
+          }}
+        >
+          <div className="composer-input">
+            {replyTarget ? (
+              <div className="composer-reply">
+                <div>
+                  <span className="settings-label">Ответ</span>
+                  <p>{replyTarget.text}</p>
+                </div>
+                <button
+                  type="button"
+                  className="soft-button composer-reply-cancel"
+                  onClick={onReplyCancel}
+                  aria-label="Отменить ответ"
+                  title="Отменить ответ"
+                >
+                  <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
+                </button>
               </div>
-              <button
-                type="button"
-                className="soft-button composer-reply-cancel"
-                onClick={onReplyCancel}
-                aria-label="Отменить ответ"
-                title="Отменить ответ"
-              >
-                <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
-              </button>
-            </div>
-          ) : null}
-          <div className="composer-entry">
-            <div className="composer-field">
-              {attachmentDraft ? (
-                <ComposerAttachmentPreview
-                  attachmentDraft={attachmentDraft}
-                  onClear={onAttachmentClear}
-                  onOpenPreview={onAttachmentPreviewOpen}
-                  onOpenPremiumUpsell={onOpenPremiumUpsell}
-                  onToggleSendOriginal={onToggleSendOriginal}
-                  premiumUnlocked={premiumUnlocked}
-                />
-              ) : null}
-              <input
-                ref={attachmentInputRef}
-                type="file"
-                className="composer-attachment-input"
-                onChange={onAttachmentChange}
-              />
-              <textarea
-                ref={draftInputRef}
-                rows={1}
-                placeholder={composerPlaceholder}
-                value={draft}
-                onChange={(event) => onDraftChange(event.target.value)}
-                onKeyDown={handleComposerKeyDown}
-              />
-              <div className="composer-tools">
-                <EmojiPicker
-                  canSelectGif={!gifSelectionBlockedReason}
-                  gifLibrary={gifLibrary}
-                  gifSelectionBlockedReason={gifSelectionBlockedReason}
-                  onOpenPremiumUpsell={onOpenPremiumUpsell}
-                  onSelect={(emoji) =>
-                    insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
-                  }
-                  onSelectGif={onSelectGif}
-                  onUploadGif={onUploadGif}
-                  premiumUnlocked={premiumUnlocked}
-                />
-                <ComposerAttachmentPicker
-                  attachmentName={attachmentName}
-                  onSelectMode={onOpenAttachmentPicker}
-                />
-                {hasComposerPayload ? (
-                  <button
-                    type="submit"
-                    className="send-button composer-send"
-                    disabled={!canSubmitComposer}
-                    aria-label="Отправить"
-                    title="Отправить"
-                  >
-                    <span className="composer-send-icon" aria-hidden="true">
-                      <img src="/icons/sent.png" alt="" />
-                    </span>
-                  </button>
+            ) : null}
+            <div className="composer-entry">
+              <div className="composer-field">
+                {attachmentDraft ? (
+                  <ComposerAttachmentPreview
+                    attachmentDraft={attachmentDraft}
+                    onClear={onAttachmentClear}
+                    onOpenPreview={onAttachmentPreviewOpen}
+                    onOpenPremiumUpsell={onOpenPremiumUpsell}
+                    onToggleSendOriginal={onToggleSendOriginal}
+                    premiumUnlocked={premiumUnlocked}
+                  />
                 ) : null}
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  className="composer-attachment-input"
+                  onChange={onAttachmentChange}
+                />
+                <textarea
+                  ref={draftInputRef}
+                  rows={1}
+                  placeholder={composerPlaceholder}
+                  value={draft}
+                  onChange={(event) => onDraftChange(event.target.value)}
+                  onKeyDown={handleComposerKeyDown}
+                />
+                <div className="composer-tools">
+                  <EmojiPicker
+                    canSelectGif={!gifSelectionBlockedReason}
+                    gifLibrary={gifLibrary}
+                    gifSelectionBlockedReason={gifSelectionBlockedReason}
+                    onOpenPremiumUpsell={onOpenPremiumUpsell}
+                    onSelect={(emoji) =>
+                      insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
+                    }
+                    onSelectGif={onSelectGif}
+                    onUploadGif={onUploadGif}
+                    premiumUnlocked={premiumUnlocked}
+                  />
+                  <ComposerAttachmentPicker
+                    attachmentName={attachmentName}
+                    onSelectMode={onOpenAttachmentPicker}
+                  />
+                  {hasComposerPayload ? (
+                    <button
+                      type="submit"
+                      className="send-button composer-send"
+                      disabled={!canSubmitComposer}
+                      aria-label="Отправить"
+                      title="Отправить"
+                    >
+                      <span className="composer-send-icon" aria-hidden="true">
+                        <img src="/icons/sent.png" alt="" />
+                      </span>
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </form>
+        </form>
+      )}
     </section>
   )
 }

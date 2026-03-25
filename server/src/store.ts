@@ -1526,6 +1526,9 @@ function materializeFullChats(database: Database, ownerIdentifier: string): Chat
   return database.dialogs
     .filter((dialog) => dialog.ownerIdentifier === ownerIdentifier)
     .map((dialog) => {
+      const contactAccount = database.accounts.find(
+        (account) => normalizeIdentifier(dialog.phone) === account.identifier,
+      )
       const messages = database.dialogMessages
         .filter(
           (message) =>
@@ -1539,6 +1542,8 @@ function materializeFullChats(database: Database, ownerIdentifier: string): Chat
 
       return {
         ...materializeDialog(dialog),
+        blockedByAdmin: Boolean(contactAccount?.blockedAt),
+        blockedReason: contactAccount?.blockedReason?.trim() || undefined,
         messages,
         pinnedMessage,
       }

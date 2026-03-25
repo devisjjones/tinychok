@@ -833,6 +833,8 @@ function App() {
   const [channelAvatarPickerError, setChannelAvatarPickerError] = useState('')
   const [channelAvatarPickerBusy, setChannelAvatarPickerBusy] = useState(false)
   const [, setChannelAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
+  const [channelSettingsBusy, setChannelSettingsBusy] = useState(false)
+  const [channelSettingsError, setChannelSettingsError] = useState('')
   const [editingChannelTitleId, setEditingChannelTitleId] = useState<number | null>(null)
   const [editingChannelTitleValue, setEditingChannelTitleValue] = useState('')
   const [channelManagementOpenId, setChannelManagementOpenId] = useState<number | null>(null)
@@ -1205,6 +1207,9 @@ function App() {
 
   const activeChat =
     activeChatId === null ? null : availableChats.find((chat) => chat.id === activeChatId) ?? null
+  const activeChatAdminBlockNotice = activeChat?.blockedByAdmin
+    ? 'Пользователь заблокирован по решению администрации сервиса, обратитесь в поддержку, если возникла ошибка.'
+    : null
   const reportingChat =
     reportingChatId === null ? null : chats.find((chat) => chat.id === reportingChatId) ?? null
   const pinnedMessage =
@@ -2726,6 +2731,44 @@ function App() {
     }
   }, [applySnapshot, pendingDirectMessagesRef, pendingGroupMessagesRef])
 
+  const commitManagedChannelMutation = useCallback(
+    async (channelId: number, patch: UpdateManagedChannelBody, reason: string) => {
+      if (!backendReady || !session?.sessionToken) return true
+
+      try {
+        const response = await updateManagedChannelRequest(session.sessionToken, channelId, patch)
+        applySnapshot(response.snapshot)
+        return true
+      } catch (error) {
+        console.error(`Failed to sync managed channel mutation after ${reason}`, error)
+        await fallbackSaveCurrentSnapshot(reason)
+        return false
+      }
+    },
+    [applySnapshot, backendReady, fallbackSaveCurrentSnapshot, session?.sessionToken],
+  )
+
+  const flushManagedChannelMutation = useCallback(
+    async (channelId: number, reason: string) => {
+      const activeTimeout = channelMutationTimeoutsRef.current.get(channelId)
+      if (activeTimeout !== undefined) {
+        window.clearTimeout(activeTimeout)
+        channelMutationTimeoutsRef.current.delete(channelId)
+      }
+
+      const nextPatch = pendingChannelPatchesRef.current.get(channelId)
+      pendingChannelPatchesRef.current.delete(channelId)
+      suppressChannelSnapshotSyncRef.current = false
+
+      if (!nextPatch || Object.keys(nextPatch).length === 0) {
+        return true
+      }
+
+      return commitManagedChannelMutation(channelId, nextPatch, reason)
+    },
+    [commitManagedChannelMutation],
+  )
+
   const scheduleManagedChannelMutation = useCallback(
     (channelId: number, patch: UpdateManagedChannelBody) => {
       // Channel detail fields follow the same pattern as profile fields: local form state first,
@@ -2745,28 +2788,19 @@ function App() {
 
       const timeoutId = window.setTimeout(() => {
         const nextPatch = pendingChannelPatchesRef.current.get(channelId)
-        const sessionToken = latestSnapshotRef.current?.session.sessionToken
 
         pendingChannelPatchesRef.current.delete(channelId)
         channelMutationTimeoutsRef.current.delete(channelId)
         suppressChannelSnapshotSyncRef.current = false
 
-        if (!sessionToken || !nextPatch || Object.keys(nextPatch).length === 0) return
+        if (!nextPatch || Object.keys(nextPatch).length === 0) return
 
-        void (async () => {
-          try {
-            const response = await updateManagedChannelRequest(sessionToken, channelId, nextPatch)
-            applySnapshot(response.snapshot)
-          } catch (error) {
-            console.error('Failed to sync managed channel mutation', error)
-            await fallbackSaveCurrentSnapshot('channel mutation')
-          }
-        })()
+        void commitManagedChannelMutation(channelId, nextPatch, 'channel mutation')
       }, 320)
 
       channelMutationTimeoutsRef.current.set(channelId, timeoutId)
     },
-    [applySnapshot, backendReady, fallbackSaveCurrentSnapshot, session?.sessionToken],
+    [backendReady, commitManagedChannelMutation, session?.sessionToken],
   )
 
   useEffect(() => {
@@ -4659,6 +4693,7 @@ function App() {
 
   async function sendMessage() {
     if (!activeChat) return
+    if (activeChat.blockedByAdmin) return
 
     const chatId = activeChat.id
     const text = (chatMessageDrafts[chatId] ?? '').trim()
@@ -7099,13 +7134,13 @@ function App() {
     const normalizedHandle = sanitizeChannelDirectLink(channel.directLink)
     const existingSubscriptionChannel = subscriptionChannels.find(
       (candidate) =>
-        candidate.id === channel.id ||
-        (normalizedHandle !== '' &&
-          sanitizeChannelDirectLink(candidate.handle) === normalizedHandle),
+        normalizedHandle !== '' &&
+        sanitizeChannelDirectLink(candidate.handle) === normalizedHandle,
     )
+    const fallbackSubscriptionChannel = subscriptionChannels.find((candidate) => candidate.id === channel.id)
 
-    if (existingSubscriptionChannel) {
-      openSubscriptionChannel(existingSubscriptionChannel.id)
+    if (existingSubscriptionChannel ?? fallbackSubscriptionChannel) {
+      openSubscriptionChannel((existingSubscriptionChannel ?? fallbackSubscriptionChannel)!.id)
       return
     }
 
@@ -7136,8 +7171,56 @@ function App() {
 
   function openChannelDetailView(channelId: number) {
     setChannelManagementOpenId(null)
+    setChannelSettingsError('')
     setActiveChannelId(channelId)
     openChannelsView('detail')
+  }
+
+  async function saveManagedChannelSettings(channelId: number) {
+    setChannelSettingsBusy(true)
+    setChannelSettingsError('')
+
+    try {
+      const saved = await flushManagedChannelMutation(channelId, 'channel settings save')
+
+      if (!saved) {
+        setChannelSettingsError('Не удалось сохранить настройки канала. Попробуйте ещё раз.')
+      }
+
+      return saved
+    } finally {
+      setChannelSettingsBusy(false)
+    }
+  }
+
+  async function handleActiveChannelDetailSave() {
+    if (!activeChannel || channelSettingsBusy) return
+
+    await saveManagedChannelSettings(activeChannel.id)
+  }
+
+  async function handleActiveChannelDetailBack() {
+    if (!activeChannel || channelSettingsBusy) {
+      if (!activeChannel) {
+        openChannelsListView()
+      }
+      return
+    }
+
+    const saved = await saveManagedChannelSettings(activeChannel.id)
+    if (!saved) return
+
+    openManagedChannelRoom(activeChannel)
+  }
+
+  function renderAdminBlockedChatBadge(chat: Pick<Chat, 'blockedByAdmin'>) {
+    if (!chat.blockedByAdmin) return null
+
+    return (
+      <span className="blocked-contact-badge" aria-label="Пользователь заблокирован администрацией">
+        <img src="/icons/blocked.png" alt="" aria-hidden="true" />
+      </span>
+    )
   }
 
   function collectKnownChannelDirectLinks(excludeManagedChannelId?: number) {
@@ -7210,6 +7293,7 @@ function App() {
   }
 
   function updateChannel(channelId: number, patch: Partial<Channel>) {
+    setChannelSettingsError('')
     const existingChannel = channels.find((channel) => channel.id === channelId) ?? null
     const normalizedDirectLink =
       patch.directLink !== undefined ? sanitizeChannelDirectLink(patch.directLink) : undefined
@@ -9906,6 +9990,7 @@ function App() {
                     <span className="chat-topline">
                       <span className="chat-name-row">
                         <strong className="chat-name-text">{chat.title}</strong>
+                        {renderAdminBlockedChatBadge(chat)}
                         {chat.muted ? (
                           <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                             <img src="/icons/bell-100.png" alt="" />
@@ -9981,6 +10066,7 @@ function App() {
                 className={[
                   'chat-card',
                   'chat-card-compact',
+                  'channel-list-card',
                   channel.id === activeSubscriptionChannelId ||
                   sanitizeChannelDirectLink(channel.handle) ===
                     sanitizeChannelDirectLink(currentSubscriptionChannel?.handle ?? '')
@@ -10205,6 +10291,7 @@ function App() {
                     <span className="chat-topline">
                       <span className="chat-name-row">
                         <strong className="chat-name-text">{chat.title}</strong>
+                        {renderAdminBlockedChatBadge(chat)}
                         {chat.muted ? (
                           <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                             <img src="/icons/bell-100.png" alt="" />
@@ -11440,6 +11527,8 @@ function App() {
                     </article>
                   </div>
 
+                  {channelSettingsError ? <p className="auth-error">{channelSettingsError}</p> : null}
+
                   {channelManagementOpenId === activeChannel.id ? (
                     <>
                       <button
@@ -11497,16 +11586,24 @@ function App() {
                   type="button"
                   className="soft-button"
                   onClick={() => {
-                    if (!activeChannel) {
-                      openChannelsListView()
-                      return
-                    }
-
-                    openManagedChannelRoom(activeChannel)
+                    void handleActiveChannelDetailBack()
                   }}
+                  disabled={channelSettingsBusy}
                 >
                   Назад
                 </button>
+                {activeChannel ? (
+                  <button
+                    type="button"
+                    className="send-button"
+                    onClick={() => {
+                      void handleActiveChannelDetailSave()
+                    }}
+                    disabled={channelSettingsBusy}
+                  >
+                    {channelSettingsBusy ? 'Сохраняем...' : 'Сохранить'}
+                  </button>
+                ) : null}
                 {activeChannel ? (
                   <button
                     type="button"
@@ -11516,6 +11613,7 @@ function App() {
                         current === activeChannel.id ? null : activeChannel.id,
                       )
                     }
+                    disabled={channelSettingsBusy}
                   >
                     Управление
                   </button>
@@ -11710,6 +11808,7 @@ function App() {
               quietMode={quietMode}
               replyTarget={replyTarget}
               visibleMessages={visibleDirectMessages}
+              composerDisabledNotice={activeChatAdminBlockNotice}
               onAttachmentChange={handleChatAttachmentChange}
               onBack={closeActiveRoom}
               onBlockChat={() => blockChat(activeChat.id)}

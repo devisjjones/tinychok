@@ -170,6 +170,8 @@ export type Chat = {
   muted?: boolean
   pinned?: boolean
   premium?: boolean
+  blockedByAdmin?: boolean
+  blockedReason?: string
   pinnedMessageId?: number
   pinnedMessage?: Message
   historyHasMore?: boolean
