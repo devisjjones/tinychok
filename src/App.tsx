@@ -84,6 +84,7 @@ import {
   openDirectDialog as openDirectDialogRequest,
   openRealtimeConnection,
   reportContact as reportContactRequest,
+  reportMediaAttachment as reportMediaAttachmentRequest,
   reportSubscriptionChannel as reportSubscriptionChannelRequest,
   removeSubscriptionChannelSubscriber as removeSubscriptionChannelSubscriberRequest,
   registerAccount,
@@ -714,6 +715,8 @@ function App() {
   const [threadAttachmentDraft, setThreadAttachmentDraft] = useState<ComposerAttachmentDraft | undefined>(undefined)
   const [mediaViewerAttachment, setMediaViewerAttachment] = useState<MessageAttachment | null>(null)
   const [mediaViewerDownloadEnabled, setMediaViewerDownloadEnabled] = useState(true)
+  const [mediaViewerReportBusy, setMediaViewerReportBusy] = useState(false)
+  const [mediaViewerReportToast, setMediaViewerReportToast] = useState('')
   const [pendingGroupThreadComments, setPendingGroupThreadComments] = useState<PendingGroupThreadComment[]>([])
   const [pendingChannelThreadComments, setPendingChannelThreadComments] = useState<PendingChannelThreadComment[]>([])
   const [activeFilter, setActiveFilter] = useState('Все')
@@ -3179,6 +3182,8 @@ function App() {
   function openMediaViewer(attachment: MessageAttachment, options?: { allowDownload?: boolean }) {
     setMediaViewerAttachment(attachment)
     setMediaViewerDownloadEnabled(options?.allowDownload ?? true)
+    setMediaViewerReportBusy(false)
+    setMediaViewerReportToast('')
   }
 
   function openAttachmentDraftPreview(attachmentDraft?: ComposerAttachmentDraft) {
@@ -3197,6 +3202,76 @@ function App() {
   function closeMediaViewer() {
     setMediaViewerAttachment(null)
     setMediaViewerDownloadEnabled(true)
+    setMediaViewerReportBusy(false)
+    setMediaViewerReportToast('')
+  }
+
+  useEffect(() => {
+    if (!mediaViewerReportToast) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setMediaViewerReportToast('')
+    }, 2200)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [mediaViewerReportToast])
+
+  async function reportOpenedMediaAttachment() {
+    if (!mediaViewerAttachment?.reportState || mediaViewerReportBusy) {
+      return
+    }
+
+    if (mediaViewerAttachment.reportState.alreadyReported) {
+      setMediaViewerReportToast('Вы уже отправляли жалобу')
+      return
+    }
+
+    if (!(backendReady && session?.sessionToken)) {
+      setMediaViewerReportToast('Жалоба отправлена')
+      setMediaViewerAttachment((current) =>
+        current
+          ? {
+              ...current,
+              reportState: {
+                alreadyReported: true,
+                reportCount: (current.reportState?.reportCount ?? 0) + 1,
+              },
+            }
+          : current,
+      )
+      return
+    }
+
+    setMediaViewerReportBusy(true)
+    try {
+      const response = await reportMediaAttachmentRequest(session.sessionToken, {
+        mediaUrl: mediaViewerAttachment.mediaUrl,
+        reason: 'very_unpleasant',
+      })
+      applySnapshot(response.snapshot)
+      setMediaViewerAttachment((current) =>
+        current
+          ? {
+              ...current,
+              reportState: {
+                alreadyReported: true,
+                reportCount: (current.reportState?.reportCount ?? 0) + 1,
+              },
+            }
+          : current,
+      )
+      setMediaViewerReportToast('Жалоба отправлена')
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Не удалось отправить жалобу.'
+      setMediaViewerReportToast(message)
+    } finally {
+      setMediaViewerReportBusy(false)
+    }
   }
 
   function applyLocalDialogRead(chatId: number) {
@@ -12997,6 +13072,9 @@ function App() {
           attachment={mediaViewerAttachment}
           onClose={closeMediaViewer}
           allowDownload={mediaViewerDownloadEnabled}
+          onReport={mediaViewerDownloadEnabled ? () => void reportOpenedMediaAttachment() : undefined}
+          reportBusy={mediaViewerReportBusy}
+          reportToast={mediaViewerReportToast}
         />
       ) : null}
       {cookieConsentBanner}

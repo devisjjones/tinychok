@@ -5,6 +5,7 @@ import {
   addAdminReportNote,
   applyAdminReportAction,
   blockAdminUser,
+  downloadAdminMedia,
   fetchAdminAuditLog,
   fetchAdminBootstrap,
   fetchAdminDashboard,
@@ -12,6 +13,7 @@ import {
   fetchAdminReport,
   fetchAdminReports,
   fetchAdminUser,
+  fetchAdminUserAvatar,
   fetchClientRuntimeConfig,
   moderateAdminMedia,
   requestAuthCode,
@@ -137,6 +139,8 @@ export default function AdminApp() {
   const [userListFilter, setUserListFilter] = useState<AdminUserListFilter>('all')
   const [selectedUserIdentifier, setSelectedUserIdentifier] = useState('')
   const [selectedUser, setSelectedUser] = useState<AdminUserSummary | null>(null)
+  const [selectedUserAvatarUrl, setSelectedUserAvatarUrl] = useState<string | null>(null)
+  const [selectedUserAvatarState, setSelectedUserAvatarState] = useState<'idle' | 'loading' | 'ready' | 'none'>('idle')
 
   const [reports, setReports] = useState<AdminReportSummary[]>([])
   const [reportStatus, setReportStatus] = useState<'open' | 'closed' | 'all'>('open')
@@ -146,6 +150,15 @@ export default function AdminApp() {
   const [mediaQuery, setMediaQuery] = useState('')
   const [mediaItems, setMediaItems] = useState<AdminMediaItem[]>([])
   const [auditEntries, setAuditEntries] = useState<AdminAuditLogEntry[]>([])
+
+  useEffect(() => {
+    const previousTitle = document.title
+    document.title = 'ADMIN'
+
+    return () => {
+      document.title = previousTitle
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -186,6 +199,11 @@ export default function AdminApp() {
       cancelled = true
     }
   }, [sessionToken])
+
+  useEffect(() => {
+    setSelectedUserAvatarUrl(null)
+    setSelectedUserAvatarState('idle')
+  }, [selectedUserIdentifier])
 
   async function refreshDashboard() {
     if (!sessionToken) return
@@ -425,6 +443,28 @@ export default function AdminApp() {
     }
   }
 
+  async function handleRevealAvatar(user: AdminUserSummary) {
+    if (!sessionToken) return
+
+    if (selectedUserAvatarState === 'ready') {
+      setSelectedUserAvatarUrl(null)
+      setSelectedUserAvatarState('idle')
+      return
+    }
+
+    setSelectedUserAvatarState('loading')
+
+    try {
+      const response = await fetchAdminUserAvatar(sessionToken, user.identifier)
+      setSelectedUserAvatarUrl(response.avatarUrl)
+      setSelectedUserAvatarState(response.avatarUrl ? 'ready' : 'none')
+      await refreshAuditLog()
+    } catch (error) {
+      setSelectedUserAvatarState('idle')
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   async function handleAddReportNote(reportId: string) {
     if (!sessionToken) return
 
@@ -488,6 +528,24 @@ export default function AdminApp() {
       })
       await refreshMedia()
       await refreshDashboard()
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDownloadMedia(item: AdminMediaItem) {
+    if (!sessionToken) return
+
+    try {
+      const response = await downloadAdminMedia(sessionToken, { mediaUrl: item.mediaUrl })
+      const link = document.createElement('a')
+      link.href = response.downloadUrl
+      link.download = response.fileName
+      link.rel = 'noopener noreferrer'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
       await refreshAuditLog()
     } catch (error) {
       setAppError(getErrorMessage(error))
@@ -653,13 +711,11 @@ export default function AdminApp() {
       </aside>
 
       <section className="admin-content">
-        <header className="admin-topbar">
-          <div>
-            <strong>{bootstrap.config.bannerLabel}</strong>
-            <span>Internal staff-only environment</span>
-          </div>
+        <div className="admin-environment-strip">
+          <span className="admin-badge">{bootstrap.config.bannerLabel}</span>
+          <span className="admin-environment-copy">Internal staff-only environment</span>
           {appError ? <p className="admin-inline-error">{appError}</p> : null}
-        </header>
+        </div>
 
         {section === 'dashboard' ? (
           <section className="admin-panel">
@@ -696,8 +752,8 @@ export default function AdminApp() {
         ) : null}
 
         {section === 'users' ? (
-          <section className="admin-panel admin-two-column">
-            <div className="admin-list-panel">
+          <section className="admin-two-column admin-section-split">
+            <div className="admin-panel admin-list-panel">
               <div className="admin-panel-heading">
                 <h2>Users</h2>
               </div>
@@ -740,13 +796,16 @@ export default function AdminApp() {
                       void refreshSelectedUser(user.identifier)
                     }}
                   >
-                    <strong className={user.blocked ? 'admin-user-name-flag blocked' : undefined}>
-                      {user.displayName}
-                    </strong>
-                    <span>{user.identifier}</span>
+                    <div className="admin-user-name-row">
+                      <strong className={user.blocked ? 'admin-user-name-flag blocked' : undefined}>
+                        {user.displayName}
+                      </strong>
+                    </div>
+                    <span>{user.nickname ? `@${user.nickname}` : 'Нет username'}</span>
                     <span className={user.blocked ? 'admin-user-status blocked' : 'admin-user-status'}>
-                      {user.blocked ? 'Заблокирован' : user.staffRole ?? 'user'}
+                      {user.status || (user.blocked ? 'Заблокирован' : user.staffRole ?? 'user')}
                     </span>
+                    <span>{user.identifier}</span>
                   </button>
                 ))}
                 {visibleUsers.length === 0 ? (
@@ -759,12 +818,25 @@ export default function AdminApp() {
               </div>
             </div>
 
-            <div className="admin-detail-panel">
+            <div className="admin-panel admin-detail-panel">
               {selectedUser ? (
                 <>
                   <div className="admin-panel-heading">
-                    <h2>{selectedUser.displayName}</h2>
+                    <div className="admin-user-identity">
+                      <h2>{selectedUser.displayName}</h2>
+                      <div className="admin-user-identity-meta">
+                        <span>{selectedUser.nickname ? `@${selectedUser.nickname}` : 'Нет username'}</span>
+                        <span>{selectedUser.status || 'Нет статуса'}</span>
+                      </div>
+                    </div>
                     <div className="admin-toolbar">
+                      <button
+                        type="button"
+                        className="admin-secondary-button"
+                        onClick={() => void handleRevealAvatar(selectedUser)}
+                      >
+                        {selectedUserAvatarState === 'ready' ? 'Скрыть аватарку' : 'Аватарка'}
+                      </button>
                       <button type="button" className="admin-secondary-button" onClick={() => void handleToggleBlock(selectedUser)}>
                         {selectedUser.blocked ? 'Разблокировать' : 'Заблокировать'}
                       </button>
@@ -773,6 +845,23 @@ export default function AdminApp() {
                       </button>
                     </div>
                   </div>
+
+                  {selectedUserAvatarState !== 'idle' ? (
+                    <div className="admin-avatar-preview-card">
+                      <strong>Аватарка</strong>
+                      {selectedUserAvatarState === 'loading' ? (
+                        <span>Загружаем...</span>
+                      ) : selectedUserAvatarUrl ? (
+                        <img
+                          src={selectedUserAvatarUrl}
+                          alt={`Аватарка ${selectedUser.displayName}`}
+                          className="admin-avatar-preview-image"
+                        />
+                      ) : (
+                        <span>нет</span>
+                      )}
+                    </div>
+                  ) : null}
 
                   <dl className="admin-detail-grid">
                     <div>
@@ -798,10 +887,6 @@ export default function AdminApp() {
                     <div>
                       <dt>Последняя активность</dt>
                       <dd>{formatDateTime(selectedUser.lastActiveAt)}</dd>
-                    </div>
-                    <div>
-                      <dt>Status</dt>
-                      <dd>{selectedUser.status || 'Нет статуса'}</dd>
                     </div>
                     <div>
                       <dt>Storage usage</dt>
@@ -1018,6 +1103,9 @@ export default function AdminApp() {
                     </span>
                   </span>
                   <span className="admin-table-actions">
+                    <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadMedia(item)}>
+                      Скачать
+                    </button>
                     <button type="button" className="admin-secondary-button" onClick={() => void handleModerateMedia(item, 'hide')}>
                       Hide
                     </button>

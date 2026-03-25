@@ -130,7 +130,7 @@ export function BubbleMessageContent({
         className="bubble-attachment bubble-attachment-link"
         onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
           event.stopPropagation()
-          window.open(message.attachment?.mediaUrl, '_blank', 'noopener,noreferrer')
+          onOpenAttachment?.(message.attachment!)
         }}
       >
         <span className="bubble-attachment-badge">Файл</span>

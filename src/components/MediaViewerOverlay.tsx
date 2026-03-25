@@ -1,17 +1,26 @@
 import { useEffect, type MouseEvent as ReactMouseEvent } from 'react'
 import type { MessageAttachment } from '../app/types'
+import { formatAttachmentSize, isImageMimeType } from '../app/utils'
 
 type MediaViewerOverlayProps = {
   allowDownload?: boolean
   attachment: MessageAttachment
   onClose: () => void
+  onReport?: () => void
+  reportBusy?: boolean
+  reportToast?: string
 }
 
 export function MediaViewerOverlay({
   allowDownload = true,
   attachment,
   onClose,
+  onReport,
+  reportBusy = false,
+  reportToast = '',
 }: MediaViewerOverlayProps) {
+  const isImage = isImageMimeType(attachment.mimeType)
+
   function handleDownloadClick(event: ReactMouseEvent<HTMLButtonElement>) {
     event.stopPropagation()
 
@@ -45,17 +54,36 @@ export function MediaViewerOverlay({
       aria-label={attachment.fileName}
       onClick={onClose}
     >
-      {allowDownload ? (
-        <button
-          type="button"
-          className="media-viewer-download"
-          onClick={handleDownloadClick}
-          aria-label="Скачать фотографию"
-          title="Скачать фотографию"
-        >
-          <span className="media-viewer-download-label">Скачать</span>
-        </button>
-      ) : null}
+      <div className="media-viewer-actions">
+        {allowDownload ? (
+          <button
+            type="button"
+            className="media-viewer-download"
+            onClick={handleDownloadClick}
+            aria-label="Скачать вложение"
+            title="Скачать вложение"
+          >
+            <span className="media-viewer-download-label">Скачать</span>
+          </button>
+        ) : null}
+        {allowDownload && onReport ? (
+          <button
+            type="button"
+            className="media-viewer-report"
+            onClick={(event) => {
+              event.stopPropagation()
+              onReport()
+            }}
+            disabled={reportBusy || attachment.reportState?.alreadyReported}
+          >
+            {attachment.reportState?.alreadyReported
+              ? 'Вы уже отправляли жалобу'
+              : reportBusy
+                ? 'Отправляем...'
+                : 'Пожаловаться'}
+          </button>
+        ) : null}
+      </div>
       <button
         type="button"
         className="media-viewer-close"
@@ -66,9 +94,23 @@ export function MediaViewerOverlay({
         <img src="/icons/cancel.png" alt="" aria-hidden="true" />
       </button>
       <figure className="media-viewer-figure" onClick={onClose}>
-        <img src={attachment.mediaUrl} alt={attachment.fileName} className="media-viewer-image" />
-        <figcaption className="media-viewer-caption">{attachment.fileName}</figcaption>
+        {isImage ? (
+          <img src={attachment.mediaUrl} alt={attachment.fileName} className="media-viewer-image" />
+        ) : (
+          <div className="media-viewer-file-card" onClick={(event) => event.stopPropagation()}>
+            <span className="media-viewer-file-badge">Файл</span>
+            <strong>{attachment.fileName}</strong>
+            <span>{formatAttachmentSize(attachment.size)}</span>
+          </div>
+        )}
+        <figcaption className="media-viewer-caption">
+          {attachment.fileName}
+          {attachment.reportState ? (
+            <span className="media-viewer-report-count">{`Жалоб: ${attachment.reportState.reportCount}`}</span>
+          ) : null}
+        </figcaption>
       </figure>
+      {reportToast ? <div className="media-viewer-toast">{reportToast}</div> : null}
     </div>
   )
 }

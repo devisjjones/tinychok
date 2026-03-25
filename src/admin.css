@@ -223,6 +223,7 @@
   padding: 20px;
   display: grid;
   gap: 16px;
+  align-content: start;
 }
 
 .admin-topbar,
@@ -245,6 +246,19 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.admin-environment-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 6px;
+  min-height: 28px;
+}
+
+.admin-environment-copy {
+  color: var(--admin-muted);
+  font-size: 13px;
 }
 
 .admin-topbar span {
@@ -288,20 +302,27 @@
   gap: 18px;
 }
 
+.admin-section-split {
+  align-items: start;
+}
+
 .admin-list-panel,
 .admin-detail-panel {
   display: grid;
   gap: 14px;
   min-height: 0;
+  align-content: start;
 }
 
 .admin-filter-tabs {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  align-items: flex-start;
 }
 
 .admin-filter-tab {
+  flex: 0 0 auto;
   border: 1px solid var(--admin-border);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.82);
@@ -330,11 +351,18 @@
   gap: 10px;
   max-height: 62vh;
   overflow: auto;
+  align-content: start;
 }
 
 .admin-list-item strong,
 .admin-note-card strong {
   display: block;
+}
+
+.admin-user-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .admin-list-item.blocked {
@@ -365,6 +393,34 @@
 .admin-user-status.blocked {
   color: #8d2f2a;
   font-weight: 700;
+}
+
+.admin-user-identity {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-user-identity-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--admin-muted);
+  font-size: 14px;
+}
+
+.admin-avatar-preview-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--admin-border);
+  background: white;
+}
+
+.admin-avatar-preview-image {
+  max-width: min(100%, 240px);
+  border-radius: 18px;
+  box-shadow: 0 14px 34px rgba(63, 46, 31, 0.14);
 }
 
 .admin-detail-grid {

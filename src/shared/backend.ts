@@ -235,6 +235,19 @@ export type AdminMediaActionBody = {
   reason: string
 }
 
+export type AdminMediaDownloadBody = {
+  mediaUrl: string
+}
+
+export type AdminMediaDownloadResponse = {
+  downloadUrl: string
+  fileName: string
+}
+
+export type AdminUserAvatarResponse = {
+  avatarUrl: string | null
+}
+
 export type AdminAuditLogEntry = {
   action: string
   actorDisplayName: string
@@ -376,6 +389,11 @@ export type UpdateDialogBody = Partial<Pick<Chat, 'muted'>>
 
 export type ReportContactBody = {
   reason: ComplaintReason
+}
+
+export type ReportMediaBody = {
+  mediaUrl: string
+  reason?: ComplaintReason
 }
 
 export type SetDialogPinnedMessageBody = {

@@ -21,6 +21,7 @@ import type {
   OpenDirectDialogResponse,
   RegisterUserGifBody,
   ReportContactBody,
+  ReportMediaBody,
   ReportSubscriptionChannelBody,
   RegisterBody,
   RequestCodeBody,
@@ -442,6 +443,22 @@ app.post('/api/dialogs/:dialogId/report', async (request, reply) => {
     const dialogId = getNumericRouteParam(request, 'dialogId')
     const body = parseJsonPayload<ReportContactBody>(request.body)
     const result = await store.reportContact(token, dialogId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/media/report', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const body = parseJsonPayload<ReportMediaBody>(request.body)
+    const result = await store.reportMediaAttachment(token, body)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {

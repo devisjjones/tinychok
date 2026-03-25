@@ -2,6 +2,8 @@ import type {
   AdminDashboardResponse,
   AdminAuditLogResponse,
   AdminBootstrapResponse,
+  AdminMediaDownloadBody,
+  AdminMediaDownloadResponse,
   AdminMediaActionBody,
   AdminMediaListResponse,
   AdminReportActionBody,
@@ -9,6 +11,7 @@ import type {
   AdminReportNoteBody,
   AdminReportsResponse,
   AdminUserBlockBody,
+  AdminUserAvatarResponse,
   AdminUserDetailResponse,
   AdminUserPremiumBody,
   AdminUsersResponse,
@@ -30,6 +33,7 @@ import type {
   OpenDirectDialogResponse,
   RegisterUserGifBody,
   ReportContactBody,
+  ReportMediaBody,
   ReportSubscriptionChannelBody,
   RegisterResponse,
   RequestCodeResponse,
@@ -408,7 +412,13 @@ export async function searchAdminUsers(sessionToken: string, query: string) {
     },
   })
 
-  return readJsonResponse<AdminUsersResponse>(response)
+  const payload = await readJsonResponse<AdminUsersResponse>(response)
+  return {
+    users: payload.users.map((user) => ({
+      ...user,
+      avatarImage: user.avatarImage ? resolveMediaUrl(user.avatarImage) : user.avatarImage,
+    })),
+  }
 }
 
 export async function fetchAdminUser(sessionToken: string, identifier: string) {
@@ -418,7 +428,13 @@ export async function fetchAdminUser(sessionToken: string, identifier: string) {
     },
   })
 
-  return readJsonResponse<AdminUserDetailResponse>(response)
+  const payload = await readJsonResponse<AdminUserDetailResponse>(response)
+  return {
+    user: {
+      ...payload.user,
+      avatarImage: payload.user.avatarImage ? resolveMediaUrl(payload.user.avatarImage) : payload.user.avatarImage,
+    },
+  }
 }
 
 export async function blockAdminUser(
@@ -520,7 +536,13 @@ export async function fetchAdminMedia(sessionToken: string, query: string) {
     },
   })
 
-  return readJsonResponse<AdminMediaListResponse>(response)
+  const payload = await readJsonResponse<AdminMediaListResponse>(response)
+  return {
+    items: payload.items.map((item) => ({
+      ...item,
+      mediaUrl: resolveMediaUrl(item.mediaUrl),
+    })),
+  }
 }
 
 export async function moderateAdminMedia(
@@ -533,6 +555,38 @@ export async function moderateAdminMedia(
   )
 
   return readJsonResponse<AdminMediaListResponse>(response)
+}
+
+export async function fetchAdminUserAvatar(sessionToken: string, identifier: string) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/avatar`),
+    {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    },
+  )
+
+  const payload = await readJsonResponse<AdminUserAvatarResponse>(response)
+  return {
+    avatarUrl: payload.avatarUrl ? resolveMediaUrl(payload.avatarUrl) : null,
+  }
+}
+
+export async function downloadAdminMedia(
+  sessionToken: string,
+  body: AdminMediaDownloadBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/media/download'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  const payload = await readJsonResponse<AdminMediaDownloadResponse>(response)
+  return {
+    ...payload,
+    downloadUrl: resolveMediaUrl(payload.downloadUrl),
+  }
 }
 
 export async function fetchAdminAuditLog(sessionToken: string) {
@@ -672,6 +726,19 @@ export async function reportContact(
     makeHttpUrl(`/api/dialogs/${dialogId}/report`),
     makeJsonRequestInit('POST', body, sessionToken),
   )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function reportMediaAttachment(
+  sessionToken: string,
+  body: ReportMediaBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/media/report'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
 }

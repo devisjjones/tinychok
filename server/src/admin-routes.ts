@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type {
   AdminAuditLogResponse,
   AdminBootstrapResponse,
+  AdminMediaDownloadBody,
+  AdminMediaDownloadResponse,
   AdminMediaActionBody,
   AdminMediaListResponse,
   AdminPermission,
@@ -9,6 +11,7 @@ import type {
   AdminReportDetailResponse,
   AdminReportNoteBody,
   AdminReportsResponse,
+  AdminUserAvatarResponse,
   AdminUserBlockBody,
   AdminUserDetailResponse,
   AdminUserPremiumBody,
@@ -186,6 +189,21 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
     }
   })
 
+  app.get('/api/admin/users/:identifier/avatar', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.read')
+      if (!auth) return reply
+
+      const payload = await store.adminViewUserAvatar(
+        auth.token,
+        getRouteParam(request, 'identifier'),
+      )
+      return payload satisfies AdminUserAvatarResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
   app.post('/api/admin/users/:identifier/block', async (request, reply) => {
     try {
       const auth = requireAdminActor(store, request, reply, 'users.block')
@@ -308,6 +326,19 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       return {
         items: await store.adminModerateMedia(auth.token, body.mediaUrl, body.action, body.reason),
       } satisfies AdminMediaListResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/media/download', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'media.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminMediaDownloadBody>(request.body)
+      const payload = await store.adminGetMediaDownload(auth.token, body.mediaUrl)
+      return payload satisfies AdminMediaDownloadResponse
     } catch (error) {
       return sendError(reply, error)
     }

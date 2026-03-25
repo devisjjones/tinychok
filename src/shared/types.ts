@@ -3,6 +3,10 @@ export type MessageAttachment = {
   height?: number
   mediaUrl: string
   mimeType: string
+  reportState?: {
+    alreadyReported: boolean
+    reportCount: number
+  }
   size: number
   width?: number
 }

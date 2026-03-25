@@ -81,6 +81,7 @@ import type {
   RegisterBody,
   RegisterUserGifBody,
   RequestCodeResponse,
+  ReportMediaBody,
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
   SendDirectMessageBody,
@@ -678,6 +679,49 @@ function buildAdminMessageEntityKey(
   return `${scope}:${ownerIdentifier}:${parentId}:${messageId}`
 }
 
+function buildAttachmentReportState(
+  database: Database,
+  reporterIdentifier: string,
+  mediaUrl: string,
+) {
+  const relatedReports = database.adminReports.filter(
+    (report) => report.entityType === 'media' && report.entityKey === mediaUrl,
+  )
+
+  return {
+    alreadyReported: relatedReports.some(
+      (report) => report.reporterIdentifier === reporterIdentifier,
+    ),
+    reportCount: relatedReports.length,
+  }
+}
+
+function materializeAttachmentForViewer(
+  database: Database,
+  reporterIdentifier: string,
+  attachment?: MessageAttachment,
+) {
+  if (!attachment) {
+    return undefined
+  }
+
+  return {
+    ...attachment,
+    reportState: buildAttachmentReportState(database, reporterIdentifier, attachment.mediaUrl),
+  } satisfies MessageAttachment
+}
+
+function materializeThreadCommentsForViewer(
+  database: Database,
+  reporterIdentifier: string,
+  comments?: ThreadComment[],
+) {
+  return compactThreadComments(comments).map((comment) => ({
+    ...comment,
+    attachment: materializeAttachmentForViewer(database, reporterIdentifier, comment.attachment),
+  }))
+}
+
 function pickAccentForIdentifier(identifier: string) {
   if (CHAT_ACCENT_PALETTE.length === 0) {
     return FALLBACK_CHAT_ACCENT
@@ -935,10 +979,12 @@ function materializeDialog(dialog: PersistedDialog): Omit<PersistedDialog, 'owne
 }
 
 function materializeDialogMessage(
+  database: Database,
+  viewerIdentifier: string,
   message: PersistedDialogMessage,
 ): Omit<PersistedDialogMessage, 'dialogId' | 'ownerIdentifier'> {
   return {
-    attachment: message.attachment,
+    attachment: materializeAttachmentForViewer(database, viewerIdentifier, message.attachment),
     author: message.author,
     createdAt: message.createdAt,
     deliveryId: message.deliveryId,
@@ -985,10 +1031,12 @@ function materializeGroup(group: PersistedGroup): Omit<PersistedGroup, 'ownerIde
 }
 
 function materializeGroupMessage(
+  database: Database,
+  viewerIdentifier: string,
   message: PersistedGroupMessage,
 ): Omit<PersistedGroupMessage, 'groupId' | 'ownerIdentifier'> {
   return {
-    attachment: message.attachment,
+    attachment: materializeAttachmentForViewer(database, viewerIdentifier, message.attachment),
     author: message.author,
     createdAt: message.createdAt,
     deliveryId: message.deliveryId,
@@ -1002,7 +1050,7 @@ function materializeGroupMessage(
     sourceChannel: message.sourceChannel,
     sourceGroup: message.sourceGroup,
     text: message.text,
-    threadComments: compactThreadComments(message.threadComments),
+    threadComments: materializeThreadCommentsForViewer(database, viewerIdentifier, message.threadComments),
     threadId: message.threadId?.trim() || undefined,
     time: message.time,
   }
@@ -1093,15 +1141,17 @@ function materializeSubscriptionChannel(
 }
 
 function materializeSubscriptionPost(
+  database: Database,
+  viewerIdentifier: string,
   post: PersistedSubscriptionPost,
 ): Omit<PersistedSubscriptionPost, 'channelId' | 'ownerIdentifier'> {
   return {
-    attachment: post.attachment,
+    attachment: materializeAttachmentForViewer(database, viewerIdentifier, post.attachment),
     createdAt: post.createdAt,
     id: post.id,
     replyTo: post.replyTo,
     text: post.text,
-    threadComments: compactThreadComments(post.threadComments),
+    threadComments: materializeThreadCommentsForViewer(database, viewerIdentifier, post.threadComments),
     threadId: post.threadId?.trim() || undefined,
     time: post.time,
   }
@@ -1336,7 +1386,7 @@ function materializeFullChats(database: Database, ownerIdentifier: string): Chat
           (message) =>
             message.ownerIdentifier === ownerIdentifier && message.dialogId === dialog.id,
         )
-        .map((message) => materializeDialogMessage(message))
+        .map((message) => materializeDialogMessage(database, ownerIdentifier, message))
       const pinnedMessage =
         dialog.pinnedMessageId === undefined
           ? undefined
@@ -1372,7 +1422,7 @@ function materializeFullGroups(database: Database, ownerIdentifier: string): Gro
           (message) => message.ownerIdentifier === ownerIdentifier && message.groupId === group.id,
         )
         .map((message) => {
-          const materializedMessage = materializeGroupMessage(message)
+          const materializedMessage = materializeGroupMessage(database, ownerIdentifier, message)
           return {
             ...materializedMessage,
             threadComments: materializedMessage.threadComments ?? [],
@@ -1476,7 +1526,7 @@ function materializeFullSubscriptionChannels(
           (post) => post.ownerIdentifier === ownerIdentifier && post.channelId === channel.id,
         )
         .map((post) => {
-          const materializedPost = materializeSubscriptionPost(post)
+          const materializedPost = materializeSubscriptionPost(database, ownerIdentifier, post)
           return {
             ...materializedPost,
             threadComments: materializedPost.threadComments ?? [],
@@ -2060,6 +2110,32 @@ export class TinychokStore {
     return this.buildAdminUserSummary(account)
   }
 
+  async adminViewUserAvatar(actorToken: string, identifier: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const target = this.findAccountForAdmin(identifier)
+    if (!target) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    const avatarUrl = target.avatarImage?.trim() || null
+    if (avatarUrl && target.identifier !== actor.identifier) {
+      await this.appendAdminAuditLog(actor, {
+        action: 'admin.user.avatar.view',
+        nextValue: {
+          avatarUrl,
+          identifier: target.identifier,
+        },
+        summary: `Просмотрена аватарка пользователя ${target.identifier}`,
+        targetId: target.identifier,
+        targetType: 'user-avatar',
+      })
+    }
+
+    return {
+      avatarUrl,
+    }
+  }
+
   async adminSetUserBlocked(
     actorToken: string,
     identifier: string,
@@ -2285,6 +2361,32 @@ export class TinychokStore {
 
     await this.applyMediaModerationAction(actor, mediaItem.mediaUrl, action, sanitizeAdminText(reason, 500))
     return this.adminListMedia('')
+  }
+
+  async adminGetMediaDownload(actorToken: string, mediaUrlOrId: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const decodedMediaUrl = decodeURIComponent(mediaUrlOrId)
+    const mediaItem = this.collectAdminMediaItems().find((item) => item.mediaUrl === decodedMediaUrl)
+    if (!mediaItem) {
+      throw new Error('Media-объект не найден.')
+    }
+
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.media.download',
+      nextValue: {
+        contextLabel: mediaItem.contextLabel,
+        fileName: mediaItem.fileName,
+        mediaUrl: mediaItem.mediaUrl,
+      },
+      summary: `Скачан media-объект ${mediaItem.fileName}`,
+      targetId: mediaItem.mediaUrl,
+      targetType: 'media',
+    })
+
+    return {
+      downloadUrl: mediaItem.mediaUrl,
+      fileName: mediaItem.fileName,
+    }
   }
 
   adminListAuditLogs() {
@@ -2718,6 +2820,57 @@ export class TinychokStore {
       entityType: 'user',
       reason,
       relatedUserIdentifier: targetIdentifier,
+      reporterIdentifier: account.identifier,
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async reportMediaAttachment(
+    token: string,
+    payload: ReportMediaBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const mediaUrl = payload.mediaUrl.trim()
+    if (!mediaUrl) {
+      throw new Error('Не найден media-объект для жалобы.')
+    }
+
+    const relatedContext = this.findVisibleMediaContextForReporter(account.identifier, mediaUrl)
+    if (!relatedContext) {
+      throw new Error('Это вложение недоступно для жалобы.')
+    }
+
+    const alreadyReported = this.database.adminReports.some(
+      (report) =>
+        report.reporterIdentifier === account.identifier &&
+        report.entityType === 'media' &&
+        report.entityKey === mediaUrl,
+    )
+    if (alreadyReported) {
+      throw new Error('Вы уже отправляли жалобу.')
+    }
+
+    const reason = sanitizeComplaintReason(payload.reason ?? 'very_unpleasant')
+    this.upsertAdminReport({
+      createdAt: new Date().toISOString(),
+      entityKey: mediaUrl,
+      entityLabel: relatedContext.entityLabel,
+      entityOwnerIdentifier: relatedContext.entityOwnerIdentifier,
+      entityPreview: relatedContext.entityPreview,
+      entityType: 'media',
+      reason,
+      relatedUserIdentifier:
+        relatedContext.relatedUserIdentifier ?? relatedContext.entityOwnerIdentifier,
       reporterIdentifier: account.identifier,
     })
 
@@ -5256,6 +5409,123 @@ export class TinychokStore {
     }
 
     return items.sort((left, right) => right.size - left.size)
+  }
+
+  private findVisibleMediaContextForReporter(viewerIdentifier: string, mediaUrl: string) {
+    const viewerAccount = this.findAccount(viewerIdentifier)
+    const viewerLabel = viewerAccount ? buildAccountDisplayLabel(viewerAccount) : viewerIdentifier
+    const buildLabelForIdentifier = (identifier?: string) => {
+      if (!identifier) {
+        return undefined
+      }
+
+      const account = this.findAccount(identifier)
+      return account ? buildAccountDisplayLabel(account) : identifier
+    }
+
+    for (const message of this.database.dialogMessages) {
+      if (
+        message.ownerIdentifier !== viewerIdentifier ||
+        message.attachment?.mediaUrl !== mediaUrl
+      ) {
+        continue
+      }
+
+      const dialog = this.findDialog(viewerIdentifier, message.dialogId)
+      const peerIdentifier = normalizeIdentifier(dialog?.phone ?? '')
+      const peerLabel = buildLabelForIdentifier(peerIdentifier)
+      const actualOwnerIdentifier =
+        message.author === 'me' ? viewerIdentifier : peerIdentifier || viewerIdentifier
+
+      return {
+        entityLabel: peerLabel ? `Личный диалог: ${viewerLabel} ↔ ${peerLabel}` : 'Личный диалог',
+        entityOwnerIdentifier: actualOwnerIdentifier,
+        entityPreview: message.text || message.attachment.fileName || undefined,
+        relatedUserIdentifier: actualOwnerIdentifier,
+      }
+    }
+
+    for (const message of this.database.groupMessages) {
+      if (message.ownerIdentifier !== viewerIdentifier) {
+        continue
+      }
+
+      const group = this.findGroup(viewerIdentifier, message.groupId)
+      if (message.attachment?.mediaUrl === mediaUrl) {
+        const actualOwnerIdentifier =
+          message.author === 'me'
+            ? viewerIdentifier
+            : normalizeIdentifier(
+                group?.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
+              ) ||
+              group?.creatorIdentifier ||
+              viewerIdentifier
+
+        return {
+          entityLabel: `Группа: ${group?.title ?? `#${message.groupId}`}`,
+          entityOwnerIdentifier: actualOwnerIdentifier,
+          entityPreview: message.text || message.attachment.fileName || undefined,
+          relatedUserIdentifier: actualOwnerIdentifier,
+        }
+      }
+
+      for (const comment of message.threadComments ?? []) {
+        if (comment.attachment?.mediaUrl !== mediaUrl) {
+          continue
+        }
+
+        const actualOwnerIdentifier =
+          normalizeIdentifier(comment.authorIdentifier ?? '') || viewerIdentifier
+
+        return {
+          entityLabel: `Комментарии группы: ${group?.title ?? `#${message.groupId}`}`,
+          entityOwnerIdentifier: actualOwnerIdentifier,
+          entityPreview: comment.text || comment.attachment.fileName || undefined,
+          relatedUserIdentifier: actualOwnerIdentifier,
+        }
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      if (post.ownerIdentifier !== viewerIdentifier) {
+        continue
+      }
+
+      const channel = this.findSubscriptionChannel(viewerIdentifier, post.channelId)
+      const channelHandle = channel?.handle
+        ? sanitizeChannelDirectLink(channel.handle) || channel.handle
+        : undefined
+      const managedChannel = channelHandle ? this.findManagedChannelByHandle(channelHandle) : null
+
+      if (post.attachment?.mediaUrl === mediaUrl) {
+        const actualOwnerIdentifier = managedChannel?.ownerIdentifier || viewerIdentifier
+
+        return {
+          entityLabel: `Канал: ${channel?.title ?? `#${post.channelId}`}`,
+          entityOwnerIdentifier: actualOwnerIdentifier,
+          entityPreview: post.text || post.attachment.fileName || undefined,
+          relatedUserIdentifier: actualOwnerIdentifier,
+        }
+      }
+
+      for (const comment of post.threadComments ?? []) {
+        if (comment.attachment?.mediaUrl !== mediaUrl) {
+          continue
+        }
+
+        const actualOwnerIdentifier =
+          normalizeIdentifier(comment.authorIdentifier ?? '') || viewerIdentifier
+
+        return {
+          entityLabel: `Комментарии канала: ${channel?.title ?? `#${post.channelId}`}`,
+          entityOwnerIdentifier: actualOwnerIdentifier,
+          entityPreview: comment.text || comment.attachment.fileName || undefined,
+          relatedUserIdentifier: actualOwnerIdentifier,
+        }
+      }
+    }
+
+    return null
   }
 
   private async applyAdminUserBlockFromActor(
