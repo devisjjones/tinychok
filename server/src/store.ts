@@ -417,6 +417,19 @@ function sanitizeUserGifLibraryItem(item: UserGifLibraryItem) {
   } satisfies UserGifLibraryItem
 }
 
+function normalizeGifFileNameForMatching(fileName: string) {
+  return fileName
+    .replace(/\.gif$/iu, '')
+    .replace(/[_-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function buildUserGifDuplicateKey(fileName: string, size: number) {
+  return `${normalizeGifFileNameForMatching(fileName)}:${Math.max(0, Math.floor(size))}`
+}
+
 function inferStoredMediaKind(mediaUrl: string): PersistedPendingMediaUpload['kind'] | null {
   const trimmed = mediaUrl.trim()
   if (!trimmed) return null
@@ -3549,12 +3562,18 @@ export class TinychokStore {
 
     const nextGif = sanitizeUserGifLibraryItem(payload)
     const currentLibrary = account.gifLibrary ?? []
+    const duplicateKey = buildUserGifDuplicateKey(nextGif.fileName, nextGif.size)
 
-    if (currentLibrary.some((item) => item.mediaUrl === nextGif.mediaUrl || item.id === nextGif.id)) {
-      return {
-        broadcastIdentifiers: [account.identifier],
-        snapshot: this.buildSnapshot(account, token),
-      }
+    if (
+      currentLibrary.some(
+        (item) =>
+          item.mediaUrl === nextGif.mediaUrl ||
+          item.id === nextGif.id ||
+          buildUserGifDuplicateKey(item.fileName, item.size) === duplicateKey,
+      )
+    ) {
+      await this.discardPendingMediaUpload(nextGif.mediaUrl)
+      throw new Error('У вас такая GIF уже загружена.')
     }
 
     account.gifLibrary = [nextGif, ...currentLibrary].sort(
@@ -3563,6 +3582,75 @@ export class TinychokStore {
 
     await this.persist()
     this.clearPendingMediaUpload(nextGif.mediaUrl)
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  searchUserGifs(token: string, query: string) {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    if (!hasActivePremium(account.premium, account.premiumExpiresAt)) {
+      throw new Error('GIF доступны только в премиуме.')
+    }
+
+    const normalizedQuery = normalizeGifFileNameForMatching(query)
+    if (!normalizedQuery) {
+      return { items: [] as UserGifLibraryItem[] }
+    }
+
+    const uniqueItems = new Map<string, UserGifLibraryItem>()
+
+    for (const candidateAccount of this.database.accounts) {
+      for (const gif of candidateAccount.gifLibrary ?? []) {
+        const sanitizedGif = sanitizeUserGifLibraryItem(gif)
+        if (!normalizeGifFileNameForMatching(sanitizedGif.fileName).includes(normalizedQuery)) {
+          continue
+        }
+
+        if (!uniqueItems.has(sanitizedGif.mediaUrl)) {
+          uniqueItems.set(sanitizedGif.mediaUrl, sanitizedGif)
+        }
+      }
+    }
+
+    const items = [...uniqueItems.values()].sort((left, right) => {
+      const leftName = normalizeGifFileNameForMatching(left.fileName)
+      const rightName = normalizeGifFileNameForMatching(right.fileName)
+      const leftStartsWith = leftName.startsWith(normalizedQuery)
+      const rightStartsWith = rightName.startsWith(normalizedQuery)
+
+      if (leftStartsWith !== rightStartsWith) {
+        return leftStartsWith ? -1 : 1
+      }
+
+      return Date.parse(right.createdAt) - Date.parse(left.createdAt)
+    })
+
+    return { items }
+  }
+
+  async removeUserGif(token: string, gifId: string): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const currentLibrary = account.gifLibrary ?? []
+    const removedGif = currentLibrary.find((gif) => gif.id === gifId.trim()) ?? null
+    if (!removedGif) {
+      throw new Error('GIF не найдена.')
+    }
+
+    account.gifLibrary = currentLibrary.filter((gif) => gif.id !== gifId.trim())
+
+    await this.persist()
+    await this.deleteMediaIfUnreferenced(removedGif.mediaUrl)
 
     return {
       broadcastIdentifiers: [account.identifier],
@@ -7416,6 +7504,26 @@ export class TinychokStore {
       if (upload.mediaUrl === mediaUrl) {
         upload.linked = true
       }
+    }
+  }
+
+  private async discardPendingMediaUpload(mediaUrl?: string) {
+    if (!mediaUrl) return
+
+    const pendingUpload = this.database.pendingMediaUploads.find(
+      (upload) => upload.mediaUrl === mediaUrl && !upload.linked,
+    )
+    if (!pendingUpload) return
+
+    this.database.pendingMediaUploads = this.database.pendingMediaUploads.filter(
+      (upload) => upload.mediaUrl !== mediaUrl,
+    )
+    await this.persist()
+
+    try {
+      await deleteStoredMediaByUrl(mediaUrl, pendingUpload.kind)
+    } catch (error) {
+      console.error('Failed to discard duplicate pending media upload', error)
     }
   }
 

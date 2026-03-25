@@ -566,6 +566,40 @@ app.post('/api/session/gifs', async (request, reply) => {
   }
 })
 
+app.get('/api/session/gifs/search', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const query = getSearchQuery(request)
+    return store.searchUserGifs(token, query)
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.delete('/api/session/gifs/:gifId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const gifId = ((request.params as Record<string, string | undefined> | undefined)?.gifId ?? '').trim()
+    if (!gifId) {
+      throw new Error('Некорректный идентификатор GIF.')
+    }
+
+    const result = await store.removeUserGif(token, gifId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.post('/api/session/debug-premium', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {

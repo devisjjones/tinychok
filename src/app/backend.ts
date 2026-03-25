@@ -53,6 +53,7 @@ import type {
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
   SendManagedChannelPostBody,
+  SearchUserGifsResponse,
   SendDirectMessageBody,
   SendGroupMessageBody,
   SendGroupThreadCommentBody,
@@ -69,6 +70,13 @@ import type {
 } from '../shared/backend'
 import type { RegisterBody, RequestCodeBody, SaveSnapshotBody, VerifyCodeBody } from '../shared/backend'
 import type { SearchResult, ThreadComment } from './types'
+
+function normalizeGifLibraryItemMedia<T extends { mediaUrl: string }>(gif: T): T {
+  return {
+    ...gif,
+    mediaUrl: gif.mediaUrl ? resolveMediaUrl(gif.mediaUrl) : gif.mediaUrl,
+  }
+}
 
 function normalizeBaseUrl(value: string | undefined) {
   const trimmed = value?.trim()
@@ -866,6 +874,36 @@ export async function registerUserGif(
   const response = await fetch(
     makeHttpUrl('/api/session/gifs'),
     makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function searchUserGifs(sessionToken: string, query: string) {
+  const requestUrl = new URL(makeHttpUrl('/api/session/gifs/search'), window.location.origin)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+  const payload = await readJsonResponse<SearchUserGifsResponse>(response)
+  return {
+    ...payload,
+    items: payload.items.map((gif) => normalizeGifLibraryItemMedia(gif)),
+  }
+}
+
+export async function deleteUserGif(sessionToken: string, gifId: string) {
+  const response = await fetch(
+    makeHttpUrl(`/api/session/gifs/${encodeURIComponent(gifId)}`),
+    {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+      method: 'DELETE',
+    },
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)

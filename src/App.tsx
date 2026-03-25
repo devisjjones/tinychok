@@ -60,6 +60,7 @@ import {
   fetchSubscriptionChannelHistory,
   createGroup as createGroupRequest,
   createManagedChannel as createManagedChannelRequest,
+  deleteUserGif as deleteUserGifRequest,
   deleteDialog as deleteDialogRequest,
   deleteDialogHistory as deleteDialogHistoryRequest,
   deleteDialogMessage as deleteDialogMessageRequest,
@@ -91,6 +92,7 @@ import {
   registerUserGif,
   requestAuthCode,
   saveSnapshot,
+  searchUserGifs as searchUserGifsRequest,
   searchDiscoveryResults as searchDiscoveryResultsRequest,
   setDialogFavorite as setDialogFavoriteRequest,
   setDialogPinnedMessage as setDialogPinnedMessageRequest,
@@ -113,7 +115,10 @@ import {
 } from './app/backend'
 import { configureAnalyticsRuntime, trackAnalyticsEvent } from './app/analytics'
 import {
+  buildUserGifRegistrationBodyFromAttachment,
   buildUserGifRegistrationBody,
+  duplicateUserGifMessage,
+  findDuplicateUserGif,
   readGifDimensions,
   validateGifUploadFile,
 } from './app/gifLibrary'
@@ -744,6 +749,8 @@ function App() {
   const [threadAttachmentDraft, setThreadAttachmentDraft] = useState<ComposerAttachmentDraft | undefined>(undefined)
   const [mediaViewerAttachment, setMediaViewerAttachment] = useState<MessageAttachment | null>(null)
   const [mediaViewerDownloadEnabled, setMediaViewerDownloadEnabled] = useState(true)
+  const [mediaViewerGifActionBusy, setMediaViewerGifActionBusy] = useState(false)
+  const [mediaViewerGifAddEnabled, setMediaViewerGifAddEnabled] = useState(false)
   const [mediaViewerReportBusy, setMediaViewerReportBusy] = useState(false)
   const [mediaViewerReportToast, setMediaViewerReportToast] = useState('')
   const [pendingGroupThreadComments, setPendingGroupThreadComments] = useState<PendingGroupThreadComment[]>([])
@@ -3224,9 +3231,16 @@ function App() {
     })
   }
 
-  function openMediaViewer(attachment: MessageAttachment, options?: { allowDownload?: boolean }) {
+  function openMediaViewer(
+    attachment: MessageAttachment,
+    options?: { allowDownload?: boolean; allowGifAdd?: boolean },
+  ) {
     setMediaViewerAttachment(attachment)
-    setMediaViewerDownloadEnabled(options?.allowDownload ?? true)
+    setMediaViewerDownloadEnabled(options?.allowDownload ?? attachment.mimeType !== 'image/gif')
+    setMediaViewerGifActionBusy(false)
+    setMediaViewerGifAddEnabled(
+      options?.allowGifAdd ?? attachment.mimeType === 'image/gif',
+    )
     setMediaViewerReportBusy(false)
     setMediaViewerReportToast('')
   }
@@ -3241,12 +3255,14 @@ function App() {
       mimeType: attachmentDraft.mimeType,
       size: attachmentDraft.size,
       width: attachmentDraft.width,
-    }, { allowDownload: false })
+    }, { allowDownload: false, allowGifAdd: false })
   }
 
   function closeMediaViewer() {
     setMediaViewerAttachment(null)
     setMediaViewerDownloadEnabled(true)
+    setMediaViewerGifActionBusy(false)
+    setMediaViewerGifAddEnabled(false)
     setMediaViewerReportBusy(false)
     setMediaViewerReportToast('')
   }
@@ -3316,6 +3332,25 @@ function App() {
       setMediaViewerReportToast(message)
     } finally {
       setMediaViewerReportBusy(false)
+    }
+  }
+
+  async function addOpenedGifToLibrary() {
+    if (!mediaViewerAttachment || mediaViewerGifActionBusy || !mediaViewerGifAddEnabled) {
+      return
+    }
+
+    setMediaViewerGifActionBusy(true)
+
+    try {
+      await addGifAttachmentToLibrary(mediaViewerAttachment)
+      setMediaViewerReportToast('GIF добавлена в вашу библиотеку')
+    } catch (error) {
+      setMediaViewerReportToast(
+        getErrorMessage(error, 'Не удалось добавить GIF в вашу библиотеку.'),
+      )
+    } finally {
+      setMediaViewerGifActionBusy(false)
     }
   }
 
@@ -4030,8 +4065,19 @@ function App() {
     return attachmentDraft.mimeType === 'image/gif' ? null : 'Сначала уберите текущее вложение.'
   }
 
+  function applyLocalGifLibrary(nextGifLibrary: UserGifLibraryItem[]) {
+    if (!session) return null
+
+    const nextSession = {
+      ...session,
+      gifLibrary: nextGifLibrary,
+    }
+    syncSession(nextSession)
+    return nextSession
+  }
+
   async function uploadUserGifToLibrary(file: File) {
-    if (!session?.sessionToken) {
+    if (!session) {
       throw new Error('Нужна активная сессия.')
     }
 
@@ -4041,13 +4087,133 @@ function App() {
     }
 
     validateGifUploadFile(file)
+
+    const existingDuplicate = findDuplicateUserGif(session.gifLibrary ?? [], {
+      fileName: file.name,
+      size: file.size,
+    })
+    if (existingDuplicate) {
+      throw new Error(duplicateUserGifMessage)
+    }
+
     const dimensions = await readGifDimensions(file)
-    const uploadedMedia = await uploadMediaFile(session.sessionToken, file, 'user-gif')
+
+    if (!(backendReady && session.sessionToken)) {
+      const localGif = buildUserGifRegistrationBody(file, {
+        fileName: file.name,
+        kind: 'user-gif',
+        mediaUrl: URL.createObjectURL(file),
+        mimeType: 'image/gif',
+        size: file.size,
+        storageKey: '',
+      }, dimensions)
+      applyLocalGifLibrary([localGif, ...(session.gifLibrary ?? [])])
+      return localGif
+    }
+
+    try {
+      const uploadedMedia = await uploadMediaFile(session.sessionToken, file, 'user-gif')
+      const response = await registerUserGif(
+        session.sessionToken,
+        buildUserGifRegistrationBody(file, uploadedMedia, dimensions),
+      )
+      applySnapshot(response.snapshot)
+
+      return (
+        response.snapshot.session.gifLibrary?.find((gif) => gif.mediaUrl === uploadedMedia.mediaUrl) ??
+        response.snapshot.session.gifLibrary?.find((gif) =>
+          findDuplicateUserGif([gif], { fileName: file.name, size: uploadedMedia.size }) !== null,
+        ) ??
+        buildUserGifRegistrationBody(file, uploadedMedia, dimensions)
+      )
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Не удалось загрузить GIF. Проверьте соединение и попробуйте ещё раз.')
+      }
+
+      throw error
+    }
+  }
+
+  async function uploadAndAttachChatGif(chatId: number, file: File) {
+    const gif = await uploadUserGifToLibrary(file)
+    attachChatGif(chatId, gif)
+  }
+
+  async function uploadAndAttachGroupGif(groupId: number, file: File) {
+    const gif = await uploadUserGifToLibrary(file)
+    attachGroupGif(groupId, gif)
+  }
+
+  async function uploadAndAttachChannelGif(channelId: number, file: File) {
+    const gif = await uploadUserGifToLibrary(file)
+    attachChannelGif(channelId, gif)
+  }
+
+  async function uploadAndAttachThreadGif(file: File) {
+    const gif = await uploadUserGifToLibrary(file)
+    attachThreadGif(gif)
+  }
+
+  async function searchAvailableGifs(query: string) {
+    const normalizedQuery = query.trim()
+
+    if (!normalizedQuery) {
+      return []
+    }
+
+    if (!session?.sessionToken || !backendReady) {
+      return (session?.gifLibrary ?? []).filter((gif) =>
+        gif.fileName.toLowerCase().includes(normalizedQuery.toLowerCase()),
+      )
+    }
+
+    const response = await searchUserGifsRequest(session.sessionToken, normalizedQuery)
+    return response.items
+  }
+
+  async function deleteGifFromLibrary(gif: UserGifLibraryItem) {
+    if (!(backendReady && session?.sessionToken)) {
+      const nextGifLibrary = (session?.gifLibrary ?? []).filter((item) => item.id !== gif.id)
+      applyLocalGifLibrary(nextGifLibrary)
+      return
+    }
+
+    const response = await deleteUserGifRequest(session.sessionToken, gif.id)
+    applySnapshot(response.snapshot)
+  }
+
+  async function addGifAttachmentToLibrary(attachment: MessageAttachment) {
+    if (!session) {
+      throw new Error('Нужна активная сессия.')
+    }
+
+    if (!sessionHasPremium) {
+      openPremiumUpsell()
+      throw new Error('GIF доступны только в премиуме.')
+    }
+
+    const existingDuplicate = findDuplicateUserGif(session.gifLibrary ?? [], attachment)
+    if (existingDuplicate) {
+      throw new Error(duplicateUserGifMessage)
+    }
+
+    if (!(backendReady && session.sessionToken)) {
+      const nextGif = buildUserGifRegistrationBodyFromAttachment(attachment)
+      applyLocalGifLibrary([nextGif, ...(session.gifLibrary ?? [])])
+      return nextGif
+    }
+
     const response = await registerUserGif(
       session.sessionToken,
-      buildUserGifRegistrationBody(file, uploadedMedia, dimensions),
+      buildUserGifRegistrationBodyFromAttachment(attachment),
     )
     applySnapshot(response.snapshot)
+
+    return (
+      response.snapshot.session.gifLibrary?.find((gif) => gif.mediaUrl === attachment.mediaUrl) ??
+      buildUserGifRegistrationBodyFromAttachment(attachment)
+    )
   }
 
   function attachChatGif(chatId: number, gif: UserGifLibraryItem) {
@@ -8994,7 +9160,9 @@ function App() {
                       canSelectGif={!getGifSelectionBlockedReason(threadAttachmentDraft)}
                       gifLibrary={session?.gifLibrary ?? []}
                       gifSelectionBlockedReason={getGifSelectionBlockedReason(threadAttachmentDraft)}
+                      onDeleteGif={deleteGifFromLibrary}
                       onOpenPremiumUpsell={openPremiumUpsell}
+                      onSearchGifs={searchAvailableGifs}
                       onSelect={(emoji) =>
                         insertComposerTextAtCursor(
                           threadComposerInputRef.current,
@@ -9004,7 +9172,7 @@ function App() {
                         )
                       }
                       onSelectGif={attachThreadGif}
-                      onUploadGif={uploadUserGifToLibrary}
+                      onUploadGif={uploadAndAttachThreadGif}
                       premiumUnlocked={sessionHasPremium}
                     />
                     <ComposerAttachmentPicker
@@ -12151,12 +12319,14 @@ function App() {
                     onSelectGif: (gif) => attachChannelGif(currentSubscriptionChannel!.id, gif),
                     onToggleSendOriginal: () =>
                       toggleChannelAttachmentSendOriginal(currentSubscriptionChannel!.id),
-                    onUploadGif: uploadUserGifToLibrary,
+                    onUploadGif: (file) => uploadAndAttachChannelGif(currentSubscriptionChannel!.id, file),
                     premiumUnlocked: sessionHasPremium,
                     gifLibrary: session?.gifLibrary ?? [],
                     gifSelectionBlockedReason: getGifSelectionBlockedReason(
                       channelAttachmentDrafts[currentSubscriptionChannel!.id],
                     ),
+                    onDeleteGif: deleteGifFromLibrary,
+                    onSearchGifs: searchAvailableGifs,
                     replyTarget: channelPostReplyTarget,
                     onSubmit: () => {
                       void sendManagedChannelPost()
@@ -12230,10 +12400,12 @@ function App() {
             onOpenThread={openGroupThread}
             onSelectGif={(gif) => attachGroupGif(activeGroup.id, gif)}
             onToggleSendOriginal={() => toggleGroupAttachmentSendOriginal(activeGroup.id)}
-            onUploadGif={uploadUserGifToLibrary}
+            onUploadGif={(file) => uploadAndAttachGroupGif(activeGroup.id, file)}
             gifLibrary={session?.gifLibrary ?? []}
             gifSelectionBlockedReason={getGifSelectionBlockedReason(groupAttachmentDrafts[activeGroup.id])}
+            onDeleteGif={deleteGifFromLibrary}
             premiumUnlocked={sessionHasPremium}
+            onSearchGifs={searchAvailableGifs}
             replyTarget={replyTarget}
             resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
             visibleMessages={visibleGroupMessages}
@@ -12290,7 +12462,7 @@ function App() {
               }}
               onReplyCancel={() => setReplyTarget(null)}
               onSelectGif={(gif) => attachChatGif(activeChat.id, gif)}
-              onUploadGif={uploadUserGifToLibrary}
+              onUploadGif={(file) => uploadAndAttachChatGif(activeChat.id, file)}
               onReplyReferenceJump={scrollToDirectMessage}
               onRequestReportContact={() => {
                 setReportingChatId(activeChat.id)
@@ -12318,7 +12490,9 @@ function App() {
               }}
               gifLibrary={session?.gifLibrary ?? []}
               gifSelectionBlockedReason={getGifSelectionBlockedReason(chatAttachmentDrafts[activeChat.id])}
+              onDeleteGif={deleteGifFromLibrary}
               premiumUnlocked={sessionHasPremium}
+              onSearchGifs={searchAvailableGifs}
               onUnpinMessage={() => {
                 void unpinMessage(activeChat.id)
               }}
@@ -13705,6 +13879,13 @@ function App() {
           attachment={mediaViewerAttachment}
           onClose={closeMediaViewer}
           allowDownload={mediaViewerDownloadEnabled}
+          onPrimaryAction={
+            mediaViewerGifAddEnabled ? () => {
+              void addOpenedGifToLibrary()
+            } : undefined
+          }
+          primaryActionBusy={mediaViewerGifActionBusy}
+          primaryActionLabel={mediaViewerGifAddEnabled ? 'Добавить ГИФ себе' : ''}
           onReport={() => void reportOpenedMediaAttachment()}
           reportBusy={mediaViewerReportBusy}
           reportToast={mediaViewerReportToast}

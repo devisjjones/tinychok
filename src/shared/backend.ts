@@ -485,6 +485,10 @@ export type UploadMediaResponse = {
 
 export type RegisterUserGifBody = UserGifLibraryItem
 
+export type SearchUserGifsResponse = {
+  items: UserGifLibraryItem[]
+}
+
 export type DebugPremiumBody = {
   enabled: boolean
   durationDays?: number

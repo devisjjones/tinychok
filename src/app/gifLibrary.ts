@@ -1,6 +1,9 @@
 import { messageGifUploadMaxSizeBytes } from './constants'
 import type { RegisterUserGifBody } from '../shared/backend'
 import type { UploadMediaResponse } from '../shared/backend'
+import type { MessageAttachment, UserGifLibraryItem } from './types'
+
+export const duplicateUserGifMessage = 'У вас такая GIF уже загружена.'
 
 function createClientId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -10,10 +13,36 @@ function createClientId() {
   return `gif-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+export function normalizeGifFileName(fileName: string) {
+  return fileName
+    .replace(/\.gif$/iu, '')
+    .replace(/[_-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+export function buildUserGifDuplicateKey(fileName: string, size: number) {
+  return `${normalizeGifFileName(fileName)}:${Math.max(0, Math.floor(size))}`
+}
+
+export function findDuplicateUserGif<T extends Pick<UserGifLibraryItem, 'fileName' | 'size'>>(
+  gifLibrary: UserGifLibraryItem[],
+  candidate: T,
+) {
+  const nextKey = buildUserGifDuplicateKey(candidate.fileName, candidate.size)
+  return gifLibrary.find((item) => buildUserGifDuplicateKey(item.fileName, item.size) === nextKey) ?? null
+}
+
 export function validateGifUploadFile(file: File) {
   const fileName = file.name.trim()
+  const fileType = file.type.trim().toLowerCase()
 
-  if (!fileName.toLowerCase().endsWith('.gif') || file.type !== 'image/gif') {
+  if (!fileName.toLowerCase().endsWith('.gif')) {
+    throw new Error('Можно загружать только GIF.')
+  }
+
+  if (fileType && fileType !== 'image/gif' && fileType !== 'application/octet-stream') {
     throw new Error('Можно загружать только GIF.')
   }
 
@@ -59,5 +88,20 @@ export function buildUserGifRegistrationBody(
     mimeType: 'image/gif',
     size: uploadedMedia.size,
     width: dimensions.width,
+  }
+}
+
+export function buildUserGifRegistrationBodyFromAttachment(
+  attachment: Pick<MessageAttachment, 'fileName' | 'height' | 'mediaUrl' | 'mimeType' | 'size' | 'width'>,
+): RegisterUserGifBody {
+  return {
+    createdAt: new Date().toISOString(),
+    fileName: attachment.fileName,
+    height: attachment.height,
+    id: createClientId(),
+    mediaUrl: attachment.mediaUrl,
+    mimeType: 'image/gif',
+    size: attachment.size,
+    width: attachment.width,
   }
 }

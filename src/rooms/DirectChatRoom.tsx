@@ -61,6 +61,8 @@ type DirectChatRoomProps = {
   onOpenPremiumGift: () => void
   onOpenPremiumUpsell?: () => void
   onReplyCancel: () => void
+  onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
+  onSearchGifs?: (query: string) => Promise<UserGifLibraryItem[]>
   onRequestDeleteContact: () => void
   onRequestDeleteHistory: () => void
   onRequestReportContact: () => void
@@ -110,6 +112,8 @@ export function DirectChatRoom({
   onOpenPremiumGift,
   onOpenPremiumUpsell,
   onReplyCancel,
+  onDeleteGif,
+  onSearchGifs,
   onSelectGif,
   onUploadGif,
   onReplyReferenceJump,
@@ -544,7 +548,9 @@ export function DirectChatRoom({
                     canSelectGif={!gifSelectionBlockedReason}
                     gifLibrary={gifLibrary}
                     gifSelectionBlockedReason={gifSelectionBlockedReason}
+                    onDeleteGif={onDeleteGif}
                     onOpenPremiumUpsell={onOpenPremiumUpsell}
+                    onSearchGifs={onSearchGifs}
                     onSelect={(emoji) =>
                       insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
                     }

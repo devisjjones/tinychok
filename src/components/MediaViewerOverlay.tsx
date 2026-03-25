@@ -6,6 +6,9 @@ type MediaViewerOverlayProps = {
   allowDownload?: boolean
   attachment: MessageAttachment
   onClose: () => void
+  onPrimaryAction?: () => void
+  primaryActionBusy?: boolean
+  primaryActionLabel?: string
   onReport?: () => void
   reportBusy?: boolean
   reportToast?: string
@@ -15,6 +18,9 @@ export function MediaViewerOverlay({
   allowDownload = true,
   attachment,
   onClose,
+  onPrimaryAction,
+  primaryActionBusy = false,
+  primaryActionLabel = '',
   onReport,
   reportBusy = false,
   reportToast = '',
@@ -55,6 +61,21 @@ export function MediaViewerOverlay({
       onClick={onClose}
     >
       <div className="media-viewer-actions">
+        {onPrimaryAction && primaryActionLabel ? (
+          <button
+            type="button"
+            className="media-viewer-download"
+            onClick={(event) => {
+              event.stopPropagation()
+              onPrimaryAction()
+            }}
+            disabled={primaryActionBusy}
+          >
+            <span className="media-viewer-download-label">
+              {primaryActionBusy ? 'Добавляем...' : primaryActionLabel}
+            </span>
+          </button>
+        ) : null}
         {allowDownload ? (
           <button
             type="button"
@@ -103,12 +124,7 @@ export function MediaViewerOverlay({
             <span>{formatAttachmentSize(attachment.size)}</span>
           </div>
         )}
-        <figcaption className="media-viewer-caption">
-          {attachment.fileName}
-          {attachment.reportState ? (
-            <span className="media-viewer-report-count">{`Жалоб: ${attachment.reportState.reportCount}`}</span>
-          ) : null}
-        </figcaption>
+        <figcaption className="media-viewer-caption">{attachment.fileName}</figcaption>
       </figure>
       {reportToast ? <div className="media-viewer-toast">{reportToast}</div> : null}
     </div>

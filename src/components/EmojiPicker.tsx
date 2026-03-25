@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { duplicateUserGifMessage } from '../app/gifLibrary'
 import type { UserGifLibraryItem } from '../app/types'
 import { compactEmojiCategories, fullEmojiCategories } from '../shared/emoji'
 import { formatAttachmentImageDimensions, formatAttachmentSize } from '../app/utils'
@@ -8,7 +9,9 @@ type EmojiPickerProps = {
   disabled?: boolean
   gifLibrary?: UserGifLibraryItem[]
   gifSelectionBlockedReason?: string | null
+  onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
   onOpenPremiumUpsell?: () => void
+  onSearchGifs?: (query: string) => Promise<UserGifLibraryItem[]>
   onSelect: (emoji: string) => void
   onSelectGif?: (gif: UserGifLibraryItem) => void
   onUploadGif?: (file: File) => Promise<void>
@@ -20,7 +23,9 @@ export function EmojiPicker({
   disabled = false,
   gifLibrary = [],
   gifSelectionBlockedReason = null,
+  onDeleteGif,
   onOpenPremiumUpsell,
+  onSearchGifs,
   onSelect,
   onSelectGif,
   onUploadGif,
@@ -28,11 +33,17 @@ export function EmojiPicker({
 }: EmojiPickerProps) {
   const [activeTab, setActiveTab] = useState<'emoji' | 'gifs'>('emoji')
   const [gifError, setGifError] = useState('')
+  const [gifNotice, setGifNotice] = useState('')
+  const [gifDeletingId, setGifDeletingId] = useState<string | null>(null)
+  const [gifSearchBusy, setGifSearchBusy] = useState(false)
+  const [gifSearchQuery, setGifSearchQuery] = useState('')
+  const [gifSearchResults, setGifSearchResults] = useState<UserGifLibraryItem[]>([])
   const [gifUploadBusy, setGifUploadBusy] = useState(false)
   const [open, setOpen] = useState(false)
   const [showFullSet, setShowFullSet] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const gifInputRef = useRef<HTMLInputElement | null>(null)
+  const gifSearchRequestTokenRef = useRef(0)
 
   useEffect(() => {
     if (!open) return
@@ -41,7 +52,10 @@ export function EmojiPicker({
       if (!rootRef.current?.contains(event.target as Node)) {
         setActiveTab('emoji')
         setGifError('')
+        setGifNotice('')
         setShowFullSet(false)
+        setGifSearchQuery('')
+        setGifSearchResults([])
         setOpen(false)
       }
     }
@@ -50,7 +64,10 @@ export function EmojiPicker({
       if (event.key === 'Escape') {
         setActiveTab('emoji')
         setGifError('')
+        setGifNotice('')
         setShowFullSet(false)
+        setGifSearchQuery('')
+        setGifSearchResults([])
         setOpen(false)
       }
     }
@@ -69,6 +86,10 @@ export function EmojiPicker({
   function resetPickerState() {
     setActiveTab('emoji')
     setGifError('')
+    setGifNotice('')
+    setGifSearchBusy(false)
+    setGifSearchQuery('')
+    setGifSearchResults([])
     setShowFullSet(false)
   }
 
@@ -80,8 +101,60 @@ export function EmojiPicker({
 
     setActiveTab('gifs')
     setGifError('')
+    setGifNotice('')
     setShowFullSet(false)
   }
+
+  useEffect(() => {
+    if (!gifNotice) return
+
+    const timeoutId = window.setTimeout(() => {
+      setGifNotice('')
+    }, 2200)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [gifNotice])
+
+  useEffect(() => {
+    if (!open || activeTab !== 'gifs') return
+
+    const query = gifSearchQuery.trim()
+    const requestToken = gifSearchRequestTokenRef.current + 1
+    gifSearchRequestTokenRef.current = requestToken
+
+    if (!query || !onSearchGifs || !premiumUnlocked) {
+      setGifSearchBusy(false)
+      setGifSearchResults([])
+      return
+    }
+
+    setGifSearchBusy(true)
+
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const items = await onSearchGifs(query)
+          if (gifSearchRequestTokenRef.current !== requestToken) return
+          setGifSearchResults(items)
+          setGifError('')
+        } catch (error) {
+          if (gifSearchRequestTokenRef.current !== requestToken) return
+          setGifSearchResults([])
+          setGifError(error instanceof Error ? error.message : 'Не удалось выполнить поиск GIF.')
+        } finally {
+          if (gifSearchRequestTokenRef.current === requestToken) {
+            setGifSearchBusy(false)
+          }
+        }
+      })()
+    }, 180)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [activeTab, gifSearchQuery, onSearchGifs, open, premiumUnlocked])
 
   async function handleGifUploadChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -94,10 +167,34 @@ export function EmojiPicker({
 
     try {
       await onUploadGif(file)
+      resetPickerState()
+      setOpen(false)
     } catch (error) {
-      setGifError(error instanceof Error ? error.message : 'Не удалось загрузить GIF.')
+      const message = error instanceof Error ? error.message : 'Не удалось загрузить GIF.'
+      if (message === duplicateUserGifMessage) {
+        setGifNotice(message)
+        setGifError('')
+      } else {
+        setGifError(message)
+      }
     } finally {
       setGifUploadBusy(false)
+    }
+  }
+
+  async function handleGifDelete(gif: UserGifLibraryItem) {
+    if (!onDeleteGif || gifDeletingId) return
+
+    setGifDeletingId(gif.id)
+    setGifError('')
+
+    try {
+      await onDeleteGif(gif)
+      setGifSearchResults((currentResults) => currentResults.filter((item) => item.mediaUrl !== gif.mediaUrl))
+    } catch (error) {
+      setGifError(error instanceof Error ? error.message : 'Не удалось удалить GIF.')
+    } finally {
+      setGifDeletingId(null)
     }
   }
 
@@ -152,9 +249,11 @@ export function EmojiPicker({
               title={premiumUnlocked ? 'GIFs' : 'GIFs доступны в премиуме'}
             >
               <span>GIFs</span>
-              <span className="premium-crown emoji-picker-tab-crown" aria-hidden="true">
-                <img src="/icons/crown64.png" alt="" />
-              </span>
+              {!premiumUnlocked ? (
+                <span className="premium-crown emoji-picker-tab-crown" aria-hidden="true">
+                  <img src="/icons/crown64.png" alt="" />
+                </span>
+              ) : null}
             </button>
           </div>
 
@@ -194,6 +293,7 @@ export function EmojiPicker({
             </>
           ) : (
             <div className="emoji-picker-gifs">
+              {gifNotice ? <div className="emoji-picker-gif-toast">{gifNotice}</div> : null}
               <input
                 ref={gifInputRef}
                 type="file"
@@ -205,7 +305,55 @@ export function EmojiPicker({
                 <div className="emoji-picker-gif-blocked">
                   <p>{gifSelectionBlockedReason}</p>
                 </div>
-              ) : gifLibrary.length === 0 ? (
+              ) : (
+                <>
+                  <label className="emoji-picker-gif-search">
+                    <span className="emoji-picker-gif-search-label">Поиск GIF в Тайничке</span>
+                    <input
+                      type="search"
+                      className="emoji-picker-gif-search-input"
+                      placeholder="Например, Покемон"
+                      value={gifSearchQuery}
+                      onChange={(event) => {
+                        setGifSearchQuery(event.target.value)
+                        setGifError('')
+                      }}
+                    />
+                  </label>
+                  {gifSearchQuery.trim() ? (
+                    gifSearchBusy ? (
+                      <div className="emoji-picker-gif-empty">
+                        <p>Ищем GIF в Тайничке...</p>
+                      </div>
+                    ) : gifSearchResults.length > 0 ? (
+                      <>
+                        <p className="emoji-picker-gif-section-title">Найдено в Тайничке</p>
+                        <div className="emoji-picker-gif-grid">
+                          {gifSearchResults.map((gif) => (
+                            <button
+                              key={`search-${gif.mediaUrl}`}
+                              type="button"
+                              className="emoji-picker-gif-item"
+                              onClick={() => {
+                                if (!canSelectGif) return
+                                onSelectGif?.(gif)
+                                resetPickerState()
+                                setOpen(false)
+                              }}
+                              disabled={!canSelectGif}
+                              title={`${gif.fileName}\n${formatAttachmentSize(gif.size)}, ${formatAttachmentImageDimensions(gif.width, gif.height)}`}
+                            >
+                              <img src={gif.mediaUrl} alt={gif.fileName} className="emoji-picker-gif-image" />
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="emoji-picker-gif-empty">
+                        <p>По запросу ничего не найдено.</p>
+                      </div>
+                    )
+                  ) : gifLibrary.length === 0 ? (
                 <div className="emoji-picker-gif-empty">
                   <button
                     type="button"
@@ -218,26 +366,45 @@ export function EmojiPicker({
                   </button>
                 </div>
               ) : (
-                <>
-                  <div className="emoji-picker-gif-grid">
-                    {gifLibrary.map((gif) => (
-                      <button
-                        key={gif.id}
-                        type="button"
-                        className="emoji-picker-gif-item"
-                        onClick={() => {
-                          if (!canSelectGif) return
-                          onSelectGif?.(gif)
-                          resetPickerState()
-                          setOpen(false)
-                        }}
-                        disabled={!canSelectGif}
-                        title={`${gif.fileName}\n${formatAttachmentSize(gif.size)}, ${formatAttachmentImageDimensions(gif.width, gif.height)}`}
-                      >
-                        <img src={gif.mediaUrl} alt={gif.fileName} className="emoji-picker-gif-image" />
-                      </button>
-                    ))}
-                  </div>
+                    <>
+                      <p className="emoji-picker-gif-section-title">Мои GIF</p>
+                      <div className="emoji-picker-gif-grid">
+                        {gifLibrary.map((gif) => (
+                          <div key={gif.id} className="emoji-picker-gif-card">
+                            <button
+                              type="button"
+                              className="emoji-picker-gif-item"
+                              onClick={() => {
+                                if (!canSelectGif) return
+                                onSelectGif?.(gif)
+                                resetPickerState()
+                                setOpen(false)
+                              }}
+                              disabled={!canSelectGif}
+                              title={`${gif.fileName}\n${formatAttachmentSize(gif.size)}, ${formatAttachmentImageDimensions(gif.width, gif.height)}`}
+                            >
+                              <img src={gif.mediaUrl} alt={gif.fileName} className="emoji-picker-gif-image" />
+                            </button>
+                            {onDeleteGif ? (
+                              <button
+                                type="button"
+                                className="emoji-picker-gif-delete"
+                                aria-label={`Удалить GIF ${gif.fileName}`}
+                                title="Удалить GIF"
+                                disabled={gifDeletingId === gif.id}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleGifDelete(gif)
+                                }}
+                              >
+                                <img src="/icons/cancel.png" alt="" aria-hidden="true" />
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                   <button
                     type="button"
                     className="emoji-picker-gif-upload-button"

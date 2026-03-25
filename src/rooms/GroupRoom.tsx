@@ -58,6 +58,8 @@ type GroupRoomProps = {
   onOpenAttachmentPicker: (mode: 'file' | 'photo') => void
   onOpenPremiumUpsell?: () => void
   onReplyCancel: () => void
+  onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
+  onSearchGifs?: (query: string) => Promise<UserGifLibraryItem[]>
   onSelectGif?: (gif: UserGifLibraryItem) => void
   onUploadGif?: (file: File) => Promise<void>
   onReplyReferenceJump?: (messageId: number) => void
@@ -98,6 +100,8 @@ export function GroupRoom({
   onOpenAttachmentPicker,
   onOpenPremiumUpsell,
   onReplyCancel,
+  onDeleteGif,
+  onSearchGifs,
   onSelectGif,
   onUploadGif,
   onReplyReferenceJump,
@@ -478,7 +482,9 @@ export function GroupRoom({
                       canSelectGif={!gifSelectionBlockedReason}
                       gifLibrary={gifLibrary}
                       gifSelectionBlockedReason={gifSelectionBlockedReason}
+                      onDeleteGif={onDeleteGif}
                       onOpenPremiumUpsell={onOpenPremiumUpsell}
+                      onSearchGifs={onSearchGifs}
                       onSelect={(emoji) =>
                         insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
                       }

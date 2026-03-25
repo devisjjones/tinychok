@@ -5,6 +5,8 @@ export type AppStore = Pick<
   | 'createGroup'
   | 'createManagedChannel'
   | 'addUserGif'
+  | 'searchUserGifs'
+  | 'removeUserGif'
   | 'assertMediaUploadWithinQuota'
   | 'cleanupExpiredPendingMediaUploads'
   | 'adminAddReportNote'

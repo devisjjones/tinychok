@@ -34,7 +34,6 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
 const SUPPORTED_IMAGE_ATTACHMENT_MIME_TYPES = new Set(messagePhotoAcceptedMimeTypes)
 const SUPPORTED_FILE_ATTACHMENT_MIME_TYPES = new Set(messageFileAcceptedMimeTypes)
 const SUPPORTED_FILE_ATTACHMENT_EXTENSIONS = new Set(messageFileAcceptedExtensions)
-const SUPPORTED_GIF_MIME_TYPES = new Set(['image/gif'])
 
 const MEDIA_KIND_CONFIG: Record<
   UploadMediaKind,
@@ -232,10 +231,6 @@ function isSupportedImageAttachmentMimeType(mimeType: string) {
   )
 }
 
-function isSupportedGifMimeType(mimeType: string) {
-  return SUPPORTED_GIF_MIME_TYPES.has(mimeType)
-}
-
 function isSupportedFileAttachment(fileName: string, mimeType: string) {
   const extension = extname(fileName).toLowerCase()
   if (!SUPPORTED_FILE_ATTACHMENT_EXTENSIONS.has(extension as (typeof messageFileAcceptedExtensions)[number])) {
@@ -363,7 +358,12 @@ export async function storeMediaBuffer(options: {
       throw new Error('Не удалось определить владельца GIF.')
     }
 
-    if (!isSupportedGifMimeType(options.mimeType)) {
+    const normalizedMimeType = options.mimeType.trim().toLowerCase()
+    if (
+      normalizedMimeType &&
+      normalizedMimeType !== 'image/gif' &&
+      normalizedMimeType !== 'application/octet-stream'
+    ) {
       throw new Error('Поддерживаются только GIF.')
     }
 

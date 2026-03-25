@@ -44,6 +44,8 @@ type SubscriptionChannelRoomProps = {
     onOpenAttachmentPicker?: (mode: 'file' | 'photo') => void
     onOpenPremiumUpsell?: () => void
     onReplyCancel: () => void
+    onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
+    onSearchGifs?: (query: string) => Promise<UserGifLibraryItem[]>
     onDraftChange: (value: string) => void
     onSelectGif?: (gif: UserGifLibraryItem) => void
     onToggleSendOriginal?: () => void
@@ -91,6 +93,8 @@ export function SubscriptionChannelRoom({
   const publisherOnOpenAttachmentPicker = publisher?.onOpenAttachmentPicker
   const publisherOnOpenPremiumUpsell = publisher?.onOpenPremiumUpsell
   const publisherOnReplyCancel = publisher?.onReplyCancel
+  const publisherOnDeleteGif = publisher?.onDeleteGif
+  const publisherOnSearchGifs = publisher?.onSearchGifs
   const publisherOnDraftChange = publisher?.onDraftChange
   const publisherOnSelectGif = publisher?.onSelectGif
   const publisherOnToggleSendOriginal = publisher?.onToggleSendOriginal
@@ -322,7 +326,9 @@ export function SubscriptionChannelRoom({
                       canSelectGif={!publisherGifSelectionBlockedReason}
                       gifLibrary={publisherGifLibrary}
                       gifSelectionBlockedReason={publisherGifSelectionBlockedReason}
+                      onDeleteGif={publisherOnDeleteGif}
                       onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
+                      onSearchGifs={publisherOnSearchGifs}
                       onSelect={(emoji) =>
                         insertComposerTextAtCursor(
                           publisherInputRef.current,
