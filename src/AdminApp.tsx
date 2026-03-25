@@ -7,6 +7,10 @@ import {
   blockAdminUser,
   downloadAdminAuditCsv,
   downloadAdminMedia,
+  exportAdminChannelCsv,
+  exportAdminDialogCsv,
+  exportAdminGroupCsv,
+  exportAdminThreadCsv,
   fetchAdminChannels,
   fetchAdminBootstrap,
   fetchAdminDashboard,
@@ -19,6 +23,7 @@ import {
   fetchAdminUserAvatar,
   fetchClientRuntimeConfig,
   fetchFilteredAdminAuditLog,
+  lookupAdminDialog,
   moderateAdminMedia,
   requestAuthCode,
   searchAdminUsers,
@@ -32,6 +37,7 @@ import type {
   AdminAuditLogEntry,
   AdminBootstrapResponse,
   AdminDashboardResponse,
+  AdminDialogSummary,
   AdminManagedChannelSummary,
   AdminManagedGroupSummary,
   AdminMediaItem,
@@ -49,6 +55,7 @@ type AdminSection =
   | 'channels'
   | 'groups'
   | 'threads'
+  | 'dialogs'
   | 'media'
   | 'audit'
 type AdminAuthStep = 'phone' | 'code'
@@ -201,6 +208,9 @@ export default function AdminApp() {
   const [threadQuery, setThreadQuery] = useState('')
   const [threads, setThreads] = useState<AdminThreadSummary[]>([])
   const [selectedThreadId, setSelectedThreadId] = useState('')
+  const [dialogOwnerIdentifier, setDialogOwnerIdentifier] = useState('')
+  const [dialogPeerIdentifier, setDialogPeerIdentifier] = useState('')
+  const [dialogDetail, setDialogDetail] = useState<AdminDialogSummary | null>(null)
   const [auditActors, setAuditActors] = useState<AdminAuditActor[]>([])
   const [auditActorIdentifier, setAuditActorIdentifier] = useState('')
   const [auditPeriod, setAuditPeriod] = useState<AdminAuditPeriod>('30d')
@@ -523,11 +533,13 @@ export default function AdminApp() {
 
     try {
       if (user.blocked) {
+        const reason = getActionReason('Причина разблокировки', 'Проверка staff-командой')
+        if (!reason) return
         if (!window.confirm(`Снять блокировку с ${user.identifier}?`)) {
           return
         }
 
-        const response = await unblockAdminUser(sessionToken, user.identifier)
+        const response = await unblockAdminUser(sessionToken, user.identifier, { reason })
         setSelectedUser(response.user)
         await refreshSelectedUser(response.user.identifier)
       } else {
@@ -600,10 +612,13 @@ export default function AdminApp() {
       return
     }
 
+    const reason = getActionReason('Причина просмотра аватарки', 'Проверка профиля')
+    if (!reason) return
+
     setSelectedUserAvatarState('loading')
 
     try {
-      const response = await fetchAdminUserAvatar(sessionToken, user.identifier)
+      const response = await fetchAdminUserAvatar(sessionToken, user.identifier, { reason })
       setSelectedUserAvatarUrl(response.avatarUrl)
       setSelectedUserAvatarState(response.avatarUrl ? 'ready' : 'none')
       await refreshAuditLog()
@@ -692,7 +707,9 @@ export default function AdminApp() {
     if (!sessionToken) return
 
     try {
-      const response = await downloadAdminMedia(sessionToken, { mediaUrl: item.mediaUrl })
+      const reason = getActionReason('Причина скачивания media', 'Проверка жалобы или moderation')
+      if (!reason) return
+      const response = await downloadAdminMedia(sessionToken, { mediaUrl: item.mediaUrl, reason })
       const link = document.createElement('a')
       link.href = response.downloadUrl
       link.download = response.fileName
@@ -710,11 +727,14 @@ export default function AdminApp() {
     if (!sessionToken) return
 
     try {
+      const reason = getActionReason('Причина выгрузки audit CSV', 'Внутренняя проверка staff-активности')
+      if (!reason) return
       const response = await downloadAdminAuditCsv(sessionToken, {
         actorIdentifier: auditActorIdentifier || undefined,
         ...buildAuditWindow(auditPeriod),
+        reason,
       })
-      downloadCsvFile('tinychok-admin-audit.csv', response.csv)
+      downloadCsvFile(response.fileName, response.csv)
       await refreshAuditLog()
     } catch (error) {
       setAppError(getErrorMessage(error))
@@ -737,12 +757,84 @@ export default function AdminApp() {
     }
 
     try {
+      const reason = getActionReason('Причина выгрузки audit CSV по пользователю', 'Проверка staff-действий по пользователю')
+      if (!reason) return
       const response = await downloadAdminAuditCsv(sessionToken, {
         targetIdentifier: user.identifier,
         ...buildAuditWindow(userLogPeriod),
+        reason,
       })
-      const safeIdentifier = user.identifier.replace(/[^\dA-Za-z_-]/g, '')
-      downloadCsvFile(`tinychok-user-${safeIdentifier || 'logs'}.csv`, response.csv)
+      downloadCsvFile(response.fileName, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDownloadChannelCsv(channel: AdminManagedChannelSummary) {
+    if (!sessionToken) return
+    const reason = getActionReason('Причина выгрузки CSV канала', 'Проверка канала')
+    if (!reason) return
+
+    try {
+      const response = await exportAdminChannelCsv(sessionToken, channel.handle, { reason })
+      downloadCsvFile(response.fileName, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDownloadGroupCsv(group: AdminManagedGroupSummary) {
+    if (!sessionToken) return
+    const reason = getActionReason('Причина выгрузки CSV группы', 'Проверка группы')
+    if (!reason) return
+
+    try {
+      const response = await exportAdminGroupCsv(sessionToken, group.id, { reason })
+      downloadCsvFile(response.fileName, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDownloadThreadCsv(thread: AdminThreadSummary) {
+    if (!sessionToken) return
+    const reason = getActionReason('Причина выгрузки CSV треда', 'Проверка треда')
+    if (!reason) return
+
+    try {
+      const response = await exportAdminThreadCsv(sessionToken, thread.id, { reason })
+      downloadCsvFile(response.fileName, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleLookupDialog() {
+    if (!sessionToken) return
+
+    try {
+      const response = await lookupAdminDialog(sessionToken, {
+        ownerIdentifier: dialogOwnerIdentifier,
+        peerIdentifier: dialogPeerIdentifier,
+      })
+      setDialogDetail(response.dialog)
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDownloadDialogCsv(dialog: AdminDialogSummary) {
+    if (!sessionToken) return
+    const reason = getActionReason('Причина выгрузки CSV диалога', 'Проверка диалога')
+    if (!reason) return
+
+    try {
+      const response = await exportAdminDialogCsv(sessionToken, dialog.sharedKey, { reason })
+      downloadCsvFile(response.fileName, response.csv)
       await refreshAuditLog()
     } catch (error) {
       setAppError(getErrorMessage(error))
@@ -884,6 +976,7 @@ export default function AdminApp() {
             ['channels', 'Channels'],
             ['groups', 'Groups'],
             ['threads', 'Threads'],
+            ['dialogs', 'Dialogs'],
             ['media', 'Media'],
             ['audit', 'Audit Log'],
           ] as Array<[AdminSection, string]>).map(([item, label]) => (
@@ -1088,6 +1181,10 @@ export default function AdminApp() {
                       <dt>Blocked</dt>
                       <dd>{selectedUser.blocked ? `Да · ${selectedUser.blockedAt ? formatDateTime(selectedUser.blockedAt) : 'без даты'}` : 'Нет'}</dd>
                     </div>
+                    <div>
+                      <dt>Причина блокировки</dt>
+                      <dd>{selectedUser.blockedReason || 'Нет'}</dd>
+                    </div>
                   </dl>
 
                   <div className="admin-actions-panel">
@@ -1110,7 +1207,7 @@ export default function AdminApp() {
                         className="admin-secondary-button"
                         onClick={() => void handleDownloadUserAuditCsv(selectedUser)}
                       >
-                        Скачать логи CSV
+                        Скачать audit CSV
                       </button>
                     </div>
                     <div className="admin-toolbar">
@@ -1426,6 +1523,13 @@ export default function AdminApp() {
                       <dd>{formatDateTime(selectedChannel.latestActivityAt)}</dd>
                     </div>
                   </dl>
+                  <div className="admin-actions-panel">
+                    <div className="admin-toolbar">
+                      <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadChannelCsv(selectedChannel)}>
+                        Скачать CSV
+                      </button>
+                    </div>
+                  </div>
                 </>
               ) : (
                 <div className="admin-empty-state">Выберите канал слева.</div>
@@ -1507,6 +1611,13 @@ export default function AdminApp() {
                       <dd>{formatDateTime(selectedGroup.latestActivityAt)}</dd>
                     </div>
                   </dl>
+                  <div className="admin-actions-panel">
+                    <div className="admin-toolbar">
+                      <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadGroupCsv(selectedGroup)}>
+                        Скачать CSV
+                      </button>
+                    </div>
+                  </div>
                 </>
               ) : (
                 <div className="admin-empty-state">Выберите группу слева.</div>
@@ -1537,7 +1648,7 @@ export default function AdminApp() {
                     onClick={() => setSelectedThreadId(thread.id)}
                   >
                     <strong>{thread.title}</strong>
-                    <span>{thread.kind === 'group' ? 'Тред группы' : 'Тред канала'}</span>
+                    <span>{thread.contextLabel}</span>
                     <span>{`${thread.commentCount} комментариев`}</span>
                   </button>
                 ))}
@@ -1589,13 +1700,100 @@ export default function AdminApp() {
                       <dd>{formatDateTime(selectedThread.latestActivityAt)}</dd>
                     </div>
                     <div>
-                      <dt>Источник</dt>
+                      <dt>Контекст</dt>
+                      <dd>{selectedThread.contextLabel}</dd>
+                    </div>
+                    <div>
+                      <dt>Текст корневого сообщения</dt>
                       <dd>{selectedThread.sourceText || 'Без текста'}</dd>
                     </div>
                   </dl>
+                  <div className="admin-actions-panel">
+                    <div className="admin-toolbar">
+                      <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadThreadCsv(selectedThread)}>
+                        Скачать CSV
+                      </button>
+                    </div>
+                  </div>
                 </>
               ) : (
                 <div className="admin-empty-state">Выберите тред слева.</div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {section === 'dialogs' ? (
+          <section className="admin-two-column admin-section-split">
+            <div className="admin-panel admin-list-panel">
+              <div className="admin-panel-heading">
+                <h2>Dialogs</h2>
+              </div>
+              <label className="admin-inline-field">
+                <span>Первый пользователь</span>
+                <input
+                  className="admin-search-input"
+                  type="search"
+                  placeholder="+79990000000 или username"
+                  value={dialogOwnerIdentifier}
+                  onChange={(event) => setDialogOwnerIdentifier(event.target.value)}
+                />
+              </label>
+              <label className="admin-inline-field">
+                <span>Второй пользователь</span>
+                <input
+                  className="admin-search-input"
+                  type="search"
+                  placeholder="+79990000000 или username"
+                  value={dialogPeerIdentifier}
+                  onChange={(event) => setDialogPeerIdentifier(event.target.value)}
+                />
+              </label>
+              <button type="button" className="admin-primary-button" onClick={() => void handleLookupDialog()}>
+                Показать диалог
+              </button>
+            </div>
+
+            <div className="admin-panel admin-detail-panel">
+              {dialogDetail ? (
+                <>
+                  <div className="admin-panel-heading">
+                    <div className="admin-user-identity">
+                      <h2>{`${dialogDetail.owner.displayName} ↔ ${dialogDetail.peer.displayName}`}</h2>
+                      <div className="admin-user-identity-meta">
+                        <span>{dialogDetail.owner.identifier}</span>
+                        <span>{dialogDetail.peer.identifier}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <dl className="admin-detail-grid">
+                    <div>
+                      <dt>Первое сообщение</dt>
+                      <dd>{formatDateTime(dialogDetail.firstMessageAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Последнее сообщение</dt>
+                      <dd>{formatDateTime(dialogDetail.updatedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Количество сообщений</dt>
+                      <dd>{dialogDetail.messageCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Preview</dt>
+                      <dd>{dialogDetail.preview}</dd>
+                    </div>
+                  </dl>
+                  <div className="admin-actions-panel">
+                    <div className="admin-toolbar">
+                      <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadDialogCsv(dialogDetail)}>
+                        Скачать CSV
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="admin-empty-state">Выберите двух пользователей и откройте диалог.</div>
               )}
             </div>
           </section>
@@ -1647,12 +1845,13 @@ export default function AdminApp() {
               </button>
             </div>
 
-            <div className="admin-table">
+            <div className="admin-table admin-audit-table">
               <div className="admin-table-row admin-table-head">
                 <span>Когда</span>
                 <span>Актёр</span>
                 <span>Действие</span>
                 <span>Объект</span>
+                <span>Причина</span>
                 <span>Summary</span>
               </div>
               {auditEntries.map((entry) => (
@@ -1665,6 +1864,7 @@ export default function AdminApp() {
                   </span>
                   <span>{entry.action}</span>
                   <span>{entry.targetLabel}</span>
+                  <span>{entry.reason || 'Нет'}</span>
                   <span>{entry.summary}</span>
                 </div>
               ))}

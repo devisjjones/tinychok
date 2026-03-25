@@ -1,7 +1,12 @@
 import type {
+  AdminAuditCsvExportBody,
   AdminDashboardResponse,
   AdminAuditLogResponse,
   AdminBootstrapResponse,
+  AdminContentCsvExportBody,
+  AdminCsvExportResponse,
+  AdminDialogDetailResponse,
+  AdminDialogLookupBody,
   AdminManagedChannelsResponse,
   AdminManagedGroupsResponse,
   AdminMediaDownloadBody,
@@ -13,6 +18,7 @@ import type {
   AdminReportNoteBody,
   AdminReportsResponse,
   AdminUserBlockBody,
+  AdminUserAvatarBody,
   AdminUserAvatarResponse,
   AdminUserDetailResponse,
   AdminUserPremiumBody,
@@ -453,10 +459,14 @@ export async function blockAdminUser(
   return readJsonResponse<AdminUserDetailResponse>(response)
 }
 
-export async function unblockAdminUser(sessionToken: string, identifier: string) {
+export async function unblockAdminUser(
+  sessionToken: string,
+  identifier: string,
+  body: AdminUserBlockBody,
+) {
   const response = await fetch(
-    makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/block`),
-    makeJsonRequestInit('DELETE', undefined, sessionToken),
+    makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/unblock`),
+    makeJsonRequestInit('POST', body, sessionToken),
   )
 
   return readJsonResponse<AdminUserDetailResponse>(response)
@@ -558,7 +568,11 @@ export async function fetchAdminChannels(sessionToken: string, query: string) {
     },
   })
 
-  return readJsonResponse<AdminManagedChannelsResponse>(response)
+  const payload = await readJsonResponse<AdminManagedChannelsResponse>(response)
+  const channels = [...new Map(payload.channels.map((channel) => [channel.handle, channel])).values()]
+  return {
+    channels,
+  }
 }
 
 export async function fetchAdminGroups(sessionToken: string, query: string) {
@@ -571,7 +585,11 @@ export async function fetchAdminGroups(sessionToken: string, query: string) {
     },
   })
 
-  return readJsonResponse<AdminManagedGroupsResponse>(response)
+  const payload = await readJsonResponse<AdminManagedGroupsResponse>(response)
+  const groups = [...new Map(payload.groups.map((group) => [group.id, group])).values()]
+  return {
+    groups,
+  }
 }
 
 export async function fetchAdminThreads(sessionToken: string, query: string) {
@@ -599,14 +617,14 @@ export async function moderateAdminMedia(
   return readJsonResponse<AdminMediaListResponse>(response)
 }
 
-export async function fetchAdminUserAvatar(sessionToken: string, identifier: string) {
+export async function fetchAdminUserAvatar(
+  sessionToken: string,
+  identifier: string,
+  body: AdminUserAvatarBody,
+) {
   const response = await fetch(
     makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/avatar`),
-    {
-      headers: {
-        Authorization: `Bearer ${sessionToken}`,
-      },
-    },
+    makeJsonRequestInit('POST', body, sessionToken),
   )
 
   const payload = await readJsonResponse<AdminUserAvatarResponse>(response)
@@ -675,45 +693,78 @@ export async function fetchFilteredAdminAuditLog(
 
 export async function downloadAdminAuditCsv(
   sessionToken: string,
-  filters: {
-    actorIdentifier?: string
-    from?: string
-    to?: string
-    targetIdentifier?: string
-  },
+  body: AdminAuditCsvExportBody,
 ) {
-  const requestUrl = new URL(makeHttpUrl('/api/admin/audit-log/export'), window.location.origin)
-  if (filters.actorIdentifier) {
-    requestUrl.searchParams.set('actor', filters.actorIdentifier)
-  }
-  if (filters.from) {
-    requestUrl.searchParams.set('from', filters.from)
-  }
-  if (filters.to) {
-    requestUrl.searchParams.set('to', filters.to)
-  }
-  if (filters.targetIdentifier) {
-    requestUrl.searchParams.set('target', filters.targetIdentifier)
-  }
+  const response = await fetch(
+    makeHttpUrl('/api/admin/audit-log/export'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
 
-  const response = await fetch(requestUrl.toString(), {
-    headers: {
-      Authorization: `Bearer ${sessionToken}`,
-    },
-  })
+  return readJsonResponse<AdminCsvExportResponse>(response)
+}
 
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}))
-    const message =
-      typeof (payload as { message?: string }).message === 'string'
-        ? (payload as { message?: string }).message!
-        : 'Не удалось выгрузить CSV.'
-    throw new ApiError(message, response.status)
-  }
+export async function lookupAdminDialog(
+  sessionToken: string,
+  body: AdminDialogLookupBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/dialogs/lookup'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
 
-  return {
-    csv: await response.text(),
-  }
+  return readJsonResponse<AdminDialogDetailResponse>(response)
+}
+
+export async function exportAdminChannelCsv(
+  sessionToken: string,
+  handle: string,
+  body: AdminContentCsvExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/channels/${encodeURIComponent(handle)}/export`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminCsvExportResponse>(response)
+}
+
+export async function exportAdminGroupCsv(
+  sessionToken: string,
+  groupId: string,
+  body: AdminContentCsvExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/groups/${encodeURIComponent(groupId)}/export`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminCsvExportResponse>(response)
+}
+
+export async function exportAdminThreadCsv(
+  sessionToken: string,
+  threadId: string,
+  body: AdminContentCsvExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/threads/${encodeURIComponent(threadId)}/export`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminCsvExportResponse>(response)
+}
+
+export async function exportAdminDialogCsv(
+  sessionToken: string,
+  sharedKey: string,
+  body: AdminContentCsvExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/dialogs/${encodeURIComponent(sharedKey)}/export`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminCsvExportResponse>(response)
 }
 
 export async function saveSnapshot(sessionToken: string, snapshot: AppSnapshot) {

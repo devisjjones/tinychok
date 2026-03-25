@@ -58,6 +58,7 @@ import type {
   AdminAuditLogEntry,
   AdminAuditLogResponse,
   AdminDashboardResponse,
+  AdminDialogSummary,
   AdminLinkedUser,
   AdminManagedChannelSummary,
   AdminManagedGroupSummary,
@@ -660,6 +661,22 @@ function escapeCsvCell(value: unknown) {
   return `"${normalized.replace(/"/g, '""')}"`
 }
 
+function sanitizeExportFileName(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9а-яё_-]+/giu, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function formatExportDateStamp(value = new Date()) {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function classifyAdminMediaType(
   attachment?: Pick<MessageAttachment, 'mimeType'> | null,
   fallbackKind?: PersistedPendingMediaUpload['kind'] | 'pending-upload' | 'unknown',
@@ -711,6 +728,22 @@ function buildAdminMessageEntityKey(
   messageId: number,
 ) {
   return `${scope}:${ownerIdentifier}:${parentId}:${messageId}`
+}
+
+function buildAdminChannelAggregateKey(channel: Pick<PersistedManagedChannel, 'directLink' | 'ownerIdentifier' | 'title'>) {
+  const handle = sanitizeChannelDirectLink(channel.directLink) || channel.directLink.trim()
+  return `${channel.ownerIdentifier}:${handle || sanitizeExportFileName(channel.title)}`
+}
+
+function buildAdminGroupAggregateKey(group: Pick<PersistedGroup, 'creatorIdentifier' | 'handle' | 'ownerIdentifier' | 'sharedId' | 'title'>) {
+  const sharedId = group.sharedId?.trim()
+  if (sharedId) {
+    return sharedId
+  }
+
+  const creatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? '') || group.ownerIdentifier
+  const handle = group.handle.trim()
+  return `${creatorIdentifier}:${handle || sanitizeExportFileName(group.title)}`
 }
 
 function buildAttachmentReportState(
@@ -2144,7 +2177,7 @@ export class TinychokStore {
     return this.buildAdminUserSummary(account)
   }
 
-  async adminViewUserAvatar(actorToken: string, identifier: string) {
+  async adminViewUserAvatar(actorToken: string, identifier: string, reason?: string) {
     const actor = this.getStaffAccountByTokenOrThrow(actorToken)
     const target = this.findAccountForAdmin(identifier)
     if (!target) {
@@ -2153,15 +2186,17 @@ export class TinychokStore {
 
     const avatarUrl = target.avatarImage?.trim() || null
     if (target.identifier !== actor.identifier) {
+      const normalizedReason = sanitizeAdminText(reason, 280)
       await this.appendAdminAuditLog(actor, {
         action: 'admin.user.avatar.view',
         nextValue: {
           avatarUrl,
           identifier: target.identifier,
         },
+        reason: normalizedReason || undefined,
         summary: avatarUrl
-          ? `Просмотрена аватарка пользователя ${buildAdminAuditAccountLabel(target)}`
-          : `Проверено отсутствие аватарки у пользователя ${buildAdminAuditAccountLabel(target)}`,
+          ? `Просмотрена аватарка пользователя ${buildAdminAuditAccountLabel(target)}${normalizedReason ? ` · ${normalizedReason}` : ''}`
+          : `Проверено отсутствие аватарки у пользователя ${buildAdminAuditAccountLabel(target)}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
         targetId: target.identifier,
         targetType: 'user-avatar',
       })
@@ -2191,9 +2226,10 @@ export class TinychokStore {
     }
 
     const previousValue = this.buildAdminUserSummary(target)
+    const normalizedReason = sanitizeAdminText(options.reason, 280)
     if (options.blocked) {
       target.blockedAt = new Date().toISOString()
-      target.blockedReason = sanitizeAdminText(options.reason, 280) || 'Аккаунт заблокирован staff-командой.'
+      target.blockedReason = normalizedReason || 'Аккаунт заблокирован staff-командой.'
       this.database.sessions = this.database.sessions.filter(
         (session) => session.identifier !== target.identifier,
       )
@@ -2208,7 +2244,8 @@ export class TinychokStore {
       action: options.blocked ? 'admin.user.block' : 'admin.user.unblock',
       nextValue: this.buildAdminUserSummary(target),
       previousValue,
-      summary: `${options.blocked ? 'Заблокирован' : 'Разблокирован'} пользователь ${buildAdminAuditAccountLabel(target)}`,
+      reason: normalizedReason || undefined,
+      summary: `${options.blocked ? 'Заблокирован' : 'Разблокирован'} пользователь ${buildAdminAuditAccountLabel(target)}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
       targetId: target.identifier,
       targetType: 'user',
     })
@@ -2232,6 +2269,7 @@ export class TinychokStore {
     }
 
     const previousValue = this.buildAdminUserSummary(target)
+    const normalizedReason = sanitizeAdminText(options.reason, 280)
     const durationDays =
       Number.isInteger(options.durationDays) && (options.durationDays ?? 0) > 0
         ? options.durationDays ?? 30
@@ -2243,7 +2281,8 @@ export class TinychokStore {
       action: options.enabled ? 'admin.user.premium.grant' : 'admin.user.premium.revoke',
       nextValue: this.buildAdminUserSummary(target),
       previousValue,
-      summary: `${options.enabled ? 'Выдан' : 'Снят'} premium для ${buildAdminAuditAccountLabel(target)}${options.reason ? ` · ${sanitizeAdminText(options.reason, 120)}` : ''}`,
+      reason: normalizedReason || undefined,
+      summary: `${options.enabled ? 'Выдан' : 'Снят'} premium для ${buildAdminAuditAccountLabel(target)}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
       targetId: target.identifier,
       targetType: 'user',
     })
@@ -2351,6 +2390,7 @@ export class TinychokStore {
       action: `admin.report.${payload.action}`,
       nextValue: this.buildAdminReportDetail(report),
       previousValue,
+      reason: reason || undefined,
       summary: `Применено действие ${payload.action} к жалобе ${report.id}`,
       targetId: report.id,
       targetType: 'report',
@@ -2377,8 +2417,9 @@ export class TinychokStore {
       }
     }
 
-    const channels = this.database.managedChannels
-      .map((channel): AdminManagedChannelSummary => {
+    const channelsByKey = new Map<string, AdminManagedChannelSummary>()
+
+    for (const channel of this.database.managedChannels) {
         const handle = sanitizeChannelDirectLink(channel.directLink) || channel.directLink
         const copies = this.database.subscriptionChannels.filter(
           (item) => (sanitizeChannelDirectLink(item.handle) || item.handle) === handle,
@@ -2394,7 +2435,8 @@ export class TinychokStore {
           .filter((value): value is string => Boolean(value))
           .sort(compareIsoDateDesc)[0]
 
-        return {
+        const summary: AdminManagedChannelSummary = {
+          csvFileName: `channel-${sanitizeExportFileName(channel.title) || channel.id}-${formatExportDateStamp()}.csv`,
           handle,
           id: channel.id,
           latestActivityAt,
@@ -2406,7 +2448,14 @@ export class TinychokStore {
           title: channel.title,
           visibility: channel.visibility,
         }
-      })
+        const key = buildAdminChannelAggregateKey(channel)
+        const existing = channelsByKey.get(key)
+        if (!existing || compareIsoDateDesc(summary.latestActivityAt, existing.latestActivityAt) < 0) {
+          channelsByKey.set(key, summary)
+        }
+      }
+
+    const channels = [...channelsByKey.values()]
       .filter((channel) => {
         if (!trimmedQuery) return true
         return (
@@ -2438,9 +2487,10 @@ export class TinychokStore {
       }
     }
 
-    const groups = [...new Set(this.database.groups.map((group) => this.getSharedGroupId(group)))]
-      .map((sharedId): AdminManagedGroupSummary | null => {
-        const copies = this.listGroupCopies(sharedId)
+    const groupKeys = [...new Set(this.database.groups.map((group) => buildAdminGroupAggregateKey(group)))]
+    const groups = groupKeys
+      .map((groupKey): AdminManagedGroupSummary | null => {
+        const copies = this.database.groups.filter((group) => buildAdminGroupAggregateKey(group) === groupKey)
         const primaryGroup = copies[0]
         if (!primaryGroup) return null
 
@@ -2464,11 +2514,12 @@ export class TinychokStore {
           .sort(compareIsoDateDesc)[0]
 
         return {
-          id: sharedId,
+          csvFileName: `group-${sanitizeExportFileName(primaryGroup.title) || 'group'}-${formatExportDateStamp()}.csv`,
+          id: groupKey,
           latestActivityAt,
           members: Math.max(...copies.map((group) => group.members), 0),
           owner: buildAdminLinkedUser(ownerIdentifier),
-          relatedReportCount: reportCountBySharedId.get(sharedId) ?? 0,
+          relatedReportCount: (primaryGroup.sharedId?.trim() ? reportCountBySharedId.get(primaryGroup.sharedId.trim()) : 0) ?? 0,
           title: primaryGroup.title,
         }
       })
@@ -2508,13 +2559,15 @@ export class TinychokStore {
 
       threads.push({
         commentCount: comments.length,
+        contextLabel: `Группа: ${group.title}`,
+        csvFileName: `thread-${sanitizeExportFileName(group.title) || 'group'}-${message.id}-${formatExportDateStamp()}.csv`,
         id: getGroupMessageThreadId(group, message),
         kind: 'group',
         latestActivityAt: comments.at(-1)?.createdAt ?? message.createdAt,
         owner: buildAdminLinkedUser(message.ownerIdentifier),
         relatedReportCount: 0,
         sourceText: message.text || message.attachment?.fileName || 'Без текста',
-        title: `Группа: ${group.title}`,
+        title: message.text || message.attachment?.fileName || 'Сообщение без текста',
       })
     }
 
@@ -2527,13 +2580,15 @@ export class TinychokStore {
 
       threads.push({
         commentCount: comments.length,
+        contextLabel: `Канал: ${channel.title}`,
+        csvFileName: `thread-${sanitizeExportFileName(channel.title) || 'channel'}-${post.id}-${formatExportDateStamp()}.csv`,
         id: getSubscriptionPostThreadId(channel, post),
         kind: 'channel',
         latestActivityAt: comments.at(-1)?.createdAt ?? post.createdAt,
         owner: buildAdminLinkedUser(post.ownerIdentifier),
         relatedReportCount: 0,
         sourceText: post.text || post.attachment?.fileName || 'Без текста',
-        title: `Канал: ${channel.title}`,
+        title: post.text || post.attachment?.fileName || 'Пост без текста',
       })
     }
 
@@ -2550,6 +2605,316 @@ export class TinychokStore {
       })
       .sort((left, right) => compareIsoDateDesc(left.latestActivityAt, right.latestActivityAt))
       .slice(0, 20)
+  }
+
+  async adminExportChannelCsv(actorToken: string, handle: string, reason: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const normalizedHandle = sanitizeChannelDirectLink(handle) || handle
+    const channel = this.adminListChannels(normalizedHandle).find((item) => item.handle === normalizedHandle)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+
+    const posts = this.database.subscriptionPosts.filter((post) => {
+      const parent = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+      return Boolean(parent && (sanitizeChannelDirectLink(parent.handle) || parent.handle) === normalizedHandle)
+    })
+
+    const csv = [
+      ['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл'],
+      ...posts.flatMap((post) => {
+        const author = this.findAccount(post.ownerIdentifier)
+        const rows: string[][] = [[
+          post.createdAt ?? '',
+          'post',
+          author ? buildAccountDisplayLabel(author) : post.ownerIdentifier,
+          post.ownerIdentifier,
+          post.text,
+          post.attachment?.fileName ?? '',
+        ]]
+
+        for (const comment of compactThreadComments(post.threadComments)) {
+          const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
+          const commentAuthor = this.findAccount(commentAuthorIdentifier)
+          rows.push([
+            comment.createdAt ?? '',
+            'comment',
+            commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+            commentAuthorIdentifier,
+            comment.text,
+            comment.attachment?.fileName ?? '',
+          ])
+        }
+
+        return rows
+      }),
+    ]
+      .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
+      .join('\n')
+
+    const normalizedReason = sanitizeAdminText(reason, 280)
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.channel.export.csv',
+      reason: normalizedReason || undefined,
+      summary: `Экспортирован CSV канала @${normalizedHandle}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
+      targetId: normalizedHandle,
+      targetType: 'channel',
+    })
+
+    return {
+      csv,
+      fileName: channel.csvFileName,
+    }
+  }
+
+  async adminExportGroupCsv(actorToken: string, groupId: string, reason: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const copies = this.database.groups.filter((group) => buildAdminGroupAggregateKey(group) === groupId)
+    const primaryGroup = copies[0]
+    if (!primaryGroup) {
+      throw new Error('Группа не найдена.')
+    }
+
+    const messages = this.database.groupMessages.filter((message) =>
+      copies.some((group) => group.ownerIdentifier === message.ownerIdentifier && group.id === message.groupId),
+    )
+
+    const csv = [
+      ['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл'],
+      ...messages.flatMap((message) => {
+        const messageAuthorIdentifier =
+          message.author === 'me'
+            ? message.ownerIdentifier
+            : normalizeIdentifier(
+                primaryGroup.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
+              ) || message.ownerIdentifier
+        const author = this.findAccount(messageAuthorIdentifier)
+        const rows: string[][] = [[
+          message.createdAt ?? '',
+          'message',
+          author ? buildAccountDisplayLabel(author) : messageAuthorIdentifier,
+          messageAuthorIdentifier,
+          message.text,
+          message.attachment?.fileName ?? '',
+        ]]
+
+        for (const comment of compactThreadComments(message.threadComments)) {
+          const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
+          const commentAuthor = this.findAccount(commentAuthorIdentifier)
+          rows.push([
+            comment.createdAt ?? '',
+            'thread-comment',
+            commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+            commentAuthorIdentifier,
+            comment.text,
+            comment.attachment?.fileName ?? '',
+          ])
+        }
+
+        return rows
+      }),
+    ]
+      .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
+      .join('\n')
+
+    const normalizedReason = sanitizeAdminText(reason, 280)
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.group.export.csv',
+      reason: normalizedReason || undefined,
+      summary: `Экспортирован CSV группы ${primaryGroup.title}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
+      targetId: groupId,
+      targetType: 'group',
+    })
+
+    return {
+      csv,
+      fileName: `group-${sanitizeExportFileName(primaryGroup.title) || 'group'}-${formatExportDateStamp()}.csv`,
+    }
+  }
+
+  async adminExportThreadCsv(actorToken: string, threadId: string, reason: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const groupThread = this.adminListThreads('').find((thread) => thread.id === threadId)
+    if (!groupThread) {
+      throw new Error('Тред не найден.')
+    }
+
+    const csvRows: string[][] = [['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл']]
+
+    if (threadId.startsWith('group:')) {
+      const message = this.database.groupMessages.find((candidate) => {
+        const group = this.findGroup(candidate.ownerIdentifier, candidate.groupId)
+        return Boolean(group && getGroupMessageThreadId(group, candidate) === threadId)
+      })
+      if (!message) throw new Error('Тред группы не найден.')
+
+      csvRows.push([
+        message.createdAt ?? '',
+        'root-message',
+        groupThread.owner.displayName,
+        groupThread.owner.identifier,
+        message.text,
+        message.attachment?.fileName ?? '',
+      ])
+      for (const comment of compactThreadComments(message.threadComments)) {
+        const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
+        const commentAuthor = this.findAccount(commentAuthorIdentifier)
+        csvRows.push([
+          comment.createdAt ?? '',
+          'thread-comment',
+          commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+          commentAuthorIdentifier,
+          comment.text,
+          comment.attachment?.fileName ?? '',
+        ])
+      }
+    } else {
+      const post = this.database.subscriptionPosts.find((candidate) => {
+        const channel = this.findSubscriptionChannel(candidate.ownerIdentifier, candidate.channelId)
+        return Boolean(channel && getSubscriptionPostThreadId(channel, candidate) === threadId)
+      })
+      if (!post) throw new Error('Тред канала не найден.')
+
+      csvRows.push([
+        post.createdAt ?? '',
+        'root-post',
+        groupThread.owner.displayName,
+        groupThread.owner.identifier,
+        post.text,
+        post.attachment?.fileName ?? '',
+      ])
+      for (const comment of compactThreadComments(post.threadComments)) {
+        const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
+        const commentAuthor = this.findAccount(commentAuthorIdentifier)
+        csvRows.push([
+          comment.createdAt ?? '',
+          'thread-comment',
+          commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+          commentAuthorIdentifier,
+          comment.text,
+          comment.attachment?.fileName ?? '',
+        ])
+      }
+    }
+
+    const normalizedReason = sanitizeAdminText(reason, 280)
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.thread.export.csv',
+      reason: normalizedReason || undefined,
+      summary: `Экспортирован CSV треда ${threadId}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
+      targetId: threadId,
+      targetType: 'thread',
+    })
+
+    return {
+      csv: csvRows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')).join('\n'),
+      fileName: groupThread.csvFileName,
+    }
+  }
+
+  adminLookupDialog(ownerIdentifierInput: string, peerIdentifierInput: string): AdminDialogSummary | null {
+    const owner = this.findAccountForAdmin(ownerIdentifierInput)
+    const peer = this.findAccountForAdmin(peerIdentifierInput)
+    if (!owner || !peer) {
+      return null
+    }
+
+    const ownerDialog = this.database.dialogs.find(
+      (dialog) =>
+        dialog.ownerIdentifier === owner.identifier &&
+        normalizeIdentifier(dialog.phone) === peer.identifier,
+    )
+    if (!ownerDialog) {
+      return null
+    }
+
+    const messages = this.database.dialogMessages
+      .filter(
+        (message) =>
+          message.ownerIdentifier === owner.identifier &&
+          message.dialogId === ownerDialog.id,
+      )
+      .sort((left, right) => compareIsoDateDesc(right.createdAt, left.createdAt))
+
+    const firstMessageAt = messages[0]?.createdAt
+    const latestMessageAt = messages.at(-1)?.createdAt
+    const preview = messages.at(-1)?.text || messages.at(-1)?.attachment?.fileName || 'Без сообщений'
+    const sharedKey = [owner.identifier, peer.identifier].sort().join('::')
+
+    return {
+      csvFileName: `dialog-${sanitizeExportFileName(owner.displayName)}-${sanitizeExportFileName(peer.displayName)}-${formatExportDateStamp()}.csv`,
+      firstMessageAt,
+      messageCount: messages.length,
+      owner: {
+        displayName: buildAccountDisplayLabel(owner),
+        identifier: owner.identifier,
+      },
+      peer: {
+        displayName: buildAccountDisplayLabel(peer),
+        identifier: peer.identifier,
+      },
+      preview,
+      sharedKey,
+      updatedAt: latestMessageAt,
+    }
+  }
+
+  async adminExportDialogCsv(actorToken: string, sharedKey: string, reason: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const [ownerIdentifier, peerIdentifier] = sharedKey.split('::')
+    const dialog = this.adminLookupDialog(ownerIdentifier, peerIdentifier)
+    if (!dialog) {
+      throw new Error('Диалог не найден.')
+    }
+
+    const ownerDialog = this.database.dialogs.find(
+      (item) =>
+        item.ownerIdentifier === dialog.owner.identifier &&
+        normalizeIdentifier(item.phone) === dialog.peer.identifier,
+    )
+    if (!ownerDialog) {
+      throw new Error('Диалог не найден.')
+    }
+
+    const messages = this.database.dialogMessages
+      .filter(
+        (message) =>
+          message.ownerIdentifier === dialog.owner.identifier &&
+          message.dialogId === ownerDialog.id,
+      )
+      .sort((left, right) => compareIsoDateDesc(right.createdAt, left.createdAt))
+
+    const csv = [
+      ['Когда', 'Автор', 'ID автора', 'Текст', 'Файл'],
+      ...messages.map((message) => {
+        const authorIdentifier =
+          message.author === 'me' ? dialog.owner.identifier : dialog.peer.identifier
+        const author = this.findAccount(authorIdentifier)
+        return [
+          message.createdAt ?? '',
+          author ? buildAccountDisplayLabel(author) : authorIdentifier,
+          authorIdentifier,
+          message.text,
+          message.attachment?.fileName ?? '',
+        ]
+      }),
+    ]
+      .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
+      .join('\n')
+
+    const normalizedReason = sanitizeAdminText(reason, 280)
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.dialog.export.csv',
+      reason: normalizedReason || undefined,
+      summary: `Экспортирован CSV диалога ${buildAdminAuditAccountLabel(this.findAccountForAdmin(dialog.owner.identifier) ?? { displayName: dialog.owner.displayName, identifier: dialog.owner.identifier, nickname: '', surname: '' })} ↔ ${buildAdminAuditAccountLabel(this.findAccountForAdmin(dialog.peer.identifier) ?? { displayName: dialog.peer.displayName, identifier: dialog.peer.identifier, nickname: '', surname: '' })}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
+      targetId: dialog.sharedKey,
+      targetType: 'dialog',
+    })
+
+    return {
+      csv,
+      fileName: dialog.csvFileName,
+    }
   }
 
   adminListMedia(query: string) {
@@ -2593,7 +2958,7 @@ export class TinychokStore {
     return this.adminListMedia('')
   }
 
-  async adminGetMediaDownload(actorToken: string, mediaUrlOrId: string) {
+  async adminGetMediaDownload(actorToken: string, mediaUrlOrId: string, reason?: string) {
     const actor = this.getStaffAccountByTokenOrThrow(actorToken)
     const decodedMediaUrl = decodeURIComponent(mediaUrlOrId)
     const mediaItem = this.collectAdminMediaItems().find((item) => item.mediaUrl === decodedMediaUrl)
@@ -2602,6 +2967,7 @@ export class TinychokStore {
     }
 
     const ownerAccount = this.findAccount(mediaItem.owner.identifier)
+    const normalizedReason = sanitizeAdminText(reason, 280)
 
     await this.appendAdminAuditLog(actor, {
       action: 'admin.media.download',
@@ -2612,9 +2978,10 @@ export class TinychokStore {
         ownerDisplayName: mediaItem.owner.displayName,
         ownerIdentifier: mediaItem.owner.identifier,
       },
+      reason: normalizedReason || undefined,
       summary: `Скачан media-объект ${mediaItem.fileName} · владелец ${
         ownerAccount ? buildAdminAuditAccountLabel(ownerAccount) : `${mediaItem.owner.displayName} (${mediaItem.owner.identifier})`
-      }`,
+      }${normalizedReason ? ` · ${normalizedReason}` : ''}`,
       targetId: mediaItem.mediaUrl,
       targetType: 'media',
     })
@@ -2699,6 +3066,7 @@ export class TinychokStore {
     filters?: {
       actorIdentifier?: string
       from?: string
+      reason?: string
       targetIdentifier?: string
       to?: string
     },
@@ -2714,6 +3082,7 @@ export class TinychokStore {
       ...filters,
       limit: Number.MAX_SAFE_INTEGER,
     })
+    const normalizedReason = sanitizeAdminText(filters?.reason, 280)
 
     await this.appendAdminAuditLog(actor, {
       action: 'admin.audit.export.csv',
@@ -2724,17 +3093,25 @@ export class TinychokStore {
         targetIdentifier: filters?.targetIdentifier,
         to: filters?.to,
       },
+      reason: normalizedReason || undefined,
       summary: targetAccount
-        ? `Экспортирован CSV логов пользователя ${buildAdminAuditAccountLabel(targetAccount)}`
+        ? `Экспортирован CSV audit логов пользователя ${buildAdminAuditAccountLabel(targetAccount)}${normalizedReason ? ` · ${normalizedReason}` : ''}`
         : actorFilterAccount
-          ? `Экспортирован CSV audit log для актора ${buildAdminAuditAccountLabel(actorFilterAccount)}`
-          : 'Экспортирован CSV audit log',
+          ? `Экспортирован CSV audit log для актора ${buildAdminAuditAccountLabel(actorFilterAccount)}${normalizedReason ? ` · ${normalizedReason}` : ''}`
+          : `Экспортирован CSV audit log${normalizedReason ? ` · ${normalizedReason}` : ''}`,
       targetId: filters?.targetIdentifier ?? 'audit-log',
       targetType: filters?.targetIdentifier ? 'user' : 'audit-log',
     })
 
-    return [
-      ['Когда', 'Актор', 'Роль', 'Action', 'Target', 'Summary'],
+    const fileNameBase = targetAccount
+      ? `audit-${sanitizeExportFileName(targetAccount.displayName) || targetAccount.identifier}`
+      : actorFilterAccount
+        ? `audit-actor-${sanitizeExportFileName(actorFilterAccount.displayName) || actorFilterAccount.identifier}`
+        : 'audit-log'
+
+    return {
+      csv: [
+        ['Когда', 'Актор', 'Роль', 'Action', 'Target', 'Причина', 'Summary'],
       ...rows.map((entry) => [
         entry.createdAt,
         entry.actorNickname
@@ -2743,11 +3120,14 @@ export class TinychokStore {
         entry.actorRole,
         entry.action,
         entry.targetLabel,
+        entry.reason ?? '',
         entry.summary,
       ]),
-    ]
-      .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
-      .join('\n')
+      ]
+        .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
+        .join('\n'),
+      fileName: `${fileNameBase}-${formatExportDateStamp()}.csv`,
+    }
   }
 
   async bootstrapStaffRole(identifier: string, role: StaffRole) {
@@ -5376,6 +5756,7 @@ export class TinychokStore {
       avatarImage: account.avatarImage,
       blocked: isAccountBlocked(account),
       blockedAt: account.blockedAt,
+      blockedReason: account.blockedReason?.trim() || undefined,
       createdAt: account.createdAt,
       displayName: buildAccountDisplayLabel(account),
       identifier: account.identifier,
@@ -5538,8 +5919,25 @@ export class TinychokStore {
     }
 
     if (entry.targetType === 'group') {
-      const group = this.listGroupCopies(entry.targetId)[0]
+      const group = this.database.groups.find((candidate) => buildAdminGroupAggregateKey(candidate) === entry.targetId)
       return group ? `Группа · ${group.title} · ${entry.targetId}` : `Группа · ${entry.targetId}`
+    }
+
+    if (entry.targetType === 'thread') {
+      const thread = this.adminListThreads('').find((candidate) => candidate.id === entry.targetId)
+      return thread ? `Тред · ${thread.contextLabel} · ${thread.title}` : `Тред · ${entry.targetId}`
+    }
+
+    if (entry.targetType === 'dialog') {
+      const [ownerIdentifier, peerIdentifier] = entry.targetId.split('::')
+      const dialog = ownerIdentifier && peerIdentifier ? this.adminLookupDialog(ownerIdentifier, peerIdentifier) : null
+      return dialog
+        ? `Диалог · ${dialog.owner.displayName} ↔ ${dialog.peer.displayName}`
+        : `Диалог · ${entry.targetId}`
+    }
+
+    if (entry.targetType === 'audit-log') {
+      return 'Audit log'
     }
 
     return `${entry.targetType} · ${entry.targetId}`
@@ -5596,6 +5994,45 @@ export class TinychokStore {
           report.reporterIdentifier,
         ].some((value) => normalizeIdentifier(value ?? '') === normalizedIdentifier)
       ) {
+        return true
+      }
+    }
+
+    if (entry.targetType === 'dialog') {
+      const [ownerIdentifier, peerIdentifier] = entry.targetId.split('::')
+      return (
+        normalizeIdentifier(ownerIdentifier) === normalizedIdentifier ||
+        normalizeIdentifier(peerIdentifier) === normalizedIdentifier
+      )
+    }
+
+    if (entry.targetType === 'channel') {
+      const handle = sanitizeChannelDirectLink(entry.targetId) || entry.targetId
+      const channel = this.findManagedChannelByHandle(handle)
+      if (channel && normalizeIdentifier(channel.ownerIdentifier) === normalizedIdentifier) {
+        return true
+      }
+    }
+
+    if (entry.targetType === 'group') {
+      const group = this.database.groups.find(
+        (candidate) => buildAdminGroupAggregateKey(candidate) === entry.targetId,
+      )
+      if (!group) {
+        return false
+      }
+
+      const creatorIdentifier =
+        normalizeIdentifier(group.creatorIdentifier ?? '') || group.ownerIdentifier
+      return (
+        normalizeIdentifier(group.ownerIdentifier) === normalizedIdentifier ||
+        creatorIdentifier === normalizedIdentifier
+      )
+    }
+
+    if (entry.targetType === 'thread') {
+      const thread = this.adminListThreads('').find((candidate) => candidate.id === entry.targetId)
+      if (thread && normalizeIdentifier(thread.owner.identifier) === normalizedIdentifier) {
         return true
       }
     }
@@ -6064,7 +6501,8 @@ export class TinychokStore {
       action: 'admin.user.block',
       nextValue: this.buildAdminUserSummary(target),
       previousValue,
-      summary: `Ограничен пользователь ${buildAdminAuditAccountLabel(target)}`,
+      reason: reason || undefined,
+      summary: `Ограничен пользователь ${buildAdminAuditAccountLabel(target)}${reason ? ` · ${reason}` : ''}`,
       targetId: target.identifier,
       targetType: 'user',
     })
@@ -6124,6 +6562,7 @@ export class TinychokStore {
     await this.persist()
     await this.appendAdminAuditLog(actor, {
       action: 'admin.channel.hide',
+      reason: reason || undefined,
       summary: `Скрыт канал ${normalizedHandle}${reason ? ` · ${reason}` : ''}`,
       targetId: normalizedHandle,
       targetType: 'channel',
@@ -6179,7 +6618,8 @@ export class TinychokStore {
 
     await this.appendAdminAuditLog(actor, {
       action: 'admin.channel.delete',
-      summary: `Удалён канал ${normalizedHandle}`,
+      reason: reason || undefined,
+      summary: `Удалён канал ${normalizedHandle}${reason ? ` · ${reason}` : ''}`,
       targetId: normalizedHandle,
       targetType: 'channel',
     })
@@ -6219,6 +6659,7 @@ export class TinychokStore {
     await this.persist()
     await this.appendAdminAuditLog(actor, {
       action: 'admin.group.hide',
+      reason: reason || undefined,
       summary: `Скрыта группа ${sharedId}${reason ? ` · ${reason}` : ''}`,
       targetId: sharedId,
       targetType: 'group',
@@ -6262,7 +6703,8 @@ export class TinychokStore {
 
     await this.appendAdminAuditLog(actor, {
       action: 'admin.group.delete',
-      summary: `Удалена группа ${sharedId}`,
+      reason: reason || undefined,
+      summary: `Удалена группа ${sharedId}${reason ? ` · ${reason}` : ''}`,
       targetId: sharedId,
       targetType: 'group',
     })
@@ -6323,6 +6765,7 @@ export class TinychokStore {
       action: `admin.media.${action}`,
       nextValue: this.collectAdminMediaItems().filter((item) => item.mediaUrl === mediaUrl),
       previousValue,
+      reason: reason || undefined,
       summary: `${action === 'hide' ? 'Скрыт' : 'Удалён'} media-объект ${mediaUrl}${reason ? ` · ${reason}` : ''}`,
       targetId: mediaUrl,
       targetType: 'media',

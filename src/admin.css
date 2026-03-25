@@ -606,6 +606,11 @@
   grid-template-columns: 140px 180px minmax(220px, 1.2fr) minmax(220px, 1fr) 100px 90px 220px;
 }
 
+.admin-audit-table .admin-table-row {
+  grid-template-columns: 170px 220px 190px minmax(240px, 1.1fr) minmax(180px, 0.8fr) minmax(320px, 1.4fr);
+  align-items: start;
+}
+
 .admin-table-head {
   font-size: 13px;
   color: var(--admin-muted);

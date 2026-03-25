@@ -1,7 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type {
+  AdminAuditCsvExportBody,
   AdminAuditLogResponse,
   AdminBootstrapResponse,
+  AdminContentCsvExportBody,
+  AdminCsvExportResponse,
+  AdminDialogDetailResponse,
+  AdminDialogLookupBody,
   AdminManagedChannelsResponse,
   AdminManagedGroupsResponse,
   AdminMediaDownloadBody,
@@ -13,6 +18,7 @@ import type {
   AdminReportDetailResponse,
   AdminReportNoteBody,
   AdminReportsResponse,
+  AdminUserAvatarBody,
   AdminUserAvatarResponse,
   AdminUserBlockBody,
   AdminUserDetailResponse,
@@ -202,14 +208,16 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
     }
   })
 
-  app.get('/api/admin/users/:identifier/avatar', async (request, reply) => {
+  app.post('/api/admin/users/:identifier/avatar', async (request, reply) => {
     try {
       const auth = requireAdminActor(store, request, reply, 'users.read')
       if (!auth) return reply
 
+      const body = parseJsonPayload<AdminUserAvatarBody>(request.body)
       const payload = await store.adminViewUserAvatar(
         auth.token,
         getRouteParam(request, 'identifier'),
+        body.reason,
       )
       return payload satisfies AdminUserAvatarResponse
     } catch (error) {
@@ -242,6 +250,23 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       return {
         user: await store.adminSetUserBlocked(auth.token, getRouteParam(request, 'identifier'), {
           blocked: false,
+        }),
+      } satisfies AdminUserDetailResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/users/:identifier/unblock', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.block')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminUserBlockBody>(request.body)
+      return {
+        user: await store.adminSetUserBlocked(auth.token, getRouteParam(request, 'identifier'), {
+          blocked: false,
+          reason: body.reason,
         }),
       } satisfies AdminUserDetailResponse
     } catch (error) {
@@ -369,6 +394,84 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
     }
   })
 
+  app.post('/api/admin/channels/:handle/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'media.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminContentCsvExportBody>(request.body)
+      return await store.adminExportChannelCsv(
+        auth.token,
+        getRouteParam(request, 'handle'),
+        body.reason,
+      ) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/groups/:groupId/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'media.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminContentCsvExportBody>(request.body)
+      return await store.adminExportGroupCsv(
+        auth.token,
+        getRouteParam(request, 'groupId'),
+        body.reason,
+      ) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/threads/:threadId/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'media.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminContentCsvExportBody>(request.body)
+      return await store.adminExportThreadCsv(
+        auth.token,
+        getRouteParam(request, 'threadId'),
+        body.reason,
+      ) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/dialogs/lookup', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminDialogLookupBody>(request.body)
+      return {
+        dialog: store.adminLookupDialog(body.ownerIdentifier, body.peerIdentifier),
+      } satisfies AdminDialogDetailResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/dialogs/:sharedKey/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminContentCsvExportBody>(request.body)
+      return await store.adminExportDialogCsv(
+        auth.token,
+        getRouteParam(request, 'sharedKey'),
+        body.reason,
+      ) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
   app.post('/api/admin/media/actions', async (request, reply) => {
     try {
       const auth = requireAdminActor(store, request, reply, 'media.moderate')
@@ -389,7 +492,7 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       if (!auth) return reply
 
       const body = parseJsonPayload<AdminMediaDownloadBody>(request.body)
-      const payload = await store.adminGetMediaDownload(auth.token, body.mediaUrl)
+      const payload = await store.adminGetMediaDownload(auth.token, body.mediaUrl, body.reason)
       return payload satisfies AdminMediaDownloadResponse
     } catch (error) {
       return sendError(reply, error)
@@ -411,15 +514,13 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
     }
   })
 
-  app.get('/api/admin/audit-log/export', async (request, reply) => {
+  app.post('/api/admin/audit-log/export', async (request, reply) => {
     try {
       const auth = requireAdminActor(store, request, reply, 'audit.read')
       if (!auth) return reply
 
-      const csv = await store.adminExportAuditLogsCsv(auth.token, getAuditQuery(request))
-      reply.header('Content-Type', 'text/csv; charset=utf-8')
-      reply.header('Content-Disposition', 'attachment; filename="tinychok-admin-audit.csv"')
-      return reply.send(csv)
+      const body = parseJsonPayload<AdminAuditCsvExportBody>(request.body)
+      return await store.adminExportAuditLogsCsv(auth.token, body) satisfies AdminCsvExportResponse
     } catch (error) {
       return sendError(reply, error)
     }

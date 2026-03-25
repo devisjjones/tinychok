@@ -126,6 +126,7 @@ export type AdminUserSummary = {
   avatarImage?: string
   blocked: boolean
   blockedAt?: string
+  blockedReason?: string
   createdAt: string
   displayName: string
   identifier: string
@@ -230,6 +231,7 @@ export type AdminMediaListResponse = {
 }
 
 export type AdminManagedChannelSummary = {
+  csvFileName: string
   handle: string
   id: number
   latestActivityAt?: string
@@ -247,6 +249,7 @@ export type AdminManagedChannelsResponse = {
 }
 
 export type AdminManagedGroupSummary = {
+  csvFileName: string
   id: string
   latestActivityAt?: string
   members: number
@@ -261,6 +264,8 @@ export type AdminManagedGroupsResponse = {
 
 export type AdminThreadSummary = {
   commentCount: number
+  contextLabel: string
+  csvFileName: string
   id: string
   kind: 'group' | 'channel'
   latestActivityAt?: string
@@ -282,6 +287,7 @@ export type AdminMediaActionBody = {
 
 export type AdminMediaDownloadBody = {
   mediaUrl: string
+  reason: string
 }
 
 export type AdminMediaDownloadResponse = {
@@ -291,6 +297,10 @@ export type AdminMediaDownloadResponse = {
 
 export type AdminUserAvatarResponse = {
   avatarUrl: string | null
+}
+
+export type AdminUserAvatarBody = {
+  reason: string
 }
 
 export type AdminAuditActor = {
@@ -310,6 +320,7 @@ export type AdminAuditLogEntry = {
   id: string
   nextValue?: unknown
   previousValue?: unknown
+  reason?: string
   summary: string
   targetId: string
   targetLabel: string
@@ -319,6 +330,43 @@ export type AdminAuditLogEntry = {
 export type AdminAuditLogResponse = {
   actors: AdminAuditActor[]
   entries: AdminAuditLogEntry[]
+}
+
+export type AdminAuditCsvExportBody = {
+  actorIdentifier?: string
+  from?: string
+  reason: string
+  targetIdentifier?: string
+  to?: string
+}
+
+export type AdminContentCsvExportBody = {
+  reason: string
+}
+
+export type AdminCsvExportResponse = {
+  csv: string
+  fileName: string
+}
+
+export type AdminDialogSummary = {
+  csvFileName: string
+  firstMessageAt?: string
+  messageCount: number
+  owner: AdminLinkedUser
+  peer: AdminLinkedUser
+  preview: string
+  sharedKey: string
+  updatedAt?: string
+}
+
+export type AdminDialogLookupBody = {
+  ownerIdentifier: string
+  peerIdentifier: string
+}
+
+export type AdminDialogDetailResponse = {
+  dialog: AdminDialogSummary | null
 }
 
 export type DiscoverySearchResponse = {
