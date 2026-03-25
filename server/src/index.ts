@@ -188,6 +188,7 @@ setInterval(() => {
 
 await app.register(cors, {
   credentials: true,
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   origin(origin, callback) {
     if (!origin || isLocalOrigin(origin) || runtimeConfig.allowedOrigins.includes(origin)) {
       callback(null, true)
