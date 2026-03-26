@@ -26,6 +26,7 @@
   height: 100dvh;
   display: grid;
   grid-template-columns: minmax(280px, 1.05fr) minmax(280px, 0.95fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 24px;
   padding: 24px;
   box-sizing: border-box;
@@ -121,6 +122,11 @@
   padding: 32px;
 }
 
+.auth-promo,
+.auth-card {
+  min-height: 0;
+}
+
 .auth-promo {
   display: grid;
   align-content: start;
@@ -180,6 +186,31 @@
   display: grid;
   gap: 24px;
   align-content: center;
+}
+
+.auth-support-footer {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 4px 12px 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.auth-support-label {
+  opacity: 0.92;
+}
+
+.auth-support-link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
 }
 
 .auth-card-brand {
@@ -4604,6 +4635,7 @@
     min-height: 100vh;
     min-height: 100dvh;
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
     place-items: center;
     overflow: auto;
   }
@@ -4619,6 +4651,12 @@
   .auth-card-brand {
     display: grid;
     gap: 8px;
+  }
+
+  .auth-support-footer {
+    padding-top: 0;
+    flex-direction: column;
+    gap: 4px;
   }
 }
 

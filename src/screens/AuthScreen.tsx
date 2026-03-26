@@ -156,6 +156,13 @@ export function AuthScreen({
           ) : null}
         </form>
       </section>
+
+      <footer className="auth-support-footer">
+        <span className="auth-support-label">Не получается войти в Тайничок?</span>
+        <a className="auth-support-link" href="mailto:tinychok.help@yandex.com">
+          tinychok.help@yandex.com
+        </a>
+      </footer>
     </main>
   )
 }
