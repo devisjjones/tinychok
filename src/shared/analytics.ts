@@ -2,12 +2,14 @@ export type AnalyticsScalar = string | number | boolean | null
 
 export type AnalyticsEventName =
   | 'analytics_consent_granted'
+  | 'auth_captcha_completed'
   | 'auth_code_request_succeeded'
   | 'auth_code_request_failed'
   | 'auth_code_verify_succeeded'
   | 'auth_code_verify_failed'
   | 'auth_registration_succeeded'
   | 'auth_registration_failed'
+  | 'auth_support_email_clicked'
   | 'direct_message_send_succeeded'
   | 'direct_message_send_failed'
   | 'direct_message_retry_started'
@@ -23,7 +25,16 @@ export type AnalyticsEventName =
   | 'realtime_connected'
   | 'realtime_disconnected'
   | 'realtime_error'
+  | 'profile_settings_saved'
   | 'group_settings_saved'
+  | 'channel_settings_saved'
+  | 'gif_uploaded'
+  | 'gif_deleted'
+  | 'gif_search_used'
+  | 'gif_added_from_viewer'
+  | 'browser_notifications_enabled'
+  | 'browser_notifications_disabled'
+  | 'browser_notifications_prompt_dismissed'
   | 'blacklist_add_confirmed'
 
 export type AnalyticsEventProperties = Record<string, AnalyticsScalar>
@@ -42,13 +53,26 @@ export type AnalyticsBatchBody = {
 export const analyticsEventCatalog: Record<
   AnalyticsEventName,
   {
-    category: 'auth' | 'messaging' | 'moderation' | 'realtime' | 'settings' | 'consent'
+    category:
+      | 'auth'
+      | 'messaging'
+      | 'moderation'
+      | 'realtime'
+      | 'settings'
+      | 'consent'
+      | 'media'
+      | 'notifications'
+      | 'support'
     description: string
   }
 > = {
   analytics_consent_granted: {
     category: 'consent',
     description: 'Пользователь явно разрешил аналитику через cookie banner.',
+  },
+  auth_captcha_completed: {
+    category: 'auth',
+    description: 'Пользователь успешно прошёл captcha перед запросом кода.',
   },
   auth_code_request_succeeded: {
     category: 'auth',
@@ -73,6 +97,10 @@ export const analyticsEventCatalog: Record<
   auth_registration_failed: {
     category: 'auth',
     description: 'Регистрация нового пользователя завершилась ошибкой.',
+  },
+  auth_support_email_clicked: {
+    category: 'support',
+    description: 'Пользователь нажал на email поддержки на auth-экране.',
   },
   direct_message_send_succeeded: {
     category: 'messaging',
@@ -134,9 +162,45 @@ export const analyticsEventCatalog: Record<
     category: 'realtime',
     description: 'WebSocket realtime-соединение дало ошибку.',
   },
+  profile_settings_saved: {
+    category: 'settings',
+    description: 'Пользователь успешно сохранил настройки профиля.',
+  },
   group_settings_saved: {
     category: 'settings',
     description: 'Настройки группы были сохранены пользователем.',
+  },
+  channel_settings_saved: {
+    category: 'settings',
+    description: 'Настройки канала были сохранены пользователем.',
+  },
+  gif_uploaded: {
+    category: 'media',
+    description: 'GIF успешно загружена в личную библиотеку.',
+  },
+  gif_deleted: {
+    category: 'media',
+    description: 'GIF удалена из личной библиотеки.',
+  },
+  gif_search_used: {
+    category: 'media',
+    description: 'Пользователь воспользовался поиском по GIF-библиотеке Tinychok.',
+  },
+  gif_added_from_viewer: {
+    category: 'media',
+    description: 'Пользователь добавил GIF себе из fullscreen viewer.',
+  },
+  browser_notifications_enabled: {
+    category: 'notifications',
+    description: 'Браузерные уведомления включены для текущего браузера.',
+  },
+  browser_notifications_disabled: {
+    category: 'notifications',
+    description: 'Браузерные уведомления выключены для текущего браузера.',
+  },
+  browser_notifications_prompt_dismissed: {
+    category: 'notifications',
+    description: 'Пользователь скрыл promo-card включения браузерных уведомлений.',
   },
   blacklist_add_confirmed: {
     category: 'moderation',

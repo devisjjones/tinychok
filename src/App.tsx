@@ -762,6 +762,13 @@ function isExpiredSessionError(error: unknown) {
   )
 }
 
+function getAnalyticsAttachmentKind(attachment?: Message['attachment']) {
+  if (!attachment) return 'none'
+  if (attachment.mimeType === 'image/gif') return 'gif'
+  if (isImageMimeType(attachment.mimeType)) return 'image'
+  return 'file'
+}
+
 function buildAnalyticsVirtualPageView(args: {
   activeChannelId: number | null
   activeChatId: number | null
@@ -2761,6 +2768,7 @@ function App() {
 
   const dismissBrowserNotificationsBanner = useCallback(() => {
     setBrowserNotificationsBannerDismissed(true)
+    trackAnalyticsEvent('browser_notifications_prompt_dismissed', {})
 
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(browserNotificationsBannerDismissedStorageKey, 'true')
@@ -2772,6 +2780,9 @@ function App() {
     setBrowserNotificationStatus(nextStatus)
     if (nextStatus === 'granted') {
       persistBrowserNotificationsEnabled(true)
+      trackAnalyticsEvent('browser_notifications_enabled', {
+        source: 'browser-permission-prompt',
+      })
     }
     return nextStatus
   }, [persistBrowserNotificationsEnabled])
@@ -2779,6 +2790,9 @@ function App() {
   const enableBrowserNotifications = useCallback(async () => {
     if (browserNotificationStatus === 'granted') {
       persistBrowserNotificationsEnabled(true)
+      trackAnalyticsEvent('browser_notifications_enabled', {
+        source: 'settings-toggle',
+      })
       return 'granted'
     }
 
@@ -2787,6 +2801,9 @@ function App() {
 
   const disableBrowserNotifications = useCallback(() => {
     persistBrowserNotificationsEnabled(false)
+    trackAnalyticsEvent('browser_notifications_disabled', {
+      source: 'settings-toggle',
+    })
   }, [persistBrowserNotificationsEnabled])
 
   const logout = useCallback(() => {
@@ -3470,6 +3487,11 @@ function App() {
       setAuthExistingAccount(response.existingAccount)
       setAuthError('')
       setAuthStep('code')
+      if (captchaRequired) {
+        trackAnalyticsEvent('auth_captcha_completed', {
+          provider: clientRuntimeConfig.captcha.provider,
+        })
+      }
       trackAnalyticsEvent('auth_code_request_succeeded', {
         captchaRequired,
         existingAccount: Boolean(response.existingAccount),
@@ -4512,6 +4534,11 @@ function App() {
         storageKey: '',
       }, dimensions)
       applyLocalGifLibrary([localGif, ...(session.gifLibrary ?? [])])
+      trackAnalyticsEvent('gif_uploaded', {
+        fileName: file.name,
+        size: file.size,
+        source: 'local',
+      })
       return localGif
     }
 
@@ -4533,6 +4560,11 @@ function App() {
           buildUserGifRegistrationBody(file, uploadedMedia, dimensions),
         )
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent('gif_uploaded', {
+          fileName: file.name,
+          size: uploadedMedia.size,
+          source: 'upload',
+        })
 
         return (
           response.snapshot.session.gifLibrary?.find((gif) => gif.mediaUrl === uploadedMedia.mediaUrl) ??
@@ -4586,11 +4618,19 @@ function App() {
     }
 
     if (!session?.sessionToken || !backendReady) {
+      trackAnalyticsEvent('gif_search_used', {
+        queryLength: normalizedQuery.length,
+        source: 'local',
+      })
       return (session?.gifLibrary ?? []).filter((gif) =>
         gif.fileName.toLowerCase().includes(normalizedQuery.toLowerCase()),
       )
     }
 
+    trackAnalyticsEvent('gif_search_used', {
+      queryLength: normalizedQuery.length,
+      source: 'server',
+    })
     const response = await searchUserGifsRequest(session.sessionToken, normalizedQuery)
     return response.items
   }
@@ -4599,11 +4639,19 @@ function App() {
     if (!(backendReady && session?.sessionToken)) {
       const nextGifLibrary = (session?.gifLibrary ?? []).filter((item) => item.id !== gif.id)
       applyLocalGifLibrary(nextGifLibrary)
+      trackAnalyticsEvent('gif_deleted', {
+        fileName: gif.fileName,
+        source: 'local',
+      })
       return
     }
 
     const response = await deleteUserGifRequest(session.sessionToken, gif.id)
     applySnapshot(response.snapshot)
+    trackAnalyticsEvent('gif_deleted', {
+      fileName: gif.fileName,
+      source: 'server',
+    })
   }
 
   async function addGifAttachmentToLibrary(attachment: MessageAttachment) {
@@ -4624,6 +4672,10 @@ function App() {
     if (!(backendReady && session.sessionToken)) {
       const nextGif = buildUserGifRegistrationBodyFromAttachment(attachment)
       applyLocalGifLibrary([nextGif, ...(session.gifLibrary ?? [])])
+      trackAnalyticsEvent('gif_added_from_viewer', {
+        fileName: attachment.fileName,
+        source: 'local',
+      })
       return nextGif
     }
 
@@ -4632,6 +4684,10 @@ function App() {
       buildUserGifRegistrationBodyFromAttachment(attachment),
     )
     applySnapshot(response.snapshot)
+    trackAnalyticsEvent('gif_added_from_viewer', {
+      fileName: attachment.fileName,
+      source: 'server',
+    })
 
     return (
       response.snapshot.session.gifLibrary?.find((gif) => gif.mediaUrl === attachment.mediaUrl) ??
@@ -5364,6 +5420,7 @@ function App() {
         removePendingDirectMessage(localId)
         applySnapshot(response.snapshot)
         trackAnalyticsEvent('direct_message_send_succeeded', {
+          attachmentKind: getAnalyticsAttachmentKind(attachment),
           hasAttachment: Boolean(attachment),
           hasReply: Boolean(replyTo),
         })
@@ -5376,6 +5433,7 @@ function App() {
         }
         markPendingDirectMessageAttemptFailed(localId)
         trackAnalyticsEvent('direct_message_send_failed', {
+          attachmentKind: getAnalyticsAttachmentKind(attachment),
           hasAttachment: Boolean(attachment),
           hasReply: Boolean(replyTo),
         })
@@ -5477,6 +5535,7 @@ function App() {
         removePendingGroupMessage(localId)
         applySnapshot(response.snapshot)
         trackAnalyticsEvent('group_message_send_succeeded', {
+          attachmentKind: getAnalyticsAttachmentKind(attachment),
           groupId,
           hasAttachment: Boolean(attachment),
           hasReply: Boolean(replyTo),
@@ -5490,6 +5549,7 @@ function App() {
         }
         markPendingGroupMessageAttemptFailed(localId)
         trackAnalyticsEvent('group_message_send_failed', {
+          attachmentKind: getAnalyticsAttachmentKind(attachment),
           groupId,
           hasAttachment: Boolean(attachment),
           hasReply: Boolean(replyTo),
@@ -5537,7 +5597,10 @@ function App() {
         )
         applySnapshot(response.snapshot)
         trackAnalyticsEvent('channel_post_send_succeeded', {
+          attachmentKind: getAnalyticsAttachmentKind(attachment),
           channelId: ownedCurrentManagedChannel.id,
+          hasAttachment: Boolean(attachment),
+          hasReply: Boolean(replyTo),
         })
 
         if (previewSubscriptionChannel) {
@@ -5568,7 +5631,10 @@ function App() {
         setChannelPostError(error instanceof Error ? error.message : 'Не удалось отправить сообщение.')
         setChannelPostBusy(false)
         trackAnalyticsEvent('channel_post_send_failed', {
+          attachmentKind: getAnalyticsAttachmentKind(attachment),
           channelId: ownedCurrentManagedChannel.id,
+          hasAttachment: Boolean(attachment),
+          hasReply: Boolean(replyTo),
         })
         return
       }
@@ -6655,6 +6721,9 @@ function App() {
           removePendingGroupThreadComment(localId)
           applySnapshot(response.snapshot)
           trackAnalyticsEvent('thread_comment_send_succeeded', {
+            attachmentKind: getAnalyticsAttachmentKind(pendingGroupThreadComment?.attachment),
+            hasAttachment: Boolean(pendingGroupThreadComment?.attachment),
+            hasReply: Boolean(replyTo),
             roomKind: 'group',
           })
         }
@@ -6679,6 +6748,9 @@ function App() {
           removePendingChannelThreadComment(localId)
           applySnapshot(response.snapshot)
           trackAnalyticsEvent('thread_comment_send_succeeded', {
+            attachmentKind: getAnalyticsAttachmentKind(pendingChannelThreadComment?.attachment),
+            hasAttachment: Boolean(pendingChannelThreadComment?.attachment),
+            hasReply: Boolean(replyTo),
             roomKind: 'channel',
           })
         }
@@ -6702,6 +6774,10 @@ function App() {
       setThreadBusy(false)
       setThreadError(error instanceof Error ? error.message : 'Не удалось отправить комментарий.')
       trackAnalyticsEvent('thread_comment_send_failed', {
+        attachmentKind:
+          threadTarget.kind === 'group'
+            ? getAnalyticsAttachmentKind(pendingGroupThreadComment?.attachment)
+            : getAnalyticsAttachmentKind(pendingChannelThreadComment?.attachment),
         roomKind: threadTarget.kind,
       })
     }
@@ -7019,6 +7095,12 @@ function App() {
         syncSession(nextSession)
         setProfileSettingsBusy(false)
       }
+
+      trackAnalyticsEvent('profile_settings_saved', {
+        changedAvatar: nextAvatarImage !== (session.avatarImage ?? undefined),
+        changedNickname: nextNickname !== (session.nickname ?? ''),
+        changedStatus: nextStatus !== (session.status ?? ''),
+      })
 
       return true
     } catch (error) {
@@ -8054,6 +8136,13 @@ function App() {
         setChannelSettingsBaseline(cloneManagedChannel(savedChannel))
       }
 
+      trackAnalyticsEvent('channel_settings_saved', {
+        channelId,
+        changedAvatar: pendingPatch.avatarImage !== undefined,
+        changedDescription: pendingPatch.description !== undefined,
+        changedTitle: pendingPatch.title !== undefined,
+      })
+
       const avatarChanged =
         pendingPatch.avatarImage !== undefined &&
         (pendingPatch.avatarImage || undefined) !== (channelSettingsBaseline?.avatarImage || undefined)
@@ -9057,6 +9146,11 @@ function App() {
             setIdentifier(value)
             setAuthExistingAccount(null)
             setAuthBlockedNoticeOpen(false)
+          }}
+          onSupportEmailClick={() => {
+            trackAnalyticsEvent('auth_support_email_clicked', {
+              location: 'auth-footer',
+            })
           }}
           onSmsCodeChange={(value) => {
             setSmsCode(value.replace(/[^\d]/g, ''))

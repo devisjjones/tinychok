@@ -16,6 +16,7 @@ type AuthScreenProps = {
   smsCode: string
   onDisplayNameChange: (value: string) => void
   onIdentifierChange: (value: string) => void
+  onSupportEmailClick: () => void
   onSmsCodeChange: (value: string) => void
   onSubmit: () => void
 }
@@ -34,6 +35,7 @@ export function AuthScreen({
   smsCode,
   onDisplayNameChange,
   onIdentifierChange,
+  onSupportEmailClick,
   onSmsCodeChange,
   onSubmit,
 }: AuthScreenProps) {
@@ -159,7 +161,11 @@ export function AuthScreen({
 
       <footer className="auth-support-footer">
         <span className="auth-support-label">Не получается войти в Тайничок?</span>
-        <a className="auth-support-link" href="mailto:tinychok.help@yandex.com">
+        <a
+          className="auth-support-link"
+          href="mailto:tinychok.help@yandex.com"
+          onClick={onSupportEmailClick}
+        >
           tinychok.help@yandex.com
         </a>
       </footer>

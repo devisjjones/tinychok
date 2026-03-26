@@ -54,6 +54,8 @@ TINYCHOK_CAPTCHA_VERIFY_URL=
 
 ## Analytics Layer
 
+Подробная схема событий и pageview описана отдельно в [docs/analytics-instrumentation.md](/Users/devisjones/Documents/New%20project/tinychok/docs/analytics-instrumentation.md).
+
 ### Current Behavior
 
 - есть shared event catalog
@@ -61,6 +63,12 @@ TINYCHOK_CAPTCHA_VERIFY_URL=
 - frontend analytics работает только при consent `analytics`
 - client queue собирает события в пакеты и повторно ставит их в очередь, если ingest ответил `non-2xx` или не ответил совсем
 - текущий sink на backend: `log`
+- `Yandex Metrica` поднимается отдельным client-side runtime слоем через counter id из `GET /api/client-config`
+- staging counter id живёт в env:
+
+```env
+TINYCHOK_YANDEX_METRICA_COUNTER_ID=
+```
 
 ### Analytics Env
 
@@ -110,6 +118,11 @@ Growth and activation:
 - `gif_uploaded`
 - `gif_deleted`
 - `gif_search_used`
+- `gif_added_from_viewer`
+- `auth_support_email_clicked`
+- `profile_settings_saved`
+- `channel_settings_saved`
+- `auth_captcha_completed`
 - `browser_notifications_enabled`
 - `browser_notifications_disabled`
 - `browser_notifications_prompt_dismissed`
