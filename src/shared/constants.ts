@@ -1,6 +1,6 @@
 export const displayNameFieldMaxLength = 24
 export const surnameFieldMaxLength = 32
-export const nicknameFieldMaxLength = 16
+export const nicknameFieldMaxLength = 21
 export const statusFieldMaxLength = 80
 export const accountNameMaxFontSize = 30.4
 export const accountNameMinFontSize = 20
