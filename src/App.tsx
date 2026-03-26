@@ -2239,8 +2239,8 @@ function App() {
     session !== null &&
     profileSettingsDraft !== null &&
     (
-      sanitizePersonField(profileSettingsDraft.displayName, displayNameFieldMaxLength) !== session.displayName ||
-      sanitizePersonField(profileSettingsDraft.surname ?? '', surnameFieldMaxLength) !== (session.surname ?? '') ||
+      profileSettingsDraft.displayName !== session.displayName ||
+      (profileSettingsDraft.surname ?? '') !== (session.surname ?? '') ||
       normalizeNickname(profileSettingsDraft.nickname ?? '') !== (session.nickname ?? '') ||
       sanitizeStatusField(profileSettingsDraft.status ?? '') !== (session.status ?? '') ||
       (profileSettingsDraft.avatarImage?.trim() || undefined) !== session.avatarImage ||
@@ -7196,6 +7196,19 @@ function App() {
     if (!nextDisplayName) {
       setProfileSettingsError('Имя не может быть пустым.')
       return
+    }
+
+    const sanitizedPatchMatchesSession =
+      nextDisplayName === session.displayName &&
+      nextSurname === (session.surname ?? '') &&
+      nextNickname === (session.nickname ?? '') &&
+      nextStatus === (session.status ?? '') &&
+      nextAvatarImage === session.avatarImage &&
+      nextSoundsDisabled === Boolean(session.soundsDisabled)
+
+    if (sanitizedPatchMatchesSession) {
+      discardProfileSettingsDraft()
+      return true
     }
 
     const patch: UpdateSessionBody = {

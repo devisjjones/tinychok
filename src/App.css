@@ -630,7 +630,7 @@
 .chat-list {
   display: grid;
   flex: 1 1 auto;
-  gap: 8px;
+  gap: 3px;
   align-content: start;
   overflow: auto;
   padding-top: 8px;
