@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 type AppEnvironment = 'development' | 'staging' | 'production'
 type StoreMode = 'file' | 'postgres'
 type MediaBackend = 'local' | 'object-storage'
-type CaptchaProvider = 'disabled' | 'turnstile'
+type CaptchaProvider = 'disabled' | 'turnstile' | 'smartcaptcha'
 type AnalyticsProvider = 'disabled' | 'log'
 
 function normalizeBaseUrl(value: string | undefined) {
@@ -44,7 +44,19 @@ function readMediaBackend(value: string | undefined): MediaBackend {
 }
 
 function readCaptchaProvider(value: string | undefined): CaptchaProvider {
-  return value === 'turnstile' ? 'turnstile' : 'disabled'
+  if (value === 'turnstile' || value === 'smartcaptcha') {
+    return value
+  }
+
+  return 'disabled'
+}
+
+function getDefaultCaptchaVerifyUrl(provider: CaptchaProvider) {
+  if (provider === 'smartcaptcha') {
+    return 'https://smartcaptcha.cloud.yandex.ru/validate'
+  }
+
+  return 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 }
 
 function readAnalyticsProvider(value: string | undefined): AnalyticsProvider {
@@ -72,6 +84,7 @@ function readAdminEnabled(value: string | undefined, environment: AppEnvironment
 }
 
 const runtimeEnvironment = readEnvironment(process.env.TINYCHOK_APP_ENV ?? process.env.NODE_ENV)
+const captchaProvider = readCaptchaProvider(process.env.TINYCHOK_CAPTCHA_PROVIDER)
 const publicApiBaseUrl = normalizeBaseUrl(process.env.PUBLIC_API_URL)
 const publicAppBaseUrl = normalizeBaseUrl(process.env.PUBLIC_APP_URL)
 const publicMediaBaseUrl = normalizeBaseUrl(process.env.PUBLIC_MEDIA_BASE_URL)
@@ -110,12 +123,12 @@ export const runtimeConfig = {
   auth: {
     allowedTestPhones: readStringList(process.env.TINYCHOK_ALLOWED_TEST_PHONES),
     captcha: {
-      provider: readCaptchaProvider(process.env.TINYCHOK_CAPTCHA_PROVIDER),
+      provider: captchaProvider,
       siteKey: process.env.TINYCHOK_CAPTCHA_SITE_KEY?.trim() || null,
       secretKey: process.env.TINYCHOK_CAPTCHA_SECRET_KEY?.trim() || null,
       verifyUrl:
         normalizeBaseUrl(process.env.TINYCHOK_CAPTCHA_VERIFY_URL) ??
-        'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+        getDefaultCaptchaVerifyUrl(captchaProvider),
     },
   },
   analytics: {

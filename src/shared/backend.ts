@@ -27,7 +27,7 @@ export type AppSnapshot = {
   discoveryResults: SearchResult[]
 }
 
-export type CaptchaProvider = 'disabled' | 'turnstile'
+export type CaptchaProvider = 'disabled' | 'turnstile' | 'smartcaptcha'
 
 export type AnalyticsProvider = 'disabled' | 'log'
 

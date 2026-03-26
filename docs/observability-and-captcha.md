@@ -23,7 +23,7 @@
 ### Current Behavior
 
 - если `TINYCHOK_CAPTCHA_PROVIDER=disabled`, auth flow работает без captcha
-- если включить `turnstile`, backend начинает требовать `captchaToken` на:
+- если включить `smartcaptcha` или `turnstile`, backend начинает требовать `captchaToken` на:
   - `POST /api/auth/request-code`
   - `POST /api/auth/verify-code`
   - `POST /api/auth/register`
@@ -34,14 +34,18 @@
 TINYCHOK_CAPTCHA_PROVIDER=disabled
 TINYCHOK_CAPTCHA_SITE_KEY=
 TINYCHOK_CAPTCHA_SECRET_KEY=
-TINYCHOK_CAPTCHA_VERIFY_URL=https://challenges.cloudflare.com/turnstile/v0/siteverify
+TINYCHOK_CAPTCHA_VERIFY_URL=
 ```
+
+### SmartCaptcha Runtime
+
+- `TINYCHOK_CAPTCHA_PROVIDER=smartcaptcha`
+- `TINYCHOK_CAPTCHA_VERIFY_URL` по умолчанию резолвится в `https://smartcaptcha.cloud.yandex.ru/validate`
+- frontend использует invisible SmartCaptcha и получает новый одноразовый токен перед каждым auth submit
+- токен SmartCaptcha одноразовый и живёт ограниченное время, поэтому после любого auth request виджет нужно сбрасывать
 
 ### What Is Still Needed Before Enabling Captcha
 
-- реальный frontend widget / adapter
-- автоматический проброс token в auth flow
-- понятный UX на refresh / expiry token
 - отдельный smoke-test для полного auth flow при включённой captcha
 
 ## Analytics Layer
@@ -102,5 +106,5 @@ Growth and activation:
 ## What Must Happen Before Production-Ready Rollout
 
 - analytics нужен не только `log` sink, а нормальный ingestion target
-- captcha нельзя включать на staging или production без frontend widget-а
+- captcha нельзя включать на staging или production без рабочего frontend widget-а
 - transport metrics должны покрывать retries, fallback path и delete consistency

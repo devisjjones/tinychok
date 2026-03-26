@@ -1,10 +1,15 @@
 import type { Account, AuthStep } from '../app/types'
 import { formatAccountName } from '../app/utils'
+import type { RefObject } from 'react'
 
 type AuthScreenProps = {
   authError: string
   authExistingAccount: Pick<Account, 'displayName' | 'surname'> | null
   authStep: AuthStep
+  captchaBusy: boolean
+  captchaContainerRef: RefObject<HTMLDivElement | null>
+  captchaProvider: 'disabled' | 'turnstile' | 'smartcaptcha'
+  captchaRequired: boolean
   displayName: string
   displayNameMaxLength: number
   identifier: string
@@ -19,6 +24,10 @@ export function AuthScreen({
   authError,
   authExistingAccount,
   authStep,
+  captchaBusy,
+  captchaContainerRef,
+  captchaProvider,
+  captchaRequired,
   displayName,
   displayNameMaxLength,
   identifier,
@@ -113,7 +122,17 @@ export function AuthScreen({
 
           {authError ? <p className="auth-error">{authError}</p> : null}
 
-          <button type="submit" className="send-button auth-submit">
+          {captchaRequired && captchaProvider === 'smartcaptcha' ? (
+            <div className="auth-captcha">
+              <div ref={captchaContainerRef} className="auth-captcha-widget" aria-hidden="true" />
+              <p className="auth-captcha-note">
+                Вход защищён SmartCaptcha. При продолжении может появиться быстрая проверка, если сервис
+                заподозрит бота.
+              </p>
+            </div>
+          ) : null}
+
+          <button type="submit" className="send-button auth-submit" disabled={captchaBusy}>
             {authStep === 'phone'
               ? 'Получить код'
               : authStep === 'code'

@@ -375,9 +375,35 @@
   color: #9d3828;
 }
 
+.auth-captcha {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(141, 89, 57, 0.08);
+}
+
+.auth-captcha-widget {
+  min-height: 0;
+}
+
+.auth-captcha-note,
+.auth-captcha-state {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .auth-submit {
   width: 100%;
   justify-content: center;
+}
+
+.auth-submit:disabled {
+  opacity: 0.7;
+  cursor: progress;
 }
 
 .ghost-button,

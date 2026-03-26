@@ -1066,7 +1066,14 @@ function App() {
   )
   const [messageActionAnchor, setMessageActionAnchor] = useState<ActionAnchor | null>(null)
   const { cookieConsent, updateCookieConsent } = useCookieConsent()
-  const { captchaRequired, captchaToken, resetCaptcha } = useCaptcha(clientRuntimeConfig.captcha)
+  const {
+    captchaBusy,
+    captchaContainerRef,
+    captchaProvider,
+    captchaRequired,
+    executeCaptcha,
+    resetCaptcha,
+  } = useCaptcha(clientRuntimeConfig.captcha)
   const {
     blacklistHintTarget,
     clearBlacklistHint,
@@ -3315,7 +3322,8 @@ function App() {
     }
 
     try {
-      const response = await requestAuthCode({ captchaToken: captchaToken ?? undefined, identifier: normalized })
+      const captchaToken = await executeCaptcha()
+      const response = await requestAuthCode({ captchaToken, identifier: normalized })
       setIdentifier(normalized)
       setAuthExistingAccount(response.existingAccount)
       setAuthError('')
@@ -3331,6 +3339,8 @@ function App() {
         captchaRequired,
         reason: message,
       })
+    } finally {
+      resetCaptcha()
     }
   }
 
@@ -3344,8 +3354,9 @@ function App() {
     }
 
     try {
+      const captchaToken = await executeCaptcha()
       const response = await verifyAuthCode({
-        captchaToken: captchaToken ?? undefined,
+        captchaToken,
         code: trimmedCode,
         identifier: normalized,
       })
@@ -3354,7 +3365,6 @@ function App() {
         applySnapshot(response.snapshot)
         setBackendReady(true)
         setAuthError('')
-        resetCaptcha()
         trackAnalyticsEvent('auth_code_verify_succeeded', {
           outcome: 'authenticated',
         })
@@ -3385,6 +3395,8 @@ function App() {
         blocked: false,
         reason: nextMessage,
       })
+    } finally {
+      resetCaptcha()
     }
   }
 
@@ -3398,8 +3410,9 @@ function App() {
     }
 
     try {
+      const captchaToken = await executeCaptcha()
       const response = await registerAccount({
-        captchaToken: captchaToken ?? undefined,
+        captchaToken,
         code: smsCode.trim(),
         displayName: trimmedName,
         identifier: normalized,
@@ -3407,7 +3420,6 @@ function App() {
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthError('')
-      resetCaptcha()
       trackAnalyticsEvent('auth_registration_succeeded', {})
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось завершить регистрацию.'
@@ -3415,6 +3427,8 @@ function App() {
       trackAnalyticsEvent('auth_registration_failed', {
         reason: message,
       })
+    } finally {
+      resetCaptcha()
     }
   }
 
@@ -8894,6 +8908,10 @@ function App() {
           authError={authError}
           authExistingAccount={authExistingAccount}
           authStep={authStep}
+          captchaBusy={captchaBusy}
+          captchaContainerRef={captchaContainerRef}
+          captchaProvider={captchaProvider}
+          captchaRequired={captchaRequired}
           displayName={displayName}
           displayNameMaxLength={displayNameFieldMaxLength}
           identifier={identifier}
