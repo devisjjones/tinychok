@@ -1399,6 +1399,8 @@ function App() {
     activeSubscriptionChannelId,
     authStep,
     channelsView,
+    clientRuntimeConfig.analytics.metricaCounterId,
+    cookieConsent,
     session,
     settingsView,
     stageView,
