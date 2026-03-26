@@ -3354,9 +3354,7 @@ function App() {
     }
 
     try {
-      const captchaToken = getCaptchaTokenOrThrow()
       const response = await verifyAuthCode({
-        captchaToken,
         code: trimmedCode,
         identifier: normalized,
       })
@@ -3395,8 +3393,6 @@ function App() {
         blocked: false,
         reason: nextMessage,
       })
-    } finally {
-      resetCaptcha()
     }
   }
 
@@ -3410,9 +3406,7 @@ function App() {
     }
 
     try {
-      const captchaToken = getCaptchaTokenOrThrow()
       const response = await registerAccount({
-        captchaToken,
         code: smsCode.trim(),
         displayName: trimmedName,
         identifier: normalized,
@@ -3427,8 +3421,6 @@ function App() {
       trackAnalyticsEvent('auth_registration_failed', {
         reason: message,
       })
-    } finally {
-      resetCaptcha()
     }
   }
 

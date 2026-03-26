@@ -122,7 +122,7 @@ export function AuthScreen({
 
           {authError ? <p className="auth-error">{authError}</p> : null}
 
-          {captchaRequired && captchaProvider === 'smartcaptcha' ? (
+          {authStep === 'phone' && captchaRequired && captchaProvider === 'smartcaptcha' ? (
             <div className="auth-captcha">
               <div ref={captchaContainerRef} className="auth-captcha-widget" aria-hidden="true" />
               <p className="auth-captcha-note">

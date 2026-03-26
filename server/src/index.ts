@@ -304,11 +304,6 @@ app.post('/api/auth/request-code', async (request, reply) => {
 app.post('/api/auth/verify-code', async (request, reply) => {
   try {
     const body = parseJsonPayload<VerifyCodeBody>(request.body)
-    await verifyCaptchaOrThrow({
-      action: 'auth.verify-code',
-      remoteIp: request.ip,
-      token: body.captchaToken,
-    })
     return await store.verifyCode(body.identifier ?? '', body.code ?? '')
   } catch (error) {
     return sendError(reply, error)
@@ -318,11 +313,6 @@ app.post('/api/auth/verify-code', async (request, reply) => {
 app.post('/api/auth/register', async (request, reply) => {
   try {
     const body = parseJsonPayload<RegisterBody>(request.body)
-    await verifyCaptchaOrThrow({
-      action: 'auth.register',
-      remoteIp: request.ip,
-      token: body.captchaToken,
-    })
     const snapshot = await store.registerAccount(body)
     return { snapshot }
   } catch (error) {
