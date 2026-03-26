@@ -99,6 +99,29 @@
   color: var(--admin-danger);
 }
 
+.admin-auth-captcha {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--admin-border);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.admin-auth-captcha-widget {
+  min-height: 78px;
+  display: flex;
+  align-items: flex-start;
+}
+
+.admin-auth-captcha-note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--admin-muted);
+}
+
 .admin-field {
   display: grid;
   gap: 8px;
@@ -152,6 +175,11 @@
 
 .admin-primary-button:hover {
   background: var(--admin-accent-strong);
+}
+
+.admin-primary-button:disabled {
+  opacity: 0.72;
+  cursor: progress;
 }
 
 .admin-secondary-button,

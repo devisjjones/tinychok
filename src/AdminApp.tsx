@@ -32,6 +32,7 @@ import {
   viewAdminReportEntity,
   verifyAuthCode,
 } from './app/backend'
+import { useCaptcha } from './app/useCaptcha'
 import { isAllowedAdminHost } from './app/runtimeMode'
 import type {
   AdminAuditActor,
@@ -250,6 +251,14 @@ export default function AdminApp() {
   const [authBusy, setAuthBusy] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authHint, setAuthHint] = useState('')
+  const {
+    captchaBusy,
+    captchaContainerRef,
+    captchaProvider,
+    captchaRequired,
+    getCaptchaTokenOrThrow,
+    resetCaptcha,
+  } = useCaptcha(runtimeConfig?.captcha, !bootstrap && authStep === 'phone')
 
   const [dashboard, setDashboard] = useState<AdminDashboardResponse | null>(null)
   const [users, setUsers] = useState<AdminUserSummary[]>([])
@@ -634,7 +643,8 @@ export default function AdminApp() {
     setAuthError('')
 
     try {
-      const response = await requestAuthCode({ identifier })
+      const captchaToken = getCaptchaTokenOrThrow()
+      const response = await requestAuthCode({ captchaToken, identifier })
       setAuthHint(
         response.existingAccount
           ? `Код отправлен staff-аккаунту ${response.existingAccount.displayName}.`
@@ -644,6 +654,7 @@ export default function AdminApp() {
     } catch (error) {
       setAuthError(getErrorMessage(error))
     } finally {
+      resetCaptcha()
       setAuthBusy(false)
     }
   }
@@ -1139,15 +1150,26 @@ export default function AdminApp() {
           <h2>{authStep === 'phone' ? 'Staff Login' : 'Подтверждение кода'}</h2>
 
           {authStep === 'phone' ? (
-            <label className="admin-field">
-              <span>Телефон staff-аккаунта</span>
-              <input
-                type="tel"
-                placeholder="+79990000000"
-                value={identifier}
-                onChange={(event) => setIdentifier(event.target.value)}
-              />
-            </label>
+            <>
+              <label className="admin-field">
+                <span>Телефон staff-аккаунта</span>
+                <input
+                  type="tel"
+                  placeholder="+79990000000"
+                  value={identifier}
+                  onChange={(event) => setIdentifier(event.target.value)}
+                />
+              </label>
+
+              {captchaRequired && captchaProvider === 'smartcaptcha' ? (
+                <div className="admin-auth-captcha">
+                  <div ref={captchaContainerRef} className="admin-auth-captcha-widget" aria-hidden="true" />
+                  <p className="admin-auth-captcha-note">
+                    Staff-вход защищён SmartCaptcha. Перед отправкой SMS подтвердите, что вы не робот.
+                  </p>
+                </div>
+              ) : null}
+            </>
           ) : (
             <>
               <p className="admin-auth-note">{authHint || `Код отправлен на ${identifier}`}</p>
@@ -1176,7 +1198,7 @@ export default function AdminApp() {
             <button
               type="button"
               className="admin-primary-button"
-              disabled={authBusy}
+              disabled={authBusy || captchaBusy}
               onClick={() => {
                 void (authStep === 'phone' ? handleRequestCode() : handleVerifyCode())
               }}
