@@ -37,6 +37,7 @@ export type AdminPermission =
   | 'users.read'
   | 'users.block'
   | 'users.premium.write'
+  | 'ip.read'
   | 'legal.export'
   | 'reports.read'
   | 'reports.note'
@@ -155,7 +156,16 @@ export type AdminUsersResponse = {
   users: AdminUserSummary[]
 }
 
+export type AdminUserIpSummary = {
+  ipChangeCount: number
+  lastLoginAt?: string
+  lastLoginIp?: string
+  latestIp?: string
+  latestIpAt?: string
+}
+
 export type AdminUserDetailResponse = {
+  ipSummary: AdminUserIpSummary
   user: AdminUserSummary
 }
 
@@ -370,6 +380,28 @@ export type AdminContentCsvExportBody = {
 export type AdminLegalExportBody = {
   from?: string
   includeMedia?: boolean
+  reason: string
+  targetIdentifier: string
+  to?: string
+}
+
+export type AdminIpLogEventType = 'login' | 'ip-change'
+
+export type AdminIpLogSource = 'verify-code' | 'register' | 'http-api' | 'websocket'
+
+export type AdminIpLogEntry = {
+  createdAt: string
+  eventType: AdminIpLogEventType
+  id: string
+  identifier: string
+  ip: string
+  previousIp?: string
+  source: AdminIpLogSource
+  userAgent?: string
+}
+
+export type AdminIpLogCsvExportBody = {
+  from?: string
   reason: string
   targetIdentifier: string
   to?: string

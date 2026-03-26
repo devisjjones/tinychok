@@ -8,6 +8,7 @@ import type {
   AdminDialogsResponse,
   AdminDialogDetailResponse,
   AdminDialogLookupBody,
+  AdminIpLogCsvExportBody,
   AdminLegalExportBody,
   AdminManagedChannelsResponse,
   AdminManagedGroupsResponse,
@@ -492,6 +493,7 @@ export async function fetchAdminUser(sessionToken: string, identifier: string) {
 
   const payload = await readJsonResponse<AdminUserDetailResponse>(response)
   return {
+    ipSummary: payload.ipSummary,
     user: {
       ...payload.user,
       avatarImage: payload.user.avatarImage ? resolveMediaUrl(payload.user.avatarImage) : payload.user.avatarImage,
@@ -784,6 +786,18 @@ export async function downloadAdminAuditCsv(
 ) {
   const response = await fetch(
     makeHttpUrl('/api/admin/audit-log/export'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminCsvExportResponse>(response)
+}
+
+export async function downloadAdminIpLogsCsv(
+  sessionToken: string,
+  body: AdminIpLogCsvExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/ip-logs/export'),
     makeJsonRequestInit('POST', body, sessionToken),
   )
 

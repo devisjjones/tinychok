@@ -60,6 +60,11 @@ import type {
   AdminAuditLogResponse,
   AdminDashboardResponse,
   AdminDialogSummary,
+  AdminIpLogCsvExportBody,
+  AdminIpLogEntry,
+  AdminIpLogEventType,
+  AdminIpLogSource,
+  AdminUserIpSummary,
   AdminLegalExportBody,
   AdminLinkedUser,
   AdminManagedChannelSummary,
@@ -153,6 +158,8 @@ type SessionRecord = {
   token: string
 }
 
+type IpAccessLogRecord = AdminIpLogEntry
+
 type AuthChallenge = {
   code: string
   expiresAt: string
@@ -228,6 +235,7 @@ export type Database = {
   dialogMessages: PersistedDialogMessage[]
   groupMessages: PersistedGroupMessage[]
   groups: PersistedGroup[]
+  ipAccessLogs: IpAccessLogRecord[]
   managedChannels: PersistedManagedChannel[]
   pendingMediaUploads: PersistedPendingMediaUpload[]
   sessions: SessionRecord[]
@@ -260,6 +268,12 @@ type OpenDirectDialogResult = MutationResult & {
   dialogId: number
 }
 
+type SessionAccessContext = {
+  ip: string
+  source: AdminIpLogSource
+  userAgent?: string
+}
+
 const AUTH_CODE_TTL_MS = 5 * 60 * 1000
 const DEMO_AUTH_CODE = '1111'
 export const DEFAULT_DATA_FILE = resolve(process.cwd(), 'server/data/dev-db.json')
@@ -288,6 +302,7 @@ function createDefaultDatabase(): Database {
     dialogMessages: [],
     groupMessages: [],
     groups: [],
+    ipAccessLogs: [],
     managedChannels: [],
     pendingMediaUploads: [],
     sessions: [],
@@ -723,6 +738,16 @@ function isTimestampWithinRange(value: string | undefined, fromTimestamp: number
 
 function buildCsv(rows: unknown[][]) {
   return rows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')).join('\n')
+}
+
+function sanitizeIpAddress(value: string | undefined) {
+  const normalized = value?.trim()
+  return normalized ? normalized.slice(0, 200) : ''
+}
+
+function sanitizeUserAgent(value: string | undefined) {
+  const normalized = value?.trim()
+  return normalized ? normalized.slice(0, 1000) : undefined
 }
 
 function toJsonBuffer(value: unknown) {
@@ -1997,7 +2022,7 @@ export class TinychokStore {
     }
   }
 
-  async verifyCode(identifier: string, code: string): Promise<VerifyCodeResponse> {
+  async verifyCode(identifier: string, code: string, accessContext?: Omit<SessionAccessContext, 'source'>): Promise<VerifyCodeResponse> {
     const normalizedIdentifier = normalizeIdentifier(identifier)
     if (!isAllowedTestPhone(normalizedIdentifier)) {
       throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
@@ -2021,7 +2046,11 @@ export class TinychokStore {
       throw new Error(existingAccount.blockedReason || 'Аккаунт заблокирован staff-командой.')
     }
 
-    const token = await this.createSessionToken(normalizedIdentifier)
+    const token = await this.createSessionToken(normalizedIdentifier, {
+      ip: accessContext?.ip ?? '',
+      source: 'verify-code',
+      userAgent: accessContext?.userAgent,
+    })
     this.clearChallenge(normalizedIdentifier)
     await this.persist()
 
@@ -2031,7 +2060,7 @@ export class TinychokStore {
     }
   }
 
-  async registerAccount(payload: RegisterBody): Promise<AppSnapshot> {
+  async registerAccount(payload: RegisterBody, accessContext?: Omit<SessionAccessContext, 'source'>): Promise<AppSnapshot> {
     const normalizedIdentifier = normalizeIdentifier(payload.identifier)
     if (!isAllowedTestPhone(normalizedIdentifier)) {
       throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
@@ -2070,7 +2099,11 @@ export class TinychokStore {
 
     this.database.accounts.push(nextAccount)
     this.replaceOwnerState(normalizedIdentifier, createSeedState())
-    const token = await this.createSessionToken(normalizedIdentifier)
+    const token = await this.createSessionToken(normalizedIdentifier, {
+      ip: accessContext?.ip ?? '',
+      source: 'register',
+      userAgent: accessContext?.userAgent,
+    })
     this.clearChallenge(normalizedIdentifier)
     await this.persist()
 
@@ -2080,6 +2113,15 @@ export class TinychokStore {
   getSnapshotByToken(token: string) {
     const account = this.findAccountByToken(token)
     return account ? this.buildSnapshot(account, token) : null
+  }
+
+  async recordSessionAccessByToken(token: string, context: SessionAccessContext) {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      return false
+    }
+
+    return this.recordIpAccessEvent(account.identifier, context)
   }
 
   getDirectDialogHistory(
@@ -2354,7 +2396,10 @@ export class TinychokStore {
       throw new Error('Пользователь не найден.')
     }
 
-    return this.buildAdminUserSummary(account)
+    return {
+      ipSummary: this.buildAdminUserIpSummary(account.identifier),
+      user: this.buildAdminUserSummary(account),
+    }
   }
 
   async adminViewUserAvatar(actorToken: string, identifier: string, reason?: string) {
@@ -3752,6 +3797,21 @@ export class TinychokStore {
       ]),
     ])
 
+    const ipAccessRows = this.getIpAccessLogsForIdentifier(target.identifier)
+      .filter((entry) => isTimestampWithinRange(entry.createdAt, fromTimestamp, toTimestamp))
+    registerJson('ip/ip-log.json', ipAccessRows)
+    registerCsv('ip/ip-log.csv', [
+      ['Когда', 'Тип события', 'IP', 'Предыдущий IP', 'Источник', 'User-Agent'],
+      ...ipAccessRows.map((entry) => [
+        entry.createdAt,
+        entry.eventType,
+        entry.ip,
+        entry.previousIp ?? '',
+        entry.source,
+        entry.userAgent ?? '',
+      ]),
+    ])
+
     const mediaItems = this.collectAdminMediaItems()
       .filter(
         (item) =>
@@ -3842,6 +3902,7 @@ export class TinychokStore {
         channels: channelManifest.length,
         dialogs: dialogManifest.length,
         groups: groupManifest.length,
+        ipAccessLogs: ipAccessRows.length,
         media: mediaManifest.length,
         mediaFilesIncluded: mediaManifest.filter((item) => item.downloadStatus === 'included').length,
         reports: relatedReports.length,
@@ -4084,6 +4145,57 @@ export class TinychokStore {
         .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
         .join('\n'),
       fileName: `${fileNameBase}-${formatExportDateStamp()}.csv`,
+    }
+  }
+
+  async adminExportIpLogsCsv(actorToken: string, body: AdminIpLogCsvExportBody) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const target = this.findAccountForAdmin(body.targetIdentifier)
+    if (!target) {
+      throw new Error('Пользователь для выгрузки IP логов не найден.')
+    }
+
+    const normalizedReason = sanitizeAdminText(body.reason, 280)
+    if (!normalizedReason) {
+      throw new Error('Нужно указать основание для выгрузки IP логов.')
+    }
+
+    const fromTimestamp = parseIsoDate(body.from)
+    const toTimestamp = parseIsoDate(body.to)
+    const rows = this.getIpAccessLogsForIdentifier(target.identifier)
+      .filter((entry) => isTimestampWithinRange(entry.createdAt, fromTimestamp, toTimestamp))
+      .sort((left, right) => (parseIsoDate(left.createdAt) ?? 0) - (parseIsoDate(right.createdAt) ?? 0))
+
+    const ipSummary = this.buildAdminUserIpSummary(target.identifier)
+    const fileName = `ip-log-${sanitizeExportFileName(target.displayName) || target.identifier}-${formatExportDateStamp()}.csv`
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.ip-logs.download',
+      nextValue: {
+        fileName,
+        from: body.from,
+        latestIp: ipSummary.latestIp,
+        rowCount: rows.length,
+        to: body.to,
+      },
+      reason: normalizedReason,
+      summary: `Экспортирован CSV IP логов пользователя ${buildAdminAuditAccountLabel(target)} · ${normalizedReason}`,
+      targetId: target.identifier,
+      targetType: 'user',
+    })
+
+    return {
+      csv: buildCsv([
+        ['Когда', 'Тип события', 'IP', 'Предыдущий IP', 'Источник', 'User-Agent'],
+        ...rows.map((entry) => [
+          entry.createdAt,
+          entry.eventType,
+          entry.ip,
+          entry.previousIp ?? '',
+          entry.source,
+          entry.userAgent ?? '',
+        ]),
+      ]),
+      fileName,
     }
   }
 
@@ -8243,7 +8355,7 @@ export class TinychokStore {
     )
   }
 
-  private async createSessionToken(identifier: string) {
+  private async createSessionToken(identifier: string, accessContext?: SessionAccessContext) {
     const account = this.findAccount(identifier)
     if (account) {
       account.lastActiveAt = new Date().toISOString()
@@ -8255,7 +8367,67 @@ export class TinychokStore {
       identifier,
       token,
     })
+
+    if (accessContext) {
+      await this.recordIpAccessEvent(identifier, accessContext)
+    }
+
     return token
+  }
+
+  private getIpAccessLogsForIdentifier(identifier: string) {
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    return this.database.ipAccessLogs
+      .filter((entry) => normalizeIdentifier(entry.identifier) === normalizedIdentifier)
+      .sort((left, right) => (parseIsoDate(left.createdAt) ?? 0) - (parseIsoDate(right.createdAt) ?? 0))
+  }
+
+  private buildAdminUserIpSummary(identifier: string): AdminUserIpSummary {
+    const ipLogs = this.getIpAccessLogsForIdentifier(identifier)
+    const latestEvent = ipLogs.at(-1)
+    const lastLoginEvent = [...ipLogs].reverse().find((entry) => entry.eventType === 'login')
+
+    return {
+      ipChangeCount: ipLogs.filter((entry) => entry.eventType === 'ip-change').length,
+      lastLoginAt: lastLoginEvent?.createdAt,
+      lastLoginIp: lastLoginEvent?.ip,
+      latestIp: latestEvent?.ip,
+      latestIpAt: latestEvent?.createdAt,
+    }
+  }
+
+  private async recordIpAccessEvent(identifier: string, context: SessionAccessContext) {
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const ip = sanitizeIpAddress(context.ip)
+    if (!normalizedIdentifier || !ip) {
+      return false
+    }
+
+    const existingLogs = this.getIpAccessLogsForIdentifier(normalizedIdentifier)
+    const latestEvent = existingLogs.at(-1)
+    const latestIp = latestEvent?.ip
+    const eventType: AdminIpLogEventType = context.source === 'register' || context.source === 'verify-code'
+      ? 'login'
+      : latestIp && latestIp !== ip
+        ? 'ip-change'
+        : 'login'
+
+    if (context.source !== 'register' && context.source !== 'verify-code' && latestIp === ip) {
+      return false
+    }
+
+    this.database.ipAccessLogs.push({
+      createdAt: new Date().toISOString(),
+      eventType,
+      id: randomUUID(),
+      identifier: normalizedIdentifier,
+      ip,
+      previousIp: eventType === 'ip-change' ? latestIp : undefined,
+      source: context.source,
+      userAgent: sanitizeUserAgent(context.userAgent),
+    })
+    await this.persist()
+    return true
   }
 
   private findAccount(identifier: string) {
@@ -9993,6 +10165,16 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
       dialogMessages: normalized.dialogMessages ?? [],
       groupMessages: normalized.groupMessages ?? [],
       groups: normalized.groups ?? [],
+      ipAccessLogs: (normalized.ipAccessLogs ?? []).map((entry) => ({
+        ...entry,
+        eventType: entry.eventType === 'ip-change' ? 'ip-change' : 'login',
+        source:
+          entry.source === 'register' ||
+          entry.source === 'verify-code' ||
+          entry.source === 'websocket'
+            ? entry.source
+            : 'http-api',
+      })),
       managedChannels: normalized.managedChannels ?? [],
       pendingMediaUploads: (normalized.pendingMediaUploads ?? []).map((upload) => ({
         ...upload,

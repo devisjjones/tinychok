@@ -152,6 +152,10 @@ export const runtimeConfig = {
   server: {
     host: process.env.HOST ?? '127.0.0.1',
     port: readPort(process.env.PORT, 8787),
+    trustProxy: readBoolean(
+      process.env.TINYCHOK_TRUST_PROXY,
+      runtimeEnvironment === 'staging' || runtimeEnvironment === 'production',
+    ),
   },
   storage: {
     dataFilePath: resolve(process.cwd(), process.env.STATE_DATA_FILE ?? 'server/data/dev-db.json'),

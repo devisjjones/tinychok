@@ -8,6 +8,7 @@ import type {
   AdminDialogsResponse,
   AdminDialogDetailResponse,
   AdminDialogLookupBody,
+  AdminIpLogCsvExportBody,
   AdminLegalExportBody,
   AdminManagedChannelsResponse,
   AdminManagedGroupsResponse,
@@ -25,7 +26,6 @@ import type {
   AdminUserAvatarBody,
   AdminUserAvatarResponse,
   AdminUserBlockBody,
-  AdminUserDetailResponse,
   AdminUserPremiumBody,
   AdminUsersResponse,
   AdminThreadsResponse,
@@ -221,9 +221,7 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       const auth = requireAdminActor(store, request, reply, 'users.read')
       if (!auth) return reply
 
-      return {
-        user: store.adminGetUser(getRouteParam(request, 'identifier')),
-      } satisfies AdminUserDetailResponse
+      return store.adminGetUser(getRouteParam(request, 'identifier'))
     } catch (error) {
       return sendError(reply, error)
     }
@@ -252,12 +250,12 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       if (!auth) return reply
 
       const body = parseJsonPayload<AdminUserBlockBody>(request.body)
-      return {
-        user: await store.adminSetUserBlocked(auth.token, getRouteParam(request, 'identifier'), {
-          blocked: true,
-          reason: body.reason,
-        }),
-      } satisfies AdminUserDetailResponse
+      const identifier = getRouteParam(request, 'identifier')
+      await store.adminSetUserBlocked(auth.token, identifier, {
+        blocked: true,
+        reason: body.reason,
+      })
+      return store.adminGetUser(identifier)
     } catch (error) {
       return sendError(reply, error)
     }
@@ -268,11 +266,11 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       const auth = requireAdminActor(store, request, reply, 'users.block')
       if (!auth) return reply
 
-      return {
-        user: await store.adminSetUserBlocked(auth.token, getRouteParam(request, 'identifier'), {
-          blocked: false,
-        }),
-      } satisfies AdminUserDetailResponse
+      const identifier = getRouteParam(request, 'identifier')
+      await store.adminSetUserBlocked(auth.token, identifier, {
+        blocked: false,
+      })
+      return store.adminGetUser(identifier)
     } catch (error) {
       return sendError(reply, error)
     }
@@ -284,12 +282,12 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       if (!auth) return reply
 
       const body = parseJsonPayload<AdminUserBlockBody>(request.body)
-      return {
-        user: await store.adminSetUserBlocked(auth.token, getRouteParam(request, 'identifier'), {
-          blocked: false,
-          reason: body.reason,
-        }),
-      } satisfies AdminUserDetailResponse
+      const identifier = getRouteParam(request, 'identifier')
+      await store.adminSetUserBlocked(auth.token, identifier, {
+        blocked: false,
+        reason: body.reason,
+      })
+      return store.adminGetUser(identifier)
     } catch (error) {
       return sendError(reply, error)
     }
@@ -301,9 +299,9 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       if (!auth) return reply
 
       const body = parseJsonPayload<AdminUserPremiumBody>(request.body)
-      return {
-        user: await store.adminSetUserPremium(auth.token, getRouteParam(request, 'identifier'), body),
-      } satisfies AdminUserDetailResponse
+      const identifier = getRouteParam(request, 'identifier')
+      await store.adminSetUserPremium(auth.token, identifier, body)
+      return store.adminGetUser(identifier)
     } catch (error) {
       return sendError(reply, error)
     }
@@ -586,6 +584,18 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
 
       const body = parseJsonPayload<AdminAuditCsvExportBody>(request.body)
       return await store.adminExportAuditLogsCsv(auth.token, body) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/ip-logs/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'ip.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminIpLogCsvExportBody>(request.body)
+      return await store.adminExportIpLogsCsv(auth.token, body) satisfies AdminCsvExportResponse
     } catch (error) {
       return sendError(reply, error)
     }

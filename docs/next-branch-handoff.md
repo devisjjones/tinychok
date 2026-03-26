@@ -170,10 +170,21 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - поиск по `id`, `username`, телефону
   - вкладки `Все` и `Заблокированные`
   - просмотр карточки пользователя
+  - просмотр сводки IP-истории:
+    - последний IP
+    - когда он был замечен
+    - IP последнего логина
+    - дата последнего логина
+    - число смен IP
   - блокировку / разблокировку
   - ручную выдачу / снятие premium
   - просмотр аватарки с обязательной записью в audit log
   - export CSV по admin-аудиту этого пользователя
+  - owner-only `Логи IP`:
+    - требует подтверждения staff-идентификатором
+    - требует обязательное основание
+    - умеет период `from/to`
+    - пишет отдельную запись `admin.ip-logs.download` в audit log
   - owner-only `Юр. выгрузка ZIP`:
     - требует подтверждения staff-идентификатором
     - требует обязательное основание
@@ -216,6 +227,7 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - внутри:
     - `manifest.json`
     - `account.json`
+    - `ip/`
     - `dialogs/`
     - `groups/`
     - `channels/`

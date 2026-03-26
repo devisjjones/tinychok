@@ -179,6 +179,7 @@ async function broadcastSnapshotsForIdentifiers(identifiers: string[]) {
 
 const app = Fastify({
   logger: true,
+  trustProxy: runtimeConfig.server.trustProxy,
 })
 
 void store.cleanupExpiredPendingMediaUploads().catch((error) => {
@@ -205,6 +206,24 @@ await app.register(cors, {
 
 await app.register(multipart)
 await app.register(websocket)
+
+app.addHook('preHandler', async (request) => {
+  const pathname = request.url.split('?', 1)[0] ?? request.url
+  if (!pathname.startsWith('/api/')) {
+    return
+  }
+
+  const token = getBearerToken(request)
+  if (!token) {
+    return
+  }
+
+  await store.recordSessionAccessByToken(token, {
+    ip: request.ip,
+    source: 'http-api',
+    userAgent: request.headers['user-agent'],
+  })
+})
 
 function mapMediaUploadError(kind: UploadMediaKind, error: unknown) {
   if (error instanceof app.multipartErrors.RequestFileTooLargeError) {
@@ -305,7 +324,10 @@ app.post('/api/auth/request-code', async (request, reply) => {
 app.post('/api/auth/verify-code', async (request, reply) => {
   try {
     const body = parseJsonPayload<VerifyCodeBody>(request.body)
-    return await store.verifyCode(body.identifier ?? '', body.code ?? '')
+    return await store.verifyCode(body.identifier ?? '', body.code ?? '', {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+    })
   } catch (error) {
     return sendError(reply, error)
   }
@@ -314,7 +336,10 @@ app.post('/api/auth/verify-code', async (request, reply) => {
 app.post('/api/auth/register', async (request, reply) => {
   try {
     const body = parseJsonPayload<RegisterBody>(request.body)
-    const snapshot = await store.registerAccount(body)
+    const snapshot = await store.registerAccount(body, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+    })
     return { snapshot }
   } catch (error) {
     return sendError(reply, error)
@@ -1424,6 +1449,14 @@ app.get('/ws', { websocket: true }, (connection, request) => {
     connection.close(4002, 'Unknown session')
     return
   }
+
+  void store.recordSessionAccessByToken(token, {
+    ip: request.ip,
+    source: 'websocket',
+    userAgent: request.headers['user-agent'],
+  }).catch((error: unknown) => {
+    app.log.error(error)
+  })
 
   socketsByToken.set(token, connection)
   connection.send(

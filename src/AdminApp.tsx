@@ -6,6 +6,7 @@ import {
   applyAdminReportAction,
   blockAdminUser,
   downloadAdminAuditCsv,
+  downloadAdminIpLogsCsv,
   downloadAdminLegalArchive,
   downloadAdminMedia,
   exportAdminChannelCsv,
@@ -47,6 +48,7 @@ import type {
   AdminReportAction,
   AdminReportSummary,
   AdminThreadSummary,
+  AdminUserIpSummary,
   AdminUserSummary,
   ClientRuntimeConfigResponse,
 } from './shared/backend'
@@ -273,6 +275,7 @@ export default function AdminApp() {
   const [userListFilter, setUserListFilter] = useState<AdminUserListFilter>('all')
   const [selectedUserIdentifier, setSelectedUserIdentifier] = useState('')
   const [selectedUser, setSelectedUser] = useState<AdminUserSummary | null>(null)
+  const [selectedUserIpSummary, setSelectedUserIpSummary] = useState<AdminUserIpSummary | null>(null)
   const [selectedUserAvatarUrl, setSelectedUserAvatarUrl] = useState<string | null>(null)
   const [selectedUserAvatarState, setSelectedUserAvatarState] = useState<'idle' | 'loading' | 'ready' | 'none'>('idle')
 
@@ -388,6 +391,7 @@ export default function AdminApp() {
 
     const response = await fetchAdminUser(sessionToken, identifierToLoad)
     setSelectedUserIdentifier(response.user.identifier)
+    setSelectedUserIpSummary(response.ipSummary)
     setSelectedUser(response.user)
   }
 
@@ -704,6 +708,7 @@ export default function AdminApp() {
     setSessionToken('')
     setBootstrap(null)
     setSelectedUser(null)
+    setSelectedUserIpSummary(null)
     setSelectedUserIdentifier('')
     setSelectedReport(null)
     setSelectedReportId('')
@@ -962,6 +967,36 @@ export default function AdminApp() {
       const reason = getActionReason('Причина выгрузки CSV аудита по пользователю', 'Проверка staff-действий по пользователю')
       if (!reason) return
       const response = await downloadAdminAuditCsv(sessionToken, {
+        targetIdentifier: user.identifier,
+        ...buildAuditWindow(userLogPeriod),
+        reason,
+      })
+      downloadCsvFile(response.fileName, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDownloadUserIpLogsCsv(user: AdminUserSummary) {
+    if (!sessionToken || !bootstrap) return
+
+    const confirmation = window.prompt(
+      'Для подтверждения выгрузки IP логов введите номер текущего staff-аккаунта',
+      bootstrap.actor.identifier,
+    )
+    if (confirmation === null) {
+      return
+    }
+    if (confirmation.trim() !== bootstrap.actor.identifier) {
+      setAppError('Подтверждение выгрузки IP логов не прошло.')
+      return
+    }
+
+    try {
+      const reason = getActionReason('Причина выгрузки CSV IP логов по пользователю', 'Проверка входов и смены IP по пользователю')
+      if (!reason) return
+      const response = await downloadAdminIpLogsCsv(sessionToken, {
         targetIdentifier: user.identifier,
         ...buildAuditWindow(userLogPeriod),
         reason,
@@ -1513,6 +1548,26 @@ export default function AdminApp() {
                       <dd>{formatDateTime(selectedUser.lastActiveAt)}</dd>
                     </div>
                     <div>
+                      <dt>Последний IP</dt>
+                      <dd>{selectedUserIpSummary?.latestIp || 'Нет данных'}</dd>
+                    </div>
+                    <div>
+                      <dt>Последний IP замечен</dt>
+                      <dd>{formatDateTime(selectedUserIpSummary?.latestIpAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>IP входа</dt>
+                      <dd>{selectedUserIpSummary?.lastLoginIp || 'Нет данных'}</dd>
+                    </div>
+                    <div>
+                      <dt>Последний вход с IP</dt>
+                      <dd>{formatDateTime(selectedUserIpSummary?.lastLoginAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Смен IP</dt>
+                      <dd>{selectedUserIpSummary?.ipChangeCount ?? 0}</dd>
+                    </div>
+                    <div>
                       <dt>Storage usage</dt>
                       <dd>
                         {formatBytes(selectedUser.storageUsage.usedBytes)} /{' '}
@@ -1551,6 +1606,15 @@ export default function AdminApp() {
                       >
                         Скачать audit CSV
                       </button>
+                      {bootstrap.actor.permissions.includes('ip.read') ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() => void handleDownloadUserIpLogsCsv(selectedUser)}
+                        >
+                          Логи IP
+                        </button>
+                      ) : null}
                       {bootstrap.actor.permissions.includes('legal.export') ? (
                         <button
                           type="button"

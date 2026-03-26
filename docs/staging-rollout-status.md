@@ -150,6 +150,7 @@ curl -s https://api.staging.tinychok.ru/healthz
   - каналы
   - треды
 - `Пользователи`: search, block / unblock, premium toggle, avatar view
+- `Пользователи`: owner-only `Логи IP` CSV по пользователю с reason и optional period
 - `Пользователи`: owner-only legal export ZIP по пользователю с reason, optional period и optional media
 - `Жалобы`: unread badge, open / close, note trail, блокировка пользователя
 - `Жалобы` для media:
@@ -162,5 +163,9 @@ curl -s https://api.staging.tinychok.ru/healthz
 - `Аудит лог`: actor filter, period filter, CSV export и запись admin-действий
 - owner-only legal export:
   - архив скачивается без server error
+  - архив включает `ip/ip-log.csv` и `ip/ip-log.json`
   - пишет `admin.legal-export.download` в audit log
+- owner-only IP CSV export:
+  - скачивается без server error
+  - пишет `admin.ip-logs.download` в audit log
   - при `includeMedia=true` архив включает media-файлы, если storage-объекты доступны
