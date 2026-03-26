@@ -311,7 +311,7 @@ export function formatAccountName(account: Pick<Account, 'displayName' | 'surnam
 
 export function sanitizePersonField(value: string, maxLength: number) {
   const normalizedWhitespace = value
-    .replace(/[^\p{L}\p{M}\s\p{P}]/gu, '')
+    .replace(/[^\p{L}\p{M}\p{N}\s\p{P}]/gu, '')
     .replace(/\s+/g, ' ')
     .replace(/^\s+/g, '')
 
