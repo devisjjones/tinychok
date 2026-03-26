@@ -44,6 +44,21 @@ function parseJsonPayload<T>(value: unknown) {
   return (value ?? {}) as T
 }
 
+function buildAttachmentContentDisposition(fileName: string) {
+  const normalized = (fileName || 'download.zip').trim() || 'download.zip'
+  const asciiFallback = normalized
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7e]+/g, '-')
+    .replace(/["\\;]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim() || 'download.zip'
+  const encodedName = encodeURIComponent(normalized)
+    .replace(/['()]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/\*/g, '%2A')
+
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedName}`
+}
+
 function sendError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : 'Внутренняя ошибка сервера.'
   return reply.code(400).send({ message })
@@ -515,7 +530,7 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       const body = parseJsonPayload<AdminLegalExportBody>(request.body)
       const payload = await store.adminExportLegalArchive(auth.token, body)
       reply.header('Content-Type', 'application/zip')
-      reply.header('Content-Disposition', `attachment; filename="${payload.fileName}"`)
+      reply.header('Content-Disposition', buildAttachmentContentDisposition(payload.fileName))
       return reply.send(payload.buffer)
     } catch (error) {
       return sendError(reply, error)
