@@ -3388,7 +3388,7 @@ export class TinychokStore {
       if (!group) continue
       const authorIdentifier =
         normalizeIdentifier(
-          group.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
+          group.participants?.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
         ) ||
         normalizeIdentifier(group.creatorIdentifier ?? '') ||
         message.ownerIdentifier
@@ -3425,7 +3425,7 @@ export class TinychokStore {
           const parentGroup = this.findGroup(message.ownerIdentifier, message.groupId) ?? primaryGroup
           const messageAuthorIdentifier =
             normalizeIdentifier(
-              parentGroup.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
+              parentGroup.participants?.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
             ) ||
             normalizeIdentifier(parentGroup.creatorIdentifier ?? '') ||
             message.ownerIdentifier
