@@ -8,6 +8,7 @@ import type {
   AdminDialogsResponse,
   AdminDialogDetailResponse,
   AdminDialogLookupBody,
+  AdminLegalExportBody,
   AdminManagedChannelsResponse,
   AdminManagedGroupsResponse,
   AdminMediaDownloadBody,
@@ -256,6 +257,25 @@ async function readJsonResponse<T>(response: Response) {
   }
 
   return payload as T
+}
+
+function getDownloadFileName(response: Response, fallback: string) {
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/iu)
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1])
+    } catch {
+      return utf8Match[1]
+    }
+  }
+
+  const plainMatch = disposition.match(/filename="([^"]+)"/iu)
+  if (plainMatch) {
+    return plainMatch[1]
+  }
+
+  return fallback
 }
 
 function makeJsonRequestInit(
@@ -832,6 +852,26 @@ export async function exportAdminDialogCsv(
   )
 
   return readJsonResponse<AdminCsvExportResponse>(response)
+}
+
+export async function downloadAdminLegalArchive(
+  sessionToken: string,
+  body: AdminLegalExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/legal-export'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  if (!response.ok) {
+    await readJsonResponse<never>(response)
+  }
+
+  const blob = await response.blob()
+  return {
+    blob,
+    fileName: getDownloadFileName(response, `legal-export-${body.targetIdentifier}.zip`),
+  }
 }
 
 export async function saveSnapshot(sessionToken: string, snapshot: AppSnapshot) {

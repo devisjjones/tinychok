@@ -6,6 +6,7 @@ import {
   applyAdminReportAction,
   blockAdminUser,
   downloadAdminAuditCsv,
+  downloadAdminLegalArchive,
   downloadAdminMedia,
   exportAdminChannelCsv,
   exportAdminDialogCsv,
@@ -227,6 +228,10 @@ function buildAuditWindow(period: AdminAuditPeriod) {
 
 function downloadCsvFile(fileName: string, csv: string) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  downloadBlobFile(fileName, blob)
+}
+
+function downloadBlobFile(fileName: string, blob: Blob) {
   const url = window.URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -968,6 +973,62 @@ export default function AdminApp() {
     }
   }
 
+  async function handleDownloadLegalArchive(user: AdminUserSummary) {
+    if (!sessionToken || !bootstrap) return
+
+    const confirmation = window.prompt(
+      'Для подтверждения юр. выгрузки введите номер текущего staff-аккаунта',
+      bootstrap.actor.identifier,
+    )
+    if (confirmation === null) {
+      return
+    }
+    if (confirmation.trim() !== bootstrap.actor.identifier) {
+      setAppError('Подтверждение юр. выгрузки не прошло.')
+      return
+    }
+
+    const reason = getActionReason(
+      'Основание для юридической выгрузки',
+      'Исполнение официального запроса на выгрузку данных',
+    )
+    if (!reason) return
+
+    const fromInput = window.prompt(
+      'Дата начала периода в ISO формате (например, 2026-03-01T00:00:00.000Z). Оставьте пустым для выгрузки за всё время.',
+      '',
+    )
+    if (fromInput === null) {
+      return
+    }
+
+    const toInput = window.prompt(
+      'Дата конца периода в ISO формате (например, 2026-03-31T23:59:59.999Z). Оставьте пустым для выгрузки по текущий момент.',
+      '',
+    )
+    if (toInput === null) {
+      return
+    }
+
+    const includeMedia = window.confirm(
+      'Включить связанные media-файлы в архив? Это может заметно увеличить размер выгрузки.',
+    )
+
+    try {
+      const response = await downloadAdminLegalArchive(sessionToken, {
+        from: fromInput.trim() || undefined,
+        includeMedia,
+        reason,
+        targetIdentifier: user.identifier,
+        to: toInput.trim() || undefined,
+      })
+      downloadBlobFile(response.fileName, response.blob)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   async function handleDownloadChannelCsv(channel: AdminManagedChannelSummary) {
     if (!sessionToken) return
     const reason = getActionReason('Причина выгрузки CSV канала', 'Проверка канала')
@@ -1490,6 +1551,15 @@ export default function AdminApp() {
                       >
                         Скачать audit CSV
                       </button>
+                      {bootstrap.actor.permissions.includes('legal.export') ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() => void handleDownloadLegalArchive(selectedUser)}
+                        >
+                          Юр. выгрузка ZIP
+                        </button>
+                      ) : null}
                     </div>
                     <div className="admin-toolbar">
                       <button

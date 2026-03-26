@@ -8,6 +8,7 @@ import type {
   AdminDialogsResponse,
   AdminDialogDetailResponse,
   AdminDialogLookupBody,
+  AdminLegalExportBody,
   AdminManagedChannelsResponse,
   AdminManagedGroupsResponse,
   AdminMediaDownloadBody,
@@ -501,6 +502,21 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
         getRouteParam(request, 'sharedKey'),
         body.reason,
       ) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/legal-export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'legal.export')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminLegalExportBody>(request.body)
+      const payload = await store.adminExportLegalArchive(auth.token, body)
+      reply.header('Content-Type', 'application/zip')
+      reply.header('Content-Disposition', `attachment; filename="${payload.fileName}"`)
+      return reply.send(payload.buffer)
     } catch (error) {
       return sendError(reply, error)
     }

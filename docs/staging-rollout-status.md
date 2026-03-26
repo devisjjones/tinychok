@@ -150,6 +150,7 @@ curl -s https://api.staging.tinychok.ru/healthz
   - каналы
   - треды
 - `Пользователи`: search, block / unblock, premium toggle, avatar view
+- `Пользователи`: owner-only legal export ZIP по пользователю с reason, optional period и optional media
 - `Жалобы`: unread badge, open / close, note trail, блокировка пользователя
 - `Жалобы` для media:
   - `Посмотреть` пишет audit entry
@@ -159,3 +160,7 @@ curl -s https://api.staging.tinychok.ru/healthz
 - `Каналы` / `Группы` / `Треды`: одна строка на одну каноническую сущность без fan-out дублей
 - `Диалоги`: выбор двух пользователей и CSV export одного канонического диалога
 - `Аудит лог`: actor filter, period filter, CSV export и запись admin-действий
+- owner-only legal export:
+  - архив скачивается без server error
+  - пишет `admin.legal-export.download` в audit log
+  - при `includeMedia=true` архив включает media-файлы, если storage-объекты доступны

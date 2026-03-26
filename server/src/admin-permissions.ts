@@ -22,6 +22,7 @@ const permissionsByRole: Record<StaffRole, readonly AdminPermission[]> = {
     'users.read',
     'users.block',
     'users.premium.write',
+    'legal.export',
     'reports.read',
     'reports.note',
     'reports.resolve',

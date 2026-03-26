@@ -37,6 +37,7 @@ export type AdminPermission =
   | 'users.read'
   | 'users.block'
   | 'users.premium.write'
+  | 'legal.export'
   | 'reports.read'
   | 'reports.note'
   | 'reports.resolve'
@@ -364,6 +365,14 @@ export type AdminAuditCsvExportBody = {
 
 export type AdminContentCsvExportBody = {
   reason: string
+}
+
+export type AdminLegalExportBody = {
+  from?: string
+  includeMedia?: boolean
+  reason: string
+  targetIdentifier: string
+  to?: string
 }
 
 export type AdminCsvExportResponse = {

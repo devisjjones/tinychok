@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
@@ -175,6 +175,21 @@ async function readStreamToBuffer(stream: NodeJS.ReadableStream) {
   }
 
   return Buffer.concat(chunks)
+}
+
+async function readMediaBufferFromObjectStorage(storageKey: string) {
+  const response = await getObjectStorageClient().send(
+    new GetObjectCommand({
+      Bucket: runtimeConfig.storage.objectStorage.bucket!,
+      Key: storageKey,
+    }),
+  )
+
+  if (!response.Body) {
+    throw new Error('Media-объект не найден в Object Storage.')
+  }
+
+  return readStreamToBuffer(response.Body as NodeJS.ReadableStream)
 }
 
 async function storeMediaBufferLocally(options: {
@@ -454,6 +469,19 @@ export async function deleteStoredMediaByUrl(mediaUrl: string, kind: UploadMedia
 
     throw error
   }
+}
+
+export async function readStoredMediaByUrl(mediaUrl: string, kind: UploadMediaKind) {
+  const storageKey = extractStorageKeyFromMediaUrl(mediaUrl, kind)
+  if (!storageKey) {
+    throw new Error('Не удалось определить ключ media-объекта.')
+  }
+
+  if (runtimeConfig.storage.mediaBackend === 'object-storage') {
+    return readMediaBufferFromObjectStorage(storageKey)
+  }
+
+  return readFile(join(runtimeConfig.storage.localMediaRoot, storageKey))
 }
 
 export function getMediaBackend() {

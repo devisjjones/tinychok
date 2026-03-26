@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, extname, resolve } from 'node:path'
+import { zipSync } from 'fflate'
 import {
   defaultGroupMemberLimit,
   displayNameFieldMaxLength,
@@ -59,6 +60,7 @@ import type {
   AdminAuditLogResponse,
   AdminDashboardResponse,
   AdminDialogSummary,
+  AdminLegalExportBody,
   AdminLinkedUser,
   AdminManagedChannelSummary,
   AdminManagedGroupSummary,
@@ -103,7 +105,7 @@ import type {
   VerifyCodeResponse,
 } from '../../src/shared/backend'
 import { runtimeConfig } from './config'
-import { deleteStoredMediaByUrl } from './media'
+import { deleteStoredMediaByUrl, readStoredMediaByUrl } from './media'
 
 type PersistedDialog = Omit<Chat, 'messages'> & {
   ownerIdentifier: string
@@ -700,6 +702,35 @@ function formatExportDateStamp(value = new Date()) {
   const month = String(value.getMonth() + 1).padStart(2, '0')
   const day = String(value.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function isTimestampWithinRange(value: string | undefined, fromTimestamp: number | null, toTimestamp: number | null) {
+  const timestamp = parseIsoDate(value)
+  if (timestamp === null) {
+    return false
+  }
+
+  if (fromTimestamp !== null && timestamp < fromTimestamp) {
+    return false
+  }
+
+  if (toTimestamp !== null && timestamp > toTimestamp) {
+    return false
+  }
+
+  return true
+}
+
+function buildCsv(rows: unknown[][]) {
+  return rows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')).join('\n')
+}
+
+function toJsonBuffer(value: unknown) {
+  return Buffer.from(JSON.stringify(value, null, 2), 'utf8')
+}
+
+function toTextBuffer(value: string) {
+  return Buffer.from(value, 'utf8')
 }
 
 function classifyAdminMediaType(
@@ -3188,6 +3219,658 @@ export class TinychokStore {
     return {
       csv,
       fileName: dialog.csvFileName,
+    }
+  }
+
+  async adminExportLegalArchive(actorToken: string, body: AdminLegalExportBody) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const target = this.findAccountForAdmin(body.targetIdentifier)
+    if (!target) {
+      throw new Error('Пользователь для выгрузки не найден.')
+    }
+
+    const normalizedReason = sanitizeAdminText(body.reason, 500)
+    if (!normalizedReason) {
+      throw new Error('Нужно указать основание для выгрузки.')
+    }
+
+    const fromTimestamp = parseIsoDate(body.from)
+    const toTimestamp = parseIsoDate(body.to)
+    const includeMedia = Boolean(body.includeMedia)
+    const archiveEntries: Record<string, Uint8Array> = {}
+    const mediaFailures: Array<{ error: string; fileName: string; mediaUrl: string }> = []
+    const threadRows: Array<{
+      commentCount: number
+      contextLabel: string
+      id: string
+      kind: 'group' | 'channel'
+      latestActivityAt?: string
+      ownerIdentifier: string
+      title: string
+    }> = []
+
+    const registerJson = (pathname: string, payload: unknown) => {
+      archiveEntries[pathname] = toJsonBuffer(payload)
+    }
+
+    const registerCsv = (pathname: string, rows: unknown[][]) => {
+      archiveEntries[pathname] = toTextBuffer(buildCsv(rows))
+    }
+
+    const fileNameCounters = new Map<string, number>()
+    const nextArchiveMediaPath = (fileName: string) => {
+      const extension = extname(fileName).toLowerCase()
+      const basename = sanitizeExportFileName(fileName.slice(0, fileName.length - extension.length) || 'media') || 'media'
+      const counterKey = `${basename}${extension}`
+      const nextIndex = (fileNameCounters.get(counterKey) ?? 0) + 1
+      fileNameCounters.set(counterKey, nextIndex)
+      return nextIndex === 1
+        ? `media/${basename}${extension}`
+        : `media/${basename}-${nextIndex}${extension}`
+    }
+
+    const sortByCreatedAtAsc = <T extends { createdAt?: string }>(items: T[]) =>
+      [...items].sort((left, right) => (parseIsoDate(left.createdAt) ?? 0) - (parseIsoDate(right.createdAt) ?? 0))
+
+    const dialogExports = new Map<
+      string,
+      {
+        dialogId: number
+        ownerIdentifier: string
+        peerIdentifier: string
+      }
+    >()
+
+    for (const dialog of this.database.dialogs) {
+      const peerIdentifier = normalizeIdentifier(dialog.phone)
+      if (!peerIdentifier || peerIdentifier === dialog.ownerIdentifier) {
+        continue
+      }
+
+      if (dialog.ownerIdentifier !== target.identifier && peerIdentifier !== target.identifier) {
+        continue
+      }
+
+      const sharedKey = [dialog.ownerIdentifier, peerIdentifier].sort().join('::')
+      const currentValue = dialogExports.get(sharedKey)
+      if (!currentValue || dialog.ownerIdentifier === target.identifier) {
+        dialogExports.set(sharedKey, {
+          dialogId: dialog.id,
+          ownerIdentifier: dialog.ownerIdentifier,
+          peerIdentifier,
+        })
+      }
+    }
+
+    const dialogManifest: Array<{
+      fileBaseName: string
+      messageCount: number
+      ownerIdentifier: string
+      peerIdentifier: string
+      sharedKey: string
+    }> = []
+
+    for (const [sharedKey, exportTarget] of dialogExports.entries()) {
+      const ownerAccount = this.findAccount(exportTarget.ownerIdentifier)
+      const peerAccount = this.findAccount(exportTarget.peerIdentifier)
+      const messages = sortByCreatedAtAsc(
+        this.database.dialogMessages.filter(
+          (message) =>
+            message.ownerIdentifier === exportTarget.ownerIdentifier &&
+            message.dialogId === exportTarget.dialogId &&
+            isTimestampWithinRange(message.createdAt, fromTimestamp, toTimestamp),
+        ),
+      )
+
+      const fileBaseName = `dialog-${sanitizeExportFileName(ownerAccount ? buildAccountDisplayLabel(ownerAccount) : exportTarget.ownerIdentifier)}-${sanitizeExportFileName(peerAccount ? buildAccountDisplayLabel(peerAccount) : exportTarget.peerIdentifier)}`
+      const rows: unknown[][] = [['Когда', 'Автор', 'ID автора', 'Текст', 'Файл', 'Media URL', 'Reply To', 'Read At']]
+      const payloadMessages = messages.map((message) => {
+        const authorIdentifier =
+          message.author === 'me' ? exportTarget.ownerIdentifier : exportTarget.peerIdentifier
+        const author = this.findAccount(authorIdentifier)
+        rows.push([
+          message.createdAt ?? '',
+          author ? buildAccountDisplayLabel(author) : authorIdentifier,
+          authorIdentifier,
+          message.text,
+          message.attachment?.fileName ?? '',
+          message.attachment?.mediaUrl ?? '',
+          message.replyTo?.text ?? '',
+          message.readAt ?? '',
+        ])
+
+        return {
+          attachment: message.attachment ?? null,
+          authorDisplayName: author ? buildAccountDisplayLabel(author) : authorIdentifier,
+          authorIdentifier,
+          createdAt: message.createdAt,
+          deliveryId: message.deliveryId,
+          id: message.id,
+          readAt: message.readAt,
+          replyTo: message.replyTo ?? null,
+          text: message.text,
+        }
+      })
+
+      registerJson(`dialogs/${fileBaseName}.json`, {
+        messageCount: payloadMessages.length,
+        owner: ownerAccount ? this.buildAdminUserSummary(ownerAccount) : exportTarget.ownerIdentifier,
+        peer: peerAccount ? this.buildAdminUserSummary(peerAccount) : exportTarget.peerIdentifier,
+        sharedKey,
+        messages: payloadMessages,
+      })
+      registerCsv(`dialogs/${fileBaseName}.csv`, rows)
+      dialogManifest.push({
+        fileBaseName,
+        messageCount: payloadMessages.length,
+        ownerIdentifier: exportTarget.ownerIdentifier,
+        peerIdentifier: exportTarget.peerIdentifier,
+        sharedKey,
+      })
+    }
+
+    const relevantGroupIds = new Set<string>()
+    for (const group of this.database.groups) {
+      const participantIdentifiers = (group.participants ?? []).map((participant) =>
+        normalizeIdentifier(participant.identifier ?? ''),
+      )
+      const creatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? '') || group.ownerIdentifier
+      if (
+        normalizeIdentifier(group.ownerIdentifier) === target.identifier ||
+        creatorIdentifier === target.identifier ||
+        participantIdentifiers.includes(target.identifier)
+      ) {
+        relevantGroupIds.add(this.getSharedGroupId(group))
+      }
+    }
+    for (const message of this.database.groupMessages) {
+      const group = this.findGroup(message.ownerIdentifier, message.groupId)
+      if (!group) continue
+      const authorIdentifier =
+        normalizeIdentifier(
+          group.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
+        ) ||
+        normalizeIdentifier(group.creatorIdentifier ?? '') ||
+        message.ownerIdentifier
+      if (
+        authorIdentifier === target.identifier ||
+        compactThreadComments(message.threadComments).some(
+          (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === target.identifier,
+        )
+      ) {
+        relevantGroupIds.add(this.getSharedGroupId(group))
+      }
+    }
+
+    const groupManifest: Array<{ fileBaseName: string; groupId: string; messageCount: number; title: string }> = []
+    for (const groupId of relevantGroupIds) {
+      const copies = this.listGroupCopies(groupId)
+      const primaryGroup = copies[0]
+      if (!primaryGroup) continue
+
+      const messages = this.database.groupMessages.filter((message) =>
+        copies.some((group) => group.ownerIdentifier === message.ownerIdentifier && group.id === message.groupId),
+      )
+      const uniqueMessages = sortByCreatedAtAsc(
+        [...new Map(
+          messages.map((message) => {
+            const parentGroup = this.findGroup(message.ownerIdentifier, message.groupId) ?? primaryGroup
+            return [buildAdminGroupThreadKey(parentGroup, message), message] as const
+          }),
+        ).values()],
+      )
+
+      const payloadMessages = uniqueMessages
+        .map((message) => {
+          const parentGroup = this.findGroup(message.ownerIdentifier, message.groupId) ?? primaryGroup
+          const messageAuthorIdentifier =
+            normalizeIdentifier(
+              parentGroup.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
+            ) ||
+            normalizeIdentifier(parentGroup.creatorIdentifier ?? '') ||
+            message.ownerIdentifier
+          const author = this.findAccount(messageAuthorIdentifier)
+          const comments = compactThreadComments(message.threadComments).filter(
+            (comment) =>
+              fromTimestamp === null && toTimestamp === null
+                ? true
+                : isTimestampWithinRange(comment.createdAt, fromTimestamp, toTimestamp),
+          )
+          const includeMessage =
+            isTimestampWithinRange(message.createdAt, fromTimestamp, toTimestamp) || comments.length > 0
+          if (!includeMessage) {
+            return null
+          }
+
+          return {
+            attachment: message.attachment ?? null,
+            authorDisplayName: author ? buildAccountDisplayLabel(author) : messageAuthorIdentifier,
+            authorIdentifier: messageAuthorIdentifier,
+            comments: comments.map((comment) => {
+              const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
+              const commentAuthor = this.findAccount(commentAuthorIdentifier)
+              return {
+                attachment: comment.attachment ?? null,
+                authorDisplayName: commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+                authorIdentifier: commentAuthorIdentifier,
+                createdAt: comment.createdAt,
+                deliveryId: comment.deliveryId,
+                id: comment.id,
+                replyTo: comment.replyTo ?? null,
+                text: comment.text,
+              }
+            }),
+            createdAt: message.createdAt,
+            id: message.id,
+            text: message.text,
+            threadId: getGroupMessageThreadId(parentGroup, message),
+          }
+        })
+        .filter((message): message is NonNullable<typeof message> => Boolean(message))
+
+      const fileBaseName = `group-${sanitizeExportFileName(primaryGroup.title) || 'group'}`
+      const rows: unknown[][] = [['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл', 'Thread ID']]
+      for (const message of payloadMessages) {
+        rows.push([
+          message.createdAt ?? '',
+          'message',
+          message.authorDisplayName,
+          message.authorIdentifier,
+          message.text,
+          message.attachment?.fileName ?? '',
+          message.threadId ?? '',
+        ])
+        for (const comment of message.comments) {
+          rows.push([
+            comment.createdAt ?? '',
+            'thread-comment',
+            comment.authorDisplayName,
+            comment.authorIdentifier,
+            comment.text,
+            comment.attachment?.fileName ?? '',
+            message.threadId ?? '',
+          ])
+        }
+      }
+
+      registerJson(`groups/${fileBaseName}.json`, {
+        group: {
+          handle: primaryGroup.handle,
+          id: groupId,
+          members: primaryGroup.members,
+          ownerIdentifier: primaryGroup.ownerIdentifier,
+          title: primaryGroup.title,
+        },
+        participants: (primaryGroup.participants ?? []).map((participant) => ({
+          displayName: participant.title,
+          id: participant.id,
+          identifier: participant.identifier,
+          nickname: participant.nickname,
+        })),
+        messages: payloadMessages,
+      })
+      registerCsv(`groups/${fileBaseName}.csv`, rows)
+      groupManifest.push({
+        fileBaseName,
+        groupId,
+        messageCount: payloadMessages.length,
+        title: primaryGroup.title,
+      })
+
+      for (const message of payloadMessages) {
+        if (message.comments.length > 0 || message.threadId) {
+          threadRows.push({
+            commentCount: message.comments.length,
+            contextLabel: primaryGroup.title,
+            id: message.threadId ?? `${groupId}:${message.id}`,
+            kind: 'group',
+            latestActivityAt: message.comments.at(-1)?.createdAt ?? message.createdAt,
+            ownerIdentifier: primaryGroup.ownerIdentifier,
+            title: message.text || `Тред группы ${primaryGroup.title}`,
+          })
+        }
+      }
+    }
+
+    const relevantChannelHandles = new Set<string>()
+    for (const channel of this.database.managedChannels) {
+      const handle = sanitizeChannelDirectLink(channel.directLink) || channel.directLink
+      if (normalizeIdentifier(channel.ownerIdentifier) === target.identifier) {
+        relevantChannelHandles.add(handle)
+      }
+    }
+    for (const channel of this.database.subscriptionChannels) {
+      const handle = sanitizeChannelDirectLink(channel.handle) || channel.handle
+      const participantIdentifiers = (channel.participants ?? []).map((participant) =>
+        normalizeIdentifier(participant.identifier ?? ''),
+      )
+      if (normalizeIdentifier(channel.ownerIdentifier) === target.identifier || participantIdentifiers.includes(target.identifier)) {
+        relevantChannelHandles.add(handle)
+      }
+    }
+    for (const post of this.database.subscriptionPosts) {
+      const channel = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+      if (!channel) continue
+      const handle = sanitizeChannelDirectLink(channel.handle) || channel.handle
+      if (
+        post.ownerIdentifier === target.identifier ||
+        compactThreadComments(post.threadComments).some(
+          (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === target.identifier,
+        )
+      ) {
+        relevantChannelHandles.add(handle)
+      }
+    }
+
+    const channelManifest: Array<{ fileBaseName: string; handle: string; postCount: number; title: string }> = []
+    for (const handle of relevantChannelHandles) {
+      const copies = this.listSubscriptionChannelCopiesByHandle(handle)
+      const primaryCopy = copies[0]
+      const managedChannel = this.findManagedChannelByHandle(handle)
+      if (!primaryCopy && !managedChannel) continue
+
+      const posts = this.database.subscriptionPosts.filter((post) =>
+        copies.some((channel) => channel.ownerIdentifier === post.ownerIdentifier && channel.id === post.channelId),
+      )
+      const uniquePosts = sortByCreatedAtAsc(
+        [...new Map(
+          posts.map((post) => {
+            const parent = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId) ?? primaryCopy
+            const key = parent ? buildAdminChannelThreadKey(parent, post) : `${post.ownerIdentifier}:${post.channelId}:${post.id}`
+            return [key, post] as const
+          }),
+        ).values()],
+      )
+
+      const payloadPosts = uniquePosts
+        .map((post) => {
+          const comments = compactThreadComments(post.threadComments).filter(
+            (comment) =>
+              fromTimestamp === null && toTimestamp === null
+                ? true
+                : isTimestampWithinRange(comment.createdAt, fromTimestamp, toTimestamp),
+          )
+          const includePost =
+            isTimestampWithinRange(post.createdAt, fromTimestamp, toTimestamp) || comments.length > 0
+          if (!includePost) {
+            return null
+          }
+
+          const channelOwnerIdentifier = managedChannel?.ownerIdentifier ?? post.ownerIdentifier
+          const channelOwner = this.findAccount(channelOwnerIdentifier)
+          const threadId = primaryCopy ? getSubscriptionPostThreadId(primaryCopy, post) : post.threadId?.trim() || undefined
+
+          return {
+            attachment: post.attachment ?? null,
+            authorDisplayName: channelOwner ? buildAccountDisplayLabel(channelOwner) : channelOwnerIdentifier,
+            authorIdentifier: channelOwnerIdentifier,
+            comments: comments.map((comment) => {
+              const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
+              const commentAuthor = this.findAccount(commentAuthorIdentifier)
+              return {
+                attachment: comment.attachment ?? null,
+                authorDisplayName: commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+                authorIdentifier: commentAuthorIdentifier,
+                createdAt: comment.createdAt,
+                deliveryId: comment.deliveryId,
+                id: comment.id,
+                replyTo: comment.replyTo ?? null,
+                text: comment.text,
+              }
+            }),
+            createdAt: post.createdAt,
+            id: post.id,
+            text: post.text,
+            threadId,
+          }
+        })
+        .filter((post): post is NonNullable<typeof post> => Boolean(post))
+
+      const channelTitle = managedChannel?.title ?? primaryCopy?.title ?? handle
+      const fileBaseName = `channel-${sanitizeExportFileName(channelTitle) || 'channel'}`
+      const rows: unknown[][] = [['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл', 'Thread ID']]
+      for (const post of payloadPosts) {
+        rows.push([
+          post.createdAt ?? '',
+          'post',
+          post.authorDisplayName,
+          post.authorIdentifier,
+          post.text,
+          post.attachment?.fileName ?? '',
+          post.threadId ?? '',
+        ])
+        for (const comment of post.comments) {
+          rows.push([
+            comment.createdAt ?? '',
+            'thread-comment',
+            comment.authorDisplayName,
+            comment.authorIdentifier,
+            comment.text,
+            comment.attachment?.fileName ?? '',
+            post.threadId ?? '',
+          ])
+        }
+      }
+
+      registerJson(`channels/${fileBaseName}.json`, {
+        channel: {
+          handle,
+          ownerIdentifier: managedChannel?.ownerIdentifier ?? primaryCopy?.ownerIdentifier ?? '',
+          readers: primaryCopy?.readers ?? 0,
+          title: channelTitle,
+          visibility: managedChannel?.visibility ?? primaryCopy?.visibility ?? 'private',
+        },
+        posts: payloadPosts,
+      })
+      registerCsv(`channels/${fileBaseName}.csv`, rows)
+      channelManifest.push({
+        fileBaseName,
+        handle,
+        postCount: payloadPosts.length,
+        title: channelTitle,
+      })
+
+      for (const post of payloadPosts) {
+        if (post.comments.length > 0 || post.threadId) {
+          threadRows.push({
+            commentCount: post.comments.length,
+            contextLabel: channelTitle,
+            id: post.threadId ?? `${handle}:${post.id}`,
+            kind: 'channel',
+            latestActivityAt: post.comments.at(-1)?.createdAt ?? post.createdAt,
+            ownerIdentifier: managedChannel?.ownerIdentifier ?? primaryCopy?.ownerIdentifier ?? post.authorIdentifier,
+            title: post.text || `Тред канала ${channelTitle}`,
+          })
+        }
+      }
+    }
+
+    const uniqueThreads = [...new Map(threadRows.map((thread) => [thread.id, thread] as const)).values()]
+      .sort((left, right) => compareIsoDateDesc(left.latestActivityAt, right.latestActivityAt))
+    registerJson('threads/threads.json', uniqueThreads)
+    registerCsv('threads/threads.csv', [
+      ['ID', 'Тип', 'Контекст', 'Владелец', 'Комментариев', 'Последняя активность', 'Заголовок'],
+      ...uniqueThreads.map((thread) => [
+        thread.id,
+        thread.kind,
+        thread.contextLabel,
+        thread.ownerIdentifier,
+        thread.commentCount,
+        thread.latestActivityAt ?? '',
+        thread.title,
+      ]),
+    ])
+
+    const relatedReports = this.database.adminReports
+      .filter(
+        (report) =>
+          report.reporterIdentifier === target.identifier ||
+          normalizeIdentifier(report.entityOwnerIdentifier ?? '') === target.identifier ||
+          normalizeIdentifier(report.relatedUserIdentifier ?? '') === target.identifier,
+      )
+      .map((report) => this.buildAdminReportSummary(report))
+      .sort((left, right) => compareIsoDateDesc(left.updatedAt, right.updatedAt))
+    registerJson('reports/reports.json', relatedReports)
+    registerCsv('reports/reports.csv', [
+      ['ID', 'Статус', 'Тип', 'Entity', 'Репортёр', 'Связанный пользователь', 'Создана', 'Обновлена', 'Причина'],
+      ...relatedReports.map((report) => [
+        report.id,
+        report.status,
+        report.entityType,
+        report.entityLabel,
+        report.reporterIdentifier,
+        report.relatedUserIdentifier ?? '',
+        report.createdAt,
+        report.updatedAt,
+        report.reason,
+      ]),
+    ])
+
+    const auditRows = [
+      ...this.adminListAuditLogs({
+        limit: Number.MAX_SAFE_INTEGER,
+        targetIdentifier: target.identifier,
+      }),
+      ...this.adminListAuditLogs({
+        actorIdentifier: target.identifier,
+        limit: Number.MAX_SAFE_INTEGER,
+      }),
+    ]
+    const uniqueAuditRows = [...new Map(auditRows.map((entry) => [entry.id, entry] as const)).values()]
+      .sort((left, right) => compareIsoDateDesc(left.createdAt, right.createdAt))
+    registerJson('audit/audit.json', uniqueAuditRows)
+    registerCsv('audit/audit.csv', [
+      ['Когда', 'Актор', 'Роль', 'Action', 'Target', 'Причина', 'Summary'],
+      ...uniqueAuditRows.map((entry) => [
+        entry.createdAt,
+        entry.actorDisplayName,
+        entry.actorRole,
+        entry.action,
+        entry.targetLabel,
+        entry.reason ?? '',
+        entry.summary,
+      ]),
+    ])
+
+    const mediaItems = this.collectAdminMediaItems()
+      .filter(
+        (item) =>
+          item.owner.identifier === target.identifier ||
+          item.relatedUsers.some((user) => normalizeIdentifier(user.identifier) === target.identifier),
+      )
+      .sort((left, right) => compareIsoDateDesc(left.createdAt, right.createdAt))
+
+    const mediaManifest: Array<{
+      archivePath?: string
+      contextLabel: string
+      downloadStatus: 'included' | 'skipped' | 'failed'
+      error?: string
+      fileName: string
+      kind: string
+      mediaUrl: string
+      ownerIdentifier: string
+      relatedUserIdentifiers: string[]
+      size: number
+      typeLabel: string
+    }> = []
+
+    for (const item of mediaItems) {
+      const baseRecord = {
+        contextLabel: item.contextLabel,
+        fileName: item.fileName,
+        kind: item.kind,
+        mediaUrl: item.mediaUrl,
+        ownerIdentifier: item.owner.identifier,
+        relatedUserIdentifiers: item.relatedUsers.map((user) => user.identifier),
+        size: item.size,
+        typeLabel: item.typeLabel,
+      }
+
+      if (!includeMedia || item.kind === 'unknown') {
+        mediaManifest.push({
+          ...baseRecord,
+          downloadStatus: 'skipped',
+        })
+        continue
+      }
+
+      try {
+        const buffer = await readStoredMediaByUrl(item.mediaUrl, item.kind)
+        const archivePath = nextArchiveMediaPath(item.fileName || item.id)
+        archiveEntries[archivePath] = buffer
+        mediaManifest.push({
+          ...baseRecord,
+          archivePath,
+          downloadStatus: 'included',
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Не удалось прочитать media-объект.'
+        mediaFailures.push({
+          error: message,
+          fileName: item.fileName,
+          mediaUrl: item.mediaUrl,
+        })
+        mediaManifest.push({
+          ...baseRecord,
+          downloadStatus: 'failed',
+          error: message,
+        })
+      }
+    }
+
+    registerJson('media/media.json', mediaManifest)
+    if (mediaFailures.length > 0) {
+      registerJson('media/media-errors.json', mediaFailures)
+    }
+
+    const accountSummary = this.buildAdminUserSummary(target)
+    registerJson('account.json', accountSummary)
+
+    const manifest = {
+      accountIdentifier: target.identifier,
+      actorIdentifier: actor.identifier,
+      actorRole: actor.staffRole,
+      archiveVersion: 1,
+      createdAt: new Date().toISOString(),
+      dateRange: {
+        from: body.from ?? null,
+        to: body.to ?? null,
+      },
+      includeMedia,
+      counts: {
+        auditEntries: uniqueAuditRows.length,
+        channels: channelManifest.length,
+        dialogs: dialogManifest.length,
+        groups: groupManifest.length,
+        media: mediaManifest.length,
+        mediaFilesIncluded: mediaManifest.filter((item) => item.downloadStatus === 'included').length,
+        reports: relatedReports.length,
+        threads: uniqueThreads.length,
+      },
+      reason: normalizedReason,
+      targetDisplayName: accountSummary.displayName,
+    }
+    registerJson('manifest.json', manifest)
+
+    const archiveFileName = `legal-export-${sanitizeExportFileName(accountSummary.displayName) || target.identifier}-${formatExportDateStamp()}.zip`
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.legal-export.download',
+      nextValue: {
+        archiveFileName,
+        counts: manifest.counts,
+        from: body.from,
+        includeMedia,
+        to: body.to,
+      },
+      reason: normalizedReason,
+      summary: `Сформирована юридическая выгрузка для ${buildAdminAuditAccountLabel(target)} · ${normalizedReason}`,
+      targetId: target.identifier,
+      targetType: 'user',
+    })
+
+    return {
+      buffer: Buffer.from(zipSync(archiveEntries, { level: 0 })),
+      fileName: archiveFileName,
     }
   }
 

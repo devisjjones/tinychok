@@ -174,6 +174,12 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - ручную выдачу / снятие premium
   - просмотр аватарки с обязательной записью в audit log
   - export CSV по admin-аудиту этого пользователя
+  - owner-only `Юр. выгрузка ZIP`:
+    - требует подтверждения staff-идентификатором
+    - требует обязательное основание
+    - умеет период `from/to`
+    - умеет опционально включать media-файлы
+    - пишет отдельную запись `admin.legal-export.download` в audit log
 - `Жалобы` работают как moderation queue:
   - новые непросмотренные тикеты дают badge в левой навигации и точку в списке
   - открытие тикета снимает unread-статус
@@ -205,6 +211,19 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - групп
   - тредов
   - диалогов
+- помимо CSV export теперь есть owner-only legal export:
+  - один ZIP архив по конкретному пользователю
+  - внутри:
+    - `manifest.json`
+    - `account.json`
+    - `dialogs/`
+    - `groups/`
+    - `channels/`
+    - `threads/`
+    - `reports/`
+    - `audit/`
+    - `media/` metadata
+  - при `includeMedia=true` архив дополнительно подтягивает сами media-файлы из storage
 - для admin-списков, где сущность размножается по пользовательским копиям, canonical aggregation принципиален:
   - staff должен видеть продуктовую сущность один раз
   - moderation, detail-view и CSV должны цепляться к canonical entity, а не к viewer-copy

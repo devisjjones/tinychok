@@ -19,6 +19,7 @@ export type AppStore = Pick<
   | 'adminExportChannelCsv'
   | 'adminExportDialogCsv'
   | 'adminExportGroupCsv'
+  | 'adminExportLegalArchive'
   | 'adminExportThreadCsv'
   | 'adminListAuditActors'
   | 'adminListChannels'
