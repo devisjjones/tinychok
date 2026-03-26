@@ -23,10 +23,9 @@
 ### Current Behavior
 
 - если `TINYCHOK_CAPTCHA_PROVIDER=disabled`, auth flow работает без captcha
-- если включить `smartcaptcha` или `turnstile`, backend начинает требовать `captchaToken` на:
-  - `POST /api/auth/request-code`
-  - `POST /api/auth/verify-code`
-  - `POST /api/auth/register`
+- если включить `smartcaptcha` или `turnstile`, backend требует `captchaToken` только на `POST /api/auth/request-code`
+- `verify-code` и `register` captcha больше не требуют
+- admin staff login использует тот же `POST /api/auth/request-code`, поэтому captcha защищает и обычный login, и admin login
 
 ### Required Backend Env
 
@@ -41,12 +40,17 @@ TINYCHOK_CAPTCHA_VERIFY_URL=
 
 - `TINYCHOK_CAPTCHA_PROVIDER=smartcaptcha`
 - `TINYCHOK_CAPTCHA_VERIFY_URL` по умолчанию резолвится в `https://smartcaptcha.cloud.yandex.ru/validate`
-- frontend использует invisible SmartCaptcha и получает новый одноразовый токен перед каждым auth submit
-- токен SmartCaptcha одноразовый и живёт ограниченное время, поэтому после любого auth request виджет нужно сбрасывать
+- user auth показывает обычный видимый SmartCaptcha widget только на шаге ввода телефона
+- admin auth показывает отдельный видимый SmartCaptcha widget только на шаге ввода staff-телефона
+- токен SmartCaptcha одноразовый и живёт ограниченное время, поэтому после `request-code` виджет сбрасывается
+- если challenge не нужен, SmartCaptcha может пропустить пользователя после простой галочки; это нормальная risk-based логика провайдера, а не баг интеграции
 
 ### What Is Still Needed Before Enabling Captcha
 
-- отдельный smoke-test для полного auth flow при включённой captcha
+- периодический smoke-test для:
+  - обычного login на staging
+  - admin login на staging
+  - сценария без прохождения captcha до `request-code`
 
 ## Analytics Layer
 
@@ -76,6 +80,7 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 - thread comment send
 - realtime connected / disconnected / error
 - consent and selected product actions
+- browser notification prompt / enable flow
 
 ### Recommended Next Events
 
@@ -102,9 +107,16 @@ Growth and activation:
 - `photo_attachment_processing_failed`
 - `photo_upload_failed`
 - `image_viewer_opened`
+- `gif_uploaded`
+- `gif_deleted`
+- `gif_search_used`
+- `browser_notifications_enabled`
+- `browser_notifications_disabled`
+- `browser_notifications_prompt_dismissed`
 
 ## What Must Happen Before Production-Ready Rollout
 
 - analytics нужен не только `log` sink, а нормальный ingestion target
 - captcha нельзя включать на staging или production без рабочего frontend widget-а
+- support footer на auth-экране должен оставаться видимым, чтобы пользователь мог написать на `tinychok.help@yandex.com`, если login сломан
 - transport metrics должны покрывать retries, fallback path и delete consistency

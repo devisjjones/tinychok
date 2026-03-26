@@ -105,11 +105,10 @@
 - sandbox-аккаунт платёжного провайдера
 - webhook URL для платежей
 - юридические реквизиты для платежного подключения
-- support/ops email
+- support/ops email:
+  - `tinychok.help@yandex.com`
 - список тестовых пользователей для закрытой альфы
 - список устройств и браузеров для ручной проверки
-- staging frontend deploy на `staging.tinychok.ru`
-- HTTPS для `staging.tinychok.ru`
 - решение, где отдавать staging frontend:
   - на этой же VM через `nginx`
   - или как статическую выдачу отдельно от VM
@@ -135,9 +134,8 @@
 
 ## Текущие открытые вопросы
 
-- frontend для `staging.tinychok.ru` ещё не выложен.
-- HTTPS для `staging.tinychok.ru` ещё не настроен.
-- Нужно выбрать финальный способ выдачи staging frontend.
+- Yandex Analytics / Yandex Metrica ещё не подключены.
+- Production DNS-схема для `tinychok.ru` ещё не финализирована.
 - На `tinychok.ru` в `Reg.ru` корень `@` и `www` пока смотрят на `95.163.244.138`, production DNS-схема ещё не финализирована.
 - Production target по БД остаётся: `Managed PostgreSQL`.
 

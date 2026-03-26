@@ -1,6 +1,6 @@
 # Staging Frontend Rollout
 
-Короткий frontend-only rollout для `staging.tinychok.ru` по состоянию на `2026-03-21`.
+Короткий frontend-only rollout для `staging.tinychok.ru` по состоянию на `2026-03-26`.
 
 ## Решение
 
@@ -74,6 +74,12 @@ sudo systemctl reload nginx
 ```
 
 Если symlink уже существует, просто обновить конфиг и снова выполнить `nginx -t` и reload.
+
+Для текущего staging поверх этого конфига уже используются:
+
+- `basic auth` на user frontend;
+- отдельный `basic auth` на `admin.staging.tinychok.ru`;
+- после `rsync` нужно удалять `/var/www/tinychok-staging/svf`, чтобы `public/svf/` не оставался в web root.
 
 ## 4. Выпустить HTTPS
 

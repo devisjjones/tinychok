@@ -53,8 +53,9 @@
 
 - `api.staging.tinychok.ru` уже резолвится во внешних DNS (`1.1.1.1`, `8.8.8.8`) на `158.160.197.255`
 - `staging.tinychok.ru` уже резолвится во внешних DNS (`1.1.1.1`, `8.8.8.8`) на `158.160.197.255`
+- `admin.staging.tinychok.ru` уже используется как staging admin host на той же VM
 - `https://api.staging.tinychok.ru/healthz` и `https://api.staging.tinychok.ru/readyz` уже открываются публично
-- frontend на `staging.tinychok.ru` пока ещё не выложен
+- frontend на `staging.tinychok.ru` уже выложен и закрыт basic auth
 - production DNS-схема для `.ru` ещё не зафиксирована как окончательная
 
 ## Что это значит сейчас
@@ -62,6 +63,7 @@
 - `.com` уже используется как домен, привязанный к текущей статической выдаче через Yandex website endpoint;
 - `.ru` зафиксирован как основной production-домен;
 - staging API уже реально работает на `api.staging.tinychok.ru` с HTTPS;
-- `staging.tinychok.ru` уже зарезервирован DNS-записью под staging frontend;
+- `staging.tinychok.ru` уже реально используется как staging frontend;
+- `admin.staging.tinychok.ru` уже реально используется как staging admin frontend;
 - `.com` должен стать доменом-редиректом на `.ru`;
 - staging логичнее держать на `.ru`, а не на `.com`, чтобы production и staging жили в одной доменной схеме.

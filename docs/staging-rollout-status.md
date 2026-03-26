@@ -42,6 +42,13 @@
 - фото прикладываются и отправляются через новый draft flow
 - fullscreen image viewer открывается по tap
 - GIF работают через premium-вкладку picker-а
+- GIF library умеет:
+  - локальный upload `.gif`
+  - дедуп по имени и размеру
+  - auto-attach сразу после upload
+  - поиск по общему Tinychok GIF pool по имени файла
+  - удаление GIF из личной библиотеки
+  - добавление GIF себе из fullscreen viewer
 - аватарки профиля, группы и канала обновляются через единый crop/resize pipeline
 
 ### Ownership And Moderation Surface
@@ -55,6 +62,7 @@
 - удалённые сообщения, посты и комментарии не возвращаются после повторного входа в комнату
 - stale client snapshot не может восстановить удалённый timeline
 - profile settings сохраняются без transport-level сбоев за reverse proxy
+- browser notifications не должны приходить в режиме `Тихо`
 
 ### Admin Panel
 
@@ -65,6 +73,9 @@
 - `ADMIN_STAGING_HOST=admin.staging.tinychok.ru`
 - `ADMIN_PRODUCTION_HOST=admin.tinychok.ru`
 - admin UI открывается только на допустимых host-ах и использует тот же staging API
+- admin staff login дополнительно защищён SmartCaptcha на шаге запроса SMS
+- admin staging basic auth живёт отдельно от обычного staging basic auth
+- на admin basic auth включён lockout через `fail2ban` с эскалацией `5m -> 10m -> 30m -> 1h -> 24h`
 - первый owner назначается отдельно bootstrap-командой после создания обычного staging account:
 
 ```bash
@@ -113,6 +124,8 @@ curl -s https://api.staging.tinychok.ru/healthz
 - frontend не открывается без basic auth
 - admin frontend не открывается без basic auth
 - backend отвечает `status: ok`
+- user auth показывает support email `tinychok.help@yandex.com` внизу auth-экрана
+- user login и admin login показывают SmartCaptcha на шаге запроса SMS
 
 ## Manual Smoke Checklist
 
@@ -124,8 +137,10 @@ curl -s https://api.staging.tinychok.ru/healthz
 - delete message / post / comment с повторным входом
 - photo send и viewer
 - GIF send для premium
+- GIF search, delete и add-to-library из viewer
 - avatar update
 - storage quota warning / block
+- browser notification prompt / enable / disable / quiet-mode suppress
 - admin login под staff account
 - dashboard cards в admin:
   - пользователи

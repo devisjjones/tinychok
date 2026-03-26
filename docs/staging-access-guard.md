@@ -8,8 +8,22 @@
 
 - `https://staging.tinychok.ru` закрыт через `nginx basic auth`
 - `https://admin.staging.tinychok.ru` тоже должен быть закрыт через `nginx basic auth`
-- пароль хранится только на staging VM
-- пароль и содержимое `htpasswd` не должны попадать в чат, git или документацию
+- user staging и admin staging используют разные `htpasswd` файлы
+- пароли хранятся только на staging VM
+- пароль и содержимое `htpasswd` не должны попадать в git или документацию
+
+### Admin Brute-Force Guard
+
+- для `admin.staging.tinychok.ru` включён `fail2ban` по `nginx error.log`
+- блокировка идёт по IP после `3` неудачных попыток basic auth
+- ступени блокировки:
+  - первые `3` ошибки -> `5 минут`
+  - следующие `3` -> `10 минут`
+  - следующие `3` -> `30 минут`
+  - следующие `3` -> `1 час`
+  - следующие `3` -> `24 часа`
+- история банов хранится дольше суток, чтобы эскалация не сбрасывалась слишком быстро
+- practically это lockout по внешнему IP, а не по browser fingerprint
 
 ### Backend Guard
 
@@ -20,6 +34,13 @@
   - зарегистрировать аккаунт
 
 Остальные получают понятную ошибку о том, что номер пока не включён в список тестеров.
+
+### Captcha Guard
+
+- `request-code` на staging закрыт SmartCaptcha
+- обычный user login показывает captcha на шаге ввода телефона
+- admin login показывает отдельную captcha на шаге ввода staff-телефона
+- `verify-code` и `register` не требуют повторной captcha; бот должен отсекаться до выдачи SMS-кода
 
 ### Admin Guard
 
@@ -66,6 +87,8 @@ curl -s https://api.staging.tinychok.ru/healthz
 ```
 
 Если user frontend или admin frontend внезапно открываются без basic auth, либо неподдерживаемый номер снова может пройти auth, проблема уже не в UI, а в `nginx` или staging `.env`.
+
+Если `admin.staging.tinychok.ru` внезапно перестаёт банить после серии неверных basic auth, проблема уже не в React/admin UI, а в `fail2ban`, `nginx error.log` или jail-конфиге на VM.
 
 Если браузер показывает предупреждение о сертификате, а `curl -Iv https://admin.staging.tinychok.ru` возвращает:
 

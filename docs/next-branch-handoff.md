@@ -75,11 +75,33 @@
 ### GIF Library
 
 - GIF-вкладка целиком premium-only
-- источник GIF для MVP:
-  - только локальный upload `.gif`
-  - без внешнего поиска
-- библиотека GIF привязана к конкретному пользователю
-- выбранная GIF прикладывается к текущему сообщению как одно вложение
+- локальный upload `.gif` остаётся основным способом пополнения библиотеки
+- библиотека GIF привязана к конкретному пользователю, но поиск может показывать GIF из общего Tinychok pool
+- новые GIF после upload сразу подготавливаются к отправке в текущую комнату
+- защита от дублей идёт по `normalized fileName + size`
+- GIF можно удалить из личной библиотеки
+- fullscreen viewer для GIF не даёт обычный download, а предлагает `Добавить ГИФ себе`
+- количество жалоб под GIF в обычном viewer не показывается
+
+### Browser Notifications
+
+- браузерные уведомления работают через стандартный `Notification API`
+- они генерируются из роста unread по:
+  - direct dialogs
+  - groups
+  - channels
+  - thread inbox
+- в режиме `Тихо` browser notifications жёстко глушатся
+- у фичи есть локальный on/off toggle на уровне текущего браузера
+- во вкладке диалогов сверху рендерится promo-card включения уведомлений
+
+### Auth and Support Entry Points
+
+- login на staging закрыт SmartCaptcha на шаге запроса SMS
+- admin login на staging тоже закрыт SmartCaptcha на шаге запроса SMS
+- внизу auth-экрана есть support footer:
+  - `tinychok.help@yandex.com`
+  - он должен оставаться доступным даже если auth flow сломан
 
 ### Premium
 
@@ -203,6 +225,8 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - `basic auth` на frontend
   - allowlist телефонов на backend
 - staging admin тоже должен оставаться за `basic auth` и использовать тот же backend allowlist для staff login
+- user staging и admin staging используют разные basic-auth credential stores
+- admin basic auth дополнительно прикрыт `fail2ban` lockout-ом по IP
 - delete-path обязан работать server-side и не должен зависеть только от локального optimistic UI
 - premium debug state может использоваться на staging, но не должен попадать в production без отдельного решения
 - production deploy обязан идти в режиме `TINYCHOK_APP_ENV=production`, чтобы тестовые сущности не попадали в боевой runtime
@@ -221,6 +245,7 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - `текст + фото`
   - fullscreen viewer
 - GIF flow для premium
+- browser notifications prompt + permission flow
 - avatar upload для профиля, канала и группы
 - storage quota block при превышении лимита
 - delete flow с повторным входом в комнату

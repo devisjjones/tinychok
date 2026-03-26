@@ -4,7 +4,7 @@
 
 ## Cloud и folder
 
-По состоянию на `2026-03-20`, по скриншоту в консоли видны:
+По состоянию на `2026-03-26`, по зафиксированным проверкам в проекте видны:
 
 - cloud: `cloud-kurusayd`
 - cloud id: `b1gmc74rp8gvc5j6p1qa`
@@ -61,7 +61,7 @@
 - на VM установлен `Node.js v24.14.0`
 - на VM установлен `npm 11.9.0`
 
-По состоянию на `2026-03-21` также подтверждено:
+По состоянию на `2026-03-26` также подтверждено:
 
 - на staging VM настроен `GitHub deploy key`
 - `ssh -T git@github.com` на VM проходит успешно
@@ -74,12 +74,22 @@
 - `nginx` установлен и работает
 - для `api.staging.tinychok.ru` настроен reverse proxy на `127.0.0.1:8787`
 - для `api.staging.tinychok.ru` выпущен `Let's Encrypt` сертификат
+- для `staging.tinychok.ru` выпущен `Let's Encrypt` сертификат
+- для `admin.staging.tinychok.ru` выпущен `Let's Encrypt` сертификат
+- `staging.tinychok.ru` уже реально обслуживает frontend build через `nginx`
+- `admin.staging.tinychok.ru` уже реально обслуживает admin frontend через `nginx`
+- user staging и admin staging закрыты basic auth на уровне `nginx`
+- для admin basic auth на VM включён `fail2ban` lockout
 - публичный endpoint `https://api.staging.tinychok.ru/healthz` отвечает `{"status":"ok"}`
 - публичный endpoint `https://api.staging.tinychok.ru/readyz` отвечает `status: ok`
 - в `Reg.ru` созданы DNS-записи:
   - `api.staging.tinychok.ru -> 158.160.197.255`
   - `staging.tinychok.ru -> 158.160.197.255`
+- `admin.staging.tinychok.ru -> 158.160.197.255`
 - внешние резолверы `1.1.1.1` и `8.8.8.8` уже видят эти staging-записи
+- в `Yandex SmartCaptcha` создан ресурс для Tinychok auth:
+  - host list включает `staging.tinychok.ru`, `tinychok.ru`, `localhost`, `127.0.0.1`
+  - staging `.env` уже использует `smartcaptcha` как provider
 
 ## Интерпретация
 
@@ -120,6 +130,6 @@
 
 ## Что ещё не сделано на staging VM
 
-- frontend для `staging.tinychok.ru` ещё не выложен;
-- отдельный HTTPS для `staging.tinychok.ru` ещё не настраивался;
+- Yandex Analytics / Yandex Metrica ещё не подключены к user frontend;
+- production analytics sink пока не настроен;
 - локальный resolver `127.0.0.53` на VM может продолжать кэшировать старый `NXDOMAIN`, поэтому для свежих DNS-проверок надёжнее спрашивать внешний resolver.
