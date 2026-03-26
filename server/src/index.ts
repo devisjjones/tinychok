@@ -272,6 +272,7 @@ app.get('/api/client-config', async () => ({
     enabled: runtimeConfig.analytics.enabled,
     flushIntervalMs: runtimeConfig.analytics.flushIntervalMs,
     maxBatchSize: runtimeConfig.analytics.maxBatchSize,
+    metricaCounterId: runtimeConfig.analytics.metricaCounterId,
     provider: runtimeConfig.analytics.provider,
   },
   admin: {

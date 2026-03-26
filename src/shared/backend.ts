@@ -86,6 +86,7 @@ export type ClientRuntimeConfigResponse = {
     enabled: boolean
     flushIntervalMs: number
     maxBatchSize: number
+    metricaCounterId: number | null
     provider: AnalyticsProvider
   }
   admin: {

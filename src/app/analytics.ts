@@ -1,4 +1,9 @@
 import type { AnalyticsBatchBody, AnalyticsEventName, AnalyticsEventProperties } from '../shared/analytics'
+import {
+  configureYandexMetricaRuntime,
+  trackYandexMetricaGoal,
+  trackYandexMetricaPageView,
+} from './yandexMetrica'
 
 const analyticsAnonymousIdStorageKey = 'tinychok.analytics.anonymous-id'
 
@@ -7,6 +12,7 @@ type AnalyticsRuntimeConfig = {
   enabled: boolean
   flushIntervalMs: number
   maxBatchSize: number
+  metricaCounterId: number | null
   sessionToken: string | null
 }
 
@@ -15,6 +21,7 @@ const runtimeState: AnalyticsRuntimeConfig = {
   enabled: false,
   flushIntervalMs: 5000,
   maxBatchSize: 20,
+  metricaCounterId: null,
   sessionToken: null,
 }
 
@@ -100,6 +107,10 @@ function scheduleAnalyticsFlush() {
 
 export function configureAnalyticsRuntime(nextRuntime: Partial<AnalyticsRuntimeConfig>) {
   Object.assign(runtimeState, nextRuntime)
+  configureYandexMetricaRuntime({
+    consentGranted: runtimeState.consentGranted,
+    counterId: runtimeState.metricaCounterId,
+  })
 
   if (!runtimeState.enabled || !runtimeState.consentGranted) {
     queue = []
@@ -108,7 +119,14 @@ export function configureAnalyticsRuntime(nextRuntime: Partial<AnalyticsRuntimeC
 }
 
 export function trackAnalyticsEvent(name: AnalyticsEventName, properties: AnalyticsEventProperties = {}) {
-  if (!runtimeState.enabled || !runtimeState.consentGranted) {
+  const metricaEnabled = runtimeState.consentGranted && runtimeState.metricaCounterId !== null
+  const internalAnalyticsEnabled = runtimeState.enabled && runtimeState.consentGranted
+
+  if (metricaEnabled) {
+    trackYandexMetricaGoal(name, properties)
+  }
+
+  if (!internalAnalyticsEnabled) {
     return
   }
 
@@ -128,4 +146,8 @@ export function trackAnalyticsEvent(name: AnalyticsEventName, properties: Analyt
   }
 
   scheduleAnalyticsFlush()
+}
+
+export function trackAnalyticsPageView(virtualPath: string, title?: string) {
+  trackYandexMetricaPageView(virtualPath, title)
 }

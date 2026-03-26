@@ -115,7 +115,7 @@ import {
   uploadMediaFile,
   verifyAuthCode,
 } from './app/backend'
-import { configureAnalyticsRuntime, trackAnalyticsEvent } from './app/analytics'
+import { configureAnalyticsRuntime, trackAnalyticsEvent, trackAnalyticsPageView } from './app/analytics'
 import {
   getBrowserNotificationStatus,
   requestBrowserNotificationPermission,
@@ -582,6 +582,7 @@ const defaultClientRuntimeConfig: ClientRuntimeConfigResponse = {
     enabled: false,
     flushIntervalMs: 5000,
     maxBatchSize: 20,
+    metricaCounterId: null,
     provider: 'disabled',
   },
   admin: {
@@ -759,6 +760,115 @@ function isExpiredSessionError(error: unknown) {
     error.message === 'Сессия устарела. Войдите снова.' ||
     error.message === 'Сессия не найдена.'
   )
+}
+
+function buildAnalyticsVirtualPageView(args: {
+  activeChannelId: number | null
+  activeChatId: number | null
+  activeGroupId: number | null
+  activeSubscriptionChannelId: number | null
+  authStep: AuthStep
+  channelsView: ChannelsView
+  session: Session | null
+  settingsView: SettingsView
+  stageView: StageView
+  topListView: TopListView
+}) {
+  const {
+    activeChannelId,
+    activeChatId,
+    activeGroupId,
+    activeSubscriptionChannelId,
+    authStep,
+    channelsView,
+    session,
+    settingsView,
+    stageView,
+    topListView,
+  } = args
+
+  if (!session) {
+    return {
+      path: `/auth/${authStep}`,
+      title: `Tinychok Auth ${authStep}`,
+    }
+  }
+
+  if (stageView === 'settings') {
+    return {
+      path: `/settings/${settingsView}`,
+      title: `Tinychok Settings ${settingsView}`,
+    }
+  }
+
+  if (stageView === 'premium') {
+    return {
+      path: '/premium',
+      title: 'Tinychok Premium',
+    }
+  }
+
+  if (stageView === 'channels') {
+    if (channelsView === 'create') {
+      return {
+        path: '/channels/create',
+        title: 'Tinychok Create Channel',
+      }
+    }
+
+    if (activeChannelId !== null) {
+      return {
+        path: `/channels/manage/${activeChannelId}`,
+        title: 'Tinychok Channel Management',
+      }
+    }
+
+    return {
+      path: '/channels',
+      title: 'Tinychok Channels',
+    }
+  }
+
+  if (topListView === 'groups') {
+    return activeGroupId !== null
+      ? {
+          path: `/groups/${activeGroupId}`,
+          title: 'Tinychok Group Room',
+        }
+      : {
+          path: '/groups',
+          title: 'Tinychok Groups',
+        }
+  }
+
+  if (topListView === 'channels') {
+    return activeSubscriptionChannelId !== null
+      ? {
+          path: `/feed/channels/${activeSubscriptionChannelId}`,
+          title: 'Tinychok Channel Feed',
+        }
+      : {
+          path: '/feed/channels',
+          title: 'Tinychok Channel Feed',
+        }
+  }
+
+  if (topListView === 'threads') {
+    return {
+      path: '/threads',
+      title: 'Tinychok Threads',
+    }
+  }
+
+  return activeChatId !== null
+    ? {
+        path: `/dialogs/${activeChatId}`,
+        title: 'Tinychok Direct Chat',
+      }
+    : {
+        path: '/dialogs',
+        title: 'Tinychok Dialogs',
+      }
 }
 
 function getErrorMessage(error: unknown, fallbackMessage: string) {
@@ -1255,14 +1365,44 @@ function App() {
       enabled: clientRuntimeConfig.analytics.enabled,
       flushIntervalMs: clientRuntimeConfig.analytics.flushIntervalMs,
       maxBatchSize: clientRuntimeConfig.analytics.maxBatchSize,
+      metricaCounterId: clientRuntimeConfig.analytics.metricaCounterId,
       sessionToken: session?.sessionToken ?? null,
     })
   }, [
     clientRuntimeConfig.analytics.enabled,
     clientRuntimeConfig.analytics.flushIntervalMs,
     clientRuntimeConfig.analytics.maxBatchSize,
+    clientRuntimeConfig.analytics.metricaCounterId,
     cookieConsent,
     session?.sessionToken,
+  ])
+
+  useEffect(() => {
+    const pageView = buildAnalyticsVirtualPageView({
+      activeChannelId,
+      activeChatId,
+      activeGroupId,
+      activeSubscriptionChannelId,
+      authStep,
+      channelsView,
+      session,
+      settingsView,
+      stageView,
+      topListView,
+    })
+
+    trackAnalyticsPageView(pageView.path, pageView.title)
+  }, [
+    activeChannelId,
+    activeChatId,
+    activeGroupId,
+    activeSubscriptionChannelId,
+    authStep,
+    channelsView,
+    session,
+    settingsView,
+    stageView,
+    topListView,
   ])
 
   useEffect(() => {

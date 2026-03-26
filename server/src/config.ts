@@ -63,6 +63,17 @@ function readAnalyticsProvider(value: string | undefined): AnalyticsProvider {
   return value === 'log' ? 'log' : 'disabled'
 }
 
+function readOptionalPositiveInteger(value: string | undefined) {
+  if (!value) return null
+
+  const parsed = Number.parseInt(value.trim(), 10)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null
+  }
+
+  return parsed
+}
+
 function readStringList(value: string | undefined) {
   if (!value) return [] as string[]
 
@@ -135,6 +146,7 @@ export const runtimeConfig = {
     enabled: readBoolean(process.env.TINYCHOK_ANALYTICS_ENABLED, false),
     flushIntervalMs: readPort(process.env.TINYCHOK_ANALYTICS_FLUSH_INTERVAL_MS, 5000),
     maxBatchSize: readPort(process.env.TINYCHOK_ANALYTICS_MAX_BATCH_SIZE, 20),
+    metricaCounterId: readOptionalPositiveInteger(process.env.TINYCHOK_YANDEX_METRICA_COUNTER_ID),
     provider: readAnalyticsProvider(process.env.TINYCHOK_ANALYTICS_PROVIDER),
   },
   server: {
