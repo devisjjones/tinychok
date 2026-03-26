@@ -25,6 +25,9 @@ export function UserAgreementPage() {
             <p className="policy-page-copy">{userAgreementLead}</p>
 
             <div className="policy-page-actions">
+              <a className="policy-page-link" href="/contacts.html">
+                Контакты и реквизиты
+              </a>
               <a className="policy-page-link" href="/privacy-policy.html">
                 Политика данных
               </a>

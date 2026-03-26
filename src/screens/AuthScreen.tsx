@@ -153,6 +153,10 @@ export function AuthScreen({
               <a className="auth-submit-note-link" href="/privacy-policy.html">
                 Политикой обработки персональных данных
               </a>
+              ,{' '}
+              <a className="auth-submit-note-link" href="/contacts.html">
+                Контактами и реквизитами
+              </a>
               .
             </p>
           ) : null}

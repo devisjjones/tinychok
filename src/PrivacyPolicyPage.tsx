@@ -28,6 +28,9 @@ export function PrivacyPolicyPage() {
             <p className="policy-page-copy">{privacyPolicyLead}</p>
 
             <div className="policy-page-actions">
+              <a className="policy-page-link" href="/contacts.html">
+                Контакты и реквизиты
+              </a>
               <a
                 className="policy-page-button"
                 href={privacyPolicyPdfPath}

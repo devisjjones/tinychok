@@ -25,6 +25,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         avatarUploadRules: resolve(__dirname, 'avatar-upload-rules.html'),
+        contacts: resolve(__dirname, 'contacts.html'),
         main: resolve(__dirname, 'index.html'),
         privacyPolicy: resolve(__dirname, 'privacy-policy.html'),
         userAgreement: resolve(__dirname, 'user-agreement.html'),
