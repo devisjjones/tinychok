@@ -70,6 +70,13 @@ TINYCHOK_CAPTCHA_VERIFY_URL=
 TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 ```
 
+- для мгновенной проверки runtime dispatch можно открыть сайт с `?analytics_debug=1`
+- debug пишет в console:
+  - `pageview`
+  - `event`
+  - `internal-batch-sent`
+  - `internal-batch-requeued`
+
 ### Analytics Env
 
 ```env
@@ -112,7 +119,6 @@ Growth and activation:
 - `emoji_picker_opened`
 - `emoji_inserted`
 - `photo_attachment_selected`
-- `photo_attachment_processing_failed`
 - `photo_upload_failed`
 - `image_viewer_opened`
 - `gif_uploaded`
@@ -126,6 +132,12 @@ Growth and activation:
 - `browser_notifications_enabled`
 - `browser_notifications_disabled`
 - `browser_notifications_prompt_dismissed`
+- `premium_screen_opened`
+- `premium_purchase_started`
+- `premium_purchase_succeeded`
+- `premium_purchase_failed`
+- `group_created`
+- `channel_created`
 
 ## What Must Happen Before Production-Ready Rollout
 

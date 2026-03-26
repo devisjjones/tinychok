@@ -32,9 +32,18 @@ export type AnalyticsEventName =
   | 'gif_deleted'
   | 'gif_search_used'
   | 'gif_added_from_viewer'
+  | 'photo_attachment_selected'
+  | 'photo_upload_failed'
+  | 'image_viewer_opened'
   | 'browser_notifications_enabled'
   | 'browser_notifications_disabled'
   | 'browser_notifications_prompt_dismissed'
+  | 'premium_screen_opened'
+  | 'premium_purchase_started'
+  | 'premium_purchase_succeeded'
+  | 'premium_purchase_failed'
+  | 'group_created'
+  | 'channel_created'
   | 'blacklist_add_confirmed'
 
 export type AnalyticsEventProperties = Record<string, AnalyticsScalar>
@@ -60,9 +69,10 @@ export const analyticsEventCatalog: Record<
       | 'realtime'
       | 'settings'
       | 'consent'
-      | 'media'
-      | 'notifications'
-      | 'support'
+  | 'media'
+  | 'notifications'
+  | 'support'
+  | 'premium'
     description: string
   }
 > = {
@@ -190,6 +200,18 @@ export const analyticsEventCatalog: Record<
     category: 'media',
     description: 'Пользователь добавил GIF себе из fullscreen viewer.',
   },
+  photo_attachment_selected: {
+    category: 'media',
+    description: 'Пользователь выбрал фотографию для вложения в composer.',
+  },
+  photo_upload_failed: {
+    category: 'media',
+    description: 'Загрузка фотографии завершилась ошибкой до отправки сообщения.',
+  },
+  image_viewer_opened: {
+    category: 'media',
+    description: 'Пользователь открыл fullscreen viewer для изображения или GIF.',
+  },
   browser_notifications_enabled: {
     category: 'notifications',
     description: 'Браузерные уведомления включены для текущего браузера.',
@@ -201,6 +223,30 @@ export const analyticsEventCatalog: Record<
   browser_notifications_prompt_dismissed: {
     category: 'notifications',
     description: 'Пользователь скрыл promo-card включения браузерных уведомлений.',
+  },
+  premium_screen_opened: {
+    category: 'premium',
+    description: 'Пользователь открыл экран премиума.',
+  },
+  premium_purchase_started: {
+    category: 'premium',
+    description: 'Пользователь начал покупку премиума.',
+  },
+  premium_purchase_succeeded: {
+    category: 'premium',
+    description: 'Покупка или debug-активация премиума завершилась успешно.',
+  },
+  premium_purchase_failed: {
+    category: 'premium',
+    description: 'Покупка премиума завершилась ошибкой.',
+  },
+  group_created: {
+    category: 'messaging',
+    description: 'Пользователь создал новую группу.',
+  },
+  channel_created: {
+    category: 'messaging',
+    description: 'Пользователь создал новый канал.',
   },
   blacklist_add_confirmed: {
     category: 'moderation',

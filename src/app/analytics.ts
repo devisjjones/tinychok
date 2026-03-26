@@ -1,4 +1,5 @@
 import type { AnalyticsBatchBody, AnalyticsEventName, AnalyticsEventProperties } from '../shared/analytics'
+import { analyticsDebugStorageKey } from './constants'
 import {
   configureYandexMetricaRuntime,
   trackYandexMetricaGoal,
@@ -9,6 +10,7 @@ const analyticsAnonymousIdStorageKey = 'tinychok.analytics.anonymous-id'
 
 type AnalyticsRuntimeConfig = {
   consentGranted: boolean
+  debug: boolean
   enabled: boolean
   flushIntervalMs: number
   maxBatchSize: number
@@ -18,6 +20,7 @@ type AnalyticsRuntimeConfig = {
 
 const runtimeState: AnalyticsRuntimeConfig = {
   consentGranted: false,
+  debug: false,
   enabled: false,
   flushIntervalMs: 5000,
   maxBatchSize: 20,
@@ -63,6 +66,34 @@ function clearFlushTimeout() {
   flushTimeoutId = null
 }
 
+function isBrowser() {
+  return typeof window !== 'undefined'
+}
+
+function readAnalyticsDebugPreference() {
+  if (!isBrowser()) return false
+
+  const searchParams = new URLSearchParams(window.location.search)
+  const queryValue = searchParams.get('analytics_debug')
+
+  if (queryValue === '1' || queryValue === 'true') {
+    window.localStorage.setItem(analyticsDebugStorageKey, 'true')
+    return true
+  }
+
+  if (queryValue === '0' || queryValue === 'false') {
+    window.localStorage.removeItem(analyticsDebugStorageKey)
+    return false
+  }
+
+  return window.localStorage.getItem(analyticsDebugStorageKey) === 'true'
+}
+
+function debugAnalyticsLog(label: string, payload: Record<string, unknown>) {
+  if (!runtimeState.debug) return
+  console.info(`[tinychok analytics] ${label}`, payload)
+}
+
 async function flushAnalyticsQueue() {
   if (!runtimeState.enabled || !runtimeState.consentGranted || queue.length === 0) {
     clearFlushTimeout()
@@ -88,8 +119,17 @@ async function flushAnalyticsQueue() {
     if (!response.ok) {
       throw new Error(`Analytics ingest failed with status ${response.status}`)
     }
+
+    debugAnalyticsLog('internal-batch-sent', {
+      eventNames: nextEvents.map((event) => event.name),
+      size: nextEvents.length,
+    })
   } catch {
     queue = [...nextEvents, ...queue].slice(0, runtimeState.maxBatchSize * 4)
+    debugAnalyticsLog('internal-batch-requeued', {
+      eventNames: nextEvents.map((event) => event.name),
+      size: nextEvents.length,
+    })
   }
 
   if (queue.length > 0) {
@@ -107,6 +147,7 @@ function scheduleAnalyticsFlush() {
 
 export function configureAnalyticsRuntime(nextRuntime: Partial<AnalyticsRuntimeConfig>) {
   Object.assign(runtimeState, nextRuntime)
+  runtimeState.debug = readAnalyticsDebugPreference()
   configureYandexMetricaRuntime({
     consentGranted: runtimeState.consentGranted,
     counterId: runtimeState.metricaCounterId,
@@ -121,6 +162,13 @@ export function configureAnalyticsRuntime(nextRuntime: Partial<AnalyticsRuntimeC
 export function trackAnalyticsEvent(name: AnalyticsEventName, properties: AnalyticsEventProperties = {}) {
   const metricaEnabled = runtimeState.consentGranted && runtimeState.metricaCounterId !== null
   const internalAnalyticsEnabled = runtimeState.enabled && runtimeState.consentGranted
+
+  debugAnalyticsLog('event', {
+    internalAnalyticsEnabled,
+    metricaEnabled,
+    name,
+    properties,
+  })
 
   if (metricaEnabled) {
     trackYandexMetricaGoal(name, properties)
@@ -149,5 +197,11 @@ export function trackAnalyticsEvent(name: AnalyticsEventName, properties: Analyt
 }
 
 export function trackAnalyticsPageView(virtualPath: string, title?: string) {
+  debugAnalyticsLog('pageview', {
+    consentGranted: runtimeState.consentGranted,
+    counterId: runtimeState.metricaCounterId,
+    title,
+    virtualPath,
+  })
   trackYandexMetricaPageView(virtualPath, title)
 }

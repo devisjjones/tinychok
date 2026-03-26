@@ -70,5 +70,6 @@ export const cookieConsentStorageKey = 'tinychok.cookie-consent'
 export const browserNotificationsBannerDismissedStorageKey =
   'tinychok.browser-notifications.banner-dismissed.v2'
 export const browserNotificationsEnabledStorageKey = 'tinychok.browser-notifications.enabled'
+export const analyticsDebugStorageKey = 'tinychok.analytics.debug'
 export const premiumDebugAutoCheckoutStorageKey = 'tinychok.debug.premium-auto-checkout'
 export const messagePhotoSendOriginalPreferenceStorageKey = 'tinychok.session.photo-send-original'

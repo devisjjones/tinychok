@@ -769,6 +769,25 @@ function getAnalyticsAttachmentKind(attachment?: Message['attachment']) {
   return 'file'
 }
 
+function isPhotoMimeType(mimeType: string | undefined) {
+  return Boolean(mimeType && isImageMimeType(mimeType) && mimeType !== 'image/gif')
+}
+
+function trackPhotoAttachmentSelected(
+  surface: 'channel' | 'direct' | 'group' | 'thread',
+  file: File,
+  sendOriginalPreferred: boolean,
+) {
+  if (!isPhotoMimeType(file.type)) return
+
+  trackAnalyticsEvent('photo_attachment_selected', {
+    fileSize: file.size,
+    mimeType: file.type,
+    sendOriginalPreferred,
+    surface,
+  })
+}
+
 function buildAnalyticsVirtualPageView(args: {
   activeChannelId: number | null
   activeChatId: number | null
@@ -964,6 +983,7 @@ function App() {
   const previousBrowserNotificationStatusRef = useRef<BrowserNotificationStatus>(
     getBrowserNotificationStatus(),
   )
+  const previousStageViewRef = useRef<StageView>('main')
   const [chats, setChats] = useState(initialChats)
   const [channels, setChannels] = useState(initialChannels)
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
@@ -2147,6 +2167,21 @@ function App() {
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
   const totalThreadNotifications = threadInbox.reduce((sum, item) => sum + item.unreadCount, 0)
   const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
+
+  useEffect(() => {
+    const previousStageView = previousStageViewRef.current
+    previousStageViewRef.current = stageView
+
+    if (stageView !== 'premium' || previousStageView === 'premium') {
+      return
+    }
+
+    trackAnalyticsEvent('premium_screen_opened', {
+      gift: Boolean(premiumGiftChatId),
+      hasPremium: sessionHasPremium,
+    })
+  }, [premiumGiftChatId, sessionHasPremium, stageView])
+
   const openPremiumUpsell = useCallback(() => {
     setStageView('premium')
   }, [])
@@ -2308,15 +2343,36 @@ function App() {
     if (!session || premiumPurchaseBusy) return
 
     setPremiumPurchaseBusy(true)
+    trackAnalyticsEvent('premium_purchase_started', {
+      debugAutoCheckout: premiumDebugAutoCheckout,
+      gift: Boolean(premiumGiftChatId),
+      plan,
+    })
 
     try {
       if (premiumDebugAutoCheckout) {
         await applyPremiumDebugState(true, plan === 'year' ? 365 : 30)
+        trackAnalyticsEvent('premium_purchase_succeeded', {
+          debugAutoCheckout: true,
+          gift: Boolean(premiumGiftChatId),
+          plan,
+        })
         return
       }
 
       await startRealPremiumCheckout(plan)
+      trackAnalyticsEvent('premium_purchase_succeeded', {
+        debugAutoCheckout: false,
+        gift: Boolean(premiumGiftChatId),
+        plan,
+      })
     } catch (error) {
+      trackAnalyticsEvent('premium_purchase_failed', {
+        debugAutoCheckout: premiumDebugAutoCheckout,
+        gift: Boolean(premiumGiftChatId),
+        plan,
+        reason: getErrorMessage(error, 'premium-purchase-failed'),
+      })
       window.alert(
         error instanceof Error ? error.message : 'Не удалось запустить покупку премиума.',
       )
@@ -3661,6 +3717,15 @@ function App() {
     attachment: MessageAttachment,
     options?: { allowDownload?: boolean; allowGifAdd?: boolean },
   ) {
+    if (isImageMimeType(attachment.mimeType)) {
+      trackAnalyticsEvent('image_viewer_opened', {
+        allowDownload: options?.allowDownload ?? attachment.mimeType !== 'image/gif',
+        isGif: attachment.mimeType === 'image/gif',
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+      })
+    }
+
     setMediaViewerAttachment(attachment)
     setMediaViewerDownloadEnabled(options?.allowDownload ?? attachment.mimeType !== 'image/gif')
     setMediaViewerGifActionBusy(false)
@@ -4413,6 +4478,7 @@ function App() {
   async function resolvePendingAttachmentForSend(
     sessionToken: string,
     attachmentDraft?: PendingAttachmentDraft,
+    options?: { surface: 'channel' | 'direct' | 'group' | 'thread' },
   ) {
     if (!attachmentDraft) {
       return {
@@ -4439,7 +4505,22 @@ function App() {
       throw new Error('Вложение больше недоступно локально. Добавьте файл заново.')
     }
 
-    const uploadedMedia = await uploadMediaFile(sessionToken, attachmentDraft.file, 'attachment')
+    let uploadedMedia
+
+    try {
+      uploadedMedia = await uploadMediaFile(sessionToken, attachmentDraft.file, 'attachment')
+    } catch (error) {
+      if (isPhotoMimeType(attachmentDraft.mimeType)) {
+        trackAnalyticsEvent('photo_upload_failed', {
+          fileSize: attachmentDraft.size,
+          mimeType: attachmentDraft.mimeType,
+          reason: getErrorMessage(error, 'upload-failed'),
+          surface: options?.surface ?? 'direct',
+        })
+      }
+
+      throw error
+    }
 
     return {
       attachment: {
@@ -5397,6 +5478,7 @@ function App() {
         const resolvedAttachment = await resolvePendingAttachmentForSend(
           session.sessionToken,
           pendingMessage.attachmentDraft,
+          { surface: 'direct' },
         )
 
         if (
@@ -5513,6 +5595,7 @@ function App() {
         const resolvedAttachment = await resolvePendingAttachmentForSend(
           session.sessionToken,
           pendingMessage.attachmentDraft,
+          { surface: 'group' },
         )
 
         if (
@@ -5584,6 +5667,7 @@ function App() {
         const resolvedAttachment = await resolvePendingAttachmentForSend(
           session.sessionToken,
           buildPendingAttachmentDraft(attachmentDraft),
+          { surface: 'channel' },
         )
         const requestBody: SendManagedChannelPostBody = {
           attachment: resolvedAttachment.attachment,
@@ -5683,6 +5767,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
+    trackPhotoAttachmentSelected('direct', file, sessionHasPremium && photoSendOriginalPreference)
     setChatAttachmentDrafts((currentAttachments) => {
       if (selectionToken !== chatAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -5730,6 +5815,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
+    trackPhotoAttachmentSelected('group', file, sessionHasPremium && photoSendOriginalPreference)
     setGroupAttachmentDrafts((currentAttachments) => {
       if (selectionToken !== groupAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -5776,6 +5862,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
+    trackPhotoAttachmentSelected('channel', file, sessionHasPremium && photoSendOriginalPreference)
     setChannelAttachmentDrafts((currentAttachments) => {
       if (selectionToken !== channelAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -5818,6 +5905,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
+    trackPhotoAttachmentSelected('thread', file, sessionHasPremium && photoSendOriginalPreference)
     setThreadAttachmentDraft((currentDraft) => {
       if (selectionToken !== threadAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -6705,6 +6793,7 @@ function App() {
           const resolvedAttachment = await resolvePendingAttachmentForSend(
             session.sessionToken,
             pendingGroupThreadComment?.attachmentDraft,
+            { surface: 'thread' },
           )
 
           const response = await sendGroupThreadCommentRequest(
@@ -6732,6 +6821,7 @@ function App() {
           const resolvedAttachment = await resolvePendingAttachmentForSend(
             session.sessionToken,
             pendingChannelThreadComment?.attachmentDraft,
+            { surface: 'thread' },
           )
 
           const response = await sendSubscriptionChannelThreadCommentRequest(
@@ -8850,6 +8940,15 @@ function App() {
           title: nextTitle,
         } satisfies CreateGroupBody)
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent('group_created', {
+          hasAvatar: Boolean(nextAvatarImage),
+          memberCount: selectedGroupCreateChats.length + 1,
+          threadsMode: creatingGroupCommentsForAll
+            ? 'all'
+            : creatingGroupCommentsForPremium
+              ? 'premium'
+              : 'off',
+        })
         closeGroupCreateDialog({ preserveCurrentDraft })
         openGroup(response.groupId)
         return
@@ -8890,6 +8989,15 @@ function App() {
       }
 
       setGroups((currentGroups) => [nextGroup, ...currentGroups])
+      trackAnalyticsEvent('group_created', {
+        hasAvatar: Boolean(nextAvatarImage),
+        memberCount: participants.length,
+        threadsMode: creatingGroupCommentsForAll
+          ? 'all'
+          : creatingGroupCommentsForPremium
+            ? 'premium'
+            : 'off',
+      })
 
       selectedGroupCreateChats.forEach((chat) => {
         applyLocalDirectMessage(chat.id, '', {
@@ -8939,6 +9047,15 @@ function App() {
           visibility: 'private',
         } satisfies CreateManagedChannelBody)
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent('channel_created', {
+          hasAvatar: Boolean(creatingChannelAvatarDraft?.previewUrl),
+          threadsMode: creatingChannelCommentsForAll
+            ? 'all'
+            : creatingChannelCommentsForPremium
+              ? 'premium'
+              : 'off',
+          visibility: 'private',
+        })
         setCreatingChannelAvatarDraft(null)
         resetChannelInviteState()
         setActiveChannelId(response.channelId)
@@ -8993,6 +9110,15 @@ function App() {
       buildPreviewSubscriptionChannelFromManagedChannel(nextChannel),
       ...currentChannels,
     ])
+    trackAnalyticsEvent('channel_created', {
+      hasAvatar: Boolean(nextChannel.avatarImage),
+      threadsMode: creatingChannelCommentsForAll
+        ? 'all'
+        : creatingChannelCommentsForPremium
+          ? 'premium'
+          : 'off',
+      visibility: nextChannel.visibility,
+    })
     setCreatingChannelAvatarDraft(null)
     resetChannelInviteState()
     setActiveChannelId(nextId)

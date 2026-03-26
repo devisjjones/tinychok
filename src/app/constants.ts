@@ -4,6 +4,7 @@ export {
   accountStatusMaxFontSize,
   accountStatusMinFontSize,
   accountsStorageKey,
+  analyticsDebugStorageKey,
   avatarAcceptedMimeTypes,
   avatarOutputSizePx,
   avatarPreviewSizePx,

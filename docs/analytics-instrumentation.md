@@ -17,6 +17,14 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 ```
 
 - клиент не хардкодит код счётчика в HTML, а поднимает `mc.yandex.ru/metrika/tag.js` runtime-ом
+- для быстрой runtime-проверки можно включить debug-лог:
+  - открыть сайт с `?analytics_debug=1`
+  - после этого Tinychok сохранит флаг в `localStorage` и начнёт писать в console:
+    - `pageview`
+    - `event`
+    - `internal-batch-sent`
+    - `internal-batch-requeued`
+  - выключение: `?analytics_debug=0`
 
 ## SPA Tracking
 
@@ -103,12 +111,27 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `gif_deleted`
 - `gif_search_used`
 - `gif_added_from_viewer`
+- `photo_attachment_selected`
+- `photo_upload_failed`
+- `image_viewer_opened`
 
 ### Notifications
 
 - `browser_notifications_enabled`
 - `browser_notifications_disabled`
 - `browser_notifications_prompt_dismissed`
+
+### Premium
+
+- `premium_screen_opened`
+- `premium_purchase_started`
+- `premium_purchase_succeeded`
+- `premium_purchase_failed`
+
+### Entity Creation
+
+- `group_created`
+- `channel_created`
 
 ### Moderation / Support
 
@@ -167,6 +190,24 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `server`
 - `upload`
 
+### Photo / Viewer Events
+
+- `photo_attachment_selected`
+  - `surface`
+  - `mimeType`
+  - `fileSize`
+  - `sendOriginalPreferred`
+- `photo_upload_failed`
+  - `surface`
+  - `mimeType`
+  - `fileSize`
+  - `reason`
+- `image_viewer_opened`
+  - `mimeType`
+  - `size`
+  - `isGif`
+  - `allowDownload`
+
 ### Browser Notifications
 
 - `browser_notifications_enabled`
@@ -178,6 +219,36 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 
 - `browser-permission-prompt`
 - `settings-toggle`
+
+### Premium Events
+
+- `premium_screen_opened`
+  - `gift`
+  - `hasPremium`
+- `premium_purchase_started`
+  - `plan`
+  - `gift`
+  - `debugAutoCheckout`
+- `premium_purchase_succeeded`
+  - `plan`
+  - `gift`
+  - `debugAutoCheckout`
+- `premium_purchase_failed`
+  - `plan`
+  - `gift`
+  - `debugAutoCheckout`
+  - `reason`
+
+### Group / Channel Creation
+
+- `group_created`
+  - `memberCount`
+  - `hasAvatar`
+  - `threadsMode`
+- `channel_created`
+  - `hasAvatar`
+  - `threadsMode`
+  - `visibility`
 
 ## Yandex Metrica Goals
 
@@ -198,10 +269,19 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `gif_deleted`
 - `gif_search_used`
 - `gif_added_from_viewer`
+- `photo_attachment_selected`
+- `photo_upload_failed`
+- `image_viewer_opened`
 - `browser_notifications_enabled`
 - `browser_notifications_disabled`
 - `browser_notifications_prompt_dismissed`
 - `auth_support_email_clicked`
+- `premium_screen_opened`
+- `premium_purchase_started`
+- `premium_purchase_succeeded`
+- `premium_purchase_failed`
+- `group_created`
+- `channel_created`
 
 ## Privacy Rules
 
@@ -234,6 +314,7 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - отдал ли `/api/client-config` корректный `metricaCounterId`
   - загружается ли `mc.yandex.ru/metrika/tag.js`
   - не блокирует ли браузер внешние tracking requests
+  - открыт ли debug-режим `?analytics_debug=1`, чтобы увидеть локальный dispatch в console до того, как Метрика дорисует цель в UI
 
 ## Google Sheet Sync
 
@@ -259,11 +340,9 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 
 - `thread_comment_retry_started`
 - `thread_comment_retry_failed`
-- `photo_attachment_selected`
-- `photo_upload_failed`
-- `image_viewer_opened`
-- `premium_screen_opened`
-- `premium_purchase_started`
-- `premium_purchase_succeeded`
+- `premium_gift_started`
+- `premium_gift_succeeded`
+- `group_invite_sent`
+- `channel_invite_sent`
 - `channel_avatar_update_post_published`
 - `support_email_clicked` не только на auth, но и из других entry points
