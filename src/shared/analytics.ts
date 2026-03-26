@@ -40,8 +40,14 @@ export type AnalyticsEventName =
   | 'browser_notifications_prompt_dismissed'
   | 'premium_screen_opened'
   | 'premium_purchase_started'
+  | 'premium_purchase_started_month'
+  | 'premium_purchase_started_year'
   | 'premium_purchase_succeeded'
+  | 'premium_purchase_succeeded_month'
+  | 'premium_purchase_succeeded_year'
   | 'premium_purchase_failed'
+  | 'premium_purchase_failed_month'
+  | 'premium_purchase_failed_year'
   | 'group_created'
   | 'channel_created'
   | 'blacklist_add_confirmed'
@@ -232,13 +238,37 @@ export const analyticsEventCatalog: Record<
     category: 'premium',
     description: 'Пользователь начал покупку премиума.',
   },
+  premium_purchase_started_month: {
+    category: 'premium',
+    description: 'Пользователь начал покупку месячного премиума.',
+  },
+  premium_purchase_started_year: {
+    category: 'premium',
+    description: 'Пользователь начал покупку годового премиума.',
+  },
   premium_purchase_succeeded: {
     category: 'premium',
     description: 'Покупка или debug-активация премиума завершилась успешно.',
   },
+  premium_purchase_succeeded_month: {
+    category: 'premium',
+    description: 'Месячный премиум был успешно активирован.',
+  },
+  premium_purchase_succeeded_year: {
+    category: 'premium',
+    description: 'Годовой премиум был успешно активирован.',
+  },
   premium_purchase_failed: {
     category: 'premium',
     description: 'Покупка премиума завершилась ошибкой.',
+  },
+  premium_purchase_failed_month: {
+    category: 'premium',
+    description: 'Попытка покупки месячного премиума завершилась ошибкой.',
+  },
+  premium_purchase_failed_year: {
+    category: 'premium',
+    description: 'Попытка покупки годового премиума завершилась ошибкой.',
   },
   group_created: {
     category: 'messaging',

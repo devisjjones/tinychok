@@ -2348,6 +2348,14 @@ function App() {
       gift: Boolean(premiumGiftChatId),
       plan,
     })
+    trackAnalyticsEvent(
+      plan === 'year' ? 'premium_purchase_started_year' : 'premium_purchase_started_month',
+      {
+        debugAutoCheckout: premiumDebugAutoCheckout,
+        gift: Boolean(premiumGiftChatId),
+        plan,
+      },
+    )
 
     try {
       if (premiumDebugAutoCheckout) {
@@ -2357,6 +2365,14 @@ function App() {
           gift: Boolean(premiumGiftChatId),
           plan,
         })
+        trackAnalyticsEvent(
+          plan === 'year' ? 'premium_purchase_succeeded_year' : 'premium_purchase_succeeded_month',
+          {
+            debugAutoCheckout: true,
+            gift: Boolean(premiumGiftChatId),
+            plan,
+          },
+        )
         return
       }
 
@@ -2366,6 +2382,14 @@ function App() {
         gift: Boolean(premiumGiftChatId),
         plan,
       })
+      trackAnalyticsEvent(
+        plan === 'year' ? 'premium_purchase_succeeded_year' : 'premium_purchase_succeeded_month',
+        {
+          debugAutoCheckout: false,
+          gift: Boolean(premiumGiftChatId),
+          plan,
+        },
+      )
     } catch (error) {
       trackAnalyticsEvent('premium_purchase_failed', {
         debugAutoCheckout: premiumDebugAutoCheckout,
@@ -2373,6 +2397,15 @@ function App() {
         plan,
         reason: getErrorMessage(error, 'premium-purchase-failed'),
       })
+      trackAnalyticsEvent(
+        plan === 'year' ? 'premium_purchase_failed_year' : 'premium_purchase_failed_month',
+        {
+          debugAutoCheckout: premiumDebugAutoCheckout,
+          gift: Boolean(premiumGiftChatId),
+          plan,
+          reason: getErrorMessage(error, 'premium-purchase-failed'),
+        },
+      )
       window.alert(
         error instanceof Error ? error.message : 'Не удалось запустить покупку премиума.',
       )

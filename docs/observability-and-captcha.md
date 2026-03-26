@@ -134,8 +134,14 @@ Growth and activation:
 - `browser_notifications_prompt_dismissed`
 - `premium_screen_opened`
 - `premium_purchase_started`
+- `premium_purchase_started_month`
+- `premium_purchase_started_year`
 - `premium_purchase_succeeded`
+- `premium_purchase_succeeded_month`
+- `premium_purchase_succeeded_year`
 - `premium_purchase_failed`
+- `premium_purchase_failed_month`
+- `premium_purchase_failed_year`
 - `group_created`
 - `channel_created`
 

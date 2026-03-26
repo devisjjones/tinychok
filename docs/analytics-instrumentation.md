@@ -125,8 +125,14 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 
 - `premium_screen_opened`
 - `premium_purchase_started`
+- `premium_purchase_started_month`
+- `premium_purchase_started_year`
 - `premium_purchase_succeeded`
+- `premium_purchase_succeeded_month`
+- `premium_purchase_succeeded_year`
 - `premium_purchase_failed`
+- `premium_purchase_failed_month`
+- `premium_purchase_failed_year`
 
 ### Entity Creation
 
@@ -229,12 +235,38 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `plan`
   - `gift`
   - `debugAutoCheckout`
+- `premium_purchase_started_month`
+  - `plan = month`
+  - `gift`
+  - `debugAutoCheckout`
+- `premium_purchase_started_year`
+  - `plan = year`
+  - `gift`
+  - `debugAutoCheckout`
 - `premium_purchase_succeeded`
   - `plan`
   - `gift`
   - `debugAutoCheckout`
+- `premium_purchase_succeeded_month`
+  - `plan = month`
+  - `gift`
+  - `debugAutoCheckout`
+- `premium_purchase_succeeded_year`
+  - `plan = year`
+  - `gift`
+  - `debugAutoCheckout`
 - `premium_purchase_failed`
   - `plan`
+  - `gift`
+  - `debugAutoCheckout`
+  - `reason`
+- `premium_purchase_failed_month`
+  - `plan = month`
+  - `gift`
+  - `debugAutoCheckout`
+  - `reason`
+- `premium_purchase_failed_year`
+  - `plan = year`
   - `gift`
   - `debugAutoCheckout`
   - `reason`
@@ -278,8 +310,14 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `auth_support_email_clicked`
 - `premium_screen_opened`
 - `premium_purchase_started`
+- `premium_purchase_started_month`
+- `premium_purchase_started_year`
 - `premium_purchase_succeeded`
+- `premium_purchase_succeeded_month`
+- `premium_purchase_succeeded_year`
 - `premium_purchase_failed`
+- `premium_purchase_failed_month`
+- `premium_purchase_failed_year`
 - `group_created`
 - `channel_created`
 
