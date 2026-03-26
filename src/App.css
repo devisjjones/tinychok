@@ -385,7 +385,9 @@
 }
 
 .auth-captcha-widget {
-  min-height: 0;
+  min-height: 78px;
+  display: flex;
+  align-items: flex-start;
 }
 
 .auth-captcha-note,

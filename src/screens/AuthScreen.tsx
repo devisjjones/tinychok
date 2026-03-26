@@ -126,8 +126,7 @@ export function AuthScreen({
             <div className="auth-captcha">
               <div ref={captchaContainerRef} className="auth-captcha-widget" aria-hidden="true" />
               <p className="auth-captcha-note">
-                Вход защищён SmartCaptcha. При продолжении может появиться быстрая проверка, если сервис
-                заподозрит бота.
+                Вход защищён SmartCaptcha. Перед продолжением подтвердите, что вы не робот.
               </p>
             </div>
           ) : null}

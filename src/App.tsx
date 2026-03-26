@@ -1071,9 +1071,9 @@ function App() {
     captchaContainerRef,
     captchaProvider,
     captchaRequired,
-    executeCaptcha,
+    getCaptchaTokenOrThrow,
     resetCaptcha,
-  } = useCaptcha(clientRuntimeConfig.captcha)
+  } = useCaptcha(clientRuntimeConfig.captcha, !session)
   const {
     blacklistHintTarget,
     clearBlacklistHint,
@@ -3322,7 +3322,7 @@ function App() {
     }
 
     try {
-      const captchaToken = await executeCaptcha()
+      const captchaToken = getCaptchaTokenOrThrow()
       const response = await requestAuthCode({ captchaToken, identifier: normalized })
       setIdentifier(normalized)
       setAuthExistingAccount(response.existingAccount)
@@ -3354,7 +3354,7 @@ function App() {
     }
 
     try {
-      const captchaToken = await executeCaptcha()
+      const captchaToken = getCaptchaTokenOrThrow()
       const response = await verifyAuthCode({
         captchaToken,
         code: trimmedCode,
@@ -3410,7 +3410,7 @@ function App() {
     }
 
     try {
-      const captchaToken = await executeCaptcha()
+      const captchaToken = getCaptchaTokenOrThrow()
       const response = await registerAccount({
         captchaToken,
         code: smsCode.trim(),

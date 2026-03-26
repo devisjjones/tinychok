@@ -14,14 +14,11 @@ type SmartCaptchaSubscribeEvent =
 
 type SmartCaptchaApi = {
   destroy: (widgetId?: SmartCaptchaWidgetId) => void
-  execute: (widgetId?: SmartCaptchaWidgetId) => void
   render: (
     container: HTMLElement | string,
     params: {
       callback?: (token: string) => void
       hl?: SmartCaptchaLanguage
-      invisible?: boolean
-      shieldPosition?: 'top-left' | 'center-left' | 'bottom-left' | 'top-right' | 'center-right' | 'bottom-right'
       sitekey: string
     },
   ) => SmartCaptchaWidgetId
@@ -38,11 +35,6 @@ declare global {
     smartCaptcha?: SmartCaptchaApi
     tinychokSmartCaptchaOnload?: () => void
   }
-}
-
-type PendingCaptchaRequest = {
-  reject: (reason?: unknown) => void
-  resolve: (token: string) => void
 }
 
 const SMART_CAPTCHA_SCRIPT_ID = 'tinychok-smartcaptcha-script'
@@ -123,33 +115,25 @@ function loadSmartCaptchaScript() {
   return smartCaptchaScriptPromise
 }
 
-export function useCaptcha(captchaConfig?: CaptchaConfig | null) {
+export function useCaptcha(captchaConfig?: CaptchaConfig | null, active = true) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const apiRef = useRef<SmartCaptchaApi | null>(null)
   const widgetIdRef = useRef<SmartCaptchaWidgetId | null>(null)
-  const pendingRequestRef = useRef<PendingCaptchaRequest | null>(null)
   const unsubscribeFnsRef = useRef<Array<() => void>>([])
   const [captchaBusy, setCaptchaBusy] = useState(false)
-
-  const rejectPendingRequest = useCallback((reason: unknown) => {
-    if (!pendingRequestRef.current) return
-
-    pendingRequestRef.current.reject(reason)
-    pendingRequestRef.current = null
-  }, [])
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
 
   const resetCaptcha = useCallback(() => {
-    rejectPendingRequest(new Error('Проверка прервана. Попробуйте ещё раз.'))
+    setCaptchaToken(null)
+    setCaptchaBusy(false)
 
     if (apiRef.current && widgetIdRef.current !== null) {
       apiRef.current.reset(widgetIdRef.current)
     }
-
-    setCaptchaBusy(false)
-  }, [rejectPendingRequest])
+  }, [])
 
   useEffect(() => {
-    if (!captchaConfig?.enabled || captchaConfig.provider !== 'smartcaptcha' || !captchaConfig.siteKey) {
+    if (!active || !captchaConfig?.enabled || captchaConfig.provider !== 'smartcaptcha' || !captchaConfig.siteKey) {
       return
     }
 
@@ -165,30 +149,32 @@ export function useCaptcha(captchaConfig?: CaptchaConfig | null) {
         apiRef.current = api
         widgetIdRef.current = api.render(containerRef.current, {
           callback: (token) => {
-            if (!pendingRequestRef.current) return
-
-            pendingRequestRef.current.resolve(token)
-            pendingRequestRef.current = null
+            setCaptchaToken(token)
             setCaptchaBusy(false)
           },
           hl: getSmartCaptchaLanguage(),
-          invisible: true,
-          shieldPosition: 'bottom-left',
           sitekey: siteKey,
         })
 
         const widgetId = widgetIdRef.current
         unsubscribeFnsRef.current = [
+          api.subscribe(widgetId, 'challenge-visible', () => {
+            setCaptchaBusy(true)
+          }),
+          api.subscribe(widgetId, 'challenge-hidden', () => {
+            setCaptchaBusy(false)
+          }),
           api.subscribe(widgetId, 'network-error', () => {
-            rejectPendingRequest(new Error('Не удалось пройти SmartCaptcha. Попробуйте ещё раз.'))
+            setCaptchaToken(null)
             setCaptchaBusy(false)
           }),
           api.subscribe(widgetId, 'javascript-error', () => {
-            rejectPendingRequest(new Error('SmartCaptcha временно недоступна. Попробуйте ещё раз.'))
+            setCaptchaToken(null)
             setCaptchaBusy(false)
           }),
           api.subscribe(widgetId, 'token-expired', () => {
-            resetCaptcha()
+            setCaptchaToken(null)
+            setCaptchaBusy(false)
           }),
         ].filter((handler): handler is () => void => Boolean(handler))
       })
@@ -200,7 +186,6 @@ export function useCaptcha(captchaConfig?: CaptchaConfig | null) {
       cancelled = true
       unsubscribeFnsRef.current.forEach((unsubscribe) => unsubscribe())
       unsubscribeFnsRef.current = []
-      rejectPendingRequest(new Error('Проверка прервана. Попробуйте ещё раз.'))
 
       if (apiRef.current && widgetIdRef.current !== null) {
         apiRef.current.destroy(widgetIdRef.current)
@@ -208,45 +193,30 @@ export function useCaptcha(captchaConfig?: CaptchaConfig | null) {
 
       apiRef.current = null
       widgetIdRef.current = null
+      setCaptchaToken(null)
       setCaptchaBusy(false)
     }
-  }, [captchaConfig?.enabled, captchaConfig?.provider, captchaConfig?.siteKey, rejectPendingRequest, resetCaptcha])
+  }, [active, captchaConfig?.enabled, captchaConfig?.provider, captchaConfig?.siteKey])
 
-  const executeCaptcha = useCallback(async () => {
+  const getCaptchaTokenOrThrow = useCallback(() => {
     if (!captchaConfig?.enabled) {
       return undefined
     }
 
-    if (captchaConfig.provider !== 'smartcaptcha') {
-      throw new Error('Captcha provider ещё не поддерживается на клиенте.')
+    const normalizedToken = captchaToken?.trim()
+    if (!normalizedToken) {
+      throw new Error('Сначала подтвердите, что вы не робот.')
     }
 
-    if (!apiRef.current || widgetIdRef.current === null) {
-      throw new Error('Защита от ботов ещё не готова. Попробуйте ещё раз через пару секунд.')
-    }
-
-    resetCaptcha()
-    setCaptchaBusy(true)
-
-    return await new Promise<string>((resolve, reject) => {
-      pendingRequestRef.current = { reject, resolve }
-
-      try {
-        apiRef.current?.execute(widgetIdRef.current ?? undefined)
-      } catch (error) {
-        pendingRequestRef.current = null
-        setCaptchaBusy(false)
-        reject(error)
-      }
-    })
-  }, [captchaConfig, resetCaptcha])
+    return normalizedToken
+  }, [captchaConfig?.enabled, captchaToken])
 
   return {
     captchaBusy,
     captchaContainerRef: containerRef,
     captchaProvider: captchaConfig?.provider ?? 'disabled',
     captchaRequired: Boolean(captchaConfig?.enabled),
-    executeCaptcha,
+    getCaptchaTokenOrThrow,
     resetCaptcha,
   }
 }
