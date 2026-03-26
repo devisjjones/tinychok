@@ -950,6 +950,8 @@ function App() {
   const groupAttachmentSelectionTokenRef = useRef(0)
   const channelAttachmentSelectionTokenRef = useRef(0)
   const threadAttachmentSelectionTokenRef = useRef(0)
+  const lastAnalyticsPageViewKeyRef = useRef<string | null>(null)
+  const lastTrackedGifSearchKeyRef = useRef<string | null>(null)
   const nextOptimisticMessageIdRef = useRef(-1)
   const pendingRetryInFlightRef = useRef(false)
   const pendingGroupThreadCommentsRef = useRef<PendingGroupThreadComment[]>([])
@@ -1418,6 +1420,12 @@ function App() {
       topListView,
     })
 
+    const pageViewKey = `${pageView.path}|${pageView.title ?? ''}`
+    if (lastAnalyticsPageViewKeyRef.current === pageViewKey) {
+      return
+    }
+
+    lastAnalyticsPageViewKeyRef.current = pageViewKey
     trackAnalyticsPageView(pageView.path, pageView.title)
   }, [
     activeChannelId,
@@ -4728,23 +4736,26 @@ function App() {
     const normalizedQuery = query.trim()
 
     if (!normalizedQuery) {
+      lastTrackedGifSearchKeyRef.current = null
       return []
     }
 
-    if (!session?.sessionToken || !backendReady) {
+    const source = !session?.sessionToken || !backendReady ? 'local' : 'server'
+    const searchAnalyticsKey = `${source}:${normalizedQuery.toLowerCase()}`
+    if (lastTrackedGifSearchKeyRef.current !== searchAnalyticsKey) {
+      lastTrackedGifSearchKeyRef.current = searchAnalyticsKey
       trackAnalyticsEvent('gif_search_used', {
         queryLength: normalizedQuery.length,
-        source: 'local',
+        source,
       })
+    }
+
+    if (!session?.sessionToken || !backendReady) {
       return (session?.gifLibrary ?? []).filter((gif) =>
         gif.fileName.toLowerCase().includes(normalizedQuery.toLowerCase()),
       )
     }
 
-    trackAnalyticsEvent('gif_search_used', {
-      queryLength: normalizedQuery.length,
-      source: 'server',
-    })
     const response = await searchUserGifsRequest(session.sessionToken, normalizedQuery)
     return response.items
   }

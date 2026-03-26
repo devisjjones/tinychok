@@ -104,12 +104,12 @@ export function trackYandexMetricaGoal(goal: string, params: AnalyticsEventPrope
 export function trackYandexMetricaPageView(virtualPath: string, title?: string) {
   const counterId = getCurrentCounterId()
   if (!counterId || !isBrowser()) {
-    return
+    return false
   }
 
   const normalizedPath = virtualPath.startsWith('/') ? virtualPath : `/${virtualPath}`
   if (lastTrackedVirtualPage === normalizedPath) {
-    return
+    return false
   }
 
   lastTrackedVirtualPage = normalizedPath
@@ -117,4 +117,5 @@ export function trackYandexMetricaPageView(virtualPath: string, title?: string) 
   window.ym?.(counterId, 'hit', normalizedPath, {
     title,
   })
+  return true
 }

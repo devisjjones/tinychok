@@ -197,11 +197,16 @@ export function trackAnalyticsEvent(name: AnalyticsEventName, properties: Analyt
 }
 
 export function trackAnalyticsPageView(virtualPath: string, title?: string) {
+  const sent = trackYandexMetricaPageView(virtualPath, title)
+  if (!sent) {
+    return false
+  }
+
   debugAnalyticsLog('pageview', {
     consentGranted: runtimeState.consentGranted,
     counterId: runtimeState.metricaCounterId,
     title,
     virtualPath,
   })
-  trackYandexMetricaPageView(virtualPath, title)
+  return true
 }
