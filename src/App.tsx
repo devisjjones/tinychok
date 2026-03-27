@@ -10674,7 +10674,7 @@ function App() {
             >
               Пожаловаться
             </button>
-            {!isCurrentSubscriptionChannelOwner && !currentSubscriptionChannelArchived ? (
+            {!isCurrentSubscriptionChannelOwner ? (
               <button
                 type="button"
                 className="message-menu-item danger"

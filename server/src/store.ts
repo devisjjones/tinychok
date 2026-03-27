@@ -14,8 +14,6 @@ import {
   surnameFieldMaxLength,
 } from '../../src/shared/constants'
 import {
-  discoveryResults,
-  initialChannels,
   initialChats,
   initialGroups,
   initialSubscribedChannels,
@@ -342,7 +340,7 @@ const TEST_FIXTURE_CREATED_AT = '2026-03-21T00:00:00.000Z'
 const TEST_FIXTURE_PREMIUM_EXPIRES_AT = '2099-01-01T00:00:00.000Z'
 
 function cloneDiscoveryResults() {
-  return structuredClone(discoveryResults)
+  return [] as SearchResult[]
 }
 
 function createDefaultDatabase(): Database {
@@ -371,21 +369,11 @@ function createDefaultDatabase(): Database {
 type PersistDatabaseFn = (database: Database) => Promise<void>
 
 function createSeedState() {
-  if (runtimeConfig.environment === 'production') {
-    return {
-      channels: [] as Channel[],
-      chats: [] as Chat[],
-      groups: [] as GroupPreview[],
-      subscriptionChannels: [] as SubscriptionChannel[],
-    }
-  }
-
   return {
-    channels:
-      runtimeConfig.environment === 'development' ? structuredClone(initialChannels) : ([] as Channel[]),
-    chats: structuredClone(initialChats),
-    groups: structuredClone(initialGroups),
-    subscriptionChannels: structuredClone(initialSubscribedChannels),
+    channels: [] as Channel[],
+    chats: [] as Chat[],
+    groups: [] as GroupPreview[],
+    subscriptionChannels: [] as SubscriptionChannel[],
   }
 }
 
@@ -771,6 +759,20 @@ function shouldHideDeletedAccountContentForUsers(
 ) {
   return Boolean(
     isPublicDeletedAccount(account) && account?.deletionMode === 'account-and-user-data-hidden',
+  )
+}
+
+function shouldHideArchivedChannelForUsers(
+  channel:
+    | Pick<PersistedManagedChannel, 'archivedAt' | 'archiveReason'>
+    | Pick<PersistedSubscriptionChannel, 'archivedAt' | 'archiveReason'>
+    | Pick<Channel, 'archivedAt' | 'archiveReason'>
+    | Pick<SubscriptionChannel, 'archivedAt' | 'archiveReason'>,
+) {
+  return Boolean(
+    channel.archivedAt &&
+      (channel.archiveReason === 'owner-self-deleted' ||
+        channel.archiveReason === 'self-service-data-hidden'),
   )
 }
 
@@ -1202,7 +1204,7 @@ function materializeThreadCommentsForViewer(
 ) {
   return compactThreadComments(comments).flatMap((comment) => {
     const authorAccount = findAccountByStoredIdentifier(database, comment.authorIdentifier)
-    if (shouldHideDeletedAccountContentForUsers(authorAccount)) {
+    if (isPublicDeletedAccount(authorAccount)) {
       return []
     }
 
@@ -1532,6 +1534,23 @@ function materializeGroup(
 ): Omit<PersistedGroup, 'ownerIdentifier'> {
   const fallbackParticipants =
     initialGroups.find((seedGroup) => seedGroup.id === group.id)?.participants ?? []
+  const participants = (group.participants ?? fallbackParticipants).flatMap((participant) => {
+    const account = findAccountByStoredIdentifier(database, participant.identifier)
+    const archivedAccount =
+      Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
+    if (archivedAccount) {
+      return [] as GroupParticipant[]
+    }
+
+    return [{
+      ...participant,
+      archivedAccount: false,
+      identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
+      nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
+      status: account?.status?.trim() || participant.status,
+      title: account ? formatAccountName(account) || account.identifier : participant.title,
+    }]
+  })
 
   return {
     accent: group.accent,
@@ -1546,20 +1565,9 @@ function materializeGroup(
     handle: group.handle,
     id: group.id,
     isTestEntity: group.isTestEntity,
-    members: group.members,
+    members: participants.length,
     muted: Boolean(group.muted),
-    participants: (group.participants ?? fallbackParticipants).map((participant) => {
-      const account = findAccountByStoredIdentifier(database, participant.identifier)
-      const archivedAccount = Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
-      return {
-        ...participant,
-        archivedAccount,
-        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
-        nickname: archivedAccount ? '' : normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
-        status: archivedAccount ? 'Удалённый аккаунт' : account?.status?.trim() || participant.status,
-        title: archivedAccount ? 'Аккаунт удалён' : account ? formatAccountName(account) || account.identifier : participant.title,
-      }
-    }),
+    participants,
     preview: group.preview,
     sharedId: group.sharedId ?? `${group.ownerIdentifier}:${group.id}`,
     time: group.time,
@@ -1671,17 +1679,21 @@ function materializeSubscriptionChannel(
     muted: Boolean(channel.muted),
     preview: channel.preview,
     participants:
-      channel.participants?.map((participant) => {
+      channel.participants?.flatMap((participant) => {
         const account = findAccountByStoredIdentifier(database, participant.identifier)
-        const archivedAccount = Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
-        return {
-          ...participant,
-          archivedAccount,
-          identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
-          nickname: archivedAccount ? '' : normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
-          status: archivedAccount ? 'Удалённый аккаунт' : account?.status?.trim() || participant.status,
-          title: archivedAccount ? 'Аккаунт удалён' : account ? formatAccountName(account) || account.identifier : participant.title,
+        const archivedAccount =
+          Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
+        if (archivedAccount) {
+          return [] as GroupParticipant[]
         }
+        return [{
+          ...participant,
+          archivedAccount: false,
+          identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
+          nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
+          status: account?.status?.trim() || participant.status,
+          title: account ? formatAccountName(account) || account.identifier : participant.title,
+        }]
       }) ?? [],
     readers: channel.readers ?? 0,
     time: channel.time,
@@ -2042,17 +2054,21 @@ function materializeSubscriptionParticipants(
 ) {
   const explicitParticipants = channel.participants ?? []
   if (explicitParticipants.length > 0) {
-    return explicitParticipants.map((participant) => {
+    return explicitParticipants.flatMap((participant) => {
       const account = findAccountByStoredIdentifier(database, participant.identifier)
-      const archivedAccount = Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
-      return {
-        ...participant,
-        archivedAccount,
-        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
-        nickname: archivedAccount ? '' : normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
-        status: archivedAccount ? 'Удалённый аккаунт' : account?.status?.trim() || participant.status,
-        title: archivedAccount ? 'Аккаунт удалён' : account ? formatAccountName(account) || account.identifier : participant.title,
+      const archivedAccount =
+        Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
+      if (archivedAccount) {
+        return [] as GroupParticipant[]
       }
+      return [{
+        ...participant,
+        archivedAccount: false,
+        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
+        nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
+        status: account?.status?.trim() || participant.status,
+        title: account ? formatAccountName(account) || account.identifier : participant.title,
+      }]
     })
   }
 
@@ -2072,26 +2088,29 @@ function materializeSubscriptionParticipants(
 
   return database.accounts
     .filter((account) => matchingOwners.has(account.identifier))
-    .map((account) => {
+    .flatMap((account) => {
       const matchingDialog = database.dialogs.find(
         (dialog) =>
           dialog.ownerIdentifier === ownerIdentifier &&
           normalizeIdentifier(dialog.phone) === account.identifier,
       )
       const archivedAccount = isPublicDeletedAccount(account)
+      if (archivedAccount) {
+        return [] as GroupParticipant[]
+      }
 
-      return {
+      return [{
         accent: pickAccentForIdentifier(account.identifier),
         archivedAccount,
         favorite: Boolean(matchingDialog?.pinned),
         id: getStableParticipantId(account.identifier),
         identifier: account.identifier,
-        nickname: archivedAccount ? '' : normalizeNickname(account.nickname ?? ''),
-        online: archivedAccount ? false : database.sessions.some((session) => session.identifier === account.identifier),
-        premium: archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt),
-        status: archivedAccount ? 'Удалённый аккаунт' : account.status?.trim() || 'в сети',
-        title: archivedAccount ? 'Аккаунт удалён' : formatAccountName(account) || account.identifier,
-      } satisfies GroupParticipant
+        nickname: normalizeNickname(account.nickname ?? ''),
+        online: database.sessions.some((session) => session.identifier === account.identifier),
+        premium: hasActivePremium(account.premium, account.premiumExpiresAt),
+        status: account.status?.trim() || 'в сети',
+        title: formatAccountName(account) || account.identifier,
+      } satisfies GroupParticipant]
     })
 }
 
@@ -2101,6 +2120,7 @@ function materializeFullSubscriptionChannels(
 ): SubscriptionChannel[] {
   return database.subscriptionChannels
     .filter((channel) => channel.ownerIdentifier === ownerIdentifier)
+    .filter((channel) => !shouldHideArchivedChannelForUsers(channel))
     .map((channel) => {
       const materializedChannel = materializeSubscriptionChannel(database, channel)
       const participants = materializeSubscriptionParticipants(database, ownerIdentifier, channel)
@@ -2109,10 +2129,7 @@ function materializeFullSubscriptionChannels(
         (managedChannel) =>
           (sanitizeChannelDirectLink(managedChannel.directLink) || managedChannel.directLink) === normalizedHandle,
       )
-      const hideArchivedOwnerContent = Boolean(
-        channel.archivedAt &&
-        (channel.archiveReason === 'owner-self-deleted' || channel.archiveReason === 'self-service-data-hidden'),
-      )
+      const hideArchivedOwnerContent = shouldHideArchivedChannelForUsers(channel)
       const posts = hideArchivedOwnerContent
         ? []
         : database.subscriptionPosts
@@ -2292,10 +2309,7 @@ function buildThreadInbox(
   for (const channel of database.subscriptionChannels.filter(
     (candidate) => candidate.ownerIdentifier === ownerIdentifier,
   )) {
-    const hideArchivedOwnerContent = Boolean(
-      channel.archivedAt &&
-      (channel.archiveReason === 'owner-self-deleted' || channel.archiveReason === 'self-service-data-hidden'),
-    )
+    const hideArchivedOwnerContent = shouldHideArchivedChannelForUsers(channel)
     if (hideArchivedOwnerContent) {
       continue
     }
@@ -10422,6 +10436,52 @@ export class TinychokStore {
     }
   }
 
+  private removeParticipantIdentifierFromGroupCopies(targetIdentifier: string) {
+    const normalizedTarget = normalizeStoredIdentifierReference(targetIdentifier)
+    if (!normalizedTarget) {
+      return new Set<string>()
+    }
+
+    const touchedSharedIds = new Set<string>()
+
+    for (const group of this.database.groups) {
+      const nextParticipants = (group.participants ?? []).filter(
+        (participant) =>
+          normalizeStoredIdentifierReference(participant.identifier ?? '') !== normalizedTarget,
+      )
+
+      if (nextParticipants.length === (group.participants ?? []).length) {
+        continue
+      }
+
+      group.participants = nextParticipants
+      group.members = nextParticipants.length
+      touchedSharedIds.add(this.getSharedGroupId(group))
+    }
+
+    return touchedSharedIds
+  }
+
+  private removeParticipantIdentifierFromSubscriptionChannelCopies(targetIdentifier: string) {
+    const normalizedTarget = normalizeStoredIdentifierReference(targetIdentifier)
+    if (!normalizedTarget) {
+      return
+    }
+
+    for (const channel of this.database.subscriptionChannels) {
+      const nextParticipants = (channel.participants ?? []).filter(
+        (participant) =>
+          normalizeStoredIdentifierReference(participant.identifier ?? '') !== normalizedTarget,
+      )
+
+      if (nextParticipants.length === (channel.participants ?? []).length) {
+        continue
+      }
+
+      channel.participants = nextParticipants
+    }
+  }
+
   private applyOwnedEntityDeletionPolicy(
     archivedIdentifier: string,
     options: {
@@ -10429,6 +10489,8 @@ export class TinychokStore {
       deleteDataToo: boolean
     },
   ) {
+    const touchedSharedIds = this.removeParticipantIdentifierFromGroupCopies(archivedIdentifier)
+    this.removeParticipantIdentifierFromSubscriptionChannelCopies(archivedIdentifier)
     const managedChannels = this.database.managedChannels.filter(
       (channel) => channel.ownerIdentifier === archivedIdentifier,
     )
@@ -10440,7 +10502,8 @@ export class TinychokStore {
               getCurrentGroupOwnerIdentifier(group) === archivedIdentifier ||
               normalizeStoredIdentifierReference(group.creatorIdentifier ?? '') === archivedIdentifier,
           )
-          .map((group) => this.getSharedGroupId(group)),
+          .map((group) => this.getSharedGroupId(group))
+          .concat([...touchedSharedIds]),
       ),
     ]
 
@@ -11464,11 +11527,59 @@ function applyProductionFixtureCleanup(database: Database) {
   }
 }
 
+function normalizeDeletedAccountResidue(database: Database) {
+  let didMutate = false
+  const deletedIdentifiers = new Set(
+    database.accounts
+      .filter((account) => isPublicDeletedAccount(account))
+      .map((account) => normalizeStoredIdentifierReference(account.identifier)),
+  )
+
+  if (deletedIdentifiers.size === 0) {
+    return {
+      database,
+      needsPersistenceRewrite: didMutate,
+    }
+  }
+
+  for (const group of database.groups) {
+    const nextParticipants = (group.participants ?? []).filter(
+      (participant) =>
+        !deletedIdentifiers.has(normalizeStoredIdentifierReference(participant.identifier ?? '')),
+    )
+
+    if (nextParticipants.length !== (group.participants ?? []).length || group.members !== nextParticipants.length) {
+      group.participants = nextParticipants
+      group.members = nextParticipants.length
+      didMutate = true
+    }
+  }
+
+  for (const channel of database.subscriptionChannels) {
+    const nextParticipants = (channel.participants ?? []).filter(
+      (participant) =>
+        !deletedIdentifiers.has(normalizeStoredIdentifierReference(participant.identifier ?? '')),
+    )
+
+    if (nextParticipants.length !== (channel.participants ?? []).length) {
+      channel.participants = nextParticipants
+      didMutate = true
+    }
+  }
+
+  return {
+    database,
+    needsPersistenceRewrite: didMutate,
+  }
+}
+
 function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewrite: boolean) {
-  const nextState =
+  const fixtureState =
     runtimeConfig.environment === 'production'
-      ? applyProductionFixtureCleanup(database)
+      ? { database, needsPersistenceRewrite: false }
       : applyNonProductionFixtures(database)
+  const nextState = applyProductionFixtureCleanup(fixtureState.database)
+  const normalizedDeletedResidue = normalizeDeletedAccountResidue(nextState.database)
   const repairedDialogIdCollisions = repairPersistedDialogIdCollisions(nextState.database)
   const normalizedDuplicateDialogs = normalizePersistedDuplicateDialogs(nextState.database)
   const dedupePersistedMessages = dedupePersistedMessagesByDeliveryId(nextState.database)
@@ -11480,6 +11591,8 @@ function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewri
     database: nextState.database,
     needsPersistenceRewrite:
       needsPersistenceRewrite ||
+      fixtureState.needsPersistenceRewrite ||
+      normalizedDeletedResidue.needsPersistenceRewrite ||
       repairedDialogIdCollisions ||
       normalizedDuplicateDialogs ||
       dedupePersistedMessages ||
