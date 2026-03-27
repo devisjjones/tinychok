@@ -11527,6 +11527,117 @@ function applyProductionFixtureCleanup(database: Database) {
   }
 }
 
+function pruneLegacyNonProductionMockResidue(database: Database) {
+  let didMutate = false
+  const mockPhoneIdentifiers = new Set(initialChats.map((chat) => normalizeIdentifier(chat.phone)))
+  const mockChatHandles = new Set(initialChats.map((chat) => normalizeNickname(chat.handle) || ''))
+  const mockChatTitles = new Set(initialChats.map((chat) => chat.title.trim()).filter(Boolean))
+  const mockGroupHandles = new Set(initialGroups.map((group) => group.handle.trim()).filter(Boolean))
+  const mockSubscriptionHandles = new Set(
+    initialSubscribedChannels.map((channel) => normalizeChannelHandleForComparison(channel.handle)),
+  )
+
+  const removableDialogKeys = new Set(
+    database.dialogs
+      .filter((dialog) => {
+        const normalizedPhone = normalizeIdentifier(dialog.phone)
+        const normalizedHandle = normalizeNickname(dialog.handle) || ''
+        const normalizedTitle = dialog.title.trim()
+
+        return (
+          dialog.isTestEntity === true ||
+          mockPhoneIdentifiers.has(normalizedPhone) ||
+          (normalizedHandle.length > 0 && mockChatHandles.has(normalizedHandle)) ||
+          (normalizedTitle.length > 0 && mockChatTitles.has(normalizedTitle))
+        )
+      })
+      .map((dialog) => `${dialog.ownerIdentifier}:${dialog.id}`),
+  )
+
+  if (removableDialogKeys.size > 0) {
+    const nextDialogs = database.dialogs.filter(
+      (dialog) => !removableDialogKeys.has(`${dialog.ownerIdentifier}:${dialog.id}`),
+    )
+    const nextDialogMessages = database.dialogMessages.filter(
+      (message) => !removableDialogKeys.has(`${message.ownerIdentifier}:${message.dialogId}`),
+    )
+
+    if (nextDialogs.length !== database.dialogs.length) {
+      database.dialogs = nextDialogs
+      didMutate = true
+    }
+
+    if (nextDialogMessages.length !== database.dialogMessages.length) {
+      database.dialogMessages = nextDialogMessages
+      didMutate = true
+    }
+  }
+
+  const removableGroupKeys = new Set(
+    database.groups
+      .filter((group) => {
+        const handle = group.handle.trim()
+        return group.isTestEntity === true || (handle.length > 0 && mockGroupHandles.has(handle))
+      })
+      .map((group) => `${group.ownerIdentifier}:${group.id}`),
+  )
+
+  if (removableGroupKeys.size > 0) {
+    const nextGroups = database.groups.filter(
+      (group) => !removableGroupKeys.has(`${group.ownerIdentifier}:${group.id}`),
+    )
+    const nextGroupMessages = database.groupMessages.filter(
+      (message) => !removableGroupKeys.has(`${message.ownerIdentifier}:${message.groupId}`),
+    )
+
+    if (nextGroups.length !== database.groups.length) {
+      database.groups = nextGroups
+      didMutate = true
+    }
+
+    if (nextGroupMessages.length !== database.groupMessages.length) {
+      database.groupMessages = nextGroupMessages
+      didMutate = true
+    }
+  }
+
+  const removableSubscriptionChannelKeys = new Set(
+    database.subscriptionChannels
+      .filter((channel) => {
+        const normalizedHandle = normalizeChannelHandleForComparison(channel.handle)
+        return (
+          channel.isTestEntity === true ||
+          (normalizedHandle.length > 0 && mockSubscriptionHandles.has(normalizedHandle))
+        )
+      })
+      .map((channel) => `${channel.ownerIdentifier}:${channel.id}`),
+  )
+
+  if (removableSubscriptionChannelKeys.size > 0) {
+    const nextSubscriptionChannels = database.subscriptionChannels.filter(
+      (channel) => !removableSubscriptionChannelKeys.has(`${channel.ownerIdentifier}:${channel.id}`),
+    )
+    const nextSubscriptionPosts = database.subscriptionPosts.filter(
+      (post) => !removableSubscriptionChannelKeys.has(`${post.ownerIdentifier}:${post.channelId}`),
+    )
+
+    if (nextSubscriptionChannels.length !== database.subscriptionChannels.length) {
+      database.subscriptionChannels = nextSubscriptionChannels
+      didMutate = true
+    }
+
+    if (nextSubscriptionPosts.length !== database.subscriptionPosts.length) {
+      database.subscriptionPosts = nextSubscriptionPosts
+      didMutate = true
+    }
+  }
+
+  return {
+    database,
+    needsPersistenceRewrite: didMutate,
+  }
+}
+
 function normalizeDeletedAccountResidue(database: Database) {
   let didMutate = false
   const deletedIdentifiers = new Set(
@@ -11579,19 +11690,24 @@ function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewri
       ? { database, needsPersistenceRewrite: false }
       : applyNonProductionFixtures(database)
   const nextState = applyProductionFixtureCleanup(fixtureState.database)
-  const normalizedDeletedResidue = normalizeDeletedAccountResidue(nextState.database)
-  const repairedDialogIdCollisions = repairPersistedDialogIdCollisions(nextState.database)
-  const normalizedDuplicateDialogs = normalizePersistedDuplicateDialogs(nextState.database)
-  const dedupePersistedMessages = dedupePersistedMessagesByDeliveryId(nextState.database)
-  const ensuredManagedChannelOwnerCopies = ensureManagedChannelOwnerCopies(nextState.database)
-  const repairedSubscriptionChannelIdentities = repairSubscriptionChannelIdentityConflicts(nextState.database)
-  const dedupeSubscriptionPosts = dedupePersistedSubscriptionPosts(nextState.database)
+  const prunedLegacyMockResidue =
+    runtimeConfig.environment === 'production'
+      ? { database: nextState.database, needsPersistenceRewrite: false }
+      : pruneLegacyNonProductionMockResidue(nextState.database)
+  const normalizedDeletedResidue = normalizeDeletedAccountResidue(prunedLegacyMockResidue.database)
+  const repairedDialogIdCollisions = repairPersistedDialogIdCollisions(prunedLegacyMockResidue.database)
+  const normalizedDuplicateDialogs = normalizePersistedDuplicateDialogs(prunedLegacyMockResidue.database)
+  const dedupePersistedMessages = dedupePersistedMessagesByDeliveryId(prunedLegacyMockResidue.database)
+  const ensuredManagedChannelOwnerCopies = ensureManagedChannelOwnerCopies(prunedLegacyMockResidue.database)
+  const repairedSubscriptionChannelIdentities = repairSubscriptionChannelIdentityConflicts(prunedLegacyMockResidue.database)
+  const dedupeSubscriptionPosts = dedupePersistedSubscriptionPosts(prunedLegacyMockResidue.database)
 
   return {
-    database: nextState.database,
+    database: prunedLegacyMockResidue.database,
     needsPersistenceRewrite:
       needsPersistenceRewrite ||
       fixtureState.needsPersistenceRewrite ||
+      prunedLegacyMockResidue.needsPersistenceRewrite ||
       normalizedDeletedResidue.needsPersistenceRewrite ||
       repairedDialogIdCollisions ||
       normalizedDuplicateDialogs ||
