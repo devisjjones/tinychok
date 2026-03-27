@@ -1,6 +1,8 @@
 import type { Account, AuthStep } from '../app/types'
 import { formatAccountName } from '../app/utils'
 import { useState, type RefObject } from 'react'
+import eyeOffIcon from '../../public/icons/eyeoff.png'
+import eyeOnIcon from '../../public/icons/eyeon.png'
 
 type AuthScreenProps = {
   authCodeFlow: 'password-reset' | 'password-setup' | 'registration'
@@ -96,11 +98,7 @@ export function AuthScreen({
             onClick={onToggleVisible}
             aria-label={visible ? 'Скрыть пароль' : 'Показать пароль'}
           >
-            <img
-              src={visible ? '/icons/eyeoff.png' : '/icons/eyeon.png'}
-              alt=""
-              aria-hidden="true"
-            />
+            <img src={visible ? eyeOffIcon : eyeOnIcon} alt="" aria-hidden="true" />
           </button>
         </div>
       </label>

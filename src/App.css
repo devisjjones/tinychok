@@ -388,6 +388,7 @@
 
 .auth-password-input {
   position: relative;
+  width: 100%;
 }
 
 .auth-field input {
@@ -401,6 +402,8 @@
 }
 
 .auth-password-input input {
+  width: 100%;
+  box-sizing: border-box;
   padding-right: 56px;
 }
 
@@ -423,6 +426,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  z-index: 1;
 }
 
 .auth-password-visibility img {
