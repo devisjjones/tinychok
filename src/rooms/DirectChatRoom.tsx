@@ -218,6 +218,7 @@ export function DirectChatRoom({
             <div className="room-title">
               <div className="room-title-name">
                 <h3>{activeChat.title}</h3>
+                {activeChat.archivedAccount ? <span className="room-archive-badge">Архив</span> : null}
                 {activeChat.blockedByAdmin ? (
                   <span className="blocked-contact-badge" aria-label="Пользователь заблокирован администрацией">
                     <img src="/icons/blocked.png" alt="" aria-hidden="true" />

@@ -176,6 +176,7 @@ export function SubscriptionChannelRoom({
               <div className="room-title">
                 <div className="room-title-name">
                   <h3>{channel.title}</h3>
+                  {channel.archivedAt ? <span className="room-archive-badge">Архив</span> : null}
                   {channel.muted ? (
                     <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                       <img src="/icons/bell-100.png" alt="" />
@@ -187,6 +188,9 @@ export function SubscriptionChannelRoom({
                 </div>
               </div>
               {channel.statusText ? <p className="room-channel-status">{channel.statusText}</p> : null}
+              {channel.archivedAt ? (
+                <p className="room-archive-note">Канал находится в архиве и доступен только для чтения.</p>
+              ) : null}
               {onOpenSubscribers ? (
                 <button type="button" className="room-members-link" onClick={onOpenSubscribers}>
                   {subscriberCountLabel}

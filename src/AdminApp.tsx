@@ -196,6 +196,13 @@ function formatAdminDeletionMode(user: AdminUserSummary) {
     : 'Только аккаунт'
 }
 
+function formatArchiveReason(reason?: 'owner-self-deleted' | 'self-service-data-hidden' | 'orphaned-group') {
+  if (!reason) return 'Нет'
+  if (reason === 'self-service-data-hidden') return 'Архивировано по self-service удалению с флагом "удалить и данные"'
+  if (reason === 'orphaned-group') return 'Нет живого владельца/участников'
+  return 'Владелец удалил аккаунт'
+}
+
 const reportActionLabels: Record<AdminReportAction, string> = {
   close_report: 'Закрыть жалобу',
   delete_entity: 'Удалить сущность',
@@ -1897,7 +1904,10 @@ export default function AdminApp() {
                     className={selectedChannelHandle === channel.handle ? 'admin-list-item active' : 'admin-list-item'}
                     onClick={() => setSelectedChannelHandle(channel.handle)}
                   >
-                    <strong>{channel.title}</strong>
+                    <strong>
+                      {channel.title}
+                      {channel.archivedAt ? <span className="admin-badge admin-badge-inline admin-badge-warning">Архив</span> : null}
+                    </strong>
                     <span>{`@${channel.handle}`}</span>
                     <span>{`${formatChannelStatus(channel.status)} · ${formatVisibility(channel.visibility)}`}</span>
                   </button>
@@ -1917,6 +1927,9 @@ export default function AdminApp() {
                       <div className="admin-user-identity-meta">
                         <span>{`@${selectedChannel.handle}`}</span>
                         <span>{`${formatChannelStatus(selectedChannel.status)} · ${formatVisibility(selectedChannel.visibility)}`}</span>
+                        {selectedChannel.archivedAt ? (
+                          <span className="admin-badge admin-badge-warning">{`Архив: ${formatDateTime(selectedChannel.archivedAt)}`}</span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -1934,6 +1947,10 @@ export default function AdminApp() {
                         <span>{selectedChannel.owner.nickname ? `@${selectedChannel.owner.nickname}` : 'Нет юзернейма'}</span>
                         <span>{selectedChannel.owner.identifier}</span>
                       </dd>
+                    </div>
+                    <div>
+                      <dt>Причина архивации</dt>
+                      <dd>{formatArchiveReason(selectedChannel.archiveReason)}</dd>
                     </div>
                     <div>
                       <dt>Постов</dt>
@@ -1988,7 +2005,10 @@ export default function AdminApp() {
                     className={selectedGroupId === group.id ? 'admin-list-item active' : 'admin-list-item'}
                     onClick={() => setSelectedGroupId(group.id)}
                   >
-                    <strong>{group.title}</strong>
+                    <strong>
+                      {group.title}
+                      {group.archivedAt ? <span className="admin-badge admin-badge-inline admin-badge-warning">Архив</span> : null}
+                    </strong>
                     <span>{group.id}</span>
                     <span>{`${group.members} участников`}</span>
                   </button>
@@ -2007,12 +2027,15 @@ export default function AdminApp() {
                       <h2>{selectedGroup.title}</h2>
                       <div className="admin-user-identity-meta">
                         <span>{selectedGroup.id}</span>
+                        {selectedGroup.archivedAt ? (
+                          <span className="admin-badge admin-badge-warning">{`Архив: ${formatDateTime(selectedGroup.archivedAt)}`}</span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
                   <dl className="admin-detail-grid">
                     <div>
-                      <dt>Владелец</dt>
+                      <dt>Текущий владелец</dt>
                       <dd>
                         <button
                           type="button"
@@ -2026,6 +2049,24 @@ export default function AdminApp() {
                     <div>
                       <dt>Телефон владельца</dt>
                       <dd>{selectedGroup.owner.identifier}</dd>
+                    </div>
+                    <div>
+                      <dt>Создатель</dt>
+                      <dd className="admin-contact-card">
+                        <button
+                          type="button"
+                          className="admin-inline-link"
+                          onClick={() => void openUserFromAdmin(selectedGroup.creator.identifier)}
+                        >
+                          {selectedGroup.creator.displayName}
+                        </button>
+                        <span>{selectedGroup.creator.nickname ? `@${selectedGroup.creator.nickname}` : 'Нет юзернейма'}</span>
+                        <span>{selectedGroup.creator.identifier}</span>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Причина архивации</dt>
+                      <dd>{formatArchiveReason(selectedGroup.archiveReason)}</dd>
                     </div>
                     <div>
                       <dt>Участников</dt>

@@ -1088,6 +1088,22 @@
   align-items: center;
   gap: 6px;
   overflow: hidden;
+  flex-wrap: wrap;
+}
+
+.chat-archive-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(122, 98, 85, 0.14);
+  color: rgba(95, 66, 46, 0.92);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
 }
 
 .chat-topline {
@@ -1522,6 +1538,28 @@
   font-size: 0.82rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+}
+
+.room-archive-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(122, 98, 85, 0.14);
+  color: rgba(95, 66, 46, 0.9);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.room-archive-note {
+  margin: 0;
+  color: rgba(95, 66, 46, 0.72);
+  font-size: 0.92rem;
+  line-height: 1.35;
 }
 
 .channels-fields {
@@ -4673,6 +4711,10 @@
   font-size: 0.72rem;
   font-weight: 600;
   line-height: 1;
+}
+
+.room-participant-role-archived {
+  background: rgba(122, 98, 85, 0.14);
 }
 
 .room-report-danger {

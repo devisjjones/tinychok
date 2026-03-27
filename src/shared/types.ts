@@ -107,6 +107,7 @@ export type GroupMessageSource = {
   accent?: string
   avatarImage?: string
   creatorIdentifier?: string
+  groupOwnerIdentifier?: string
   handle?: string
   sharedId?: string
   title: string
@@ -118,6 +119,7 @@ export type GroupParticipant = {
   nickname?: string
   title: string
   accent: string
+  archivedAccount?: boolean
   online?: boolean
   premium?: boolean
   favorite?: boolean
@@ -159,6 +161,7 @@ export type Chat = {
   title: string
   handle: string
   phone: string
+  archivedAccount?: boolean
   isTestEntity?: boolean
   accent: string
   mood: string
@@ -178,6 +181,11 @@ export type Chat = {
   messages: Message[]
 }
 
+export type ArchiveReason =
+  | 'owner-self-deleted'
+  | 'self-service-data-hidden'
+  | 'orphaned-group'
+
 export type SearchResult = {
   id: number
   title: string
@@ -192,6 +200,8 @@ export type SubscriptionChannel = {
   title: string
   handle: string
   avatarImage?: string
+  archivedAt?: string
+  archiveReason?: ArchiveReason
   statusText?: string
   isTestEntity?: boolean
   latestActivityAt?: string
@@ -217,7 +227,10 @@ export type GroupPreview = {
   handle: string
   accent: string
   avatarImage?: string
+  archivedAt?: string
+  archiveReason?: ArchiveReason
   creatorIdentifier?: string
+  groupOwnerIdentifier?: string
   isTestEntity?: boolean
   latestActivityAt?: string
   historyHasMore?: boolean
@@ -250,6 +263,8 @@ export type Channel = {
   description: string
   avatarTone: string
   avatarImage?: string
+  archivedAt?: string
+  archiveReason?: ArchiveReason
   commentsEnabledForAll?: boolean
   commentsEnabledForPremium?: boolean
   commentBlacklistIdentifiers?: string[]

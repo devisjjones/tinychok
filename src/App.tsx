@@ -400,6 +400,7 @@ function buildGroupParticipantFromChat(chat: Chat, participantId?: number): Grou
 function buildFallbackGroupParticipant(title: string, participantId: number): GroupParticipant {
   return {
     accent: '#cfb4a0',
+    archivedAccount: false,
     id: participantId,
     identifier: undefined,
     online: false,
@@ -410,6 +411,11 @@ function buildFallbackGroupParticipant(title: string, participantId: number): Gr
 }
 
 function hydrateGroupParticipants(group: GroupPreview, chats: Chat[]): GroupParticipant[] {
+  const chatByIdentifier = new Map(
+    chats
+      .map((chat) => [normalizeIdentifier(chat.phone), chat] as const)
+      .filter((entry): entry is [string, Chat] => Boolean(entry[0])),
+  )
   const chatByTitle = new Map(chats.map((chat) => [chat.title, chat]))
   const fallbackChatByTitle = new Map(initialChats.map((chat) => [chat.title, chat]))
   const participantsById = new Map<number, GroupParticipant>()
@@ -421,12 +427,17 @@ function hydrateGroupParticipants(group: GroupPreview, chats: Chat[]): GroupPart
   }
 
   group.participants.forEach((participant) => {
+    const normalizedParticipantIdentifier = normalizeIdentifier(participant.identifier ?? '')
     const matchingChat =
-      chatByTitle.get(participant.title) ?? fallbackChatByTitle.get(participant.title)
+      (normalizedParticipantIdentifier ? chatByIdentifier.get(normalizedParticipantIdentifier) : null) ??
+      (!participant.archivedAccount ? chatByTitle.get(participant.title) ?? fallbackChatByTitle.get(participant.title) : null)
 
     upsertParticipant(
       matchingChat
-        ? buildGroupParticipantFromChat(matchingChat, participant.id)
+        ? {
+            ...buildGroupParticipantFromChat(matchingChat, participant.id),
+            archivedAccount: Boolean(participant.archivedAccount),
+          }
         : participant,
     )
   })
@@ -502,11 +513,17 @@ function isRoomCommentsBlacklisted(
 function getRoomCommentBlockReason(
   target: Pick<
     GroupPreview | SubscriptionChannel | Channel,
-    'commentBlacklistIdentifiers' | 'commentsEnabledForAll' | 'commentsEnabledForPremium'
+    'archivedAt' | 'commentBlacklistIdentifiers' | 'commentsEnabledForAll' | 'commentsEnabledForPremium'
   >,
   session: Session | null,
   roomLabel: 'группы' | 'канала',
 ) {
+  if (target.archivedAt) {
+    return roomLabel === 'канала'
+      ? 'Канал находится в архиве. Новые комментарии недоступны.'
+      : 'Группа находится в архиве. Новые сообщения недоступны.'
+  }
+
   if (isRoomCommentsBlacklisted(target, session?.identifier)) {
     return `Вы не можете отправлять сообщения. Вы в чёрном списке ${roomLabel}.`
   }
@@ -1646,6 +1663,7 @@ function App() {
       ? null
       : subscriptionChannels.find((channel) => channel.id === activeSubscriptionChannelId) ?? null
   const currentSubscriptionChannel = previewSubscriptionChannel ?? activeSubscriptionChannel
+  const currentSubscriptionChannelArchived = Boolean(currentSubscriptionChannel?.archivedAt)
   const ownedCurrentManagedChannel =
     currentSubscriptionChannel === null
       ? null
@@ -1698,6 +1716,9 @@ function App() {
         ) ?? null
   const persistedActiveGroup =
     activeGroupId === null ? null : groups.find((group) => group.id === activeGroupId) ?? null
+  const activeGroupOwnerIdentifier = normalizeIdentifier(
+    persistedActiveGroup?.groupOwnerIdentifier ?? persistedActiveGroup?.creatorIdentifier ?? '',
+  )
   const activeGroup = useMemo(() => (
     persistedActiveGroup
       ? {
@@ -1706,21 +1727,24 @@ function App() {
         }
       : null
   ), [chats, persistedActiveGroup])
+  const activeGroupArchived = Boolean(activeGroup?.archivedAt)
   const isActiveGroupCreator =
     activeGroup !== null &&
     session !== null &&
-    normalizeIdentifier(activeGroup.creatorIdentifier ?? session.identifier) === session.identifier
+    normalizeIdentifier(
+      activeGroup.groupOwnerIdentifier ?? activeGroup.creatorIdentifier ?? session.identifier,
+    ) === session.identifier
   const activeGroupCreatorParticipant =
     activeGroup?.participants.find(
       (participant) =>
         normalizeIdentifier(participant.identifier ?? '') ===
-        normalizeIdentifier(activeGroup.creatorIdentifier ?? ''),
+        normalizeIdentifier(activeGroup.groupOwnerIdentifier ?? activeGroup.creatorIdentifier ?? ''),
     ) ?? null
   const activeGroupCreatorChat =
-    activeGroup?.creatorIdentifier
+    activeGroupOwnerIdentifier
       ? chats.find(
           (chat) =>
-            normalizeIdentifier(chat.phone) === normalizeIdentifier(activeGroup.creatorIdentifier ?? ''),
+            normalizeIdentifier(chat.phone) === activeGroupOwnerIdentifier,
         ) ?? null
       : null
   const activeGroupOwnerHasPremium =
@@ -1745,9 +1769,9 @@ function App() {
     : []
   const transferableGroupParticipants = activeGroup
     ? activeGroup.participants.filter(
-        (participant) =>
-          normalizeIdentifier(participant.identifier ?? '') !==
-          normalizeIdentifier(activeGroup.creatorIdentifier ?? ''),
+          (participant) =>
+            normalizeIdentifier(participant.identifier ?? '') !==
+          normalizeIdentifier(activeGroup.groupOwnerIdentifier ?? activeGroup.creatorIdentifier ?? ''),
       )
     : []
   function resolveGroupParticipant(
@@ -6835,6 +6859,7 @@ function App() {
       sourceGroup: {
         accent: activeGroup.accent,
         creatorIdentifier: activeGroup.creatorIdentifier,
+        groupOwnerIdentifier: activeGroup.groupOwnerIdentifier,
         handle: activeGroup.handle,
         sharedId: activeGroup.sharedId,
         title: activeGroup.title,
@@ -7529,7 +7554,7 @@ function App() {
 
     try {
       const deleteDataToo = deleteAccountDataToo
-      await deleteAccountRequest(session.sessionToken, {
+      const response = await deleteAccountRequest(session.sessionToken, {
         deleteDataToo,
         password: deleteAccountPasswordValue,
       })
@@ -7543,8 +7568,11 @@ function App() {
       resetDeleteAccountForm()
       setDeleteAccountOpen(false)
       trackAnalyticsEvent('account_deletion_succeeded', {
+        archivedGroupsCount: response.archivedGroupsCount,
+        archivedOwnedChannelsCount: response.archivedOwnedChannelsCount,
         deleteDataToo,
         source: 'settings-management',
+        transferredGroupsCount: response.transferredGroupsCount,
       })
       window.alert('Аккаунт удалён. Для входа нужно будет зарегистрироваться заново.')
       logout()
@@ -9412,6 +9440,7 @@ function App() {
         commentsEnabledForAll: creatingGroupCommentsForAll,
         commentsEnabledForPremium: creatingGroupCommentsForPremium,
         creatorIdentifier: session.identifier,
+        groupOwnerIdentifier: session.identifier,
         handle: buildLocalGroupHandle(nextGroupId),
         id: nextGroupId,
         members: participants.length,
@@ -9443,6 +9472,7 @@ function App() {
             accent: nextGroup.accent,
             avatarImage: nextGroup.avatarImage,
             creatorIdentifier: nextGroup.creatorIdentifier,
+            groupOwnerIdentifier: nextGroup.groupOwnerIdentifier,
             handle: nextGroup.handle,
             sharedId: nextGroup.sharedId,
             title: nextGroup.title,
@@ -10575,7 +10605,7 @@ function App() {
             className="message-menu"
             style={channelActionsMenuStyle}
           >
-            {isCurrentSubscriptionChannelOwner && ownedCurrentManagedChannel ? (
+            {isCurrentSubscriptionChannelOwner && ownedCurrentManagedChannel && !currentSubscriptionChannelArchived ? (
               <button
                 type="button"
                 className="message-menu-item"
@@ -10599,20 +10629,22 @@ function App() {
             >
               {actionableSubscriptionChannel.muted ? 'Включить уведомления' : 'Заглушить'}
             </button>
-            <button
-              type="button"
-              className="message-menu-item"
-              onClick={() => {
-                setChannelShareOpen(true)
-                setChannelShareBusy(false)
-                setChannelShareError('')
-                setChannelShareChatIds([])
-                setChannelReportOpen(false)
-                setChannelReportError('')
-              }}
-            >
-              Пригласить подписаться
-            </button>
+            {!currentSubscriptionChannelArchived ? (
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => {
+                  setChannelShareOpen(true)
+                  setChannelShareBusy(false)
+                  setChannelShareError('')
+                  setChannelShareChatIds([])
+                  setChannelReportOpen(false)
+                  setChannelReportError('')
+                }}
+              >
+                Пригласить подписаться
+              </button>
+            ) : null}
             <button
               type="button"
               className="message-menu-item"
@@ -10626,7 +10658,7 @@ function App() {
             >
               Пожаловаться
             </button>
-            {!isCurrentSubscriptionChannelOwner ? (
+            {!isCurrentSubscriptionChannelOwner && !currentSubscriptionChannelArchived ? (
               <button
                 type="button"
                 className="message-menu-item danger"
@@ -10775,6 +10807,9 @@ function App() {
                       <span className="room-participant-copy">
                         <span className="room-participant-name-row">
                           <strong>{participant.title}</strong>
+                          {participant.archivedAccount ? (
+                            <span className="room-participant-role room-participant-role-archived">Архив</span>
+                          ) : null}
                           {isOwner ? (
                             <span className="room-participant-role">Владелец</span>
                           ) : null}
@@ -11230,12 +11265,12 @@ function App() {
             className="message-menu"
             style={groupActionsMenuStyle}
           >
-            {isActiveGroupCreator ? (
+            {isActiveGroupCreator && !activeGroupArchived ? (
               <button type="button" className="message-menu-item" onClick={openGroupSettingsDialog}>
                 Настройки группы
               </button>
             ) : null}
-            {!isActiveGroupCreator ? (
+            {!isActiveGroupCreator && !activeGroupArchived ? (
               <button
                 type="button"
                 className="message-menu-item danger"
@@ -11258,13 +11293,15 @@ function App() {
             >
               {activeGroup.muted ? 'Включить уведомления' : 'Заглушить'}
             </button>
-            <button
-              type="button"
-              className={`message-menu-item${activeGroupAtMemberLimit ? ' disabled' : ''}`}
-              onClick={openGroupInvitePopup}
-            >
-              Пригласить в группу
-            </button>
+            {!activeGroupArchived ? (
+              <button
+                type="button"
+                className={`message-menu-item${activeGroupAtMemberLimit ? ' disabled' : ''}`}
+                onClick={openGroupInvitePopup}
+              >
+                Пригласить в группу
+              </button>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -11441,6 +11478,12 @@ function App() {
                 <span className="room-participant-copy">
                   <span className="room-participant-name-row">
                     <strong>{participant.title}</strong>
+                    {participant.archivedAccount ? (
+                      <span className="room-participant-role room-participant-role-archived">Архив</span>
+                    ) : null}
+                    {normalizeIdentifier(participant.identifier ?? '') === activeGroupOwnerIdentifier ? (
+                      <span className="room-participant-role">Владелец</span>
+                    ) : null}
                     {participant.premium ? (
                       <span className="premium-crown chat-crown" aria-label="Премиум">
                         <img src="/icons/crown64.png" alt="" />
@@ -11819,6 +11862,7 @@ function App() {
                   <span className="chat-topline">
                     <span className="chat-name-row">
                       <strong className="chat-name-text">{channel.title}</strong>
+                      {channel.archivedAt ? <span className="chat-archive-badge">Архив</span> : null}
                       {channel.muted ? (
                         <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                           <img src="/icons/bell-100.png" alt="" />
@@ -11893,6 +11937,7 @@ function App() {
                       <span className="chat-topline">
                         <span className="chat-name-row">
                           <strong className="chat-name-text">{group.title}</strong>
+                          {group.archivedAt ? <span className="chat-archive-badge">Архив</span> : null}
                           {group.muted ? (
                             <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                               <img src="/icons/bell-100.png" alt="" />
@@ -12060,6 +12105,7 @@ function App() {
                     <span className="chat-topline">
                       <span className="chat-name-row">
                         <strong className="chat-name-text">{chat.title}</strong>
+                        {chat.archivedAccount ? <span className="chat-archive-badge">Удалён</span> : null}
                         {renderAdminBlockedChatBadge(chat)}
                         {chat.muted ? (
                           <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
@@ -13767,7 +13813,7 @@ function App() {
             onReplyReferenceJump={scrollToChannelPost}
             visiblePosts={visibleSubscriptionPosts}
             publisher={
-              ownedCurrentManagedChannel
+              ownedCurrentManagedChannel && !currentSubscriptionChannelArchived
                 ? {
                     attachmentDraft: channelAttachmentDrafts[currentSubscriptionChannel!.id],
                     attachmentInputRef: channelAttachmentInputRef,

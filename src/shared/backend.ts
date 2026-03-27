@@ -271,6 +271,8 @@ export type AdminMediaListResponse = {
 }
 
 export type AdminManagedChannelSummary = {
+  archivedAt?: string
+  archiveReason?: Channel['archiveReason']
   csvFileName: string
   handle: string
   id: number
@@ -289,6 +291,9 @@ export type AdminManagedChannelsResponse = {
 }
 
 export type AdminManagedGroupSummary = {
+  archivedAt?: string
+  archiveReason?: GroupPreview['archiveReason']
+  creator: AdminLinkedUser
   csvFileName: string
   id: string
   latestActivityAt?: string
@@ -548,7 +553,10 @@ export type DeleteAccountBody = {
 }
 
 export type DeleteAccountResponse = {
+  archivedGroupsCount: number
+  archivedOwnedChannelsCount: number
   success: true
+  transferredGroupsCount: number
 }
 
 export type SaveSnapshotBody = {

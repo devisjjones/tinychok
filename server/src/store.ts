@@ -22,6 +22,7 @@ import {
 } from '../../src/shared/mockData'
 import type {
   Account as SharedAccount,
+  ArchiveReason,
   StaffRole,
   ChannelThreadInboxItem,
   Channel,
@@ -619,6 +620,9 @@ function sanitizeSourceGroup(
     creatorIdentifier: sourceGroup?.creatorIdentifier
       ? normalizeIdentifier(sourceGroup.creatorIdentifier) || undefined
       : undefined,
+    groupOwnerIdentifier: sourceGroup?.groupOwnerIdentifier
+      ? normalizeIdentifier(sourceGroup.groupOwnerIdentifier) || undefined
+      : undefined,
     handle: sourceGroup?.handle ? sanitizeGroupHandle(sourceGroup.handle, 1) : undefined,
     sharedId: sourceGroup?.sharedId?.trim() || undefined,
     title,
@@ -742,6 +746,10 @@ function isArchivedAccount(account: Pick<AccountRecord, 'deletedAt'>) {
   return Boolean(account.deletedAt)
 }
 
+function isArchivedIdentifier(identifier?: string | null) {
+  return Boolean(identifier?.startsWith('archived_'))
+}
+
 function buildAccountHandle(account: Account) {
   const normalizedDigits = account.identifier.replace(/[^\d]/g, '')
   return account.nickname?.trim()
@@ -751,6 +759,32 @@ function buildAccountHandle(account: Account) {
 
 function buildAccountDisplayLabel(account: Pick<Account, 'displayName' | 'identifier' | 'surname'>) {
   return formatAccountName(account) || account.identifier
+}
+
+function getCurrentGroupOwnerIdentifier(
+  group: Pick<PersistedGroup, 'creatorIdentifier' | 'groupOwnerIdentifier' | 'ownerIdentifier'>,
+) {
+  return (
+    normalizeStoredIdentifierReference(group.groupOwnerIdentifier ?? '') ||
+    normalizeStoredIdentifierReference(group.creatorIdentifier ?? '') ||
+    group.ownerIdentifier
+  )
+}
+
+function isArchivedGroup(
+  group: Pick<PersistedGroup, 'archivedAt'> | Pick<GroupPreview, 'archivedAt'>,
+) {
+  return Boolean(group.archivedAt)
+}
+
+function isArchivedChannel(
+  channel:
+    | Pick<PersistedManagedChannel, 'archivedAt'>
+    | Pick<PersistedSubscriptionChannel, 'archivedAt'>
+    | Pick<Channel, 'archivedAt'>
+    | Pick<SubscriptionChannel, 'archivedAt'>,
+) {
+  return Boolean(channel.archivedAt)
 }
 
 function buildAdminAuditAccountLabel(
@@ -944,9 +978,10 @@ function getAdminGroupParticipantIdentifiers(
 }
 
 function getAdminGroupCanonicalOwnerIdentifier(
-  group: Pick<PersistedGroup, 'creatorIdentifier' | 'ownerIdentifier' | 'participants'>,
+  group: Pick<PersistedGroup, 'creatorIdentifier' | 'groupOwnerIdentifier' | 'ownerIdentifier' | 'participants'>,
 ) {
   return (
+    normalizeStoredIdentifierReference(group.groupOwnerIdentifier ?? '') ||
     normalizeStoredIdentifierReference(group.creatorIdentifier ?? '') ||
     normalizeStoredIdentifierReference(group.participants?.[0]?.identifier ?? '') ||
     group.ownerIdentifier
@@ -954,7 +989,7 @@ function getAdminGroupCanonicalOwnerIdentifier(
 }
 
 function buildAdminGroupAggregateKey(
-  group: Pick<PersistedGroup, 'creatorIdentifier' | 'handle' | 'ownerIdentifier' | 'participants' | 'sharedId' | 'title'>,
+  group: Pick<PersistedGroup, 'creatorIdentifier' | 'groupOwnerIdentifier' | 'handle' | 'ownerIdentifier' | 'participants' | 'sharedId' | 'title'>,
 ) {
   const normalizedHandle = group.handle.trim().toLowerCase()
   const handleKey =
@@ -968,7 +1003,7 @@ function buildAdminGroupAggregateKey(
 }
 
 function buildAdminGroupThreadKey(
-  group: Pick<PersistedGroup, 'creatorIdentifier' | 'handle' | 'id' | 'ownerIdentifier' | 'participants' | 'sharedId' | 'title'>,
+  group: Pick<PersistedGroup, 'creatorIdentifier' | 'groupOwnerIdentifier' | 'handle' | 'id' | 'ownerIdentifier' | 'participants' | 'sharedId' | 'title'>,
   message: Pick<Message, 'attachment' | 'createdAt' | 'deliveryId' | 'id' | 'text' | 'threadId' | 'time'>,
 ) {
   const groupKey = buildAdminGroupAggregateKey(group)
@@ -1200,6 +1235,8 @@ function toPersistedDialogMessage(
 function toPersistedGroup(ownerIdentifier: string, group: GroupPreview): PersistedGroup {
   return {
     accent: group.accent,
+    archivedAt: group.archivedAt,
+    archiveReason: group.archiveReason,
     avatarImage: group.avatarImage,
     commentBlacklistIdentifiers: sanitizeIdentifierList(group.commentBlacklistIdentifiers),
     commentsEnabledForAll: Boolean(group.commentsEnabledForAll),
@@ -1210,6 +1247,10 @@ function toPersistedGroup(ownerIdentifier: string, group: GroupPreview): Persist
     isTestEntity: group.isTestEntity,
     members: group.members,
     muted: group.muted ?? false,
+    groupOwnerIdentifier:
+      normalizeStoredIdentifierReference(group.groupOwnerIdentifier ?? '') ||
+      normalizeStoredIdentifierReference(group.creatorIdentifier ?? '') ||
+      ownerIdentifier,
     ownerIdentifier,
     participants: group.participants.map((participant) => ({
       ...participant,
@@ -1252,6 +1293,8 @@ function toPersistedSubscriptionChannel(
 ): PersistedSubscriptionChannel {
   return {
     accent: channel.accent,
+    archivedAt: channel.archivedAt,
+    archiveReason: channel.archiveReason,
     avatarImage: channel.avatarImage,
     commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
     commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
@@ -1295,6 +1338,7 @@ function toPersistedSubscriptionPost(
 function materializeDialog(dialog: PersistedDialog): Omit<PersistedDialog, 'ownerIdentifier'> {
   return {
     accent: dialog.accent,
+    archivedAccount: isArchivedIdentifier(dialog.phone),
     handle: dialog.handle,
     id: dialog.id,
     isTestEntity: dialog.isTestEntity,
@@ -1342,11 +1386,14 @@ function materializeGroup(group: PersistedGroup): Omit<PersistedGroup, 'ownerIde
 
   return {
     accent: group.accent,
+    archivedAt: group.archivedAt,
+    archiveReason: group.archiveReason,
     avatarImage: group.avatarImage,
     commentBlacklistIdentifiers: sanitizeIdentifierList(group.commentBlacklistIdentifiers),
     commentsEnabledForAll: Boolean(group.commentsEnabledForAll),
     commentsEnabledForPremium: Boolean(group.commentsEnabledForPremium),
     creatorIdentifier: group.creatorIdentifier ?? group.ownerIdentifier,
+    groupOwnerIdentifier: getCurrentGroupOwnerIdentifier(group),
     handle: group.handle,
     id: group.id,
     isTestEntity: group.isTestEntity,
@@ -1354,6 +1401,7 @@ function materializeGroup(group: PersistedGroup): Omit<PersistedGroup, 'ownerIde
     muted: Boolean(group.muted),
     participants: (group.participants ?? fallbackParticipants).map((participant) => ({
       ...participant,
+      archivedAccount: isArchivedIdentifier(participant.identifier),
       identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
       nickname: normalizeNickname(participant.nickname ?? ''),
     })),
@@ -1432,6 +1480,8 @@ function materializeManagedChannel(
   channel: PersistedManagedChannel,
 ): Omit<PersistedManagedChannel, 'ownerIdentifier'> {
   return {
+    archivedAt: channel.archivedAt,
+    archiveReason: channel.archiveReason,
     avatarImage: channel.avatarImage,
     avatarTone: channel.avatarTone,
     commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
@@ -1451,6 +1501,8 @@ function materializeSubscriptionChannel(
 ): Omit<PersistedSubscriptionChannel, 'ownerIdentifier'> {
   return {
     accent: channel.accent,
+    archivedAt: channel.archivedAt,
+    archiveReason: channel.archiveReason,
     avatarImage: channel.avatarImage,
     statusText: channel.statusText?.trim() || undefined,
     commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
@@ -1465,6 +1517,7 @@ function materializeSubscriptionChannel(
     participants:
       channel.participants?.map((participant) => ({
         ...participant,
+        archivedAccount: isArchivedIdentifier(participant.identifier),
         identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
         nickname: normalizeNickname(participant.nickname ?? ''),
       })) ?? [],
@@ -2518,6 +2571,10 @@ export class TinychokStore {
     this.clearPasswordLoginAttempts(liveIdentifier)
     this.clearChallenge(liveIdentifier)
     this.rewriteAccountIdentifierReferences(liveIdentifier, archivedIdentifier)
+    const deletionImpact = this.applyOwnedEntityDeletionPolicy(archivedIdentifier, {
+      archivedAt: deletedAt,
+      deleteDataToo: Boolean(payload.deleteDataToo),
+    })
 
     existingAccount.archivedOriginalIdentifier = normalizeIdentifier(liveIdentifier)
     existingAccount.deletedAt = deletedAt
@@ -2529,6 +2586,7 @@ export class TinychokStore {
     await this.appendSystemAuditLog({
       action: 'user.account.delete.self-service',
       nextValue: {
+        ...deletionImpact,
         archivedIdentifier,
         deleteDataToo: Boolean(payload.deleteDataToo),
         deletedAt,
@@ -2545,7 +2603,10 @@ export class TinychokStore {
     })
 
     await this.persist()
-    return { success: true }
+    return {
+      ...deletionImpact,
+      success: true,
+    }
   }
 
   getSnapshotByToken(token: string) {
@@ -2785,6 +2846,9 @@ export class TinychokStore {
     for (const group of this.database.groups) {
       if (group.ownerIdentifier === liveIdentifier) {
         group.ownerIdentifier = archivedIdentifier
+      }
+      if (normalizeStoredIdentifierReference(group.groupOwnerIdentifier ?? '') === liveIdentifier) {
+        group.groupOwnerIdentifier = archivedIdentifier
       }
       if (resolveStoredIdentifierReference(group.creatorIdentifier, group.ownerIdentifier) === liveIdentifier) {
         group.creatorIdentifier = archivedIdentifier
@@ -3396,6 +3460,8 @@ export class TinychokStore {
           .sort(compareIsoDateDesc)[0]
 
         const summary: AdminManagedChannelSummary = {
+          archivedAt: channel.archivedAt,
+          archiveReason: channel.archiveReason,
           csvFileName: `channel-${sanitizeExportFileName(channel.title) || channel.id}-${formatExportDateStamp()}.csv`,
           handle,
           id: channel.id,
@@ -3452,6 +3518,9 @@ export class TinychokStore {
         if (!primaryGroup) return null
 
         const ownerIdentifier = getAdminGroupCanonicalOwnerIdentifier(primaryGroup)
+        const creatorIdentifier =
+          resolveStoredIdentifierReference(primaryGroup.creatorIdentifier ?? '', primaryGroup.ownerIdentifier) ||
+          primaryGroup.ownerIdentifier
         const messages = this.database.groupMessages.filter((message) =>
           copies.some(
             (group) =>
@@ -3470,6 +3539,9 @@ export class TinychokStore {
           .sort(compareIsoDateDesc)[0]
 
         return {
+          archivedAt: primaryGroup.archivedAt,
+          archiveReason: primaryGroup.archiveReason,
+          creator: buildAdminLinkedUser(creatorIdentifier),
           csvFileName: `group-${sanitizeExportFileName(primaryGroup.title) || 'group'}-${formatExportDateStamp()}.csv`,
           id: groupKey,
           latestActivityAt,
@@ -3753,6 +3825,7 @@ export class TinychokStore {
           normalizeIdentifier(
             parentGroup.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
           ) ||
+          normalizeIdentifier(parentGroup.groupOwnerIdentifier ?? '') ||
           normalizeIdentifier(parentGroup.creatorIdentifier ?? '') ||
           message.ownerIdentifier
         const author = this.findAccount(messageAuthorIdentifier)
@@ -4132,7 +4205,10 @@ export class TinychokStore {
       const participantIdentifiers = (group.participants ?? []).map((participant) =>
         normalizeStoredIdentifierReference(participant.identifier ?? ''),
       )
-      const creatorIdentifier = resolveStoredIdentifierReference(group.creatorIdentifier ?? '', group.ownerIdentifier)
+      const creatorIdentifier = resolveStoredIdentifierReference(
+        group.groupOwnerIdentifier ?? group.creatorIdentifier ?? '',
+        group.ownerIdentifier,
+      )
       if (
         matchesTargetIdentifier(group.ownerIdentifier) ||
         matchesTargetIdentifier(creatorIdentifier) ||
@@ -4147,7 +4223,10 @@ export class TinychokStore {
       const authorIdentifier =
         resolveStoredIdentifierReference(
           group.participants?.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
-          resolveStoredIdentifierReference(group.creatorIdentifier ?? '', message.ownerIdentifier),
+          resolveStoredIdentifierReference(
+            group.groupOwnerIdentifier ?? group.creatorIdentifier ?? '',
+            message.ownerIdentifier,
+          ),
         )
       if (
         matchesTargetIdentifier(authorIdentifier) ||
@@ -4183,7 +4262,10 @@ export class TinychokStore {
           const messageAuthorIdentifier =
             resolveStoredIdentifierReference(
               parentGroup.participants?.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
-              resolveStoredIdentifierReference(parentGroup.creatorIdentifier ?? '', message.ownerIdentifier),
+              resolveStoredIdentifierReference(
+                parentGroup.groupOwnerIdentifier ?? parentGroup.creatorIdentifier ?? '',
+                message.ownerIdentifier,
+              ),
             )
           const author = this.findAccount(messageAuthorIdentifier)
           const comments = compactThreadComments(message.threadComments).filter(
@@ -4254,6 +4336,10 @@ export class TinychokStore {
 
       registerJson(`groups/${fileBaseName}.json`, {
         group: {
+          archivedAt: primaryGroup.archivedAt,
+          archiveReason: primaryGroup.archiveReason,
+          creatorIdentifier: primaryGroup.creatorIdentifier,
+          currentOwnerIdentifier: getCurrentGroupOwnerIdentifier(primaryGroup),
           handle: primaryGroup.handle,
           id: groupId,
           members: primaryGroup.members,
@@ -4413,6 +4499,8 @@ export class TinychokStore {
 
       registerJson(`channels/${fileBaseName}.json`, {
         channel: {
+          archivedAt: managedChannel?.archivedAt ?? primaryCopy?.archivedAt,
+          archiveReason: managedChannel?.archiveReason ?? primaryCopy?.archiveReason,
           handle,
           ownerIdentifier: managedChannel?.ownerIdentifier ?? primaryCopy?.ownerIdentifier ?? '',
           readers: primaryCopy?.readers ?? 0,
@@ -5683,6 +5771,7 @@ export class TinychokStore {
     if (!group) {
       throw new Error('Группа не найдена.')
     }
+    this.assertGroupWritable(group)
 
     this.assertNotBlacklistedFromGroup(group, account.identifier)
 
@@ -5865,6 +5954,7 @@ export class TinychokStore {
     if (!channel) {
       throw new Error('Канал не найден.')
     }
+    this.assertManagedChannelWritable(channel)
 
     const text = sanitizeMessageText(payload.text)
     const attachment = sanitizeMessageAttachment(payload.attachment)
@@ -5948,6 +6038,7 @@ export class TinychokStore {
     if (!managedChannel) {
       throw new Error('Канал не найден.')
     }
+    this.assertManagedChannelWritable(managedChannel)
 
     const ownerCopy = this.listSubscriptionChannelCopiesByHandle(managedChannel.directLink).find(
       (channel) => channel.ownerIdentifier === account.identifier,
@@ -6037,6 +6128,7 @@ export class TinychokStore {
     if (!group) {
       throw new Error('Группа не найдена.')
     }
+    this.assertGroupWritable(group)
 
     const message = this.database.groupMessages.find(
       (candidate) =>
@@ -6099,6 +6191,7 @@ export class TinychokStore {
     if (!group) {
       throw new Error('Группа не найдена.')
     }
+    this.assertGroupWritable(group)
 
     const previousAvatarImage = group.avatarImage
     const sharedId = this.getSharedGroupId(group)
@@ -6149,7 +6242,9 @@ export class TinychokStore {
 
     if (payload.creatorIdentifier !== undefined) {
       const nextCreatorIdentifier = normalizeIdentifier(payload.creatorIdentifier)
-      const currentCreatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? group.ownerIdentifier)
+      const currentCreatorIdentifier = normalizeIdentifier(
+        group.groupOwnerIdentifier ?? group.creatorIdentifier ?? group.ownerIdentifier,
+      )
 
       if (currentCreatorIdentifier !== account.identifier) {
         throw new Error('Только владелец группы может передать права.')
@@ -6169,9 +6264,7 @@ export class TinychokStore {
         throw new Error('Новый владелец должен состоять в группе.')
       }
 
-      for (const groupCopy of groupCopies) {
-        groupCopy.creatorIdentifier = nextCreatorIdentifier
-      }
+      this.transferGroupOwnership(sharedId, nextCreatorIdentifier)
     }
 
     await this.persist()
@@ -6228,7 +6321,9 @@ export class TinychokStore {
       throw new Error('Этот контакт уже состоит в группе.')
     }
 
-    const creatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? group.ownerIdentifier)
+    const creatorIdentifier = normalizeIdentifier(
+      group.groupOwnerIdentifier ?? group.creatorIdentifier ?? group.ownerIdentifier,
+    )
     const creatorAccount = this.findAccount(creatorIdentifier) ?? account
     const memberLimit = getGroupMemberLimit(creatorAccount)
     const currentMemberCount = group.participants.length
@@ -6310,9 +6405,12 @@ export class TinychokStore {
     if (!group) {
       throw new Error('Группа не найдена.')
     }
+    this.assertGroupWritable(group)
 
     const sharedId = this.getSharedGroupId(group)
-    const creatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? group.ownerIdentifier)
+    const creatorIdentifier = normalizeIdentifier(
+      group.groupOwnerIdentifier ?? group.creatorIdentifier ?? group.ownerIdentifier,
+    )
     const groupCopies = this.listGroupCopies(sharedId)
 
     if (creatorIdentifier === account.identifier) {
@@ -6475,7 +6573,6 @@ export class TinychokStore {
     if (!channel) {
       throw new Error('Канал не найден.')
     }
-
     channel.unread = 0
     await this.persist()
 
@@ -6598,6 +6695,15 @@ export class TinychokStore {
       }
     }
 
+    if (
+      isArchivedChannel(channel) &&
+      (payload.commentsEnabledForAll !== undefined ||
+        payload.commentsEnabledForPremium !== undefined ||
+        payload.commentBlacklistIdentifiers !== undefined)
+    ) {
+      throw new Error('Канал находится в архиве и доступен только для чтения.')
+    }
+
     if (payload.commentsEnabledForAll !== undefined) {
       for (const channelCopy of channelCopies) {
         channelCopy.commentsEnabledForAll = Boolean(payload.commentsEnabledForAll)
@@ -6647,6 +6753,7 @@ export class TinychokStore {
     if (!sourceManagedChannel || sourceManagedChannel.ownerIdentifier !== account.identifier) {
       throw new Error('Только владелец канала может управлять подписчиками.')
     }
+    this.assertManagedChannelWritable(sourceManagedChannel)
 
     const targetIdentifier = normalizeIdentifier(payload.identifier)
     if (!targetIdentifier) {
@@ -6689,11 +6796,13 @@ export class TinychokStore {
     if (!channel) {
       throw new Error('Канал не найден.')
     }
+    this.assertSubscriptionChannelWritable(channel)
 
     const sourceManagedChannel = this.findManagedChannelByHandle(channel.handle)
     if (!sourceManagedChannel || sourceManagedChannel.ownerIdentifier !== account.identifier) {
       throw new Error('Только владелец канала может управлять подписчиками.')
     }
+    this.assertManagedChannelWritable(sourceManagedChannel)
 
     const targetIdentifier = normalizeIdentifier(payload.identifier)
     if (!targetIdentifier) {
@@ -6737,6 +6846,7 @@ export class TinychokStore {
     if (!target) {
       throw new Error('Пост канала не найден.')
     }
+    this.assertSubscriptionChannelWritable(target.channel)
 
     this.assertCanCommentInSubscriptionChannel(target.channel, account)
 
@@ -7085,6 +7195,7 @@ export class TinychokStore {
     if (!channel) {
       throw new Error('Канал не найден.')
     }
+    this.assertManagedChannelWritable(channel)
 
     const uniqueDialogIds = Array.from(
       new Set(
@@ -7150,11 +7261,13 @@ export class TinychokStore {
     if (!subscriptionChannel) {
       throw new Error('Канал не найден.')
     }
+    this.assertSubscriptionChannelWritable(subscriptionChannel)
 
     const sourceManagedChannel = this.findManagedChannelByHandle(subscriptionChannel.handle)
     if (!sourceManagedChannel) {
       throw new Error('Исходный канал не найден.')
     }
+    this.assertManagedChannelWritable(sourceManagedChannel)
 
     const uniqueDialogIds = Array.from(
       new Set(
@@ -7220,6 +7333,7 @@ export class TinychokStore {
     if (!channel) {
       throw new Error('Канал не найден.')
     }
+    this.assertManagedChannelWritable(channel)
 
     const previousAvatarImage = channel.avatarImage
     const previousDirectLink = channel.directLink
@@ -7363,6 +7477,7 @@ export class TinychokStore {
     if (!channelToDelete) {
       throw new Error('Канал не найден.')
     }
+    this.assertManagedChannelWritable(channelToDelete)
 
     const removedAvatarImage = channelToDelete.avatarImage
     const normalizedHandle = sanitizeChannelDirectLink(channelToDelete.directLink) || channelToDelete.directLink
@@ -7484,6 +7599,7 @@ export class TinychokStore {
       commentsEnabledForAll: Boolean(payload.commentsEnabledForAll),
       commentsEnabledForPremium: Boolean(payload.commentsEnabledForPremium),
       creatorIdentifier: account.identifier,
+      groupOwnerIdentifier: account.identifier,
       handle: payload.handle?.trim()
         ? sanitizeGroupHandle(payload.handle, groupId)
         : buildGroupHandle(title, groupId),
@@ -7938,7 +8054,10 @@ export class TinychokStore {
       }
 
       const creatorIdentifier =
-        resolveStoredIdentifierReference(group.creatorIdentifier ?? '', group.ownerIdentifier)
+        resolveStoredIdentifierReference(
+          group.groupOwnerIdentifier ?? group.creatorIdentifier ?? '',
+          group.ownerIdentifier,
+        )
       return (
         matchesIdentifier(group.ownerIdentifier) ||
         matchesIdentifier(creatorIdentifier)
@@ -8352,6 +8471,7 @@ export class TinychokStore {
             : normalizeIdentifier(
                 group?.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
               ) ||
+              group?.groupOwnerIdentifier ||
               group?.creatorIdentifier ||
               viewerIdentifier
 
@@ -8592,7 +8712,7 @@ export class TinychokStore {
   ) {
     const groupCopies = this.listGroupCopies(sharedId)
     const ownerIdentifier =
-      normalizeIdentifier(groupCopies[0]?.creatorIdentifier ?? '') ||
+      normalizeIdentifier(groupCopies[0]?.groupOwnerIdentifier ?? groupCopies[0]?.creatorIdentifier ?? '') ||
       groupCopies[0]?.ownerIdentifier
 
     this.removeGroupCopiesBySharedId(sharedId, ownerIdentifier)
@@ -9709,6 +9829,8 @@ export class TinychokStore {
 
     const nextCopy: PersistedSubscriptionChannel = {
       accent: sourceChannel.avatarTone,
+      archivedAt: sourceChannel.archivedAt,
+      archiveReason: sourceChannel.archiveReason,
       avatarImage: sourceChannel.avatarImage,
       commentBlacklistIdentifiers: sanitizeIdentifierList(sourceChannel.commentBlacklistIdentifiers),
       commentsEnabledForAll: Boolean(sourceChannel.commentsEnabledForAll),
@@ -9909,6 +10031,10 @@ export class TinychokStore {
   }
 
   private assertCanCommentInGroup(group: PersistedGroup, account: Account) {
+    if (isArchivedGroup(group)) {
+      throw new Error('Группа находится в архиве. Новые сообщения отключены.')
+    }
+
     if (isIdentifierInCommentBlacklist(group, account.identifier)) {
       throw new Error('Вы не можете отправлять сообщения. Вы в чёрном списке группы.')
     }
@@ -9926,6 +10052,10 @@ export class TinychokStore {
     channel: PersistedSubscriptionChannel,
     account: Account,
   ) {
+    if (isArchivedChannel(channel)) {
+      throw new Error('Канал находится в архиве. Новые комментарии отключены.')
+    }
+
     if (isIdentifierInCommentBlacklist(channel, account.identifier)) {
       throw new Error('Вы не можете отправлять сообщения. Вы в чёрном списке канала.')
     }
@@ -9936,6 +10066,24 @@ export class TinychokStore {
           ? 'Комментарии в этом канале доступны только премиум-пользователям.'
           : 'Комментарии в этом канале выключены.',
       )
+    }
+  }
+
+  private assertGroupWritable(group: PersistedGroup) {
+    if (isArchivedGroup(group)) {
+      throw new Error('Группа находится в архиве и доступна только для чтения.')
+    }
+  }
+
+  private assertManagedChannelWritable(channel: PersistedManagedChannel) {
+    if (isArchivedChannel(channel)) {
+      throw new Error('Канал находится в архиве и доступен только для чтения.')
+    }
+  }
+
+  private assertSubscriptionChannelWritable(channel: PersistedSubscriptionChannel) {
+    if (isArchivedChannel(channel)) {
+      throw new Error('Канал находится в архиве и доступен только для чтения.')
     }
   }
 
@@ -9957,6 +10105,126 @@ export class TinychokStore {
 
   private cloneGroupParticipant(participant: GroupParticipant): GroupParticipant {
     return { ...participant }
+  }
+
+  private getFirstLiveGroupParticipantIdentifier(groupCopies: PersistedGroup[], excludedIdentifier: string) {
+    for (const group of groupCopies) {
+      for (const participant of group.participants ?? []) {
+        const participantIdentifier = normalizeStoredIdentifierReference(participant.identifier ?? '')
+        if (!participantIdentifier || participantIdentifier === excludedIdentifier) {
+          continue
+        }
+
+        const participantAccount = this.findAccount(participantIdentifier)
+        if (participantAccount && !isArchivedAccount(participantAccount)) {
+          return participantIdentifier
+        }
+      }
+    }
+
+    return null
+  }
+
+  private archiveManagedChannel(
+    channel: PersistedManagedChannel,
+    reason: ArchiveReason,
+    archivedAt: string,
+  ) {
+    channel.archivedAt = archivedAt
+    channel.archiveReason = reason
+    channel.status = 'active'
+
+    const normalizedHandle = sanitizeChannelDirectLink(channel.directLink) || channel.directLink
+    const relatedCopies = this.listSubscriptionChannelCopiesByHandle(normalizedHandle)
+    for (const channelCopy of relatedCopies) {
+      channelCopy.archivedAt = archivedAt
+      channelCopy.archiveReason = reason
+    }
+  }
+
+  private archiveGroupCopies(
+    sharedId: string,
+    reason: ArchiveReason,
+    archivedAt: string,
+  ) {
+    for (const group of this.listGroupCopies(sharedId)) {
+      group.archivedAt = archivedAt
+      group.archiveReason = reason
+    }
+  }
+
+  private transferGroupOwnership(
+    sharedId: string,
+    nextOwnerIdentifier: string,
+  ) {
+    for (const group of this.listGroupCopies(sharedId)) {
+      group.groupOwnerIdentifier = nextOwnerIdentifier
+      group.archivedAt = undefined
+      group.archiveReason = undefined
+    }
+  }
+
+  private applyOwnedEntityDeletionPolicy(
+    archivedIdentifier: string,
+    options: {
+      archivedAt: string
+      deleteDataToo: boolean
+    },
+  ) {
+    const managedChannels = this.database.managedChannels.filter(
+      (channel) => channel.ownerIdentifier === archivedIdentifier,
+    )
+    const sharedGroupIds = [
+      ...new Set(
+        this.database.groups
+          .filter(
+            (group) =>
+              getCurrentGroupOwnerIdentifier(group) === archivedIdentifier ||
+              normalizeStoredIdentifierReference(group.creatorIdentifier ?? '') === archivedIdentifier,
+          )
+          .map((group) => this.getSharedGroupId(group)),
+      ),
+    ]
+
+    for (const channel of managedChannels) {
+      this.archiveManagedChannel(
+        channel,
+        options.deleteDataToo ? 'self-service-data-hidden' : 'owner-self-deleted',
+        options.archivedAt,
+      )
+    }
+
+    let transferredGroupsCount = 0
+    let archivedGroupsCount = 0
+
+    for (const sharedId of sharedGroupIds) {
+      const copies = this.listGroupCopies(sharedId)
+      if (copies.length === 0) {
+        continue
+      }
+
+      if (options.deleteDataToo) {
+        this.archiveGroupCopies(sharedId, 'self-service-data-hidden', options.archivedAt)
+        archivedGroupsCount += 1
+        continue
+      }
+
+      const nextOwnerIdentifier = this.getFirstLiveGroupParticipantIdentifier(copies, archivedIdentifier)
+      if (nextOwnerIdentifier) {
+        this.transferGroupOwnership(sharedId, nextOwnerIdentifier)
+        transferredGroupsCount += 1
+        continue
+      }
+
+      this.archiveGroupCopies(sharedId, 'orphaned-group', options.archivedAt)
+      archivedGroupsCount += 1
+    }
+
+    return {
+      archivedGroupsCount,
+      archivedOwnedChannelsCount: managedChannels.length,
+      transferredGroupsCount,
+    }
   }
 
   private syncGroupCopiesParticipants(sharedId: string, participants: GroupParticipant[]) {
@@ -9985,7 +10253,10 @@ export class TinychokStore {
       )
       existingGroup.commentsEnabledForAll = Boolean(sourceGroup.commentsEnabledForAll)
       existingGroup.commentsEnabledForPremium = Boolean(sourceGroup.commentsEnabledForPremium)
+      existingGroup.archivedAt = sourceGroup.archivedAt
+      existingGroup.archiveReason = sourceGroup.archiveReason
       existingGroup.creatorIdentifier = sourceGroup.creatorIdentifier ?? sourceGroup.ownerIdentifier
+      existingGroup.groupOwnerIdentifier = getCurrentGroupOwnerIdentifier(sourceGroup)
       existingGroup.handle = sourceGroup.handle
       existingGroup.isTestEntity = sourceGroup.isTestEntity
       existingGroup.members = participants.length
@@ -10003,7 +10274,10 @@ export class TinychokStore {
       commentBlacklistIdentifiers: sanitizeIdentifierList(sourceGroup.commentBlacklistIdentifiers),
       commentsEnabledForAll: Boolean(sourceGroup.commentsEnabledForAll),
       commentsEnabledForPremium: Boolean(sourceGroup.commentsEnabledForPremium),
+      archivedAt: sourceGroup.archivedAt,
+      archiveReason: sourceGroup.archiveReason,
       creatorIdentifier: sourceGroup.creatorIdentifier ?? sourceGroup.ownerIdentifier,
+      groupOwnerIdentifier: getCurrentGroupOwnerIdentifier(sourceGroup),
       handle: sourceGroup.handle,
       id: this.getNextOwnedId(this.database.groups, ownerIdentifier),
       isTestEntity: sourceGroup.isTestEntity,
@@ -10027,6 +10301,7 @@ export class TinychokStore {
       accent: group.accent,
       avatarImage: group.avatarImage,
       creatorIdentifier: group.creatorIdentifier ?? group.ownerIdentifier,
+      groupOwnerIdentifier: getCurrentGroupOwnerIdentifier(group),
       handle: group.handle,
       sharedId: this.getSharedGroupId(group),
       title: group.title,
@@ -10080,6 +10355,8 @@ export class TinychokStore {
 
     for (const copy of copies) {
       copy.accent = sourceChannel.avatarTone
+      copy.archivedAt = sourceChannel.archivedAt
+      copy.archiveReason = sourceChannel.archiveReason
       copy.avatarImage = sourceChannel.avatarImage
       copy.commentBlacklistIdentifiers = sanitizeIdentifierList(sourceChannel.commentBlacklistIdentifiers)
       copy.commentsEnabledForAll = Boolean(sourceChannel.commentsEnabledForAll)
@@ -10767,7 +11044,7 @@ function applyProductionFixtureCleanup(database: Database) {
         (group) =>
           group.isTestEntity ||
           testAccountIdentifiers.has(group.ownerIdentifier) ||
-          testAccountIdentifiers.has(normalizeIdentifier(group.creatorIdentifier ?? '')) ||
+          testAccountIdentifiers.has(normalizeIdentifier(group.groupOwnerIdentifier ?? group.creatorIdentifier ?? '')) ||
           testGroupHandles.has(group.handle.trim()),
       )
       .map((group) => `${group.ownerIdentifier}:${group.id}`),

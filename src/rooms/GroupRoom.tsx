@@ -220,9 +220,10 @@ export function GroupRoom({
             </span>
             <div>
                 <div className="room-title">
-                  <div className="room-title-name">
-                    <h3>{group.title}</h3>
-                    {group.muted ? (
+                <div className="room-title-name">
+                  <h3>{group.title}</h3>
+                  {group.archivedAt ? <span className="room-archive-badge">Архив</span> : null}
+                  {group.muted ? (
                       <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                         <img src="/icons/bell-100.png" alt="" />
                       </span>
@@ -239,6 +240,9 @@ export function GroupRoom({
               >
                 {`${group.members} участников`}
               </button>
+              {group.archivedAt ? (
+                <p className="room-archive-note">Группа находится в архиве и доступна только для чтения.</p>
+              ) : null}
             </div>
           </div>
           <button
