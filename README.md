@@ -21,6 +21,7 @@ Production-архитектура под `Yandex Cloud` для `10k+` польз
   - новый пользователь: `phone -> SMS -> profile + password`
   - существующий пользователь с паролем: `phone -> password`
   - `forgot password`: `password -> SMS reset -> new password`
+  - в `Настройки -> Управление` пользователь может `Сменить пароль`
 - SmartCaptcha на user и admin auth request-code шаге
 - browser notifications promo/toggle и `Notification API`
 - отдельная user/admin аналитика через `Yandex Metrica` на staging
@@ -99,6 +100,7 @@ npm run start:server
 - `POST /api/auth/register` создаёт новый аккаунт сразу с паролем и seed state
 - `POST /api/auth/set-password` завершает migration-flow для legacy аккаунта без пароля
 - `POST /api/auth/reset-password` завершает forgot-password flow после SMS
+- `POST /api/session/delete-account` архивирует self-service удалённый аккаунт, отзывает его сессии и освобождает номер для новой регистрации как нового жизненного цикла
 - auth flow на staging можно ограничить списком тестовых номеров через `TINYCHOK_ALLOWED_TEST_PHONES`
 - `GET /api/bootstrap` отдаёт серверный snapshot аккаунта
 - `PUT /api/snapshot` сохраняет актуальное состояние приложения
@@ -125,6 +127,11 @@ npm run start:server
 - внутри dev-backend данные уже хранятся не одним blob, а в нормализованных сущностях `accounts / dialogs / messages / groups / channels / posts`
 - сервер пишет IP-историю успешных логинов и смен IP
 - server-side retention cleanup подрезает исторические данные старше `3 лет`
+- self-service deletion orphan-policy:
+  - owned channels архивируются и становятся `read-only`
+  - owned groups без флага `Удалить и данные тоже` стараются передать ownership первому живому участнику
+  - owned groups с этим флагом или без живых участников архивируются и становятся `read-only`
+  - новый аккаунт по тому же номеру не наследует старые чаты, группы, каналы, треды и медиа-связи
 
 Текущий backend уже не опирается только на общий `saveSnapshot`: direct/group messaging, attachments, moderation direct-чата, blocklist, profile/session updates, channel detail edits, создание и удаление каналов идут отдельными командами. Но часть второстепенных сценариев фронта пока всё ещё сохраняется через полный snapshot, так что это промежуточный production-oriented шаг, а не финальная доменная модель мессенджера.
 

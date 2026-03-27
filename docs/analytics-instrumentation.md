@@ -236,8 +236,11 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `deleteDataToo`
   - `source`
 - `account_deletion_succeeded`
+  - `archivedGroupsCount`
+  - `archivedOwnedChannelsCount`
   - `deleteDataToo`
   - `source`
+  - `transferredGroupsCount`
 - `account_deletion_failed`
   - `deleteDataToo`
   - `message`
@@ -274,6 +277,7 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `account_deletion_requested`
   - `account_deletion_succeeded`
   - `account_deletion_failed`
+  - success event дополнительно показывает, сколько owned channels архивировалось и сколько групп было передано или архивировано
 
 ### Password Security Notes
 
