@@ -134,12 +134,22 @@ import { deleteStoredMediaByUrl, readStoredMediaByUrl } from './media'
 type StoredAccount = SharedAccount & StoredAccountPasswordFields
 type AccountDeletionMode = 'account-and-user-data-hidden' | 'account-only'
 
+type ArchivedPublicProfileSnapshot = {
+  avatarImage?: string
+  displayName: string
+  nickname?: string
+  status?: string
+  surname?: string
+}
+
 type StoredAccountLifecycleFields = {
   accountId: string
   archivedOriginalIdentifier?: string
+  archivedProfile?: ArchivedPublicProfileSnapshot
   deletedAt?: string
   deletedBySelfService?: boolean
   deletionMode?: AccountDeletionMode
+  publicDeleted?: boolean
 }
 
 type StoredAccountRecord = StoredAccount & StoredAccountLifecycleFields
@@ -384,6 +394,7 @@ function buildTestAccounts() {
     accountId: `test_${encodeIdentifierToken(normalizeIdentifier(chat.phone))}`,
     avatarImage: undefined,
     archivedOriginalIdentifier: undefined,
+    archivedProfile: undefined,
     blockedAt: undefined,
     blockedReason: undefined,
     blockedContactIds: [],
@@ -391,6 +402,7 @@ function buildTestAccounts() {
     deletedAt: undefined,
     deletedBySelfService: undefined,
     deletionMode: undefined,
+    publicDeleted: undefined,
     displayName: chat.title,
     identifier: normalizeIdentifier(chat.phone),
     isTestEntity: true,
@@ -742,6 +754,26 @@ function getAccountOriginalIdentifier(account: Pick<AccountRecord, 'archivedOrig
   return normalizeIdentifier(account.archivedOriginalIdentifier ?? '') || normalizeIdentifier(account.identifier)
 }
 
+function isPublicDeletedAccount(
+  account:
+    | Pick<AccountRecord, 'deletedBySelfService' | 'publicDeleted'>
+    | null
+    | undefined,
+) {
+  return Boolean(account?.publicDeleted || account?.deletedBySelfService)
+}
+
+function shouldHideDeletedAccountContentForUsers(
+  account:
+    | Pick<AccountRecord, 'deletedBySelfService' | 'deletionMode' | 'publicDeleted'>
+    | null
+    | undefined,
+) {
+  return Boolean(
+    isPublicDeletedAccount(account) && account?.deletionMode === 'account-and-user-data-hidden',
+  )
+}
+
 function isArchivedAccount(account: Pick<AccountRecord, 'deletedAt'>) {
   return Boolean(account.deletedAt)
 }
@@ -751,14 +783,68 @@ function isArchivedIdentifier(identifier?: string | null) {
 }
 
 function buildAccountHandle(account: Account) {
+  if (isPublicDeletedAccount(account)) {
+    return ''
+  }
+
   const normalizedDigits = account.identifier.replace(/[^\d]/g, '')
   return account.nickname?.trim()
     ? `@${account.nickname.trim()}`
     : `@user_${normalizedDigits.slice(-6) || 'tinychok'}`
 }
 
-function buildAccountDisplayLabel(account: Pick<Account, 'displayName' | 'identifier' | 'surname'>) {
+function buildAccountDisplayLabel(
+  account:
+    | Pick<Account, 'displayName' | 'identifier' | 'surname'>
+    | Pick<AccountRecord, 'displayName' | 'identifier' | 'surname' | 'archivedProfile'>,
+) {
+  if ('archivedProfile' in account && account.archivedProfile) {
+    return (
+      formatAccountName({
+        displayName: account.archivedProfile.displayName || account.displayName,
+        surname: account.archivedProfile.surname ?? account.surname ?? '',
+      }) || account.identifier
+    )
+  }
+
   return formatAccountName(account) || account.identifier
+}
+
+function getAdminVisibleAccount(account: Account) {
+  if (!account.archivedProfile) {
+    return {
+      avatarImage: account.avatarImage,
+      displayName: account.displayName,
+      nickname: normalizeNickname(account.nickname ?? '') || undefined,
+      status: account.status?.trim() || undefined,
+      surname: account.surname ?? '',
+    }
+  }
+
+  return {
+    avatarImage: account.archivedProfile.avatarImage ?? account.avatarImage,
+    displayName: account.archivedProfile.displayName || account.displayName,
+    nickname:
+      normalizeNickname(account.archivedProfile.nickname ?? '') ||
+      normalizeNickname(account.nickname ?? '') ||
+      undefined,
+    status: account.archivedProfile.status?.trim() || account.status?.trim() || undefined,
+    surname: account.archivedProfile.surname ?? account.surname ?? '',
+  }
+}
+
+function getUserVisibleDisplayName(account: Account) {
+  return isPublicDeletedAccount(account)
+    ? 'Аккаунт удалён'
+    : buildAccountDisplayLabel(account)
+}
+
+function getUserVisibleStatus(account: Account, online: boolean) {
+  if (isPublicDeletedAccount(account)) {
+    return 'Удалённый аккаунт'
+  }
+
+  return account.status?.trim() || (online ? 'в сети' : 'был(а) недавно в сети')
 }
 
 function getCurrentGroupOwnerIdentifier(
@@ -788,22 +874,43 @@ function isArchivedChannel(
 }
 
 function buildAdminAuditAccountLabel(
-  account: Pick<Account, 'displayName' | 'identifier' | 'nickname' | 'surname'>,
+  account:
+    | Pick<Account, 'displayName' | 'identifier' | 'nickname' | 'surname'>
+    | Pick<AccountRecord, 'displayName' | 'identifier' | 'nickname' | 'surname' | 'archivedProfile'>,
 ) {
-  const displayName = buildAccountDisplayLabel(account)
-  const nickname = normalizeNickname(account.nickname ?? '')
+  const adminVisible = 'archivedProfile' in account ? getAdminVisibleAccount(account as Account) : {
+    avatarImage: undefined,
+    displayName: account.displayName,
+    nickname: normalizeNickname(account.nickname ?? '') || undefined,
+    status: undefined,
+    surname: account.surname ?? '',
+  }
+  const displayName = formatAccountName({
+    displayName: adminVisible.displayName,
+    surname: adminVisible.surname,
+  }) || account.identifier
+  const nickname = normalizeNickname(adminVisible.nickname ?? '')
   return nickname
     ? `${displayName} (@${nickname}, ${account.identifier})`
     : `${displayName} (${account.identifier})`
 }
 
 function buildAdminLinkedUserSummary(
-  account: Pick<Account, 'displayName' | 'identifier' | 'nickname' | 'surname'> | undefined,
+  account:
+    | Pick<AccountRecord, 'displayName' | 'identifier' | 'nickname' | 'surname' | 'archivedProfile'>
+    | undefined,
   identifier: string,
 ): AdminLinkedUser {
-  const normalizedNickname = normalizeNickname(account?.nickname ?? '')
+  const adminVisible = account ? getAdminVisibleAccount(account as Account) : null
+  const normalizedNickname = normalizeNickname(adminVisible?.nickname ?? '')
   return {
-    displayName: account ? buildAccountDisplayLabel(account) : identifier,
+    displayName:
+      account
+        ? formatAccountName({
+            displayName: adminVisible?.displayName ?? account.displayName,
+            surname: adminVisible?.surname ?? account.surname ?? '',
+          }) || account.identifier
+        : identifier,
     identifier,
     nickname: normalizedNickname || undefined,
   }
@@ -1079,15 +1186,35 @@ function materializeAttachmentForViewer(
   } satisfies MessageAttachment
 }
 
+function findAccountByStoredIdentifier(database: Database, identifier?: string | null) {
+  const normalizedIdentifier = normalizeStoredIdentifierReference(identifier)
+  if (!normalizedIdentifier) {
+    return null
+  }
+
+  return database.accounts.find((account) => account.identifier === normalizedIdentifier) ?? null
+}
+
 function materializeThreadCommentsForViewer(
   database: Database,
   reporterIdentifier: string,
   comments?: ThreadComment[],
 ) {
-  return compactThreadComments(comments).map((comment) => ({
-    ...comment,
-    attachment: materializeAttachmentForViewer(database, reporterIdentifier, comment.attachment),
-  }))
+  return compactThreadComments(comments).flatMap((comment) => {
+    const authorAccount = findAccountByStoredIdentifier(database, comment.authorIdentifier)
+    if (shouldHideDeletedAccountContentForUsers(authorAccount)) {
+      return []
+    }
+
+    return [{
+      ...comment,
+      attachment: materializeAttachmentForViewer(database, reporterIdentifier, comment.attachment),
+      displayAuthor:
+        authorAccount && isPublicDeletedAccount(authorAccount)
+          ? 'Аккаунт удалён'
+          : comment.displayAuthor,
+    }]
+  })
 }
 
 function pickAccentForIdentifier(identifier: string) {
@@ -1335,23 +1462,42 @@ function toPersistedSubscriptionPost(
   }
 }
 
-function materializeDialog(dialog: PersistedDialog): Omit<PersistedDialog, 'ownerIdentifier'> {
+function resolveGroupMessageAuthorIdentifier(
+  group: PersistedGroup,
+  message: PersistedGroupMessage,
+) {
+  return (
+    normalizeStoredIdentifierReference(
+      group.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
+    ) ||
+    normalizeStoredIdentifierReference(group.groupOwnerIdentifier ?? '') ||
+    normalizeStoredIdentifierReference(group.creatorIdentifier ?? '') ||
+    message.ownerIdentifier
+  )
+}
+
+function materializeDialog(
+  database: Database,
+  dialog: PersistedDialog,
+): Omit<PersistedDialog, 'ownerIdentifier'> {
+  const contactAccount = findAccountByStoredIdentifier(database, dialog.phone)
+  const archivedAccount = Boolean(contactAccount && isPublicDeletedAccount(contactAccount)) || isArchivedIdentifier(dialog.phone)
   return {
     accent: dialog.accent,
-    archivedAccount: isArchivedIdentifier(dialog.phone),
-    handle: dialog.handle,
+    archivedAccount,
+    handle: archivedAccount ? '' : dialog.handle,
     id: dialog.id,
     isTestEntity: dialog.isTestEntity,
-    lastSeen: dialog.lastSeen,
+    lastSeen: archivedAccount ? undefined : dialog.lastSeen,
     mood: dialog.mood,
     muted: Boolean(dialog.muted),
-    online: dialog.online,
+    online: archivedAccount ? false : dialog.online,
     phone: dialog.phone,
     pinned: dialog.pinned,
     pinnedMessageId: dialog.pinnedMessageId,
-    premium: dialog.premium,
-    status: dialog.status,
-    title: dialog.title,
+    premium: archivedAccount ? false : dialog.premium,
+    status: archivedAccount ? 'Удалённый аккаунт' : dialog.status,
+    title: archivedAccount ? 'Аккаунт удалён' : dialog.title,
     typing: dialog.typing,
     unread: dialog.unread,
   }
@@ -1380,7 +1526,10 @@ function materializeDialogMessage(
   }
 }
 
-function materializeGroup(group: PersistedGroup): Omit<PersistedGroup, 'ownerIdentifier'> {
+function materializeGroup(
+  database: Database,
+  group: PersistedGroup,
+): Omit<PersistedGroup, 'ownerIdentifier'> {
   const fallbackParticipants =
     initialGroups.find((seedGroup) => seedGroup.id === group.id)?.participants ?? []
 
@@ -1399,12 +1548,18 @@ function materializeGroup(group: PersistedGroup): Omit<PersistedGroup, 'ownerIde
     isTestEntity: group.isTestEntity,
     members: group.members,
     muted: Boolean(group.muted),
-    participants: (group.participants ?? fallbackParticipants).map((participant) => ({
-      ...participant,
-      archivedAccount: isArchivedIdentifier(participant.identifier),
-      identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
-      nickname: normalizeNickname(participant.nickname ?? ''),
-    })),
+    participants: (group.participants ?? fallbackParticipants).map((participant) => {
+      const account = findAccountByStoredIdentifier(database, participant.identifier)
+      const archivedAccount = Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
+      return {
+        ...participant,
+        archivedAccount,
+        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
+        nickname: archivedAccount ? '' : normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
+        status: archivedAccount ? 'Удалённый аккаунт' : account?.status?.trim() || participant.status,
+        title: archivedAccount ? 'Аккаунт удалён' : account ? formatAccountName(account) || account.identifier : participant.title,
+      }
+    }),
     preview: group.preview,
     sharedId: group.sharedId ?? `${group.ownerIdentifier}:${group.id}`,
     time: group.time,
@@ -1497,6 +1652,7 @@ function materializeManagedChannel(
 }
 
 function materializeSubscriptionChannel(
+  database: Database,
   channel: PersistedSubscriptionChannel,
 ): Omit<PersistedSubscriptionChannel, 'ownerIdentifier'> {
   return {
@@ -1515,12 +1671,18 @@ function materializeSubscriptionChannel(
     muted: Boolean(channel.muted),
     preview: channel.preview,
     participants:
-      channel.participants?.map((participant) => ({
-        ...participant,
-        archivedAccount: isArchivedIdentifier(participant.identifier),
-        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
-        nickname: normalizeNickname(participant.nickname ?? ''),
-      })) ?? [],
+      channel.participants?.map((participant) => {
+        const account = findAccountByStoredIdentifier(database, participant.identifier)
+        const archivedAccount = Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
+        return {
+          ...participant,
+          archivedAccount,
+          identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
+          nickname: archivedAccount ? '' : normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
+          status: archivedAccount ? 'Удалённый аккаунт' : account?.status?.trim() || participant.status,
+          title: archivedAccount ? 'Аккаунт удалён' : account ? formatAccountName(account) || account.identifier : participant.title,
+        }
+      }) ?? [],
     readers: channel.readers ?? 0,
     time: channel.time,
     title: channel.title,
@@ -1728,6 +1890,7 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
       accountId: randomUUID(),
       avatarImage: legacyAccount.avatarImage?.trim() || undefined,
       archivedOriginalIdentifier: undefined,
+      archivedProfile: undefined,
       blockedAt: legacyAccount.blockedAt,
       blockedReason: legacyAccount.blockedReason,
       blockedContactIds: legacyAccount.blockedContactIds ?? [],
@@ -1735,6 +1898,7 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
       deletedAt: undefined,
       deletedBySelfService: undefined,
       deletionMode: undefined,
+      publicDeleted: undefined,
       displayName: legacyAccount.displayName,
       gifLibrary: [...(legacyAccount.gifLibrary ?? [])],
       identifier: legacyAccount.identifier,
@@ -1776,10 +1940,13 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
 function materializeFullChats(database: Database, ownerIdentifier: string): Chat[] {
   return database.dialogs
     .filter((dialog) => dialog.ownerIdentifier === ownerIdentifier)
-    .map((dialog) => {
+    .flatMap((dialog) => {
       const contactAccount = database.accounts.find(
         (account) => normalizeStoredIdentifierReference(dialog.phone) === account.identifier,
       )
+      if ((contactAccount && isPublicDeletedAccount(contactAccount)) || isArchivedIdentifier(dialog.phone)) {
+        return []
+      }
       const messages = database.dialogMessages
         .filter(
           (message) =>
@@ -1791,13 +1958,13 @@ function materializeFullChats(database: Database, ownerIdentifier: string): Chat
           ? undefined
           : messages.find((message) => message.id === dialog.pinnedMessageId)
 
-      return {
-        ...materializeDialog(dialog),
+      return [{
+        ...materializeDialog(database, dialog),
         blockedByAdmin: Boolean(contactAccount?.blockedAt),
         blockedReason: contactAccount?.blockedReason?.trim() || undefined,
         messages,
         pinnedMessage,
-      }
+      }]
     })
 }
 
@@ -1817,18 +1984,29 @@ function materializeFullGroups(database: Database, ownerIdentifier: string): Gro
   return database.groups
     .filter((group) => group.ownerIdentifier === ownerIdentifier)
     .map((group) => {
-      const materializedGroup = materializeGroup(group)
+      const materializedGroup = materializeGroup(database, group)
       const messages = database.groupMessages
         .filter(
           (message) => message.ownerIdentifier === ownerIdentifier && message.groupId === group.id,
         )
-        .map((message) => {
+        .flatMap((message) => {
+          const authorAccount = findAccountByStoredIdentifier(
+            database,
+            resolveGroupMessageAuthorIdentifier(group, message),
+          )
+          if (shouldHideDeletedAccountContentForUsers(authorAccount)) {
+            return []
+          }
           const materializedMessage = materializeGroupMessage(database, ownerIdentifier, message)
-          return {
+          return [{
             ...materializedMessage,
+            displayAuthor:
+              authorAccount && isPublicDeletedAccount(authorAccount)
+                ? 'Аккаунт удалён'
+                : materializedMessage.displayAuthor,
             threadComments: materializedMessage.threadComments ?? [],
             threadId: getGroupMessageThreadId(group, materializedMessage),
-          }
+          }]
         })
 
       return {
@@ -1864,11 +2042,18 @@ function materializeSubscriptionParticipants(
 ) {
   const explicitParticipants = channel.participants ?? []
   if (explicitParticipants.length > 0) {
-    return explicitParticipants.map((participant) => ({
-      ...participant,
-      identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
-      nickname: normalizeNickname(participant.nickname ?? ''),
-    }))
+    return explicitParticipants.map((participant) => {
+      const account = findAccountByStoredIdentifier(database, participant.identifier)
+      const archivedAccount = Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
+      return {
+        ...participant,
+        archivedAccount,
+        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
+        nickname: archivedAccount ? '' : normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
+        status: archivedAccount ? 'Удалённый аккаунт' : account?.status?.trim() || participant.status,
+        title: archivedAccount ? 'Аккаунт удалён' : account ? formatAccountName(account) || account.identifier : participant.title,
+      }
+    })
   }
 
   const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
@@ -1893,17 +2078,19 @@ function materializeSubscriptionParticipants(
           dialog.ownerIdentifier === ownerIdentifier &&
           normalizeIdentifier(dialog.phone) === account.identifier,
       )
+      const archivedAccount = isPublicDeletedAccount(account)
 
       return {
         accent: pickAccentForIdentifier(account.identifier),
+        archivedAccount,
         favorite: Boolean(matchingDialog?.pinned),
         id: getStableParticipantId(account.identifier),
         identifier: account.identifier,
-        nickname: normalizeNickname(account.nickname ?? ''),
-        online: database.sessions.some((session) => session.identifier === account.identifier),
-        premium: hasActivePremium(account.premium, account.premiumExpiresAt),
-        status: account.status?.trim() || 'в сети',
-        title: formatAccountName(account) || account.identifier,
+        nickname: archivedAccount ? '' : normalizeNickname(account.nickname ?? ''),
+        online: archivedAccount ? false : database.sessions.some((session) => session.identifier === account.identifier),
+        premium: archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt),
+        status: archivedAccount ? 'Удалённый аккаунт' : account.status?.trim() || 'в сети',
+        title: archivedAccount ? 'Аккаунт удалён' : formatAccountName(account) || account.identifier,
       } satisfies GroupParticipant
     })
 }
@@ -1915,24 +2102,30 @@ function materializeFullSubscriptionChannels(
   return database.subscriptionChannels
     .filter((channel) => channel.ownerIdentifier === ownerIdentifier)
     .map((channel) => {
-      const materializedChannel = materializeSubscriptionChannel(channel)
+      const materializedChannel = materializeSubscriptionChannel(database, channel)
       const participants = materializeSubscriptionParticipants(database, ownerIdentifier, channel)
       const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
       const isManagedChannel = database.managedChannels.some(
         (managedChannel) =>
           (sanitizeChannelDirectLink(managedChannel.directLink) || managedChannel.directLink) === normalizedHandle,
       )
-      const posts = database.subscriptionPosts
+      const hideArchivedOwnerContent = Boolean(
+        channel.archivedAt &&
+        (channel.archiveReason === 'owner-self-deleted' || channel.archiveReason === 'self-service-data-hidden'),
+      )
+      const posts = hideArchivedOwnerContent
+        ? []
+        : database.subscriptionPosts
         .filter(
           (post) => post.ownerIdentifier === ownerIdentifier && post.channelId === channel.id,
         )
-        .map((post) => {
+        .flatMap((post) => {
           const materializedPost = materializeSubscriptionPost(database, ownerIdentifier, post)
-          return {
+          return [{
             ...materializedPost,
             threadComments: materializedPost.threadComments ?? [],
             threadId: getSubscriptionPostThreadId(channel, materializedPost),
-          }
+          }]
         })
 
       return {
@@ -2051,8 +2244,15 @@ function buildThreadInbox(
     for (const message of database.groupMessages.filter(
       (candidate) => candidate.ownerIdentifier === ownerIdentifier && candidate.groupId === group.id,
     )) {
+      const authorAccount = findAccountByStoredIdentifier(
+        database,
+        resolveGroupMessageAuthorIdentifier(group, message),
+      )
+      if (shouldHideDeletedAccountContentForUsers(authorAccount)) {
+        continue
+      }
       const threadId = getGroupMessageThreadId(group, message)
-      const comments = compactThreadComments(message.threadComments)
+      const comments = materializeThreadCommentsForViewer(database, ownerIdentifier, message.threadComments)
       const threadState = threadStatesById.get(threadId)
       const hasParticipation = comments.some(
         (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === ownerIdentifier,
@@ -2092,11 +2292,19 @@ function buildThreadInbox(
   for (const channel of database.subscriptionChannels.filter(
     (candidate) => candidate.ownerIdentifier === ownerIdentifier,
   )) {
+    const hideArchivedOwnerContent = Boolean(
+      channel.archivedAt &&
+      (channel.archiveReason === 'owner-self-deleted' || channel.archiveReason === 'self-service-data-hidden'),
+    )
+    if (hideArchivedOwnerContent) {
+      continue
+    }
+
     for (const post of database.subscriptionPosts.filter(
       (candidate) => candidate.ownerIdentifier === ownerIdentifier && candidate.channelId === channel.id,
     )) {
       const threadId = getSubscriptionPostThreadId(channel, post)
-      const comments = compactThreadComments(post.threadComments)
+      const comments = materializeThreadCommentsForViewer(database, ownerIdentifier, post.threadComments)
       const threadState = threadStatesById.get(threadId)
       const hasParticipation = comments.some(
         (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === ownerIdentifier,
@@ -2341,6 +2549,7 @@ export class TinychokStore {
       accountId: randomUUID(),
       avatarImage: undefined,
       archivedOriginalIdentifier: undefined,
+      archivedProfile: undefined,
       blockedAt: undefined,
       blockedReason: undefined,
       blockedContactIds: [],
@@ -2348,6 +2557,7 @@ export class TinychokStore {
       deletedAt: undefined,
       deletedBySelfService: undefined,
       deletionMode: undefined,
+      publicDeleted: undefined,
       displayName,
       gifLibrary: [],
       identifier: normalizedIdentifier,
@@ -2561,6 +2771,7 @@ export class TinychokStore {
     }
 
     const liveIdentifier = existingAccount.identifier
+    const deletedAccountLabel = buildAdminAuditAccountLabel(existingAccount)
     const archivedIdentifier = buildArchivedAccountIdentifier(existingAccount.accountId)
     const deletedAt = new Date().toISOString()
     const deletionMode: AccountDeletionMode = payload.deleteDataToo
@@ -2577,11 +2788,25 @@ export class TinychokStore {
     })
 
     existingAccount.archivedOriginalIdentifier = normalizeIdentifier(liveIdentifier)
+    existingAccount.archivedProfile = {
+      avatarImage: existingAccount.avatarImage,
+      displayName: existingAccount.displayName,
+      nickname: normalizeNickname(existingAccount.nickname ?? '') || undefined,
+      status: existingAccount.status?.trim() || undefined,
+      surname: existingAccount.surname ?? '',
+    }
     existingAccount.deletedAt = deletedAt
     existingAccount.deletedBySelfService = true
     existingAccount.deletionMode = deletionMode
     existingAccount.identifier = archivedIdentifier
     existingAccount.lastActiveAt = deletedAt
+    existingAccount.publicDeleted = true
+    existingAccount.displayName = 'Аккаунт удалён'
+    existingAccount.surname = ''
+    existingAccount.nickname = ''
+    existingAccount.avatarImage = undefined
+    existingAccount.status = ''
+    this.refreshDialogsForAccount(existingAccount)
 
     await this.appendSystemAuditLog({
       action: 'user.account.delete.self-service',
@@ -2592,12 +2817,7 @@ export class TinychokStore {
         deletedAt,
         originalIdentifier: existingAccount.archivedOriginalIdentifier,
       },
-      summary: `Пользователь ${buildAdminAuditAccountLabel({
-        displayName: existingAccount.displayName,
-        identifier: existingAccount.archivedOriginalIdentifier ?? liveIdentifier,
-        nickname: existingAccount.nickname ?? '',
-        surname: existingAccount.surname ?? '',
-      })} удалил аккаунт через настройки`,
+      summary: `Пользователь ${deletedAccountLabel} удалил аккаунт через настройки`,
       targetId: existingAccount.accountId,
       targetType: 'user-self-service',
     })
@@ -2631,6 +2851,20 @@ export class TinychokStore {
     const account = this.findAccountByToken(token)
     if (!account) {
       throw new Error('Сессия не найдена.')
+    }
+
+    const persistedDialog = this.findDialog(account.identifier, dialogId)
+    if (!persistedDialog) {
+      throw new Error('Чат не найден.')
+    }
+
+    const directPeer = findAccountByStoredIdentifier(this.database, persistedDialog.phone)
+    if ((directPeer && isPublicDeletedAccount(directPeer)) || isArchivedIdentifier(persistedDialog.phone)) {
+      return {
+        dialogId,
+        hasMore: false,
+        messages: [],
+      }
     }
 
     const chat = materializeFullChats(this.database, account.identifier).find(
@@ -3111,8 +3345,14 @@ export class TinychokStore {
       .filter((account) => {
         if (!trimmedQuery) return true
 
-        const displayLabel = buildAccountDisplayLabel(account).toLowerCase()
-        const nickname = normalizeNickname(account.nickname ?? '').toLowerCase()
+        const adminVisible = getAdminVisibleAccount(account)
+        const displayLabel = (
+          formatAccountName({
+            displayName: adminVisible.displayName,
+            surname: adminVisible.surname,
+          }) || account.identifier
+        ).toLowerCase()
+        const nickname = normalizeNickname(adminVisible.nickname ?? '').toLowerCase()
         const accountDigits = (getAccountOriginalIdentifier(account) || '').replace(/[^\d]/g, '')
 
         return (
@@ -5311,6 +5551,9 @@ export class TinychokStore {
     if (!contactAccount) {
       throw new Error('Аккаунт не найден.')
     }
+    if (isPublicDeletedAccount(contactAccount)) {
+      throw new Error('Этот аккаунт удалён и недоступен для переписки.')
+    }
 
     const dialog = this.ensureDialogForContact(account.identifier, contactAccount)
     await this.persist()
@@ -5355,6 +5598,14 @@ export class TinychokStore {
       recipientIdentifier && recipientIdentifier !== account.identifier
         ? this.findAccount(recipientIdentifier)
         : null
+
+    if (
+      !recipientAccount ||
+      isPublicDeletedAccount(recipientAccount) ||
+      isArchivedIdentifier(dialog.phone)
+    ) {
+      throw new Error('Нельзя отправить сообщение удалённому аккаунту.')
+    }
 
     if (recipientAccount) {
       this.clearSeededDialogHistoryIfNeeded(dialog)
@@ -7752,8 +8003,9 @@ export class TinychokStore {
   }
 
   private buildAdminUserSummary(account: Account): AdminUserSummary {
+    const adminVisible = getAdminVisibleAccount(account)
     return {
-      avatarImage: account.avatarImage,
+      avatarImage: adminVisible.avatarImage,
       blocked: isAccountBlocked(account),
       blockedAt: account.blockedAt,
       blockedReason: account.blockedReason?.trim() || undefined,
@@ -7761,15 +8013,19 @@ export class TinychokStore {
       deletedAt: account.deletedAt,
       deletedBySelfService: account.deletedBySelfService,
       deletionMode: account.deletionMode,
-      displayName: buildAccountDisplayLabel(account),
+      displayName:
+        formatAccountName({
+          displayName: adminVisible.displayName,
+          surname: adminVisible.surname,
+        }) || account.identifier,
       identifier: account.identifier,
       lastActiveAt: account.lastActiveAt,
-      nickname: normalizeNickname(account.nickname ?? '') || undefined,
+      nickname: normalizeNickname(adminVisible.nickname ?? '') || undefined,
       originalIdentifier: account.archivedOriginalIdentifier,
       premium: hasActivePremium(account.premium, account.premiumExpiresAt),
       premiumExpiresAt: account.premiumExpiresAt,
       staffRole: sanitizeStaffRole(account.staffRole),
-      status: account.status?.trim() || undefined,
+      status: adminVisible.status,
       storageUsage: this.getStorageUsage(account.identifier),
     }
   }
@@ -10089,17 +10345,19 @@ export class TinychokStore {
 
   private buildGroupParticipant(account: Account): GroupParticipant {
     const online = this.hasActiveSession(account.identifier)
+    const archivedAccount = isPublicDeletedAccount(account)
 
     return {
       accent: pickAccentForIdentifier(account.identifier),
+      archivedAccount,
       favorite: false,
       id: getStableParticipantId(account.identifier),
       identifier: account.identifier,
-      nickname: normalizeNickname(account.nickname ?? ''),
-      online,
-      premium: hasActivePremium(account.premium, account.premiumExpiresAt),
-      status: account.status?.trim() || (online ? 'в сети' : 'был(а) недавно в сети'),
-      title: formatAccountName(account) || account.identifier,
+      nickname: archivedAccount ? '' : normalizeNickname(account.nickname ?? ''),
+      online: archivedAccount ? false : online,
+      premium: archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt),
+      status: getUserVisibleStatus(account, online),
+      title: getUserVisibleDisplayName(account),
     }
   }
 
@@ -10461,16 +10719,17 @@ export class TinychokStore {
 
   private syncDialogContactProfile(dialog: PersistedDialog, account: Account) {
     const online = this.hasActiveSession(account.identifier)
+    const archivedAccount = isPublicDeletedAccount(account)
 
-    dialog.title = formatAccountName(account) || account.identifier
+    dialog.title = getUserVisibleDisplayName(account)
     dialog.handle = buildAccountHandle(account)
     dialog.phone = account.identifier
     dialog.accent = pickAccentForIdentifier(account.identifier)
-    dialog.mood = account.status?.trim() || 'На связи'
-    dialog.status = account.status?.trim() || (online ? 'в сети' : 'был(а) недавно в сети')
-    dialog.online = online
-    dialog.lastSeen = online ? undefined : 'был(а) недавно в сети'
-    dialog.premium = hasActivePremium(account.premium, account.premiumExpiresAt)
+    dialog.mood = archivedAccount ? 'Удалённый аккаунт' : account.status?.trim() || 'На связи'
+    dialog.status = getUserVisibleStatus(account, online)
+    dialog.online = archivedAccount ? false : online
+    dialog.lastSeen = archivedAccount || online ? undefined : 'был(а) недавно в сети'
+    dialog.premium = archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt)
   }
 
   private ensureDialogForContact(ownerIdentifier: string, contactAccount: Account) {
@@ -11588,6 +11847,15 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         ...account,
         accountId: account.accountId?.trim() || randomUUID(),
         archivedOriginalIdentifier: normalizeIdentifier(account.archivedOriginalIdentifier ?? '') || undefined,
+        archivedProfile: account.archivedProfile
+          ? {
+              avatarImage: account.archivedProfile.avatarImage?.trim() || undefined,
+              displayName: sanitizePersonField(account.archivedProfile.displayName ?? '', displayNameFieldMaxLength),
+              nickname: normalizeNickname(account.archivedProfile.nickname ?? '') || undefined,
+              status: sanitizeStatusField(account.archivedProfile.status ?? ''),
+              surname: sanitizePersonField(account.archivedProfile.surname ?? '', surnameFieldMaxLength),
+            }
+          : undefined,
         blockedAt: account.blockedAt || undefined,
         blockedReason: account.blockedReason || undefined,
         deletedAt: account.deletedAt || undefined,
@@ -11602,6 +11870,7 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         lastActiveAt: account.lastActiveAt || account.createdAt,
         passwordHash: account.passwordHash?.trim() || undefined,
         passwordSetAt: account.passwordSetAt || undefined,
+        publicDeleted: Boolean(account.publicDeleted),
         staffRole: sanitizeStaffRole(account.staffRole),
       })),
       adminAuditLogs: (normalized.adminAuditLogs ?? []).filter(

@@ -262,10 +262,18 @@ export function formatMessageAuthor(author: Message['author'], chatTitle: string
 }
 
 export function formatContactStatus(chat: Chat) {
+  if (chat.archivedAccount) {
+    return 'Удалённый аккаунт'
+  }
+
   return chat.status.trim() || '\u00A0'
 }
 
 export function formatRoomPresence(chat: Chat) {
+  if (chat.archivedAccount) {
+    return 'Удалённый аккаунт'
+  }
+
   const parts = []
   const status = chat.status.trim()
 

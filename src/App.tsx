@@ -410,6 +410,14 @@ function buildFallbackGroupParticipant(title: string, participantId: number): Gr
   }
 }
 
+function renderAccountAvatarContent(title: string, archivedAccount?: boolean) {
+  if (archivedAccount) {
+    return <img src="/icons/ghost.png" alt="" aria-hidden="true" className="avatar-ghost-icon" />
+  }
+
+  return title.slice(0, 1)
+}
+
 function hydrateGroupParticipants(group: GroupPreview, chats: Chat[]): GroupParticipant[] {
   const chatByIdentifier = new Map(
     chats
@@ -1554,7 +1562,7 @@ function App() {
   const blockedContactIds = session?.blockedContactIds ?? []
   const availableChats = dedupeChatsByNormalizedPhone(
     sortChatsByRecentActivity(
-      chats.filter((chat) => !blockedContactIds.includes(chat.id)),
+      chats.filter((chat) => !blockedContactIds.includes(chat.id) && !chat.archivedAccount),
     ),
   )
   const creatableGroupChats = availableChats.filter(
@@ -1562,7 +1570,7 @@ function App() {
   )
   const blockedChats = dedupeChatsByNormalizedPhone(
     sortChatsByRecentActivity(
-      chats.filter((chat) => blockedContactIds.includes(chat.id)),
+      chats.filter((chat) => blockedContactIds.includes(chat.id) && !chat.archivedAccount),
     ),
   )
   const visibleRetainedAllChatId =
@@ -9960,7 +9968,7 @@ function App() {
                     }}
                   >
                     <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {chat.title.slice(0, 1)}
+                      {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                     </span>
                     <span>{chat.title}</span>
                   </button>
@@ -10276,7 +10284,7 @@ function App() {
                               className="avatar bubble-sender-avatar"
                               style={{ backgroundColor: participant.accent }}
                             >
-                              {participant.title.slice(0, 1)}
+                              {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
                             </span>
                             {participant.online ? (
                               <span className="bubble-sender-presence-dot" aria-label="В сети" />
@@ -10470,7 +10478,7 @@ function App() {
                     }}
                   >
                     <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {chat.title.slice(0, 1)}
+                      {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                     </span>
                     <span>{chat.title}</span>
                   </button>
@@ -10702,7 +10710,7 @@ function App() {
                     >
                       <span className="chat-avatar-stack">
                         <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                          {chat.title.slice(0, 1)}
+                          {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                         </span>
                         {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                       </span>
@@ -10800,7 +10808,7 @@ function App() {
                     >
                       <span className="chat-avatar-stack room-participant-avatar-stack">
                         <span className="avatar" style={{ backgroundColor: participant.accent }}>
-                          {participant.title.slice(0, 1)}
+                          {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
                         </span>
                         {participant.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                       </span>
@@ -11114,7 +11122,7 @@ function App() {
                 }}
               >
                 <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                  {chat.title.slice(0, 1)}
+                  {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                 </span>
                 <span>{chat.title}</span>
               </button>
@@ -11329,7 +11337,7 @@ function App() {
                     disabled={groupInviteBusy}
                   >
                     <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {chat.title.slice(0, 1)}
+                      {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                     </span>
                     <span>{chat.title}</span>
                   </button>
@@ -11471,7 +11479,7 @@ function App() {
               <div key={participant.id} className="room-forward-item room-participant-item">
                 <span className="chat-avatar-stack room-participant-avatar-stack">
                   <span className="avatar" style={{ backgroundColor: participant.accent }}>
-                    {participant.title.slice(0, 1)}
+                    {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
                   </span>
                   {participant.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                 </span>
@@ -11756,7 +11764,7 @@ function App() {
                   >
                     <span className="chat-avatar-stack">
                       <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                        {chat.title.slice(0, 1)}
+                        {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                       </span>
                       {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                     </span>
@@ -12097,7 +12105,7 @@ function App() {
                 >
                   <span className="chat-avatar-stack">
                     <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {chat.title.slice(0, 1)}
+                      {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                     </span>
                     {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                   </span>
@@ -13317,7 +13325,7 @@ function App() {
                               >
                                 <span className="chat-avatar-stack">
                                   <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                                    {chat.title.slice(0, 1)}
+                                    {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                                   </span>
                                   {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                                 </span>
@@ -14125,7 +14133,7 @@ function App() {
                         onClick={() => forwardMessageToChat(chat.id, forwardingMessage)}
                       >
                         <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                          {chat.title.slice(0, 1)}
+                          {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                         </span>
                         <span>{chat.title}</span>
                       </button>
@@ -14497,7 +14505,7 @@ function App() {
                         onClick={() => selectChannelTransferTarget(chat.id)}
                       >
                         <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                          {chat.title.slice(0, 1)}
+                          {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                         </span>
                         <span>{chat.title}</span>
                       </button>
@@ -14802,7 +14810,7 @@ function App() {
                         >
                           <span className="chat-avatar-stack">
                             <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                              {chat.title.slice(0, 1)}
+                              {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
                             </span>
                             {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                           </span>
@@ -15175,7 +15183,7 @@ function App() {
                       >
                         <span className="room-participant-avatar-stack">
                           <span className="avatar" style={{ backgroundColor: participant.accent }}>
-                            {participant.title.slice(0, 1)}
+                            {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
                           </span>
                           {participant.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                         </span>
@@ -15316,7 +15324,7 @@ function App() {
                         onClick={() => addIdentifierToBlacklist(participant.identifier ?? '')}
                       >
                         <span className="avatar" style={{ backgroundColor: participant.accent }}>
-                          {participant.title.slice(0, 1)}
+                          {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
                         </span>
                         <span>{participant.nickname ? `${participant.title} · @${participant.nickname}` : participant.title}</span>
                       </button>
@@ -15348,7 +15356,7 @@ function App() {
                         className="room-forward-item room-forward-item-static"
                       >
                         <span className="avatar" style={{ backgroundColor: participant.accent }}>
-                          {participant.title.slice(0, 1)}
+                          {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
                         </span>
                         <span>{participant.nickname ? `${participant.title} · @${participant.nickname}` : participant.title}</span>
                         <button

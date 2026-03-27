@@ -132,6 +132,9 @@ export function DirectChatRoom({
   onUnpinMessage,
 }: DirectChatRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const effectiveVisibleMessages = activeChat.archivedAccount ? [] : visibleMessages
+  const effectiveComposerDisabledNotice =
+    composerDisabledNotice ?? (activeChat.archivedAccount ? 'Аккаунт удалён. Переписка недоступна.' : null)
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
   const canSubmitComposer = attachmentDraft ? attachmentDraft.status === 'ready' : draft.trim().length > 0
   const composerPlaceholder = attachmentDraft
@@ -212,7 +215,11 @@ export function DirectChatRoom({
         </button>
         <div className="room-id">
           <span className="avatar large" style={{ backgroundColor: activeChat.accent }}>
-            {activeChat.title.slice(0, 1)}
+            {activeChat.archivedAccount ? (
+              <img src="/icons/ghost.png" alt="" aria-hidden="true" className="avatar-ghost-icon" />
+            ) : (
+              activeChat.title.slice(0, 1)
+            )}
           </span>
           <div>
             <div className="room-title">
@@ -327,8 +334,8 @@ export function DirectChatRoom({
       ) : null}
 
       <div className="message-feed" ref={messageFeedRef}>
-        {visibleMessages.map((message, index) => {
-          const previousMessage = index > 0 ? visibleMessages[index - 1] : null
+        {effectiveVisibleMessages.map((message, index) => {
+          const previousMessage = index > 0 ? effectiveVisibleMessages[index - 1] : null
           const messageDayKey = getConversationDayKey(message.createdAt)
           const previousMessageDayKey = previousMessage ? getConversationDayKey(previousMessage.createdAt) : null
           const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
@@ -483,9 +490,9 @@ export function DirectChatRoom({
         ) : null}
       </div>
 
-      {composerDisabledNotice ? (
+      {effectiveComposerDisabledNotice ? (
         <div className="composer composer-disabled">
-          <p className="composer-disabled-note">{composerDisabledNotice}</p>
+          <p className="composer-disabled-note">{effectiveComposerDisabledNotice}</p>
         </div>
       ) : (
         <form

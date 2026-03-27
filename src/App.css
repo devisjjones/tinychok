@@ -1075,6 +1075,12 @@
   border-radius: 22px;
 }
 
+.avatar-ghost-icon {
+  width: 58%;
+  height: 58%;
+  object-fit: contain;
+}
+
 .chat-copy {
   min-width: 0;
   display: grid;
