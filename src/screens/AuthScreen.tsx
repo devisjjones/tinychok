@@ -1,6 +1,6 @@
 import type { Account, AuthStep } from '../app/types'
 import { formatAccountName } from '../app/utils'
-import type { RefObject } from 'react'
+import { useState, type RefObject } from 'react'
 
 type AuthScreenProps = {
   authCodeFlow: 'password-reset' | 'password-setup' | 'registration'
@@ -59,6 +59,53 @@ export function AuthScreen({
   const isPasswordSetupStep = authStep === 'password-setup'
   const isPasswordResetStep = authStep === 'password-reset'
   const isPhoneStep = authStep === 'phone'
+  const [passwordVisible, setPasswordVisible] = useState(false)
+  const [passwordConfirmVisible, setPasswordConfirmVisible] = useState(false)
+
+  function renderPasswordField({
+    autoComplete,
+    label,
+    onChange,
+    placeholder,
+    value,
+    visible,
+    onToggleVisible,
+  }: {
+    autoComplete: string
+    label: string
+    onChange: (value: string) => void
+    placeholder: string
+    value: string
+    visible: boolean
+    onToggleVisible: () => void
+  }) {
+    return (
+      <label className="auth-field">
+        <span>{label}</span>
+        <div className="auth-password-input">
+          <input
+            type={visible ? 'text' : 'password'}
+            autoComplete={autoComplete}
+            placeholder={placeholder}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <button
+            type="button"
+            className="auth-password-visibility"
+            onClick={onToggleVisible}
+            aria-label={visible ? 'Скрыть пароль' : 'Показать пароль'}
+          >
+            <img
+              src={visible ? '/icons/eyeoff.png' : '/icons/eyeon.png'}
+              alt=""
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+      </label>
+    )
+  }
 
   const submitLabel =
     authStep === 'phone'
@@ -157,16 +204,15 @@ export function AuthScreen({
                 <span className="settings-label">Вход по паролю для номера</span>
                 <strong>{identifier}</strong>
               </div>
-              <label className="auth-field">
-                <span>Пароль</span>
-                <input
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="Введите пароль"
-                  value={password}
-                  onChange={(event) => onPasswordChange(event.target.value)}
-                />
-              </label>
+              {renderPasswordField({
+                autoComplete: 'current-password',
+                label: 'Пароль',
+                onChange: onPasswordChange,
+                onToggleVisible: () => setPasswordVisible((current) => !current),
+                placeholder: 'Введите пароль',
+                value: password,
+                visible: passwordVisible,
+              })}
               <button
                 type="button"
                 className="auth-secondary-action"
@@ -211,26 +257,24 @@ export function AuthScreen({
 
           {isProfilePasswordStep || isPasswordSetupStep || isPasswordResetStep ? (
             <>
-              <label className="auth-field">
-                <span>Пароль</span>
-                <input
-                  type="password"
-                  autoComplete={isProfilePasswordStep ? 'new-password' : 'new-password'}
-                  placeholder={`Минимум ${passwordMinLength} символов`}
-                  value={password}
-                  onChange={(event) => onPasswordChange(event.target.value)}
-                />
-              </label>
-              <label className="auth-field">
-                <span>Подтвердите пароль</span>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="Повторите пароль"
-                  value={passwordConfirm}
-                  onChange={(event) => onPasswordConfirmChange(event.target.value)}
-                />
-              </label>
+              {renderPasswordField({
+                autoComplete: 'new-password',
+                label: 'Пароль',
+                onChange: onPasswordChange,
+                onToggleVisible: () => setPasswordVisible((current) => !current),
+                placeholder: `Минимум ${passwordMinLength} символов`,
+                value: password,
+                visible: passwordVisible,
+              })}
+              {renderPasswordField({
+                autoComplete: 'new-password',
+                label: 'Подтвердите пароль',
+                onChange: onPasswordConfirmChange,
+                onToggleVisible: () => setPasswordConfirmVisible((current) => !current),
+                placeholder: 'Повторите пароль',
+                value: passwordConfirm,
+                visible: passwordConfirmVisible,
+              })}
             </>
           ) : null}
 
