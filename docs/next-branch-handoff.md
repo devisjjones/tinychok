@@ -126,6 +126,27 @@
 - orphan uploads чистятся по TTL
 - usage и quota показываются в настройках пользователя
 
+### Data Retention
+
+- исторические данные по умолчанию больше не хранятся бессрочно
+- server-side cleanup режет исторические данные старше `3 лет`
+- под retention сейчас попадают:
+  - server sessions
+  - IP-история логинов и смен IP
+  - admin audit log
+  - moderation reports
+  - direct / group / channel history
+  - thread comments и state, если корневой контент уже вышел за retention window
+  - user GIF library
+- намеренно не удаляются только по возрасту:
+  - сам `account`
+  - текущий профиль
+  - активный `passwordHash`
+  - current premium state
+  - текущие аватары
+- cleanup запускается на старте backend и затем периодически по runtime env
+- отдельный актуальный документ по retention лежит в [docs/data-retention.md](/Users/devisjones/Documents/New%20project/tinychok/docs/data-retention.md)
+
 ### Admin Panel MVP
 
 - отдельный internal admin frontend рендерится host-aware через:
@@ -261,9 +282,10 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
 - staging должен оставаться закрыт сразу двумя уровнями:
   - `basic auth` на frontend
   - allowlist телефонов на backend
-- staging admin тоже должен оставаться за `basic auth` и использовать тот же backend allowlist для staff login
+- staging admin тоже должен оставаться за `basic auth` и использовать backend allowlist для staff SMS login
 - user staging и admin staging используют разные basic-auth credential stores
 - admin basic auth дополнительно прикрыт `fail2ban` lockout-ом по IP
+- backend allowlist на staging режет `request-code`, `verify-code` и `register`; существующий user password-login после уже созданного аккаунта опирается на `basic auth + password`, а не на SMS allowlist
 - delete-path обязан работать server-side и не должен зависеть только от локального optimistic UI
 - premium debug state может использоваться на staging, но не должен попадать в production без отдельного решения
 - production deploy обязан идти в режиме `TINYCHOK_APP_ENV=production`, чтобы тестовые сущности не попадали в боевой runtime

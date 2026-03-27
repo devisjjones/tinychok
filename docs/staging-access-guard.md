@@ -32,6 +32,10 @@
   - запросить demo-код
   - подтвердить код
   - зарегистрировать аккаунт
+- password-login существующего уже созданного user-аккаунта не использует SMS allowlist напрямую; его защищают:
+  - `nginx basic auth`
+  - наличие уже существующего аккаунта
+  - пароль аккаунта
 
 Остальные получают понятную ошибку о том, что номер пока не включён в список тестеров.
 
@@ -71,6 +75,7 @@
 - admin API
 - websocket connect
 - auth request / verify / register flow
+- password reset через SMS
 - CSV export из admin
 - content preview и media download из admin
 

@@ -63,6 +63,7 @@
 - stale client snapshot не может восстановить удалённый timeline
 - profile settings сохраняются без transport-level сбоев за reverse proxy
 - browser notifications не должны приходить в режиме `Тихо`
+- исторические данные старше `3 лет` режутся серверным retention cleanup; это не должно ломать живые аккаунты, текущие профили и активные пароли
 
 ### Admin Panel
 
@@ -131,6 +132,10 @@ curl -s https://api.staging.tinychok.ru/healthz
   - существующий аккаунт с паролем после ввода номера идёт сразу на password-step без SMS
   - существующий аккаунт без пароля идёт через SMS и затем обязан задать пароль
   - `Забыли пароль?` переводит на SMS reset-flow и затем на шаг нового пароля
+- публичные статические страницы тоже входят в staging build:
+  - `/privacy-policy.html`
+  - `/user-agreement.html`
+  - `/contacts.html`
 
 ## Manual Smoke Checklist
 
@@ -176,3 +181,6 @@ curl -s https://api.staging.tinychok.ru/healthz
   - скачивается без server error
   - пишет `admin.ip-logs.download` в audit log
   - при `includeMedia=true` архив включает media-файлы, если storage-объекты доступны
+- `?analytics_debug=1`:
+  - показывает local analytics dispatch в `Console`
+  - не должен дублировать один и тот же `pageview`/`gif_search_used` без нового фактического действия

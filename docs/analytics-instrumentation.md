@@ -1,6 +1,6 @@
 # Analytics Instrumentation
 
-Подробная схема текущей аналитики Tinychok по состоянию на `2026-03-26`.
+Подробная схема текущей аналитики Tinychok по состоянию на `2026-03-27`.
 
 ## Runtime Model
 
@@ -337,12 +337,34 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 
 - `auth_captcha_completed`
 - `auth_code_request_succeeded`
+- `auth_code_request_failed`
 - `auth_code_verify_succeeded`
+- `auth_code_verify_failed`
+- `auth_password_prompt_shown`
+- `auth_password_login_requested`
+- `auth_password_login_succeeded`
+- `auth_password_login_failed`
+- `auth_password_forgot_started`
+- `auth_password_reset_code_requested`
+- `auth_password_reset_code_verified`
+- `auth_password_set_succeeded`
+- `auth_password_set_failed`
+- `auth_password_reset_succeeded`
+- `auth_password_reset_failed`
 - `auth_registration_succeeded`
+- `auth_registration_failed`
 - `direct_message_send_succeeded`
+- `direct_message_send_failed`
+- `direct_message_retry_started`
+- `direct_message_retry_failed`
 - `group_message_send_succeeded`
+- `group_message_send_failed`
+- `group_message_retry_started`
+- `group_message_retry_failed`
 - `channel_post_send_succeeded`
+- `channel_post_send_failed`
 - `thread_comment_send_succeeded`
+- `thread_comment_send_failed`
 - `profile_settings_saved`
 - `group_settings_saved`
 - `channel_settings_saved`
@@ -369,6 +391,8 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `premium_purchase_failed_year`
 - `group_created`
 - `channel_created`
+
+На staging goals уже заведены вручную в интерфейсе Яндекс Метрики. Для production тот же список нужно создать отдельно в production counter: цели не копируются автоматически между счётчиками.
 
 ## Privacy Rules
 

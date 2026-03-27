@@ -107,6 +107,12 @@
 - юридические реквизиты для платежного подключения
 - support/ops email:
   - `tinychok.help@yandex.com`
+- публичная production-страница с реквизитами уже подготовлена в коде:
+  - `https://tinychok.ru/contacts.html`
+- публичные production legal pages уже подготовлены в коде:
+  - `https://tinychok.ru/user-agreement.html`
+  - `https://tinychok.ru/privacy-policy.html`
+- для YooKassa всё ещё нужно будет открыть production frontend публично и показать premium-тарифы на `.ru`
 - список тестовых пользователей для закрытой альфы
 - список устройств и браузеров для ручной проверки
 - решение, где отдавать staging frontend:
@@ -134,7 +140,8 @@
 
 ## Текущие открытые вопросы
 
-- Yandex Analytics / Yandex Metrica ещё не подключены.
+- staging `Yandex Metrica` уже подключена и используется для pageview/goals.
+- для production нужен отдельный counter id и отдельный ручной набор goals в интерфейсе Метрики.
 - Production DNS-схема для `tinychok.ru` ещё не финализирована.
 - На `tinychok.ru` в `Reg.ru` корень `@` и `www` пока смотрят на `95.163.244.138`, production DNS-схема ещё не финализирована.
 - Production target по БД остаётся: `Managed PostgreSQL`.

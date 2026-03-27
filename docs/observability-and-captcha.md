@@ -64,7 +64,7 @@ TINYCHOK_CAPTCHA_VERIFY_URL=
 - client queue собирает события в пакеты и повторно ставит их в очередь, если ingest ответил `non-2xx` или не ответил совсем
 - текущий sink на backend: `log`
 - `Yandex Metrica` поднимается отдельным client-side runtime слоем через counter id из `GET /api/client-config`
-- staging counter id живёт в env:
+- staging counter id живёт в env и уже используется на staging:
 
 ```env
 TINYCHOK_YANDEX_METRICA_COUNTER_ID=
@@ -89,6 +89,7 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 ### Existing Event Groups
 
 - auth
+- password auth
 - direct message send / retry
 - group message send / retry
 - channel post send
@@ -96,39 +97,29 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 - realtime connected / disconnected / error
 - consent and selected product actions
 - browser notification prompt / enable flow
+- premium funnel with month/year split
+- admin-safe support and moderation related events
 
-### Recommended Next Events
+### Important Implemented Events
 
-Messaging and sync:
-
-- `thread_comment_retry_started`
-- `thread_comment_retry_failed`
-- `message_delivery_confirmed_late`
-- `message_delivery_duplicate_detected`
-- `history_initial_window_loaded`
-- `history_page_loaded`
-- `delete_request_fell_back_to_post`
-- `delete_request_failed_after_fallback`
-
-Growth and activation:
-
-- `thread_opened`
-- `channel_invite_sent`
-- `channel_subscriber_removed`
-- `channel_subscriber_blacklisted`
-- `emoji_picker_opened`
-- `emoji_inserted`
-- `photo_attachment_selected`
-- `photo_upload_failed`
-- `image_viewer_opened`
+- `auth_captcha_completed`
+- `auth_code_request_*`
+- `auth_code_verify_*`
+- `auth_password_prompt_shown`
+- `auth_password_login_*`
+- `auth_password_forgot_started`
+- `auth_password_reset_code_requested`
+- `auth_password_reset_code_verified`
+- `auth_password_set_*`
+- `auth_password_reset_*`
+- `auth_registration_*`
 - `gif_uploaded`
 - `gif_deleted`
 - `gif_search_used`
 - `gif_added_from_viewer`
-- `auth_support_email_clicked`
-- `profile_settings_saved`
-- `channel_settings_saved`
-- `auth_captcha_completed`
+- `photo_attachment_selected`
+- `photo_upload_failed`
+- `image_viewer_opened`
 - `browser_notifications_enabled`
 - `browser_notifications_disabled`
 - `browser_notifications_prompt_dismissed`
@@ -144,10 +135,11 @@ Growth and activation:
 - `premium_purchase_failed_year`
 - `group_created`
 - `channel_created`
+- `auth_support_email_clicked`
 
 ## What Must Happen Before Production-Ready Rollout
 
 - analytics нужен не только `log` sink, а нормальный ingestion target
-- captcha нельзя включать на staging или production без рабочего frontend widget-а
+- captcha на staging уже включена и работает через SmartCaptcha widget; production rollout всё ещё требует отдельной проверки live-доменов и ключей
 - support footer на auth-экране должен оставаться видимым, чтобы пользователь мог написать на `tinychok.help@yandex.com`, если login сломан
 - transport metrics должны покрывать retries, fallback path и delete consistency

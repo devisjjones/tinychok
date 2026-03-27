@@ -10,7 +10,10 @@
 
 - frontend собирается в обычную статическую Vite-статику;
 - client-side router не используется;
-- отдельная страница `privacy-policy.html` уже входит в `dist/`;
+- отдельные публичные страницы уже входят в `dist/`:
+  - `privacy-policy.html`
+  - `user-agreement.html`
+  - `contacts.html`
 - websocket идёт напрямую в `wss://api.staging.tinychok.ru/ws`, так что frontend site не должен сам проксировать websocket.
 
 Явной кодовой причины уводить staging frontend в отдельный bucket или отдельный runtime сейчас нет.
@@ -102,6 +105,8 @@ sudo systemctl reload nginx
 curl -I http://staging.tinychok.ru
 curl -I https://staging.tinychok.ru
 curl -I https://staging.tinychok.ru/privacy-policy.html
+curl -I https://staging.tinychok.ru/user-agreement.html
+curl -I https://staging.tinychok.ru/contacts.html
 ```
 
 Smoke-check websocket endpoint через staging API:

@@ -130,6 +130,7 @@
 
 ## Что ещё не сделано на staging VM
 
-- Yandex Analytics / Yandex Metrica ещё не подключены к user frontend;
-- production analytics sink пока не настроен;
+- staging `Yandex Metrica` уже подключена к user frontend через runtime counter id;
+- production counter id и отдельный production набор goals пока не включены;
+- production analytics sink для внутреннего `POST /api/analytics/events` по-прежнему остаётся `log`/transitional;
 - локальный resolver `127.0.0.53` на VM может продолжать кэшировать старый `NXDOMAIN`, поэтому для свежих DNS-проверок надёжнее спрашивать внешний resolver.

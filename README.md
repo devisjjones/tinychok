@@ -7,17 +7,32 @@ Production-архитектура под `Yandex Cloud` для `10k+` польз
 Короткая точка продолжения для новой ветки или нового треда лежит в [docs/next-branch-handoff.md](/Users/devisjones/Documents/New%20project/tinychok/docs/next-branch-handoff.md).
 Текущее состояние staging rollout зафиксировано в [docs/staging-rollout-status.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-rollout-status.md).
 Короткий runbook по защите staging для тестеров лежит в [docs/staging-access-guard.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-access-guard.md).
+Текущая схема аналитики и goals описана в [docs/analytics-instrumentation.md](/Users/devisjones/Documents/New%20project/tinychok/docs/analytics-instrumentation.md).
+Текущая политика хранения данных описана в [docs/data-retention.md](/Users/devisjones/Documents/New%20project/tinychok/docs/data-retention.md).
 
 Сейчас в проекте уже есть:
 
 - frontend на `React + TypeScript + Vite`
-- отдельная страница политики обработки персональных данных
+- staging frontend на [https://staging.tinychok.ru](https://staging.tinychok.ru)
+- staging admin panel на [https://admin.staging.tinychok.ru](https://admin.staging.tinychok.ru)
+- staging backend API на [https://api.staging.tinychok.ru/healthz](https://api.staging.tinychok.ru/healthz)
 - локальный backend на `Fastify + WebSocket`
-- авторизация по телефону с demo-кодом `1111`
+- password-aware auth flow:
+  - новый пользователь: `phone -> SMS -> profile + password`
+  - существующий пользователь с паролем: `phone -> password`
+  - `forgot password`: `password -> SMS reset -> new password`
+- SmartCaptcha на user и admin auth request-code шаге
+- browser notifications promo/toggle и `Notification API`
+- отдельная user/admin аналитика через `Yandex Metrica` на staging
+- owner-only admin exports:
+  - `Логи IP` CSV
+  - `Юр. выгрузка ZIP`
+- публичные страницы:
+  - `privacy-policy.html`
+  - `user-agreement.html`
+  - `contacts.html`
 - серверный bootstrap, realtime snapshot fanout и mutation API для горячих сценариев
 - файловое dev-хранилище в `server/data/dev-db.json`
-
-По состоянию на `2026-03-21` staging API уже поднят онлайн на [https://api.staging.tinychok.ru/healthz](https://api.staging.tinychok.ru/healthz) и [https://api.staging.tinychok.ru/readyz](https://api.staging.tinychok.ru/readyz). Следующий deploy-шаг: staging frontend на `staging.tinychok.ru`.
 
 ## Локальный запуск
 
@@ -71,10 +86,20 @@ npm run start:server
 
 ## Что backend делает сейчас
 
-- `POST /api/auth/request-code` запрашивает demo-код
-- `POST /api/auth/verify-code` проверяет код и решает: вход или переход к созданию профиля
-- `POST /api/auth/register` создаёт новый аккаунт и seed state
-- auth flow можно ограничить только списком тестовых номеров через `TINYCHOK_ALLOWED_TEST_PHONES`
+- `POST /api/auth/request-code` определяет следующий auth-step:
+  - `needs-password-login`
+  - `needs-sms-registration`
+  - `needs-sms-password-setup`
+  - `needs-sms-reset`
+- `POST /api/auth/login-password` логинит существующий аккаунт без SMS
+- `POST /api/auth/verify-code` проверяет код и решает следующий шаг:
+  - `needs-profile-and-password`
+  - `needs-password-setup`
+  - `needs-password-reset`
+- `POST /api/auth/register` создаёт новый аккаунт сразу с паролем и seed state
+- `POST /api/auth/set-password` завершает migration-flow для legacy аккаунта без пароля
+- `POST /api/auth/reset-password` завершает forgot-password flow после SMS
+- auth flow на staging можно ограничить списком тестовых номеров через `TINYCHOK_ALLOWED_TEST_PHONES`
 - `GET /api/bootstrap` отдаёт серверный snapshot аккаунта
 - `PUT /api/snapshot` сохраняет актуальное состояние приложения
 - `POST /api/dialogs/:dialogId/messages` отправляет direct message через сервер и умеет доставлять его второму аккаунту, если у контакта есть зарегистрированный Tinychok-профиль
@@ -98,6 +123,8 @@ npm run start:server
 - UI subscription channels уже умеет рендерить attachment-ready posts и брать preview/time из последнего поста
 - `GET /ws` отправляет realtime-обновления snapshot для текущего аккаунта
 - внутри dev-backend данные уже хранятся не одним blob, а в нормализованных сущностях `accounts / dialogs / messages / groups / channels / posts`
+- сервер пишет IP-историю успешных логинов и смен IP
+- server-side retention cleanup подрезает исторические данные старше `3 лет`
 
 Текущий backend уже не опирается только на общий `saveSnapshot`: direct/group messaging, attachments, moderation direct-чата, blocklist, profile/session updates, channel detail edits, создание и удаление каналов идут отдельными командами. Но часть второстепенных сценариев фронта пока всё ещё сохраняется через полный snapshot, так что это промежуточный production-oriented шаг, а не финальная доменная модель мессенджера.
 
