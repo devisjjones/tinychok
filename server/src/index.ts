@@ -194,6 +194,15 @@ setInterval(() => {
   })
 }, 60 * 60 * 1000)
 
+void store.cleanupExpiredRetentionData().catch((error) => {
+  app.log.error(error)
+})
+setInterval(() => {
+  void store.cleanupExpiredRetentionData().catch((error) => {
+    app.log.error(error)
+  })
+}, runtimeConfig.storage.retention.cleanupIntervalHours * 60 * 60 * 1000)
+
 await app.register(cors, {
   credentials: true,
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

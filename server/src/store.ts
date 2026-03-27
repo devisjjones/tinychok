@@ -746,6 +746,33 @@ function parseIsoDate(value?: string) {
   return Number.isNaN(timestamp) ? null : timestamp
 }
 
+const historicalRetentionMs = runtimeConfig.storage.retention.historicalDataDays * 24 * 60 * 60 * 1000
+
+function isTimestampOlderThan(value: string | undefined, cutoffTimestamp: number) {
+  const timestamp = parseIsoDate(value)
+  return timestamp !== null && timestamp < cutoffTimestamp
+}
+
+function getLatestActivityTimestamp(
+  rootCreatedAt: string | undefined,
+  comments: Array<Pick<ThreadComment, 'createdAt'> | undefined> | undefined,
+) {
+  let latestTimestamp = parseIsoDate(rootCreatedAt)
+
+  for (const comment of comments ?? []) {
+    const commentTimestamp = parseIsoDate(comment?.createdAt)
+    if (commentTimestamp === null) {
+      continue
+    }
+
+    if (latestTimestamp === null || commentTimestamp > latestTimestamp) {
+      latestTimestamp = commentTimestamp
+    }
+  }
+
+  return latestTimestamp
+}
+
 function escapeCsvCell(value: unknown) {
   const normalized =
     typeof value === 'string'
@@ -8374,6 +8401,338 @@ export class TinychokStore {
     }
 
     return staleUploads.length
+  }
+
+  async cleanupExpiredRetentionData() {
+    const cutoffTimestamp = Date.now() - historicalRetentionMs
+    let didMutate = false
+    const removedMediaUrls = new Set<string>()
+    const summary = {
+      adminAuditLogs: 0,
+      adminReports: 0,
+      contactReports: 0,
+      dialogMessages: 0,
+      dialogs: 0,
+      groupMessages: 0,
+      groups: 0,
+      ipAccessLogs: 0,
+      sessions: 0,
+      subscriptionChannelReports: 0,
+      subscriptionChannels: 0,
+      subscriptionPosts: 0,
+      userGifs: 0,
+    }
+
+    const collectRemovedMediaUrls = (urls: string[]) => {
+      urls.forEach((mediaUrl) => {
+        if (mediaUrl) {
+          removedMediaUrls.add(mediaUrl)
+        }
+      })
+    }
+
+    this.database.accounts = this.database.accounts.map((account) => {
+      const currentGifLibrary = account.gifLibrary ?? []
+      if (currentGifLibrary.length === 0) {
+        return account
+      }
+
+      const nextGifLibrary = currentGifLibrary.filter((gif) => !isTimestampOlderThan(gif.createdAt, cutoffTimestamp))
+      if (nextGifLibrary.length === currentGifLibrary.length) {
+        return account
+      }
+
+      summary.userGifs += currentGifLibrary.length - nextGifLibrary.length
+      collectRemovedMediaUrls(
+        currentGifLibrary
+          .filter((gif) => isTimestampOlderThan(gif.createdAt, cutoffTimestamp))
+          .map((gif) => gif.mediaUrl),
+      )
+      didMutate = true
+
+      return {
+        ...account,
+        gifLibrary: nextGifLibrary.length > 0 ? nextGifLibrary : undefined,
+      }
+    })
+
+    const nextSessions = this.database.sessions.filter((session) => !isTimestampOlderThan(session.createdAt, cutoffTimestamp))
+    if (nextSessions.length !== this.database.sessions.length) {
+      summary.sessions = this.database.sessions.length - nextSessions.length
+      this.database.sessions = nextSessions
+      didMutate = true
+    }
+
+    const nextIpAccessLogs = this.database.ipAccessLogs.filter((entry) => !isTimestampOlderThan(entry.createdAt, cutoffTimestamp))
+    if (nextIpAccessLogs.length !== this.database.ipAccessLogs.length) {
+      summary.ipAccessLogs = this.database.ipAccessLogs.length - nextIpAccessLogs.length
+      this.database.ipAccessLogs = nextIpAccessLogs
+      didMutate = true
+    }
+
+    const nextAdminAuditLogs = this.database.adminAuditLogs.filter((entry) => !isTimestampOlderThan(entry.createdAt, cutoffTimestamp))
+    if (nextAdminAuditLogs.length !== this.database.adminAuditLogs.length) {
+      summary.adminAuditLogs = this.database.adminAuditLogs.length - nextAdminAuditLogs.length
+      this.database.adminAuditLogs = nextAdminAuditLogs
+      didMutate = true
+    }
+
+    const nextAdminReports = this.database.adminReports.filter((report) => {
+      const reportTimestamp = parseIsoDate(report.updatedAt) ?? parseIsoDate(report.createdAt)
+      return reportTimestamp === null || reportTimestamp >= cutoffTimestamp
+    })
+    if (nextAdminReports.length !== this.database.adminReports.length) {
+      summary.adminReports = this.database.adminReports.length - nextAdminReports.length
+      this.database.adminReports = nextAdminReports
+      didMutate = true
+    }
+
+    const nextContactReports = this.database.contactReports.filter((report) => !isTimestampOlderThan(report.createdAt, cutoffTimestamp))
+    if (nextContactReports.length !== this.database.contactReports.length) {
+      summary.contactReports = this.database.contactReports.length - nextContactReports.length
+      this.database.contactReports = nextContactReports
+      didMutate = true
+    }
+
+    const nextSubscriptionChannelReports = this.database.subscriptionChannelReports.filter(
+      (report) => !isTimestampOlderThan(report.createdAt, cutoffTimestamp),
+    )
+    if (nextSubscriptionChannelReports.length !== this.database.subscriptionChannelReports.length) {
+      summary.subscriptionChannelReports =
+        this.database.subscriptionChannelReports.length - nextSubscriptionChannelReports.length
+      this.database.subscriptionChannelReports = nextSubscriptionChannelReports
+      didMutate = true
+    }
+
+    const latestDialogActivityByKey = new Map<string, number>()
+    for (const message of this.database.dialogMessages) {
+      const createdAt = parseIsoDate(message.createdAt)
+      if (createdAt === null) {
+        continue
+      }
+
+      const key = `${message.ownerIdentifier}:${message.dialogId}`
+      const existing = latestDialogActivityByKey.get(key)
+      if (existing === undefined || createdAt > existing) {
+        latestDialogActivityByKey.set(key, createdAt)
+      }
+    }
+
+    const nextDialogMessages = this.database.dialogMessages.filter((message) => {
+      if (!isTimestampOlderThan(message.createdAt, cutoffTimestamp)) {
+        return true
+      }
+
+      collectRemovedMediaUrls(collectMediaUrlsFromAttachment(message.attachment))
+      summary.dialogMessages += 1
+      didMutate = true
+      return false
+    })
+    if (nextDialogMessages.length !== this.database.dialogMessages.length) {
+      this.database.dialogMessages = nextDialogMessages
+    }
+
+    const retainedDialogKeys = new Set(
+      this.database.dialogMessages.map((message) => `${message.ownerIdentifier}:${message.dialogId}`),
+    )
+    const nextDialogs = this.database.dialogs.filter((dialog) => {
+      const key = `${dialog.ownerIdentifier}:${dialog.id}`
+      if (retainedDialogKeys.has(key)) {
+        return true
+      }
+
+      const latestActivity = latestDialogActivityByKey.get(key)
+      if (latestActivity !== undefined && latestActivity < cutoffTimestamp) {
+        summary.dialogs += 1
+        didMutate = true
+        return false
+      }
+
+      return true
+    })
+    if (nextDialogs.length !== this.database.dialogs.length) {
+      this.database.dialogs = nextDialogs
+    }
+
+    const latestGroupActivityByKey = new Map<string, number>()
+    const nextGroupMessages: PersistedGroupMessage[] = []
+    for (const message of this.database.groupMessages) {
+      const key = `${message.ownerIdentifier}:${message.groupId}`
+      const latestActivityTimestamp = getLatestActivityTimestamp(message.createdAt, compactThreadComments(message.threadComments))
+      if (latestActivityTimestamp !== null) {
+        const existing = latestGroupActivityByKey.get(key)
+        if (existing === undefined || latestActivityTimestamp > existing) {
+          latestGroupActivityByKey.set(key, latestActivityTimestamp)
+        }
+      }
+
+      const retainedComments = compactThreadComments(message.threadComments).filter(
+        (comment) => !isTimestampOlderThan(comment.createdAt, cutoffTimestamp),
+      )
+      const originalComments = compactThreadComments(message.threadComments)
+      if (retainedComments.length !== originalComments.length) {
+        collectRemovedMediaUrls(
+          originalComments
+            .filter((comment) => isTimestampOlderThan(comment.createdAt, cutoffTimestamp))
+            .flatMap((comment) => collectMediaUrlsFromAttachment(comment.attachment)),
+        )
+        didMutate = true
+      }
+
+      if (latestActivityTimestamp !== null && latestActivityTimestamp < cutoffTimestamp) {
+        collectRemovedMediaUrls(collectMediaUrlsFromAttachment(message.attachment))
+        collectRemovedMediaUrls(collectMediaUrlsFromThreadComments(originalComments))
+        summary.groupMessages += 1
+        didMutate = true
+        continue
+      }
+
+      nextGroupMessages.push(
+        retainedComments.length === originalComments.length
+          ? message
+          : {
+              ...message,
+              threadComments: retainedComments,
+            },
+      )
+    }
+    if (nextGroupMessages.length !== this.database.groupMessages.length) {
+      this.database.groupMessages = nextGroupMessages
+    } else if (didMutate) {
+      this.database.groupMessages = nextGroupMessages
+    }
+
+    const retainedGroupKeys = new Set(
+      this.database.groupMessages.map((message) => `${message.ownerIdentifier}:${message.groupId}`),
+    )
+    const nextGroups = this.database.groups.filter((group) => {
+      const key = `${group.ownerIdentifier}:${group.id}`
+      if (retainedGroupKeys.has(key)) {
+        return true
+      }
+
+      const latestActivity = latestGroupActivityByKey.get(key) ?? parseIsoDate(group.latestActivityAt)
+      if (latestActivity !== null && latestActivity !== undefined && latestActivity < cutoffTimestamp) {
+        summary.groups += 1
+        didMutate = true
+        return false
+      }
+
+      return true
+    })
+    if (nextGroups.length !== this.database.groups.length) {
+      this.database.groups = nextGroups
+    }
+
+    const latestChannelActivityByKey = new Map<string, number>()
+    const nextSubscriptionPosts: PersistedSubscriptionPost[] = []
+    for (const post of this.database.subscriptionPosts) {
+      const key = `${post.ownerIdentifier}:${post.channelId}`
+      const latestActivityTimestamp = getLatestActivityTimestamp(post.createdAt, compactThreadComments(post.threadComments))
+      if (latestActivityTimestamp !== null) {
+        const existing = latestChannelActivityByKey.get(key)
+        if (existing === undefined || latestActivityTimestamp > existing) {
+          latestChannelActivityByKey.set(key, latestActivityTimestamp)
+        }
+      }
+
+      const retainedComments = compactThreadComments(post.threadComments).filter(
+        (comment) => !isTimestampOlderThan(comment.createdAt, cutoffTimestamp),
+      )
+      const originalComments = compactThreadComments(post.threadComments)
+      if (retainedComments.length !== originalComments.length) {
+        collectRemovedMediaUrls(
+          originalComments
+            .filter((comment) => isTimestampOlderThan(comment.createdAt, cutoffTimestamp))
+            .flatMap((comment) => collectMediaUrlsFromAttachment(comment.attachment)),
+        )
+        didMutate = true
+      }
+
+      if (latestActivityTimestamp !== null && latestActivityTimestamp < cutoffTimestamp) {
+        collectRemovedMediaUrls(collectMediaUrlsFromAttachment(post.attachment))
+        collectRemovedMediaUrls(collectMediaUrlsFromThreadComments(originalComments))
+        summary.subscriptionPosts += 1
+        didMutate = true
+        continue
+      }
+
+      nextSubscriptionPosts.push(
+        retainedComments.length === originalComments.length
+          ? post
+          : {
+              ...post,
+              threadComments: retainedComments,
+            },
+      )
+    }
+    if (nextSubscriptionPosts.length !== this.database.subscriptionPosts.length) {
+      this.database.subscriptionPosts = nextSubscriptionPosts
+    } else if (didMutate) {
+      this.database.subscriptionPosts = nextSubscriptionPosts
+    }
+
+    const retainedSubscriptionChannelKeys = new Set(
+      this.database.subscriptionPosts.map((post) => `${post.ownerIdentifier}:${post.channelId}`),
+    )
+    const nextSubscriptionChannels = this.database.subscriptionChannels.filter((channel) => {
+      const key = `${channel.ownerIdentifier}:${channel.id}`
+      if (retainedSubscriptionChannelKeys.has(key)) {
+        return true
+      }
+
+      const latestActivity = latestChannelActivityByKey.get(key)
+      if (latestActivity !== undefined && latestActivity < cutoffTimestamp) {
+        summary.subscriptionChannels += 1
+        didMutate = true
+        return false
+      }
+
+      return true
+    })
+    if (nextSubscriptionChannels.length !== this.database.subscriptionChannels.length) {
+      this.database.subscriptionChannels = nextSubscriptionChannels
+    }
+
+    const retainedThreadIds = new Set<string>()
+    for (const message of this.database.groupMessages) {
+      if (message.threadId) {
+        retainedThreadIds.add(message.threadId)
+      }
+    }
+    for (const post of this.database.subscriptionPosts) {
+      if (post.threadId) {
+        retainedThreadIds.add(post.threadId)
+      }
+    }
+    this.database.threadStates = this.database.threadStates.filter((state) => retainedThreadIds.has(state.threadId))
+
+    for (const account of this.database.accounts) {
+      const existingDialogIds = new Set(
+        this.database.dialogs
+          .filter((dialog) => dialog.ownerIdentifier === account.identifier)
+          .map((dialog) => dialog.id),
+      )
+      if ((account.blockedContactIds?.length ?? 0) > 0) {
+        const nextBlockedContactIds = (account.blockedContactIds ?? []).filter((dialogId) => existingDialogIds.has(dialogId))
+        if (nextBlockedContactIds.length !== (account.blockedContactIds ?? []).length) {
+          account.blockedContactIds = nextBlockedContactIds.length > 0 ? nextBlockedContactIds : undefined
+          didMutate = true
+        }
+      }
+    }
+
+    if (!didMutate) {
+      return summary
+    }
+
+    await this.persist()
+
+    for (const mediaUrl of removedMediaUrls) {
+      await this.deleteMediaIfUnreferenced(mediaUrl)
+    }
+
+    return summary
   }
 
   private getStorageUsage(ownerIdentifier: string): StorageUsage {

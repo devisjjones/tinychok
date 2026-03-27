@@ -9,6 +9,7 @@ export type AppStore = Pick<
   | 'removeUserGif'
   | 'assertMediaUploadWithinQuota'
   | 'cleanupExpiredPendingMediaUploads'
+  | 'cleanupExpiredRetentionData'
   | 'adminAddReportNote'
   | 'adminApplyReportAction'
   | 'adminGetReport'

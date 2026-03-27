@@ -74,6 +74,15 @@ function readOptionalPositiveInteger(value: string | undefined) {
   return parsed
 }
 
+function readPositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value?.trim() ?? '', 10)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback
+  }
+
+  return parsed
+}
+
 function readStringList(value: string | undefined) {
   if (!value) return [] as string[]
 
@@ -162,6 +171,10 @@ export const runtimeConfig = {
     localMediaRoot: resolve(process.cwd(), process.env.LOCAL_MEDIA_ROOT ?? 'server/uploads'),
     mediaBackend: readMediaBackend(process.env.TINYCHOK_MEDIA_BACKEND),
     mode: readStoreMode(process.env.TINYCHOK_STORE_MODE),
+    retention: {
+      cleanupIntervalHours: readPositiveInteger(process.env.TINYCHOK_RETENTION_CLEANUP_INTERVAL_HOURS, 24),
+      historicalDataDays: readPositiveInteger(process.env.TINYCHOK_RETENTION_DAYS, 365 * 3),
+    },
     objectStorage: {
       accessKey: process.env.OBJECT_STORAGE_ACCESS_KEY?.trim() || null,
       bucket: process.env.OBJECT_STORAGE_BUCKET?.trim() || null,
