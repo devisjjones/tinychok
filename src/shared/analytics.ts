@@ -11,6 +11,8 @@ export type AnalyticsEventName =
   | 'auth_password_login_requested'
   | 'auth_password_login_succeeded'
   | 'auth_password_login_failed'
+  | 'auth_password_login_captcha_required'
+  | 'auth_password_login_captcha_completed'
   | 'auth_password_login_rate_limited'
   | 'auth_password_login_blocked'
   | 'auth_password_forgot_started'
@@ -134,6 +136,14 @@ export const analyticsEventCatalog: Record<
   auth_password_login_failed: {
     category: 'auth',
     description: 'Вход по паролю завершился ошибкой.',
+  },
+  auth_password_login_captcha_required: {
+    category: 'auth',
+    description: 'После серии неверных паролей вход по паролю потребовал SmartCaptcha.',
+  },
+  auth_password_login_captcha_completed: {
+    category: 'auth',
+    description: 'Пользователь прошёл SmartCaptcha на шаге входа по паролю.',
   },
   auth_password_login_rate_limited: {
     category: 'auth',

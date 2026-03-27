@@ -9,8 +9,8 @@ type AuthScreenProps = {
   authStep: AuthStep
   captchaBusy: boolean
   captchaContainerRef: RefObject<HTMLDivElement | null>
+  captchaPlacement: 'phone' | 'password' | null
   captchaProvider: 'disabled' | 'turnstile' | 'smartcaptcha'
-  captchaRequired: boolean
   displayName: string
   displayNameMaxLength: number
   identifier: string
@@ -35,8 +35,8 @@ export function AuthScreen({
   authStep,
   captchaBusy,
   captchaContainerRef,
+  captchaPlacement,
   captchaProvider,
-  captchaRequired,
   displayName,
   displayNameMaxLength,
   identifier,
@@ -232,11 +232,13 @@ export function AuthScreen({
 
           {authError ? <p className="auth-error">{authError}</p> : null}
 
-          {isPhoneStep && captchaRequired && captchaProvider === 'smartcaptcha' ? (
+          {captchaPlacement && captchaProvider === 'smartcaptcha' ? (
             <div className="auth-captcha">
               <div ref={captchaContainerRef} className="auth-captcha-widget" aria-hidden="true" />
               <p className="auth-captcha-note">
-                Вход защищён SmartCaptcha. Перед продолжением подтвердите, что вы не робот.
+                {captchaPlacement === 'password'
+                  ? 'После нескольких неудачных попыток подтвердите, что вы не робот, чтобы продолжить вход по паролю.'
+                  : 'Вход защищён SmartCaptcha. Перед продолжением подтвердите, что вы не робот.'}
               </p>
             </div>
           ) : null}

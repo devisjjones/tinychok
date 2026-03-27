@@ -59,6 +59,7 @@ export type AppStore = Pick<
   | 'leaveGroup'
   | 'loginWithPassword'
   | 'listTokensByIdentifier'
+  | 'shouldRequirePasswordLoginCaptcha'
   | 'markDialogRead'
   | 'markGroupRead'
   | 'markGroupThreadRead'

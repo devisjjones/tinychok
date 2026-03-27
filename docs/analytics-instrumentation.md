@@ -82,6 +82,8 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `auth_password_login_requested`
 - `auth_password_login_succeeded`
 - `auth_password_login_failed`
+- `auth_password_login_captcha_required`
+- `auth_password_login_captcha_completed`
 - `auth_password_login_rate_limited`
 - `auth_password_login_blocked`
 - `auth_password_forgot_started`
@@ -204,6 +206,10 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `hasPassword`
 - `auth_password_login_failed`
   - `reason`
+- `auth_password_login_captcha_required`
+  - `reason`
+- `auth_password_login_captcha_completed`
+  - `provider`
 - `auth_password_login_rate_limited`
   - `reason`
 - `auth_password_login_blocked`
@@ -222,6 +228,9 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - повторный вход:
   - `auth_password_prompt_shown`
   - `auth_password_login_requested`
+  - после 3-й неверной попытки:
+    - `auth_password_login_captcha_required`
+    - `auth_password_login_captcha_completed`
   - `auth_password_login_succeeded`
   - fallback/abuse guard:
     - `auth_password_login_rate_limited`
@@ -241,6 +250,7 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 ### Password Security Notes
 
 - password-login режется server-side lockout по связке `identifier + ip`
+- после `3` неверных паролей подряд login по этому `identifier + ip` начинает требовать SmartCaptcha до следующей попытки
 - эскалация блокировки:
   - `5` ошибок подряд -> `5 минут`
   - ещё `5` -> `30 минут`

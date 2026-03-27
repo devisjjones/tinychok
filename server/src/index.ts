@@ -361,9 +361,21 @@ app.post('/api/auth/verify-code', async (request, reply) => {
 app.post('/api/auth/login-password', async (request, reply) => {
   try {
     const body = parseJsonPayload<LoginPasswordBody>(request.body)
+    const passwordCaptchaRequired = store.shouldRequirePasswordLoginCaptcha(body.identifier ?? '', request.ip)
+
+    if (passwordCaptchaRequired) {
+      await verifyCaptchaOrThrow({
+        action: 'auth.login-password',
+        remoteIp: request.ip,
+        token: body.captchaToken,
+      })
+    }
+
     const snapshot = await store.loginWithPassword(body, {
       ip: request.ip,
       userAgent: request.headers['user-agent'],
+    }, {
+      captchaVerified: passwordCaptchaRequired,
     })
     return { snapshot }
   } catch (error) {

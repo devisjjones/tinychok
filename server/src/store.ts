@@ -121,6 +121,7 @@ import {
   hasAccountPassword,
   hashPassword,
   registerFailedPasswordAttempt,
+  shouldRequirePasswordCaptcha,
   type PasswordAuthAttemptRecord,
   type StoredAccountPasswordFields,
   verifyPassword,
@@ -310,6 +311,8 @@ const PASSWORD_LOGIN_BLOCKED_MESSAGE =
   'Вход временно заблокирован после нескольких неудачных попыток. Повторите позже.'
 const PASSWORD_LOGIN_RATE_LIMITED_MESSAGE =
   'Слишком много неудачных попыток входа. Повторите позже.'
+const PASSWORD_LOGIN_CAPTCHA_REQUIRED_MESSAGE =
+  'Подтвердите, что вы не робот, чтобы продолжить вход по паролю.'
 const TEST_FIXTURE_CREATED_AT = '2026-03-21T00:00:00.000Z'
 const TEST_FIXTURE_PREMIUM_EXPIRES_AT = '2099-01-01T00:00:00.000Z'
 
@@ -2262,6 +2265,7 @@ export class TinychokStore {
   async loginWithPassword(
     payload: LoginPasswordBody,
     accessContext?: Omit<SessionAccessContext, 'source'>,
+    options?: { captchaVerified?: boolean },
   ): Promise<AppSnapshot> {
     const normalizedIdentifier = normalizeIdentifier(payload.identifier)
     const sanitizedIp = sanitizeIpAddress(accessContext?.ip)
@@ -2284,11 +2288,23 @@ export class TinychokStore {
       throw new Error(PASSWORD_LOGIN_BLOCKED_MESSAGE)
     }
 
+    if (this.shouldRequirePasswordLoginCaptcha(normalizedIdentifier, sanitizedIp) && !options?.captchaVerified) {
+      throw new Error(PASSWORD_LOGIN_CAPTCHA_REQUIRED_MESSAGE)
+    }
+
     const passwordMatches = await verifyPassword(payload.password, existingAccount.passwordHash!)
     if (!passwordMatches) {
       const didTriggerBlock = this.registerFailedPasswordLoginAttempt(normalizedIdentifier, sanitizedIp)
       await this.persist()
-      throw new Error(didTriggerBlock ? PASSWORD_LOGIN_RATE_LIMITED_MESSAGE : 'Неверный пароль.')
+      if (didTriggerBlock) {
+        throw new Error(PASSWORD_LOGIN_RATE_LIMITED_MESSAGE)
+      }
+
+      if (this.shouldRequirePasswordLoginCaptcha(normalizedIdentifier, sanitizedIp)) {
+        throw new Error(PASSWORD_LOGIN_CAPTCHA_REQUIRED_MESSAGE)
+      }
+
+      throw new Error('Неверный пароль.')
     }
 
     this.clearPasswordLoginAttempts(normalizedIdentifier, sanitizedIp)
@@ -2483,6 +2499,10 @@ export class TinychokStore {
 
   private getPasswordAuthBlock(identifier: string, ip?: string | null) {
     return getPasswordAttemptBlockState(this.getPasswordAttemptRecord(identifier, ip))
+  }
+
+  shouldRequirePasswordLoginCaptcha(identifier: string, ip?: string | null) {
+    return shouldRequirePasswordCaptcha(this.getPasswordAttemptRecord(identifier, ip))
   }
 
   private registerFailedPasswordLoginAttempt(identifier: string, ip?: string | null) {

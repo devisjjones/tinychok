@@ -1,6 +1,6 @@
 import { runtimeConfig } from './config'
 
-type CaptchaAction = 'auth.request-code' | 'auth.verify-code' | 'auth.register'
+type CaptchaAction = 'auth.request-code' | 'auth.verify-code' | 'auth.register' | 'auth.login-password'
 
 type CaptchaVerificationContext = {
   action: CaptchaAction

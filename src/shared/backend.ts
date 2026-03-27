@@ -496,6 +496,7 @@ export type RegisterResponse = {
 }
 
 export type LoginPasswordBody = {
+  captchaToken?: string
   identifier: string
   password: string
 }

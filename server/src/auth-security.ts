@@ -5,6 +5,7 @@ import { passwordFieldMinLength } from '../../src/shared/constants'
 const scrypt = promisify(nodeScrypt)
 const passwordBlockDurationsMs = [5 * 60 * 1000, 30 * 60 * 1000, 24 * 60 * 60 * 1000] as const
 const passwordFailuresPerBlock = 5
+const passwordCaptchaThreshold = 3
 
 export type StoredAccountPasswordFields = {
   passwordHash?: string
@@ -76,6 +77,21 @@ export function getPasswordAttemptBlockState(record: PasswordAuthAttemptRecord |
     blockedUntil: record.blockedUntil,
     remainingMs: blockedUntil - now,
   }
+}
+
+export function shouldRequirePasswordCaptcha(
+  record: PasswordAuthAttemptRecord | null | undefined,
+  now = Date.now(),
+) {
+  if (!record) {
+    return false
+  }
+
+  if (getPasswordAttemptBlockState(record, now)) {
+    return false
+  }
+
+  return record.failedCount >= passwordCaptchaThreshold
 }
 
 export function registerFailedPasswordAttempt(

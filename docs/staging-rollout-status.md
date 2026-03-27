@@ -132,6 +132,7 @@ curl -s https://api.staging.tinychok.ru/healthz
   - существующий аккаунт с паролем после ввода номера идёт сразу на password-step без SMS
   - существующий аккаунт без пароля идёт через SMS и затем обязан задать пароль
   - `Забыли пароль?` переводит на шаг телефона, требует SmartCaptcha и только потом запускает SMS reset-flow
+  - после `3` неверных password attempts на шаге пароля появляется обязательная SmartCaptcha
   - password-login режется server-side lockout по `identifier + ip`
   - после `password-setup` и `password-reset` старые bearer sessions перестают работать
 - публичные статические страницы тоже входят в staging build:

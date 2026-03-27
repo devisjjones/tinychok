@@ -104,6 +104,7 @@
   - существующий пользователь без пароля: `phone -> sms -> password-setup -> authenticated`
   - `Забыли пароль?`: `password -> phone + SmartCaptcha -> sms reset -> password-reset -> authenticated`
 - password-login защищён server-side lockout по связке `identifier + ip`
+- после `3` неверных password attempts следующий login по этой связке требует SmartCaptcha прямо на шаге пароля
 - после `password-setup` и `password-reset` все старые bearer sessions пользователя отзываются; активной остаётся только новая сессия текущего входа
 - admin login на staging тоже закрыт SmartCaptcha на шаге запроса SMS
 - admin login остаётся отдельным SMS-only flow через `entryPoint=admin`; password login в админку не включён

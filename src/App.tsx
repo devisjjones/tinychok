@@ -135,6 +135,7 @@ import {
   validateGifUploadFile,
 } from './app/gifLibrary'
 import {
+  isPasswordLoginCaptchaRequiredMessage,
   isPasswordLoginBlockedMessage,
   isPasswordLoginRateLimitedMessage,
   mapAuthAnalyticsFlow,
@@ -1054,6 +1055,7 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [authExistingAccount, setAuthExistingAccount] = useState<Pick<Account, 'displayName' | 'surname'> | null>(null)
   const [authBlockedNoticeOpen, setAuthBlockedNoticeOpen] = useState(false)
+  const [passwordLoginCaptchaRequired, setPasswordLoginCaptchaRequired] = useState(false)
   const [session, setSession] = useState<Session | null>(() => loadSession())
   const [profileSettingsDraft, setProfileSettingsDraft] = useState<ProfileSettingsDraft | null>(() => {
     const storedSession = loadSession()
@@ -1218,6 +1220,9 @@ function App() {
   )
   const [messageActionAnchor, setMessageActionAnchor] = useState<ActionAnchor | null>(null)
   const { cookieConsent, updateCookieConsent } = useCookieConsent()
+  const phoneStepCaptchaActive = !session && authStep === 'phone' && Boolean(clientRuntimeConfig.captcha.enabled)
+  const passwordStepCaptchaActive =
+    !session && authStep === 'password' && passwordLoginCaptchaRequired && Boolean(clientRuntimeConfig.captcha.enabled)
   const {
     captchaBusy,
     captchaContainerRef,
@@ -1225,7 +1230,7 @@ function App() {
     captchaRequired,
     getCaptchaTokenOrThrow,
     resetCaptcha,
-  } = useCaptcha(clientRuntimeConfig.captcha, !session)
+  } = useCaptcha(clientRuntimeConfig.captcha, phoneStepCaptchaActive || passwordStepCaptchaActive)
   const {
     blacklistHintTarget,
     clearBlacklistHint,
@@ -3605,8 +3610,10 @@ function App() {
       setIdentifier(normalized)
       setAuthExistingAccount(response.existingAccount)
       setAuthBlockedNoticeOpen(false)
-      if (captchaRequired) {
+      setPasswordLoginCaptchaRequired(false)
+      if (phoneStepCaptchaActive) {
         trackAnalyticsEvent('auth_captcha_completed', {
+          context: authCodeFlow === 'password-reset' ? 'password-reset' : 'phone',
           provider: clientRuntimeConfig.captcha.provider,
         })
       }
@@ -3679,6 +3686,7 @@ function App() {
       setIdentifier(normalized)
       setAuthExistingAccount(authExistingAccount)
       setAuthCodeFlow('password-reset')
+      setPasswordLoginCaptchaRequired(false)
       setAuthPassword('')
       setAuthPasswordConfirm('')
       setSmsCode('')
@@ -3722,6 +3730,7 @@ function App() {
       setAuthError('')
       setAuthPassword('')
       setAuthPasswordConfirm('')
+      setPasswordLoginCaptchaRequired(false)
 
       if (response.status === 'needs-profile-and-password') {
         setAuthExistingAccount(null)
@@ -3777,6 +3786,7 @@ function App() {
 
   async function submitPasswordStep() {
     const normalized = normalizeIdentifier(identifier)
+    const usedPasswordCaptcha = passwordStepCaptchaActive
 
     if (!authPassword.trim()) {
       setAuthError('Введи пароль.')
@@ -3784,9 +3794,18 @@ function App() {
     }
 
     try {
+      const captchaToken = usedPasswordCaptcha ? getCaptchaTokenOrThrow() : undefined
       setAuthError('')
-      trackAnalyticsEvent('auth_password_login_requested', {})
+      trackAnalyticsEvent('auth_password_login_requested', {
+        captchaRequired: usedPasswordCaptcha,
+      })
+      if (usedPasswordCaptcha) {
+        trackAnalyticsEvent('auth_password_login_captcha_completed', {
+          provider: clientRuntimeConfig.captcha.provider,
+        })
+      }
       const response = await loginWithPassword({
+        captchaToken,
         identifier: normalized,
         password: authPassword,
       })
@@ -3794,10 +3813,17 @@ function App() {
       setBackendReady(true)
       setAuthPassword('')
       setAuthPasswordConfirm('')
+      setPasswordLoginCaptchaRequired(false)
       trackAnalyticsEvent('auth_password_login_succeeded', {})
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось войти по паролю.'
       setAuthError(message)
+      if (isPasswordLoginCaptchaRequiredMessage(message)) {
+        setPasswordLoginCaptchaRequired(true)
+        trackAnalyticsEvent('auth_password_login_captcha_required', {
+          reason: message,
+        })
+      }
       if (isPasswordLoginRateLimitedMessage(message)) {
         trackAnalyticsEvent('auth_password_login_rate_limited', {
           reason: message,
@@ -3811,6 +3837,10 @@ function App() {
       trackAnalyticsEvent('auth_password_login_failed', {
         reason: message,
       })
+    } finally {
+      if (usedPasswordCaptcha) {
+        resetCaptcha()
+      }
     }
   }
 
@@ -9535,8 +9565,10 @@ function App() {
           authStep={authStep}
           captchaBusy={captchaBusy}
           captchaContainerRef={captchaContainerRef}
+          captchaPlacement={
+            phoneStepCaptchaActive ? 'phone' : passwordStepCaptchaActive ? 'password' : null
+          }
           captchaProvider={captchaProvider}
-          captchaRequired={captchaRequired}
           displayName={displayName}
           displayNameMaxLength={displayNameFieldMaxLength}
           identifier={identifier}
