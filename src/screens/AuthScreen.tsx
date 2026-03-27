@@ -170,7 +170,11 @@ export function AuthScreen({
               <button
                 type="button"
                 className="auth-secondary-action"
-                onClick={onForgotPassword}
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onForgotPassword()
+                }}
               >
                 Забыли пароль?
               </button>
