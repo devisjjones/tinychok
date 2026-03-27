@@ -2385,6 +2385,50 @@ export class TinychokStore {
     return this.buildSnapshot(existingAccount, token)
   }
 
+  async changePassword(
+    token: string,
+    payload: { confirmPassword: string; currentPassword: string; password: string },
+    accessContext?: Omit<SessionAccessContext, 'source'>,
+  ): Promise<AppSnapshot> {
+    const existingAccount = this.findAccountByToken(token)
+
+    if (!existingAccount) {
+      throw new Error('Сессия устарела. Войдите снова.')
+    }
+
+    if (!hasAccountPassword(existingAccount)) {
+      throw new Error('Для этого аккаунта пароль ещё не задан. Подтвердите номер через SMS.')
+    }
+
+    const currentPassword = payload.currentPassword ?? ''
+    const nextPassword = payload.password ?? ''
+    assertValidPassword(nextPassword, payload.confirmPassword ?? '')
+
+    const currentPasswordMatches = await verifyPassword(currentPassword, existingAccount.passwordHash!)
+    if (!currentPasswordMatches) {
+      throw new Error('Текущий пароль введён неверно.')
+    }
+
+    const isSamePassword = await verifyPassword(nextPassword, existingAccount.passwordHash!)
+    if (isSamePassword) {
+      throw new Error('Новый пароль должен отличаться от текущего.')
+    }
+
+    existingAccount.passwordHash = await hashPassword(nextPassword)
+    existingAccount.passwordSetAt = new Date().toISOString()
+    this.revokeSessionsForIdentifier(existingAccount.identifier)
+    this.clearPasswordLoginAttempts(existingAccount.identifier)
+
+    const nextToken = await this.createSessionToken(existingAccount.identifier, {
+      ip: accessContext?.ip ?? '',
+      source: 'password-change',
+      userAgent: accessContext?.userAgent,
+    })
+    await this.persist()
+
+    return this.buildSnapshot(existingAccount, nextToken)
+  }
+
   getSnapshotByToken(token: string) {
     const account = this.findAccountByToken(token)
     return account ? this.buildSnapshot(account, token) : null
@@ -9113,6 +9157,7 @@ export class TinychokStore {
     const isLoginSource =
       context.source === 'register' ||
       context.source === 'verify-code' ||
+      context.source === 'password-change' ||
       context.source === 'password-login' ||
       context.source === 'password-setup' ||
       context.source === 'password-reset'

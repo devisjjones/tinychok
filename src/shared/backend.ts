@@ -396,6 +396,7 @@ export type AdminIpLogSource =
   | 'verify-code'
   | 'register'
   | 'password-login'
+  | 'password-change'
   | 'password-setup'
   | 'password-reset'
   | 'http-api'
@@ -524,6 +525,16 @@ export type ResetPasswordBody = {
 }
 
 export type ResetPasswordResponse = {
+  snapshot: AppSnapshot
+}
+
+export type ChangePasswordBody = {
+  confirmPassword: string
+  currentPassword: string
+  password: string
+}
+
+export type ChangePasswordResponse = {
   snapshot: AppSnapshot
 }
 

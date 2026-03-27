@@ -22,6 +22,9 @@ export type AnalyticsEventName =
   | 'auth_password_set_failed'
   | 'auth_password_reset_succeeded'
   | 'auth_password_reset_failed'
+  | 'auth_password_change_requested'
+  | 'auth_password_change_succeeded'
+  | 'auth_password_change_failed'
   | 'auth_registration_succeeded'
   | 'auth_registration_failed'
   | 'auth_support_email_clicked'
@@ -180,6 +183,18 @@ export const analyticsEventCatalog: Record<
   auth_password_reset_failed: {
     category: 'auth',
     description: 'Сброс пароля завершился ошибкой.',
+  },
+  auth_password_change_requested: {
+    category: 'auth',
+    description: 'Пользователь начал смену пароля в настройках аккаунта.',
+  },
+  auth_password_change_succeeded: {
+    category: 'auth',
+    description: 'Смена пароля в настройках завершилась успешно.',
+  },
+  auth_password_change_failed: {
+    category: 'auth',
+    description: 'Смена пароля в настройках завершилась ошибкой.',
   },
   auth_registration_succeeded: {
     category: 'auth',

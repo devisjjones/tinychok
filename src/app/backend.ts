@@ -31,6 +31,8 @@ import type {
   AdminThreadsResponse,
   AppSnapshot,
   ClientRuntimeConfigResponse,
+  ChangePasswordBody,
+  ChangePasswordResponse,
   CreateGroupBody,
   CreateGroupResponse,
   CreateManagedChannelBody,
@@ -376,6 +378,18 @@ export async function setPassword(body: SetPasswordBody) {
 export async function resetPassword(body: ResetPasswordBody) {
   const response = await fetch(makeHttpUrl('/api/auth/reset-password'), makeJsonRequestInit('POST', body))
   const payload = await readJsonResponse<ResetPasswordResponse>(response)
+  return {
+    ...payload,
+    snapshot: normalizeSnapshot(payload.snapshot),
+  }
+}
+
+export async function changePassword(sessionToken: string, body: ChangePasswordBody) {
+  const response = await fetch(
+    makeHttpUrl('/api/session/change-password'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<ChangePasswordResponse>(response)
   return {
     ...payload,
     snapshot: normalizeSnapshot(payload.snapshot),

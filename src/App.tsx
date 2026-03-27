@@ -70,6 +70,7 @@ import {
   deleteGroupMessage as deleteGroupMessageRequest,
   deleteGroupThreadComment as deleteGroupThreadCommentRequest,
   blacklistSubscriptionChannelSubscriber as blacklistSubscriptionChannelSubscriberRequest,
+  changePassword as changePasswordRequest,
   deleteManagedChannel as deleteManagedChannelRequest,
   deleteManagedChannelPost as deleteManagedChannelPostRequest,
   deleteSubscriptionChannelThreadComment as deleteSubscriptionChannelThreadCommentRequest,
@@ -1064,6 +1065,15 @@ function App() {
   const [profileSettingsBusy, setProfileSettingsBusy] = useState(false)
   const [profileSettingsError, setProfileSettingsError] = useState('')
   const [confirmProfileSettingsLeaveOpen, setConfirmProfileSettingsLeaveOpen] = useState(false)
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+  const [changePasswordBusy, setChangePasswordBusy] = useState(false)
+  const [changePasswordError, setChangePasswordError] = useState('')
+  const [changePasswordCurrentValue, setChangePasswordCurrentValue] = useState('')
+  const [changePasswordNextValue, setChangePasswordNextValue] = useState('')
+  const [changePasswordConfirmValue, setChangePasswordConfirmValue] = useState('')
+  const [changePasswordCurrentVisible, setChangePasswordCurrentVisible] = useState(false)
+  const [changePasswordNextVisible, setChangePasswordNextVisible] = useState(false)
+  const [changePasswordConfirmVisible, setChangePasswordConfirmVisible] = useState(false)
   const [backendReady, setBackendReady] = useState(false)
   const [confirmingLogout, setConfirmingLogout] = useState(false)
   const [bottomSection, setBottomSection] = useState<'chats' | 'contacts'>('chats')
@@ -2264,6 +2274,10 @@ function App() {
       (profileSettingsDraft.avatarImage?.trim() || undefined) !== session.avatarImage ||
       Boolean(profileSettingsDraft.soundsDisabled) !== Boolean(session.soundsDisabled)
     )
+  const changePasswordDirty =
+    changePasswordCurrentValue.trim().length > 0 ||
+    changePasswordNextValue.trim().length > 0 ||
+    changePasswordConfirmValue.trim().length > 0
   const creatingGroupMemberLimit = sessionHasPremium ? premiumGroupMemberLimit : defaultGroupMemberLimit
   const selectedGroupCreateChats = creatableGroupChats.filter((chat) =>
     creatingGroupMemberChatIds.includes(chat.id),
@@ -7431,6 +7445,52 @@ function App() {
     setConfirmingLogout(false)
   }
 
+  function resetChangePasswordForm() {
+    setChangePasswordBusy(false)
+    setChangePasswordError('')
+    setChangePasswordCurrentValue('')
+    setChangePasswordNextValue('')
+    setChangePasswordConfirmValue('')
+    setChangePasswordCurrentVisible(false)
+    setChangePasswordNextVisible(false)
+    setChangePasswordConfirmVisible(false)
+  }
+
+  async function saveChangedPassword() {
+    if (!session?.sessionToken) {
+      setChangePasswordError('Смена пароля сейчас недоступна. Войдите снова.')
+      return false
+    }
+
+    setChangePasswordBusy(true)
+    setChangePasswordError('')
+
+    try {
+      const response = await changePasswordRequest(session.sessionToken, {
+        confirmPassword: changePasswordConfirmValue,
+        currentPassword: changePasswordCurrentValue,
+        password: changePasswordNextValue,
+      })
+      applySnapshot(response.snapshot)
+      resetChangePasswordForm()
+      setChangePasswordOpen(false)
+      window.alert('Пароль обновлён!')
+      trackAnalyticsEvent('auth_password_change_succeeded', {
+        revokedPreviousSessions: true,
+      })
+      return true
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось обновить пароль.'
+      setChangePasswordError(message)
+      trackAnalyticsEvent('auth_password_change_failed', {
+        message,
+      })
+      return false
+    } finally {
+      setChangePasswordBusy(false)
+    }
+  }
+
   async function saveProfileSettings() {
     if (!session || !profileSettingsDraft || !profileSettingsDirty) return
 
@@ -12282,6 +12342,129 @@ function App() {
                   >
                     Заблокированные контакты
                   </button>
+                  <button
+                    type="button"
+                    className="settings-action-card"
+                    onClick={() => {
+                      setChangePasswordOpen((current) => {
+                        const nextOpen = !current
+                        if (!nextOpen) {
+                          resetChangePasswordForm()
+                        } else {
+                          setChangePasswordError('')
+                        }
+                        return nextOpen
+                      })
+                    }}
+                  >
+                    Сменить пароль
+                  </button>
+                  {changePasswordOpen ? (
+                    <article className="settings-item settings-password-change-card">
+                      <label className="settings-password-field">
+                        <span className="settings-label">Текущий пароль</span>
+                        <div className="auth-password-input">
+                          <input
+                            type={changePasswordCurrentVisible ? 'text' : 'password'}
+                            className="settings-input"
+                            autoComplete="current-password"
+                            placeholder="Введите текущий пароль"
+                            value={changePasswordCurrentValue}
+                            onChange={(event) => setChangePasswordCurrentValue(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="auth-password-visibility"
+                            aria-label={changePasswordCurrentVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                            onClick={() => setChangePasswordCurrentVisible((current) => !current)}
+                          >
+                            <img
+                              src={changePasswordCurrentVisible ? '/icons/eyeoff.png' : '/icons/eyeon.png'}
+                              alt=""
+                              aria-hidden="true"
+                            />
+                          </button>
+                        </div>
+                      </label>
+                      <label className="settings-password-field">
+                        <span className="settings-label">Новый пароль</span>
+                        <div className="auth-password-input">
+                          <input
+                            type={changePasswordNextVisible ? 'text' : 'password'}
+                            className="settings-input"
+                            autoComplete="new-password"
+                            placeholder={`Минимум ${passwordFieldMinLength} символов`}
+                            value={changePasswordNextValue}
+                            onChange={(event) => setChangePasswordNextValue(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="auth-password-visibility"
+                            aria-label={changePasswordNextVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                            onClick={() => setChangePasswordNextVisible((current) => !current)}
+                          >
+                            <img
+                              src={changePasswordNextVisible ? '/icons/eyeoff.png' : '/icons/eyeon.png'}
+                              alt=""
+                              aria-hidden="true"
+                            />
+                          </button>
+                        </div>
+                      </label>
+                      <label className="settings-password-field">
+                        <span className="settings-label">Подтверждение пароля</span>
+                        <div className="auth-password-input">
+                          <input
+                            type={changePasswordConfirmVisible ? 'text' : 'password'}
+                            className="settings-input"
+                            autoComplete="new-password"
+                            placeholder="Повторите новый пароль"
+                            value={changePasswordConfirmValue}
+                            onChange={(event) => setChangePasswordConfirmValue(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="auth-password-visibility"
+                            aria-label={changePasswordConfirmVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                            onClick={() => setChangePasswordConfirmVisible((current) => !current)}
+                          >
+                            <img
+                              src={changePasswordConfirmVisible ? '/icons/eyeoff.png' : '/icons/eyeon.png'}
+                              alt=""
+                              aria-hidden="true"
+                            />
+                          </button>
+                        </div>
+                      </label>
+                      {changePasswordError ? <p className="auth-error">{changePasswordError}</p> : null}
+                      <div className="settings-actions settings-management-inline-actions">
+                        <button
+                          type="button"
+                          className="send-button"
+                          disabled={changePasswordBusy || !changePasswordDirty}
+                          onClick={() => {
+                            trackAnalyticsEvent('auth_password_change_requested', {
+                              source: 'settings',
+                            })
+                            void saveChangedPassword()
+                          }}
+                        >
+                          {changePasswordBusy ? 'Сохраняем...' : 'Сохранить пароль'}
+                        </button>
+                        <button
+                          type="button"
+                          className="soft-button"
+                          disabled={changePasswordBusy}
+                          onClick={() => {
+                            setChangePasswordOpen(false)
+                            resetChangePasswordForm()
+                          }}
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    </article>
+                  ) : null}
                   <article className="settings-item settings-browser-notifications-card">
                     <span className="settings-label">Браузерные уведомления</span>
                     <strong className="settings-consent-status">

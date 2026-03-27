@@ -10,6 +10,7 @@ import type {
   ClientRuntimeConfigResponse,
   CreateGroupBody,
   CreateManagedChannelBody,
+  ChangePasswordBody,
   DebugPremiumBody,
   DiscoverySearchResponse,
   DirectDialogHistoryResponse,
@@ -413,6 +414,24 @@ app.post('/api/auth/reset-password', async (request, reply) => {
   try {
     const body = parseJsonPayload<ResetPasswordBody>(request.body)
     const snapshot = await store.resetPasswordAfterCode(body, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+    })
+    return { snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/session/change-password', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const body = parseJsonPayload<ChangePasswordBody>(request.body)
+    const snapshot = await store.changePassword(token, body, {
       ip: request.ip,
       userAgent: request.headers['user-agent'],
     })

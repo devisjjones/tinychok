@@ -4,6 +4,7 @@ export type AppStore = Pick<
   TinychokStore,
   | 'createGroup'
   | 'createManagedChannel'
+  | 'changePassword'
   | 'addUserGif'
   | 'searchUserGifs'
   | 'removeUserGif'

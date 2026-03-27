@@ -2287,6 +2287,19 @@
   gap: 10px;
 }
 
+.settings-password-change-card {
+  gap: 10px;
+}
+
+.settings-password-field {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-management-inline-actions .send-button {
+  justify-content: center;
+}
+
 .storage-usage-header {
   display: flex;
   align-items: center;
