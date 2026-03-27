@@ -62,7 +62,9 @@ export function AuthScreen({
 
   const submitLabel =
     authStep === 'phone'
-      ? 'Продолжить'
+      ? authCodeFlow === 'password-reset'
+        ? 'Получить код для сброса'
+        : 'Продолжить'
       : authStep === 'password'
         ? 'Войти'
         : authStep === 'code'
@@ -125,15 +127,23 @@ export function AuthScreen({
           ) : null}
 
           {isPhoneStep ? (
-            <label className="auth-field">
-              <span>Номер телефона</span>
-              <input
-                type="tel"
-                placeholder="+79990000000"
-                value={identifier}
-                onChange={(event) => onIdentifierChange(event.target.value)}
-              />
-            </label>
+            <>
+              {authCodeFlow === 'password-reset' ? (
+                <div className="auth-code-note">
+                  <span className="settings-label">Подтвердите номер для сброса пароля</span>
+                  <strong>{identifier || '+79990000000'}</strong>
+                </div>
+              ) : null}
+              <label className="auth-field">
+                <span>Номер телефона</span>
+                <input
+                  type="tel"
+                  placeholder="+79990000000"
+                  value={identifier}
+                  onChange={(event) => onIdentifierChange(event.target.value)}
+                />
+              </label>
+            </>
           ) : null}
 
           {isPasswordStep ? (

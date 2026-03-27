@@ -11,6 +11,8 @@ export type AnalyticsEventName =
   | 'auth_password_login_requested'
   | 'auth_password_login_succeeded'
   | 'auth_password_login_failed'
+  | 'auth_password_login_rate_limited'
+  | 'auth_password_login_blocked'
   | 'auth_password_forgot_started'
   | 'auth_password_reset_code_requested'
   | 'auth_password_reset_code_verified'
@@ -132,6 +134,14 @@ export const analyticsEventCatalog: Record<
   auth_password_login_failed: {
     category: 'auth',
     description: 'Вход по паролю завершился ошибкой.',
+  },
+  auth_password_login_rate_limited: {
+    category: 'auth',
+    description: 'Попытка входа по паролю упёрлась в новый rate limit из-за серии неверных паролей.',
+  },
+  auth_password_login_blocked: {
+    category: 'auth',
+    description: 'Попытка входа по паролю отклонена из-за уже активной временной блокировки.',
   },
   auth_password_forgot_started: {
     category: 'auth',

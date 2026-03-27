@@ -324,7 +324,7 @@ app.post('/api/auth/request-code', async (request, reply) => {
     const body = parseJsonPayload<RequestCodeBody>(request.body)
     const entryPoint = body.entryPoint ?? 'user'
     const flow = body.flow ?? 'default'
-    const captchaRequired = entryPoint === 'admin' || flow === 'default'
+    const captchaRequired = entryPoint === 'admin' || flow === 'default' || flow === 'password-reset'
 
     if (captchaRequired) {
       await verifyCaptchaOrThrow({

@@ -82,6 +82,8 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `auth_password_login_requested`
 - `auth_password_login_succeeded`
 - `auth_password_login_failed`
+- `auth_password_login_rate_limited`
+- `auth_password_login_blocked`
 - `auth_password_forgot_started`
 - `auth_password_reset_code_requested`
 - `auth_password_reset_code_verified`
@@ -202,10 +204,18 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `hasPassword`
 - `auth_password_login_failed`
   - `reason`
+- `auth_password_login_rate_limited`
+  - `reason`
+- `auth_password_login_blocked`
+  - `reason`
 - `auth_password_set_failed`
   - `reason`
+- `auth_password_set_succeeded`
+  - `revokedPreviousSessions`
 - `auth_password_reset_failed`
   - `reason`
+- `auth_password_reset_succeeded`
+  - `revokedPreviousSessions`
 
 ### Password Auth Funnel
 
@@ -213,15 +223,32 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `auth_password_prompt_shown`
   - `auth_password_login_requested`
   - `auth_password_login_succeeded`
+  - fallback/abuse guard:
+    - `auth_password_login_rate_limited`
+    - `auth_password_login_blocked`
 - forgot-password:
   - `auth_password_forgot_started`
+  - `auth_captcha_completed`
   - `auth_password_reset_code_requested`
   - `auth_password_reset_code_verified`
   - `auth_password_reset_succeeded`
+  - этот путь теперь всегда проходит через шаг `phone` с обязательной SmartCaptcha до запроса reset SMS
 - legacy migration на пароль:
   - `auth_code_request_succeeded(flow=legacy-password-setup)`
   - `auth_code_verify_succeeded(flow=legacy-password-setup)`
   - `auth_password_set_succeeded`
+
+### Password Security Notes
+
+- password-login режется server-side lockout по связке `identifier + ip`
+- эскалация блокировки:
+  - `5` ошибок подряд -> `5 минут`
+  - ещё `5` -> `30 минут`
+  - ещё `5` -> `24 часа`
+- success password login сбрасывает счётчик попыток для этой связки
+- `auth_password_login_rate_limited` приходит на момент, когда порог впервые срабатывает
+- `auth_password_login_blocked` приходит, если пользователь повторно стучится в уже активный блок
+- после `auth_password_set_succeeded` и `auth_password_reset_succeeded` сервер отзывает все старые bearer sessions и оставляет только одну новую актуальную сессию
 
 ### GIF Events
 

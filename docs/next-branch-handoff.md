@@ -102,7 +102,9 @@
   - новый пользователь: `phone -> sms -> profile + password -> authenticated`
   - существующий пользователь с паролем: `phone -> password -> authenticated`
   - существующий пользователь без пароля: `phone -> sms -> password-setup -> authenticated`
-  - `Забыли пароль?`: `password -> sms reset -> password-reset -> authenticated`
+  - `Забыли пароль?`: `password -> phone + SmartCaptcha -> sms reset -> password-reset -> authenticated`
+- password-login защищён server-side lockout по связке `identifier + ip`
+- после `password-setup` и `password-reset` все старые bearer sessions пользователя отзываются; активной остаётся только новая сессия текущего входа
 - admin login на staging тоже закрыт SmartCaptcha на шаге запроса SMS
 - admin login остаётся отдельным SMS-only flow через `entryPoint=admin`; password login в админку не включён
 - внизу auth-экрана есть support footer:
@@ -217,6 +219,7 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
     - требует обязательное основание
     - умеет период `from/to`
     - умеет опционально включать media-файлы
+    - период `from/to` применяется ко всем разделам архива одинаково, включая `reports`, `audit` и `ip`
     - пишет отдельную запись `admin.legal-export.download` в audit log
 - `Жалобы` работают как moderation queue:
   - новые непросмотренные тикеты дают badge в левой навигации и точку в списке

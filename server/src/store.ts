@@ -1,7 +1,6 @@
-import { randomBytes, randomUUID, scrypt as nodeScrypt, timingSafeEqual } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, extname, resolve } from 'node:path'
-import { promisify } from 'node:util'
 import { zipSync } from 'fflate'
 import {
   defaultGroupMemberLimit,
@@ -10,7 +9,6 @@ import {
   groupTitleMaxLength,
   managedChannelsPerUserLimit,
   orphanUploadTtlMs,
-  passwordFieldMinLength,
   premiumStorageQuotaBytes,
   premiumGroupMemberLimit,
   surnameFieldMaxLength,
@@ -23,7 +21,7 @@ import {
   initialSubscribedChannels,
 } from '../../src/shared/mockData'
 import type {
-  Account,
+  Account as SharedAccount,
   StaffRole,
   ChannelThreadInboxItem,
   Channel,
@@ -117,7 +115,20 @@ import type {
   VerifyCodeResponse,
 } from '../../src/shared/backend'
 import { runtimeConfig } from './config'
+import {
+  assertValidPassword,
+  getPasswordAttemptBlockState,
+  hasAccountPassword,
+  hashPassword,
+  registerFailedPasswordAttempt,
+  type PasswordAuthAttemptRecord,
+  type StoredAccountPasswordFields,
+  verifyPassword,
+} from './auth-security'
 import { deleteStoredMediaByUrl, readStoredMediaByUrl } from './media'
+
+type StoredAccount = SharedAccount & StoredAccountPasswordFields
+type Account = StoredAccount
 
 type PersistedDialog = Omit<Chat, 'messages'> & {
   ownerIdentifier: string
@@ -166,6 +177,8 @@ type SessionRecord = {
 }
 
 type IpAccessLogRecord = AdminIpLogEntry
+
+type PersistedPasswordAuthAttempt = PasswordAuthAttemptRecord
 
 type AuthChallenge = {
   code: string
@@ -246,6 +259,7 @@ export type Database = {
   ipAccessLogs: IpAccessLogRecord[]
   managedChannels: PersistedManagedChannel[]
   pendingMediaUploads: PersistedPendingMediaUpload[]
+  passwordAuthAttempts: PersistedPasswordAuthAttempt[]
   sessions: SessionRecord[]
   subscriptionChannelReports: SubscriptionChannelReportRecord[]
   subscriptionChannels: PersistedSubscriptionChannel[]
@@ -285,7 +299,6 @@ type SessionAccessContext = {
 const AUTH_CODE_TTL_MS = 5 * 60 * 1000
 const DEMO_AUTH_CODE = '1111'
 export const DEFAULT_DATA_FILE = resolve(process.cwd(), 'server/data/dev-db.json')
-const scrypt = promisify(nodeScrypt)
 const FALLBACK_CHAT_ACCENT = '#8c5738'
 const CHAT_ACCENT_PALETTE = Array.from(new Set(initialChats.map((chat) => chat.accent)))
 const CONTACT_REPORT_BLOCK_THRESHOLD = 10
@@ -293,6 +306,10 @@ const CONTACT_REPORT_BLOCK_MESSAGE =
   'На ваш аккаунт поступило много жалоб, поэтому вход временно заблокирован. Если произошла ошибка, напишите в поддержку и укажите email: devisjjones@gmail.com'
 const RESTRICTED_TEST_PHONE_MESSAGE =
   'Этот номер пока не добавлен в список тестеров. Попросите владельца проекта добавить его в staging allowlist.'
+const PASSWORD_LOGIN_BLOCKED_MESSAGE =
+  'Вход временно заблокирован после нескольких неудачных попыток. Повторите позже.'
+const PASSWORD_LOGIN_RATE_LIMITED_MESSAGE =
+  'Слишком много неудачных попыток входа. Повторите позже.'
 const TEST_FIXTURE_CREATED_AT = '2026-03-21T00:00:00.000Z'
 const TEST_FIXTURE_PREMIUM_EXPIRES_AT = '2099-01-01T00:00:00.000Z'
 
@@ -314,6 +331,7 @@ function createDefaultDatabase(): Database {
     ipAccessLogs: [],
     managedChannels: [],
     pendingMediaUploads: [],
+    passwordAuthAttempts: [],
     sessions: [],
     subscriptionChannelReports: [],
     subscriptionChannels: [],
@@ -387,10 +405,6 @@ function sanitizeMessageText(value: string) {
   return value.trim()
 }
 
-function hasAccountPassword(account: Pick<Account, 'passwordHash'> | null | undefined) {
-  return Boolean(account?.passwordHash?.trim())
-}
-
 function buildExistingAccountPreview(account: Pick<Account, 'displayName' | 'surname'>): {
   displayName: string
   surname: string
@@ -399,37 +413,6 @@ function buildExistingAccountPreview(account: Pick<Account, 'displayName' | 'sur
     displayName: account.displayName,
     surname: account.surname ?? '',
   }
-}
-
-function assertValidPassword(password: string, confirmPassword: string) {
-  if (password.length < passwordFieldMinLength) {
-    throw new Error(`Пароль должен быть не короче ${passwordFieldMinLength} символов.`)
-  }
-
-  if (password !== confirmPassword) {
-    throw new Error('Пароли не совпадают.')
-  }
-}
-
-async function hashPassword(password: string) {
-  const salt = randomBytes(16).toString('base64url')
-  const derivedKey = (await scrypt(password, salt, 64)) as Buffer
-  return `scrypt$${salt}$${derivedKey.toString('base64url')}`
-}
-
-async function verifyPassword(password: string, passwordHash: string) {
-  const [algorithm, salt, expectedHash] = passwordHash.split('$')
-  if (algorithm !== 'scrypt' || !salt || !expectedHash) {
-    return false
-  }
-
-  const derivedKey = (await scrypt(password, salt, 64)) as Buffer
-  const expectedBuffer = Buffer.from(expectedHash, 'base64url')
-  if (derivedKey.length !== expectedBuffer.length) {
-    return false
-  }
-
-  return timingSafeEqual(derivedKey, expectedBuffer)
 }
 
 function sanitizeThreadCommentText(value: string) {
@@ -1645,6 +1628,8 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
       isTestEntity: legacyAccount.isTestEntity,
       lastActiveAt: legacyAccount.lastActiveAt ?? legacyAccount.createdAt,
       nickname: legacyAccount.nickname ?? '',
+      passwordHash: legacyAccount.passwordHash?.trim() || undefined,
+      passwordSetAt: legacyAccount.passwordSetAt || undefined,
       premium: legacyAccount.premium ?? true,
       premiumExpiresAt: legacyAccount.premiumExpiresAt ?? makePremiumExpiry(30),
       staffRole: sanitizeStaffRole(legacyAccount.staffRole),
@@ -2279,6 +2264,7 @@ export class TinychokStore {
     accessContext?: Omit<SessionAccessContext, 'source'>,
   ): Promise<AppSnapshot> {
     const normalizedIdentifier = normalizeIdentifier(payload.identifier)
+    const sanitizedIp = sanitizeIpAddress(accessContext?.ip)
     const existingAccount = this.findAccount(normalizedIdentifier)
 
     if (!existingAccount) {
@@ -2293,11 +2279,19 @@ export class TinychokStore {
       throw new Error('Для этого аккаунта пароль ещё не задан. Подтвердите номер через SMS.')
     }
 
-    const passwordMatches = await verifyPassword(payload.password, existingAccount.passwordHash!)
-    if (!passwordMatches) {
-      throw new Error('Неверный пароль.')
+    const activeBlock = this.getPasswordAuthBlock(normalizedIdentifier, sanitizedIp)
+    if (activeBlock) {
+      throw new Error(PASSWORD_LOGIN_BLOCKED_MESSAGE)
     }
 
+    const passwordMatches = await verifyPassword(payload.password, existingAccount.passwordHash!)
+    if (!passwordMatches) {
+      const didTriggerBlock = this.registerFailedPasswordLoginAttempt(normalizedIdentifier, sanitizedIp)
+      await this.persist()
+      throw new Error(didTriggerBlock ? PASSWORD_LOGIN_RATE_LIMITED_MESSAGE : 'Неверный пароль.')
+    }
+
+    this.clearPasswordLoginAttempts(normalizedIdentifier, sanitizedIp)
     const token = await this.createSessionToken(normalizedIdentifier, {
       ip: accessContext?.ip ?? '',
       source: 'password-login',
@@ -2330,6 +2324,8 @@ export class TinychokStore {
     assertValidPassword(payload.password, payload.confirmPassword)
     existingAccount.passwordHash = await hashPassword(payload.password)
     existingAccount.passwordSetAt = new Date().toISOString()
+    this.revokeSessionsForIdentifier(normalizedIdentifier)
+    this.clearPasswordLoginAttempts(normalizedIdentifier)
 
     const token = await this.createSessionToken(normalizedIdentifier, {
       ip: accessContext?.ip ?? '',
@@ -2360,6 +2356,8 @@ export class TinychokStore {
     assertValidPassword(payload.password, payload.confirmPassword)
     existingAccount.passwordHash = await hashPassword(payload.password)
     existingAccount.passwordSetAt = new Date().toISOString()
+    this.revokeSessionsForIdentifier(normalizedIdentifier)
+    this.clearPasswordLoginAttempts(normalizedIdentifier)
 
     const token = await this.createSessionToken(normalizedIdentifier, {
       ip: accessContext?.ip ?? '',
@@ -2467,6 +2465,77 @@ export class TinychokStore {
     return this.database.sessions
       .filter((session) => session.identifier === identifier)
       .map((session) => session.token)
+  }
+
+  private getPasswordAttemptRecord(identifier: string, ip?: string | null) {
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const sanitizedIp = sanitizeIpAddress(ip ?? undefined)
+    if (!normalizedIdentifier || !sanitizedIp) {
+      return null
+    }
+
+    return (
+      this.database.passwordAuthAttempts.find(
+        (entry) => entry.identifier === normalizedIdentifier && entry.ip === sanitizedIp,
+      ) ?? null
+    )
+  }
+
+  private getPasswordAuthBlock(identifier: string, ip?: string | null) {
+    return getPasswordAttemptBlockState(this.getPasswordAttemptRecord(identifier, ip))
+  }
+
+  private registerFailedPasswordLoginAttempt(identifier: string, ip?: string | null) {
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const sanitizedIp = sanitizeIpAddress(ip ?? undefined)
+    if (!normalizedIdentifier || !sanitizedIp) {
+      return false
+    }
+
+    const existingRecord = this.getPasswordAttemptRecord(normalizedIdentifier, sanitizedIp)
+    const { didTriggerBlock, record } = registerFailedPasswordAttempt(existingRecord, {
+      identifier: normalizedIdentifier,
+      ip: sanitizedIp,
+    })
+
+    if (existingRecord) {
+      Object.assign(existingRecord, record)
+    } else {
+      this.database.passwordAuthAttempts.push(record)
+    }
+
+    return didTriggerBlock
+  }
+
+  private clearPasswordLoginAttempts(identifier: string, ip?: string | null) {
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    if (!normalizedIdentifier) {
+      return
+    }
+
+    const sanitizedIp = sanitizeIpAddress(ip ?? undefined)
+    this.database.passwordAuthAttempts = this.database.passwordAuthAttempts.filter((entry) => {
+      if (entry.identifier !== normalizedIdentifier) {
+        return true
+      }
+
+      if (!sanitizedIp) {
+        return false
+      }
+
+      return entry.ip !== sanitizedIp
+    })
+  }
+
+  private revokeSessionsForIdentifier(identifier: string) {
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    if (!normalizedIdentifier) {
+      return
+    }
+
+    this.database.sessions = this.database.sessions.filter(
+      (session) => session.identifier !== normalizedIdentifier,
+    )
   }
 
   searchAccounts(token: string, query: string) {
@@ -4008,12 +4077,17 @@ export class TinychokStore {
     ])
 
     const relatedReports = this.database.adminReports
-      .filter(
-        (report) =>
+      .filter((report) => {
+        if (!isTimestampWithinRange(report.updatedAt || report.createdAt, fromTimestamp, toTimestamp)) {
+          return false
+        }
+
+        return (
           report.reporterIdentifier === target.identifier ||
           normalizeIdentifier(report.entityOwnerIdentifier ?? '') === target.identifier ||
-          normalizeIdentifier(report.relatedUserIdentifier ?? '') === target.identifier,
-      )
+          normalizeIdentifier(report.relatedUserIdentifier ?? '') === target.identifier
+        )
+      })
       .map((report) => this.buildAdminReportSummary(report))
       .sort((left, right) => compareIsoDateDesc(left.updatedAt, right.updatedAt))
     registerJson('reports/reports.json', relatedReports)
@@ -4034,12 +4108,16 @@ export class TinychokStore {
 
     const auditRows = [
       ...this.adminListAuditLogs({
+        from: body.from,
         limit: Number.MAX_SAFE_INTEGER,
         targetIdentifier: target.identifier,
+        to: body.to,
       }),
       ...this.adminListAuditLogs({
         actorIdentifier: target.identifier,
+        from: body.from,
         limit: Number.MAX_SAFE_INTEGER,
+        to: body.to,
       }),
     ]
     const uniqueAuditRows = [...new Map(auditRows.map((entry) => [entry.id, entry] as const)).values()]
@@ -8416,6 +8494,7 @@ export class TinychokStore {
       groupMessages: 0,
       groups: 0,
       ipAccessLogs: 0,
+      passwordAuthAttempts: 0,
       sessions: 0,
       subscriptionChannelReports: 0,
       subscriptionChannels: 0,
@@ -8467,6 +8546,16 @@ export class TinychokStore {
     if (nextIpAccessLogs.length !== this.database.ipAccessLogs.length) {
       summary.ipAccessLogs = this.database.ipAccessLogs.length - nextIpAccessLogs.length
       this.database.ipAccessLogs = nextIpAccessLogs
+      didMutate = true
+    }
+
+    const nextPasswordAuthAttempts = this.database.passwordAuthAttempts.filter(
+      (entry) => !isTimestampOlderThan(entry.lastFailedAt, cutoffTimestamp),
+    )
+    if (nextPasswordAuthAttempts.length !== this.database.passwordAuthAttempts.length) {
+      summary.passwordAuthAttempts =
+        this.database.passwordAuthAttempts.length - nextPasswordAuthAttempts.length
+      this.database.passwordAuthAttempts = nextPasswordAuthAttempts
       didMutate = true
     }
 
@@ -10267,6 +10356,14 @@ function applyProductionFixtureCleanup(database: Database) {
     didMutate = true
   }
 
+  const nextPasswordAuthAttempts = database.passwordAuthAttempts.filter(
+    (attempt) => !testAccountIdentifiers.has(attempt.identifier),
+  )
+  if (nextPasswordAuthAttempts.length !== database.passwordAuthAttempts.length) {
+    database.passwordAuthAttempts = nextPasswordAuthAttempts
+    didMutate = true
+  }
+
   const nextContactReports = database.contactReports.filter(
     (report) =>
       !testAccountIdentifiers.has(report.reporterIdentifier) &&
@@ -10747,6 +10844,8 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         blockedAt: account.blockedAt || undefined,
         blockedReason: account.blockedReason || undefined,
         lastActiveAt: account.lastActiveAt || account.createdAt,
+        passwordHash: account.passwordHash?.trim() || undefined,
+        passwordSetAt: account.passwordSetAt || undefined,
         staffRole: sanitizeStaffRole(account.staffRole),
       })),
       adminAuditLogs: (normalized.adminAuditLogs ?? []).filter(
@@ -10792,6 +10891,14 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         ...upload,
         linked: Boolean(upload.linked),
       })),
+      passwordAuthAttempts: (normalized.passwordAuthAttempts ?? []).map((attempt) => ({
+        blockLevel: Math.max(0, Math.floor(attempt.blockLevel ?? 0)),
+        blockedUntil: attempt.blockedUntil || undefined,
+        failedCount: Math.max(0, Math.floor(attempt.failedCount ?? 0)),
+        identifier: normalizeIdentifier(attempt.identifier),
+        ip: sanitizeIpAddress(attempt.ip) ?? '',
+        lastFailedAt: attempt.lastFailedAt,
+      })).filter((attempt) => Boolean(attempt.identifier && attempt.ip && attempt.lastFailedAt)),
       sessions: normalized.sessions ?? [],
       subscriptionChannelReports: normalized.subscriptionChannelReports ?? [],
       subscriptionChannels: normalized.subscriptionChannels ?? [],

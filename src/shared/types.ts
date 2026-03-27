@@ -287,8 +287,6 @@ export type Account = {
   lastActiveAt?: string
   blockedContactIds?: number[]
   gifLibrary?: UserGifLibraryItem[]
-  passwordHash?: string
-  passwordSetAt?: string
   storageUsage?: StorageUsage
   createdAt: string
 }

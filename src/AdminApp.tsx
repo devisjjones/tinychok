@@ -34,6 +34,7 @@ import {
   viewAdminReportEntity,
   verifyAuthCode,
 } from './app/backend'
+import { confirmStaffIdentifierAction, getPromptedActionReason } from './app/adminExportUtils'
 import { useCaptcha } from './app/useCaptcha'
 import { isAllowedAdminHost } from './app/runtimeMode'
 import type {
@@ -197,12 +198,7 @@ function getErrorMessage(error: unknown) {
 }
 
 function getActionReason(promptText: string, fallback: string) {
-  const reason = window.prompt(promptText, fallback)
-  if (reason === null) {
-    return null
-  }
-
-  return reason.trim() || fallback
+  return getPromptedActionReason(promptText, fallback)
 }
 
 function getInitials(label: string) {
@@ -952,20 +948,13 @@ export default function AdminApp() {
   async function handleDownloadUserAuditCsv(user: AdminUserSummary) {
     if (!sessionToken || !bootstrap) return
 
-    const confirmation = window.prompt(
-      'Для подтверждения экспорта введите номер текущего staff-аккаунта',
-      bootstrap.actor.identifier,
-    )
-    if (confirmation === null) {
-      return
-    }
-    if (confirmation.trim() !== bootstrap.actor.identifier) {
+    if (!confirmStaffIdentifierAction(bootstrap.actor.identifier, 'Для подтверждения экспорта введите номер текущего staff-аккаунта')) {
       setAppError('Подтверждение экспорта не прошло.')
       return
     }
 
     try {
-      const reason = getActionReason('Причина выгрузки CSV аудита по пользователю', 'Проверка staff-действий по пользователю')
+      const reason = getPromptedActionReason('Причина выгрузки CSV аудита по пользователю', 'Проверка staff-действий по пользователю')
       if (!reason) return
       const response = await downloadAdminAuditCsv(sessionToken, {
         targetIdentifier: user.identifier,
@@ -982,20 +971,13 @@ export default function AdminApp() {
   async function handleDownloadUserIpLogsCsv(user: AdminUserSummary) {
     if (!sessionToken || !bootstrap) return
 
-    const confirmation = window.prompt(
-      'Для подтверждения выгрузки IP логов введите номер текущего staff-аккаунта',
-      bootstrap.actor.identifier,
-    )
-    if (confirmation === null) {
-      return
-    }
-    if (confirmation.trim() !== bootstrap.actor.identifier) {
+    if (!confirmStaffIdentifierAction(bootstrap.actor.identifier, 'Для подтверждения выгрузки IP логов введите номер текущего staff-аккаунта')) {
       setAppError('Подтверждение выгрузки IP логов не прошло.')
       return
     }
 
     try {
-      const reason = getActionReason('Причина выгрузки CSV IP логов по пользователю', 'Проверка входов и смены IP по пользователю')
+      const reason = getPromptedActionReason('Причина выгрузки CSV IP логов по пользователю', 'Проверка входов и смены IP по пользователю')
       if (!reason) return
       const response = await downloadAdminIpLogsCsv(sessionToken, {
         targetIdentifier: user.identifier,
@@ -1012,19 +994,12 @@ export default function AdminApp() {
   async function handleDownloadLegalArchive(user: AdminUserSummary) {
     if (!sessionToken || !bootstrap) return
 
-    const confirmation = window.prompt(
-      'Для подтверждения юр. выгрузки введите номер текущего staff-аккаунта',
-      bootstrap.actor.identifier,
-    )
-    if (confirmation === null) {
-      return
-    }
-    if (confirmation.trim() !== bootstrap.actor.identifier) {
+    if (!confirmStaffIdentifierAction(bootstrap.actor.identifier, 'Для подтверждения юр. выгрузки введите номер текущего staff-аккаунта')) {
       setAppError('Подтверждение юр. выгрузки не прошло.')
       return
     }
 
-    const reason = getActionReason(
+    const reason = getPromptedActionReason(
       'Основание для юридической выгрузки',
       'Исполнение официального запроса на выгрузку данных',
     )

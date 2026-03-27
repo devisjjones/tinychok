@@ -134,6 +134,12 @@ import {
   readGifDimensions,
   validateGifUploadFile,
 } from './app/gifLibrary'
+import {
+  isPasswordLoginBlockedMessage,
+  isPasswordLoginRateLimitedMessage,
+  mapAuthAnalyticsFlow,
+  type UserAuthAnalyticsFlow,
+} from './app/authAnalytics'
 import type { ClientRuntimeConfigResponse } from './shared/backend'
 import type {
   Account,
@@ -249,12 +255,6 @@ const contactComplaintReasonOptions: Array<{ label: string; value: ComplaintReas
 
 const blockedAuthNoticeMessage =
   'На ваш аккаунт поступило много жалоб, поэтому вход временно заблокирован. Если произошла ошибка, напишите в поддержку и укажите email: devisjjones@gmail.com'
-
-type UserAuthCodeFlow = 'password-reset' | 'password-setup' | 'registration'
-
-function mapAuthAnalyticsFlow(flow: UserAuthCodeFlow) {
-  return flow === 'password-setup' ? 'legacy-password-setup' : flow
-}
 
 type BrowserNotificationTarget =
   | {
@@ -1050,7 +1050,7 @@ function App() {
   const [smsCode, setSmsCode] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [authPasswordConfirm, setAuthPasswordConfirm] = useState('')
-  const [authCodeFlow, setAuthCodeFlow] = useState<UserAuthCodeFlow>('registration')
+  const [authCodeFlow, setAuthCodeFlow] = useState<UserAuthAnalyticsFlow>('registration')
   const [authError, setAuthError] = useState('')
   const [authExistingAccount, setAuthExistingAccount] = useState<Pick<Account, 'displayName' | 'surname'> | null>(null)
   const [authBlockedNoticeOpen, setAuthBlockedNoticeOpen] = useState(false)
@@ -3582,6 +3582,7 @@ function App() {
 
   async function submitPhoneStep() {
     const normalized = normalizeIdentifier(identifier)
+    const requestFlow = authCodeFlow === 'password-reset' ? 'password-reset' : 'default'
 
     if (!normalized) {
       setAuthError('Введи номер телефона.')
@@ -3598,7 +3599,7 @@ function App() {
       const response = await requestAuthCode({
         captchaToken,
         entryPoint: 'user',
-        flow: 'default',
+        flow: requestFlow,
         identifier: normalized,
       })
       setIdentifier(normalized)
@@ -3622,15 +3623,31 @@ function App() {
         return
       }
 
-      const nextFlow = response.status === 'needs-sms-password-setup' ? 'password-setup' : 'registration'
+      const nextFlow =
+        response.status === 'needs-sms-reset'
+          ? 'password-reset'
+          : response.status === 'needs-sms-password-setup'
+            ? 'password-setup'
+            : 'registration'
       setAuthCodeFlow(nextFlow)
       setAuthError('')
       setSmsCode('')
       setAuthStep('code')
+      if (nextFlow === 'password-reset') {
+        trackAnalyticsEvent('auth_password_reset_code_requested', {
+          captchaRequired,
+          existingAccount: Boolean(response.existingAccount),
+        })
+      }
       trackAnalyticsEvent('auth_code_request_succeeded', {
         captchaRequired,
         existingAccount: Boolean(response.existingAccount),
-        flow: nextFlow === 'password-setup' ? 'legacy-password-setup' : 'registration',
+        flow:
+          nextFlow === 'password-setup'
+            ? 'legacy-password-setup'
+            : nextFlow === 'password-reset'
+              ? 'password-reset'
+              : 'registration',
         hasPassword: Boolean(response.hasPassword),
       })
     } catch (error) {
@@ -3638,7 +3655,7 @@ function App() {
       setAuthError(message)
       trackAnalyticsEvent('auth_code_request_failed', {
         captchaRequired,
-        flow: 'registration',
+        flow: requestFlow === 'password-reset' ? 'password-reset' : 'registration',
         reason: message,
       })
     } finally {
@@ -3659,40 +3676,17 @@ function App() {
       trackAnalyticsEvent('auth_password_forgot_started', {
         identifier: normalized,
       })
-      const response = await requestAuthCode({
-        entryPoint: 'user',
-        flow: 'password-reset',
-        identifier: normalized,
-      })
-
-      if (response.status !== 'needs-sms-reset') {
-        throw new Error('Не удалось переключить вход на сброс пароля.')
-      }
-
       setIdentifier(normalized)
-      setAuthExistingAccount(response.existingAccount)
+      setAuthExistingAccount(authExistingAccount)
       setAuthCodeFlow('password-reset')
-      setSmsCode('')
       setAuthPassword('')
       setAuthPasswordConfirm('')
-      setAuthStep('code')
-      trackAnalyticsEvent('auth_password_reset_code_requested', {
-        existingAccount: Boolean(response.existingAccount),
-      })
-      trackAnalyticsEvent('auth_code_request_succeeded', {
-        captchaRequired: false,
-        existingAccount: Boolean(response.existingAccount),
-        flow: 'password-reset',
-        hasPassword: Boolean(response.hasPassword),
-      })
+      setSmsCode('')
+      setAuthStep('phone')
+      setAuthError('Подтвердите номер через SmartCaptcha, чтобы сбросить пароль.')
+      resetCaptcha()
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Не удалось отправить код для сброса пароля.'
-      setAuthError(message)
-      trackAnalyticsEvent('auth_code_request_failed', {
-        captchaRequired: false,
-        flow: 'password-reset',
-        reason: message,
-      })
+      setAuthError(error instanceof Error ? error.message : 'Не удалось переключить вход на сброс пароля.')
     }
   }
 
@@ -3804,6 +3798,16 @@ function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось войти по паролю.'
       setAuthError(message)
+      if (isPasswordLoginRateLimitedMessage(message)) {
+        trackAnalyticsEvent('auth_password_login_rate_limited', {
+          reason: message,
+        })
+      }
+      if (isPasswordLoginBlockedMessage(message)) {
+        trackAnalyticsEvent('auth_password_login_blocked', {
+          reason: message,
+        })
+      }
       trackAnalyticsEvent('auth_password_login_failed', {
         reason: message,
       })
@@ -3859,7 +3863,9 @@ function App() {
       setAuthError('')
       setAuthPassword('')
       setAuthPasswordConfirm('')
-      trackAnalyticsEvent('auth_password_set_succeeded', {})
+      trackAnalyticsEvent('auth_password_set_succeeded', {
+        revokedPreviousSessions: true,
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось сохранить пароль.'
       setAuthError(message)
@@ -3885,7 +3891,9 @@ function App() {
       setAuthError('')
       setAuthPassword('')
       setAuthPasswordConfirm('')
-      trackAnalyticsEvent('auth_password_reset_succeeded', {})
+      trackAnalyticsEvent('auth_password_reset_succeeded', {
+        revokedPreviousSessions: true,
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось сбросить пароль.'
       setAuthError(message)

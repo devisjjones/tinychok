@@ -131,7 +131,9 @@ curl -s https://api.staging.tinychok.ru/healthz
   - новый аккаунт после SMS обязан задать пароль
   - существующий аккаунт с паролем после ввода номера идёт сразу на password-step без SMS
   - существующий аккаунт без пароля идёт через SMS и затем обязан задать пароль
-  - `Забыли пароль?` переводит на SMS reset-flow и затем на шаг нового пароля
+  - `Забыли пароль?` переводит на шаг телефона, требует SmartCaptcha и только потом запускает SMS reset-flow
+  - password-login режется server-side lockout по `identifier + ip`
+  - после `password-setup` и `password-reset` старые bearer sessions перестают работать
 - публичные статические страницы тоже входят в staging build:
   - `/privacy-policy.html`
   - `/user-agreement.html`
@@ -142,6 +144,10 @@ curl -s https://api.staging.tinychok.ru/healthz
 - login на staging под allowlist номером
 - login по паролю на существующем аккаунте
 - forgot-password через SMS reset и установка нового пароля
+- repeated wrong password attempts:
+  - `5` подряд -> блок `5 минут`
+  - следующий порог -> `30 минут`
+  - следующий порог -> `24 часа`
 - direct message send
 - group message send
 - channel post send
@@ -176,6 +182,7 @@ curl -s https://api.staging.tinychok.ru/healthz
 - owner-only legal export:
   - архив скачивается без server error
   - архив включает `ip/ip-log.csv` и `ip/ip-log.json`
+  - `from/to` режет `dialogs`, `groups`, `channels`, `threads`, `reports`, `audit` и `ip`
   - пишет `admin.legal-export.download` в audit log
 - owner-only IP CSV export:
   - скачивается без server error
