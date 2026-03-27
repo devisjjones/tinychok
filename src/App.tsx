@@ -9531,11 +9531,17 @@ function App() {
               : 'off',
           visibility: 'private',
         })
+        const createdManagedChannel =
+          response.snapshot.channels.find((channel) => channel.id === response.channelId) ?? null
         setCreatingChannelAvatarDraft(null)
         resetChannelInviteState()
-        setActiveChannelId(response.channelId)
         setChannelManagementOpenId(null)
-        openChannelsView('invite')
+        if (createdManagedChannel) {
+          openManagedChannelRoom(createdManagedChannel, response.snapshot.subscriptionChannels)
+        } else {
+          setActiveChannelId(response.channelId)
+          openChannelsView('detail')
+        }
         return
       } catch (error) {
         if (
@@ -9596,9 +9602,11 @@ function App() {
     })
     setCreatingChannelAvatarDraft(null)
     resetChannelInviteState()
-    setActiveChannelId(nextId)
     setChannelManagementOpenId(null)
-    openChannelsView('invite')
+    openManagedChannelRoom(nextChannel, [
+      buildPreviewSubscriptionChannelFromManagedChannel(nextChannel),
+      ...subscriptionChannels,
+    ])
   }
 
   function toggleManagedChannelInviteChat(chatId: number) {
