@@ -18,6 +18,7 @@ import {
   chatActionMenuHeight,
   chatActionMenuWidth,
   displayNameFieldMaxLength,
+  passwordFieldMinLength,
   groupActionMenuHeight,
   groupActionMenuWidth,
   groupTitleMaxLength,
@@ -80,6 +81,7 @@ import {
   inviteSubscriptionChannelMembers as inviteSubscriptionChannelMembersRequest,
   leaveGroup as leaveGroupRequest,
   leaveSubscriptionChannel as leaveSubscriptionChannelRequest,
+  loginWithPassword,
   markDialogRead as markDialogReadRequest,
   markGroupRead as markGroupReadRequest,
   markSubscriptionChannelRead as markSubscriptionChannelReadRequest,
@@ -95,6 +97,7 @@ import {
   requestAuthCode,
   saveSnapshot,
   searchUserGifs as searchUserGifsRequest,
+  setPassword,
   searchDiscoveryResults as searchDiscoveryResultsRequest,
   setDialogFavorite as setDialogFavoriteRequest,
   setDialogPinnedMessage as setDialogPinnedMessageRequest,
@@ -114,6 +117,7 @@ import {
   updateSession as updateSessionRequest,
   uploadMediaFile,
   verifyAuthCode,
+  resetPassword,
 } from './app/backend'
 import { configureAnalyticsRuntime, trackAnalyticsEvent, trackAnalyticsPageView } from './app/analytics'
 import {
@@ -245,6 +249,12 @@ const contactComplaintReasonOptions: Array<{ label: string; value: ComplaintReas
 
 const blockedAuthNoticeMessage =
   'На ваш аккаунт поступило много жалоб, поэтому вход временно заблокирован. Если произошла ошибка, напишите в поддержку и укажите email: devisjjones@gmail.com'
+
+type UserAuthCodeFlow = 'password-reset' | 'password-setup' | 'registration'
+
+function mapAuthAnalyticsFlow(flow: UserAuthCodeFlow) {
+  return flow === 'password-setup' ? 'legacy-password-setup' : flow
+}
 
 type BrowserNotificationTarget =
   | {
@@ -1038,6 +1048,9 @@ function App() {
   const [displayName, setDisplayName] = useState('')
   const [identifier, setIdentifier] = useState('')
   const [smsCode, setSmsCode] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authPasswordConfirm, setAuthPasswordConfirm] = useState('')
+  const [authCodeFlow, setAuthCodeFlow] = useState<UserAuthCodeFlow>('registration')
   const [authError, setAuthError] = useState('')
   const [authExistingAccount, setAuthExistingAccount] = useState<Pick<Account, 'displayName' | 'surname'> | null>(null)
   const [authBlockedNoticeOpen, setAuthBlockedNoticeOpen] = useState(false)
@@ -2913,6 +2926,9 @@ function App() {
     setIdentifier('')
     setDisplayName('')
     setSmsCode('')
+    setAuthPassword('')
+    setAuthPasswordConfirm('')
+    setAuthCodeFlow('registration')
     setAuthStep('phone')
     setAuthExistingAccount(null)
     setChatMessageDrafts({})
@@ -3579,29 +3595,104 @@ function App() {
 
     try {
       const captchaToken = getCaptchaTokenOrThrow()
-      const response = await requestAuthCode({ captchaToken, identifier: normalized })
+      const response = await requestAuthCode({
+        captchaToken,
+        entryPoint: 'user',
+        flow: 'default',
+        identifier: normalized,
+      })
       setIdentifier(normalized)
       setAuthExistingAccount(response.existingAccount)
-      setAuthError('')
-      setAuthStep('code')
+      setAuthBlockedNoticeOpen(false)
       if (captchaRequired) {
         trackAnalyticsEvent('auth_captcha_completed', {
           provider: clientRuntimeConfig.captcha.provider,
         })
       }
+
+      if (response.status === 'needs-password-login') {
+        setAuthError('')
+        setAuthPassword('')
+        setAuthPasswordConfirm('')
+        setAuthStep('password')
+        trackAnalyticsEvent('auth_password_prompt_shown', {
+          existingAccount: true,
+          hasPassword: true,
+        })
+        return
+      }
+
+      const nextFlow = response.status === 'needs-sms-password-setup' ? 'password-setup' : 'registration'
+      setAuthCodeFlow(nextFlow)
+      setAuthError('')
+      setSmsCode('')
+      setAuthStep('code')
       trackAnalyticsEvent('auth_code_request_succeeded', {
         captchaRequired,
         existingAccount: Boolean(response.existingAccount),
+        flow: nextFlow === 'password-setup' ? 'legacy-password-setup' : 'registration',
+        hasPassword: Boolean(response.hasPassword),
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось запросить код.'
       setAuthError(message)
       trackAnalyticsEvent('auth_code_request_failed', {
         captchaRequired,
+        flow: 'registration',
         reason: message,
       })
     } finally {
       resetCaptcha()
+    }
+  }
+
+  async function startForgotPasswordFlow() {
+    const normalized = normalizeIdentifier(identifier)
+
+    if (!normalized || normalized.length < 12) {
+      setAuthError('Проверь номер телефона.')
+      return
+    }
+
+    try {
+      setAuthError('')
+      trackAnalyticsEvent('auth_password_forgot_started', {
+        identifier: normalized,
+      })
+      const response = await requestAuthCode({
+        entryPoint: 'user',
+        flow: 'password-reset',
+        identifier: normalized,
+      })
+
+      if (response.status !== 'needs-sms-reset') {
+        throw new Error('Не удалось переключить вход на сброс пароля.')
+      }
+
+      setIdentifier(normalized)
+      setAuthExistingAccount(response.existingAccount)
+      setAuthCodeFlow('password-reset')
+      setSmsCode('')
+      setAuthPassword('')
+      setAuthPasswordConfirm('')
+      setAuthStep('code')
+      trackAnalyticsEvent('auth_password_reset_code_requested', {
+        existingAccount: Boolean(response.existingAccount),
+      })
+      trackAnalyticsEvent('auth_code_request_succeeded', {
+        captchaRequired: false,
+        existingAccount: Boolean(response.existingAccount),
+        flow: 'password-reset',
+        hasPassword: Boolean(response.hasPassword),
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось отправить код для сброса пароля.'
+      setAuthError(message)
+      trackAnalyticsEvent('auth_code_request_failed', {
+        captchaRequired: false,
+        flow: 'password-reset',
+        reason: message,
+      })
     }
   }
 
@@ -3617,6 +3708,7 @@ function App() {
     try {
       const response = await verifyAuthCode({
         code: trimmedCode,
+        entryPoint: 'user',
         identifier: normalized,
       })
 
@@ -3624,17 +3716,48 @@ function App() {
         applySnapshot(response.snapshot)
         setBackendReady(true)
         setAuthError('')
+        setAuthPassword('')
+        setAuthPasswordConfirm('')
         trackAnalyticsEvent('auth_code_verify_succeeded', {
           outcome: 'authenticated',
+          flow: mapAuthAnalyticsFlow(authCodeFlow),
         })
         return
       }
 
-      setAuthExistingAccount(null)
       setAuthError('')
-      setAuthStep('profile')
+      setAuthPassword('')
+      setAuthPasswordConfirm('')
+
+      if (response.status === 'needs-profile-and-password') {
+        setAuthExistingAccount(null)
+        setAuthCodeFlow('registration')
+        setAuthStep('profile-password')
+        trackAnalyticsEvent('auth_code_verify_succeeded', {
+          flow: 'registration',
+          outcome: 'needs-profile-and-password',
+        })
+        return
+      }
+
+      if (response.status === 'needs-password-setup') {
+        setAuthCodeFlow('password-setup')
+        setAuthStep('password-setup')
+        trackAnalyticsEvent('auth_code_verify_succeeded', {
+          flow: 'legacy-password-setup',
+          outcome: 'needs-password-setup',
+        })
+        return
+      }
+
+      setAuthCodeFlow('password-reset')
+      setAuthStep('password-reset')
+      trackAnalyticsEvent('auth_password_reset_code_verified', {
+        existingAccount: true,
+      })
       trackAnalyticsEvent('auth_code_verify_succeeded', {
-        outcome: 'needs-profile',
+        flow: 'password-reset',
+        outcome: 'needs-password-reset',
       })
     } catch (error) {
       const nextMessage = error instanceof Error ? error.message : 'Не удалось подтвердить код.'
@@ -3650,14 +3773,44 @@ function App() {
       }
 
       setAuthError(nextMessage)
-      trackAnalyticsEvent('auth_code_verify_failed', {
-        blocked: false,
-        reason: nextMessage,
+        trackAnalyticsEvent('auth_code_verify_failed', {
+          blocked: false,
+          flow: mapAuthAnalyticsFlow(authCodeFlow),
+          reason: nextMessage,
+        })
+    }
+  }
+
+  async function submitPasswordStep() {
+    const normalized = normalizeIdentifier(identifier)
+
+    if (!authPassword.trim()) {
+      setAuthError('Введи пароль.')
+      return
+    }
+
+    try {
+      setAuthError('')
+      trackAnalyticsEvent('auth_password_login_requested', {})
+      const response = await loginWithPassword({
+        identifier: normalized,
+        password: authPassword,
+      })
+      applySnapshot(response.snapshot)
+      setBackendReady(true)
+      setAuthPassword('')
+      setAuthPasswordConfirm('')
+      trackAnalyticsEvent('auth_password_login_succeeded', {})
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось войти по паролю.'
+      setAuthError(message)
+      trackAnalyticsEvent('auth_password_login_failed', {
+        reason: message,
       })
     }
   }
 
-  async function submitProfileStep() {
+  async function submitProfilePasswordStep() {
     const normalized = normalizeIdentifier(identifier)
     const trimmedName = sanitizePersonField(displayName, displayNameFieldMaxLength)
 
@@ -3667,19 +3820,76 @@ function App() {
     }
 
     try {
+      setAuthError('')
       const response = await registerAccount({
         code: smsCode.trim(),
+        confirmPassword: authPasswordConfirm,
         displayName: trimmedName,
         identifier: normalized,
+        password: authPassword,
       })
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthError('')
+      setAuthPassword('')
+      setAuthPasswordConfirm('')
       trackAnalyticsEvent('auth_registration_succeeded', {})
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось завершить регистрацию.'
       setAuthError(message)
       trackAnalyticsEvent('auth_registration_failed', {
+        reason: message,
+      })
+    }
+  }
+
+  async function submitPasswordSetupStep() {
+    const normalized = normalizeIdentifier(identifier)
+
+    try {
+      setAuthError('')
+      const response = await setPassword({
+        code: smsCode.trim(),
+        confirmPassword: authPasswordConfirm,
+        identifier: normalized,
+        password: authPassword,
+      })
+      applySnapshot(response.snapshot)
+      setBackendReady(true)
+      setAuthError('')
+      setAuthPassword('')
+      setAuthPasswordConfirm('')
+      trackAnalyticsEvent('auth_password_set_succeeded', {})
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось сохранить пароль.'
+      setAuthError(message)
+      trackAnalyticsEvent('auth_password_set_failed', {
+        reason: message,
+      })
+    }
+  }
+
+  async function submitPasswordResetStep() {
+    const normalized = normalizeIdentifier(identifier)
+
+    try {
+      setAuthError('')
+      const response = await resetPassword({
+        code: smsCode.trim(),
+        confirmPassword: authPasswordConfirm,
+        identifier: normalized,
+        password: authPassword,
+      })
+      applySnapshot(response.snapshot)
+      setBackendReady(true)
+      setAuthError('')
+      setAuthPassword('')
+      setAuthPasswordConfirm('')
+      trackAnalyticsEvent('auth_password_reset_succeeded', {})
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось сбросить пароль.'
+      setAuthError(message)
+      trackAnalyticsEvent('auth_password_reset_failed', {
         reason: message,
       })
     }
@@ -9311,6 +9521,7 @@ function App() {
     return (
       <>
         <AuthScreen
+          authCodeFlow={authCodeFlow}
           authError={authError}
           authExistingAccount={authExistingAccount}
           authStep={authStep}
@@ -9321,13 +9532,30 @@ function App() {
           displayName={displayName}
           displayNameMaxLength={displayNameFieldMaxLength}
           identifier={identifier}
+          password={authPassword}
+          passwordConfirm={authPasswordConfirm}
+          passwordMinLength={passwordFieldMinLength}
           smsCode={smsCode}
           onDisplayNameChange={(value) =>
             setDisplayName(sanitizePersonField(value, displayNameFieldMaxLength))
           }
+          onForgotPassword={() => {
+            void startForgotPasswordFlow()
+          }}
           onIdentifierChange={(value) => {
             setIdentifier(value)
             setAuthExistingAccount(null)
+            setAuthBlockedNoticeOpen(false)
+            setAuthCodeFlow('registration')
+            setAuthPassword('')
+            setAuthPasswordConfirm('')
+          }}
+          onPasswordChange={(value) => {
+            setAuthPassword(value)
+            setAuthBlockedNoticeOpen(false)
+          }}
+          onPasswordConfirmChange={(value) => {
+            setAuthPasswordConfirm(value)
             setAuthBlockedNoticeOpen(false)
           }}
           onSupportEmailClick={() => {
@@ -9350,7 +9578,22 @@ function App() {
               return
             }
 
-            void submitProfileStep()
+            if (authStep === 'password') {
+              void submitPasswordStep()
+              return
+            }
+
+            if (authStep === 'profile-password') {
+              void submitProfilePasswordStep()
+              return
+            }
+
+            if (authStep === 'password-setup') {
+              void submitPasswordSetupStep()
+              return
+            }
+
+            void submitPasswordResetStep()
           }}
         />
         {authBlockedNoticeOpen ? (

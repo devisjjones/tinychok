@@ -259,7 +259,13 @@ export type Channel = {
 
 export type ChannelsView = 'list' | 'create' | 'detail' | 'invite'
 export type TopListView = 'none' | 'channels' | 'groups' | 'threads'
-export type AuthStep = 'phone' | 'code' | 'profile'
+export type AuthStep =
+  | 'phone'
+  | 'password'
+  | 'code'
+  | 'profile-password'
+  | 'password-setup'
+  | 'password-reset'
 export type StageView = 'main' | 'settings' | 'premium' | 'channels'
 export type SettingsView = 'profile' | 'management' | 'blocked'
 export type CookieConsentChoice = 'necessary' | 'analytics'
@@ -281,6 +287,8 @@ export type Account = {
   lastActiveAt?: string
   blockedContactIds?: number[]
   gifLibrary?: UserGifLibraryItem[]
+  passwordHash?: string
+  passwordSetAt?: string
   storageUsage?: StorageUsage
   createdAt: string
 }

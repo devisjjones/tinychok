@@ -7,6 +7,17 @@ export type AnalyticsEventName =
   | 'auth_code_request_failed'
   | 'auth_code_verify_succeeded'
   | 'auth_code_verify_failed'
+  | 'auth_password_prompt_shown'
+  | 'auth_password_login_requested'
+  | 'auth_password_login_succeeded'
+  | 'auth_password_login_failed'
+  | 'auth_password_forgot_started'
+  | 'auth_password_reset_code_requested'
+  | 'auth_password_reset_code_verified'
+  | 'auth_password_set_succeeded'
+  | 'auth_password_set_failed'
+  | 'auth_password_reset_succeeded'
+  | 'auth_password_reset_failed'
   | 'auth_registration_succeeded'
   | 'auth_registration_failed'
   | 'auth_support_email_clicked'
@@ -105,6 +116,50 @@ export const analyticsEventCatalog: Record<
   auth_code_verify_failed: {
     category: 'auth',
     description: 'Проверка кода подтверждения завершилась ошибкой.',
+  },
+  auth_password_prompt_shown: {
+    category: 'auth',
+    description: 'После ввода номера пользователю был показан шаг входа по паролю.',
+  },
+  auth_password_login_requested: {
+    category: 'auth',
+    description: 'Пользователь отправил попытку входа по паролю.',
+  },
+  auth_password_login_succeeded: {
+    category: 'auth',
+    description: 'Вход по паролю завершился успешно.',
+  },
+  auth_password_login_failed: {
+    category: 'auth',
+    description: 'Вход по паролю завершился ошибкой.',
+  },
+  auth_password_forgot_started: {
+    category: 'auth',
+    description: 'Пользователь начал сценарий восстановления пароля.',
+  },
+  auth_password_reset_code_requested: {
+    category: 'auth',
+    description: 'Для восстановления пароля был успешно запрошен SMS-код.',
+  },
+  auth_password_reset_code_verified: {
+    category: 'auth',
+    description: 'SMS-код для восстановления пароля успешно подтверждён.',
+  },
+  auth_password_set_succeeded: {
+    category: 'auth',
+    description: 'Пароль для существующего аккаунта без пароля был успешно задан.',
+  },
+  auth_password_set_failed: {
+    category: 'auth',
+    description: 'Установка пароля для существующего аккаунта без пароля завершилась ошибкой.',
+  },
+  auth_password_reset_succeeded: {
+    category: 'auth',
+    description: 'Сброс пароля завершился успешно.',
+  },
+  auth_password_reset_failed: {
+    category: 'auth',
+    description: 'Сброс пароля завершился ошибкой.',
   },
   auth_registration_succeeded: {
     category: 'auth',

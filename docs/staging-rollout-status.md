@@ -126,10 +126,17 @@ curl -s https://api.staging.tinychok.ru/healthz
 - backend отвечает `status: ok`
 - user auth показывает support email `tinychok.help@yandex.com` внизу auth-экрана
 - user login и admin login показывают SmartCaptcha на шаге запроса SMS
+- user auth поддерживает password-login:
+  - новый аккаунт после SMS обязан задать пароль
+  - существующий аккаунт с паролем после ввода номера идёт сразу на password-step без SMS
+  - существующий аккаунт без пароля идёт через SMS и затем обязан задать пароль
+  - `Забыли пароль?` переводит на SMS reset-flow и затем на шаг нового пароля
 
 ## Manual Smoke Checklist
 
 - login на staging под allowlist номером
+- login по паролю на существующем аккаунте
+- forgot-password через SMS reset и установка нового пароля
 - direct message send
 - group message send
 - channel post send

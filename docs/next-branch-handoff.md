@@ -98,7 +98,13 @@
 ### Auth and Support Entry Points
 
 - login на staging закрыт SmartCaptcha на шаге запроса SMS
+- пользовательский auth-flow теперь password-aware:
+  - новый пользователь: `phone -> sms -> profile + password -> authenticated`
+  - существующий пользователь с паролем: `phone -> password -> authenticated`
+  - существующий пользователь без пароля: `phone -> sms -> password-setup -> authenticated`
+  - `Забыли пароль?`: `password -> sms reset -> password-reset -> authenticated`
 - admin login на staging тоже закрыт SmartCaptcha на шаге запроса SMS
+- admin login остаётся отдельным SMS-only flow через `entryPoint=admin`; password login в админку не включён
 - внизу auth-экрана есть support footer:
   - `tinychok.help@yandex.com`
   - он должен оставаться доступным даже если auth flow сломан

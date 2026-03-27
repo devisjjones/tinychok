@@ -78,8 +78,13 @@ export type AdminLinkedUser = {
   nickname?: string
 }
 
+export type AuthEntrypoint = 'admin' | 'user'
+export type AuthRequestCodeFlow = 'default' | 'password-reset'
+
 export type RequestCodeBody = {
   captchaToken?: string
+  entryPoint?: AuthEntrypoint
+  flow?: AuthRequestCodeFlow
   identifier: string
 }
 
@@ -387,7 +392,14 @@ export type AdminLegalExportBody = {
 
 export type AdminIpLogEventType = 'login' | 'ip-change'
 
-export type AdminIpLogSource = 'verify-code' | 'register' | 'http-api' | 'websocket'
+export type AdminIpLogSource =
+  | 'verify-code'
+  | 'register'
+  | 'password-login'
+  | 'password-setup'
+  | 'password-reset'
+  | 'http-api'
+  | 'websocket'
 
 export type AdminIpLogEntry = {
   createdAt: string
@@ -440,36 +452,77 @@ export type DiscoverySearchResponse = {
   results: SearchResult[]
 }
 
-export type RequestCodeResponse = {
-  delivery: 'sms'
-  expiresAt: string
-  existingAccount: ExistingAccountPreview | null
-}
+export type RequestCodeResponse =
+  | {
+      existingAccount: ExistingAccountPreview
+      hasPassword: true
+      status: 'needs-password-login'
+    }
+  | {
+      delivery: 'sms'
+      existingAccount: ExistingAccountPreview | null
+      expiresAt: string
+      hasPassword: boolean
+      status: 'code-sent' | 'needs-sms-password-setup' | 'needs-sms-registration' | 'needs-sms-reset'
+    }
 
 export type VerifyCodeBody = {
-  captchaToken?: string
-  identifier: string
   code: string
+  entryPoint?: AuthEntrypoint
+  identifier: string
 }
 
 export type VerifyCodeResponse =
   | {
-      status: 'authenticated'
       snapshot: AppSnapshot
+      status: 'authenticated'
     }
   | {
-      status: 'needs-profile'
-      existingAccount: null
+      existingAccount: ExistingAccountPreview | null
+      status: 'needs-password-reset' | 'needs-password-setup' | 'needs-profile-and-password'
     }
 
 export type RegisterBody = {
   captchaToken?: string
-  identifier: string
   code: string
+  confirmPassword: string
   displayName: string
+  identifier: string
+  password: string
 }
 
 export type RegisterResponse = {
+  snapshot: AppSnapshot
+}
+
+export type LoginPasswordBody = {
+  identifier: string
+  password: string
+}
+
+export type LoginPasswordResponse = {
+  snapshot: AppSnapshot
+}
+
+export type SetPasswordBody = {
+  code: string
+  confirmPassword: string
+  identifier: string
+  password: string
+}
+
+export type SetPasswordResponse = {
+  snapshot: AppSnapshot
+}
+
+export type ResetPasswordBody = {
+  code: string
+  confirmPassword: string
+  identifier: string
+  password: string
+}
+
+export type ResetPasswordResponse = {
   snapshot: AppSnapshot
 }
 

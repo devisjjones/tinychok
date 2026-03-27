@@ -56,6 +56,7 @@ export type AppStore = Pick<
   | 'inviteManagedChannelMembers'
   | 'inviteSubscriptionChannelMembers'
   | 'leaveGroup'
+  | 'loginWithPassword'
   | 'listTokensByIdentifier'
   | 'markDialogRead'
   | 'markGroupRead'
@@ -80,6 +81,7 @@ export type AppStore = Pick<
   | 'sendGroupThreadComment'
   | 'sendSubscriptionChannelThreadComment'
   | 'setDebugPremiumState'
+  | 'setPasswordAfterCode'
   | 'setDialogFavorite'
   | 'setDialogPinnedMessage'
   | 'subscribeToGroupThread'
@@ -92,6 +94,7 @@ export type AppStore = Pick<
   | 'blacklistSubscriptionChannelSubscriber'
   | 'updateSubscriptionChannel'
   | 'updateSession'
+  | 'resetPasswordAfterCode'
   | 'verifyCode'
 >
 

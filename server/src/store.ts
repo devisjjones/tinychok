@@ -1,6 +1,7 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID, scrypt as nodeScrypt, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, extname, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import { zipSync } from 'fflate'
 import {
   defaultGroupMemberLimit,
@@ -9,6 +10,7 @@ import {
   groupTitleMaxLength,
   managedChannelsPerUserLimit,
   orphanUploadTtlMs,
+  passwordFieldMinLength,
   premiumStorageQuotaBytes,
   premiumGroupMemberLimit,
   surnameFieldMaxLength,
@@ -86,14 +88,19 @@ import type {
   GroupHistoryResponse,
   InviteManagedChannelMembersBody,
   InviteGroupMemberBody,
+  LoginPasswordBody,
   ManageSubscriptionChannelSubscriberBody,
   OpenDirectDialogBody,
+  AuthEntrypoint,
+  AuthRequestCodeFlow,
   ReportContactBody,
   ReportSubscriptionChannelBody,
   RegisterBody,
   RegisterUserGifBody,
+  ResetPasswordBody,
   RequestCodeResponse,
   ReportMediaBody,
+  SetPasswordBody,
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
   SendDirectMessageBody,
@@ -164,6 +171,7 @@ type AuthChallenge = {
   code: string
   expiresAt: string
   identifier: string
+  purpose: 'admin' | 'password-reset' | 'password-setup' | 'registration'
 }
 
 type ContactReportRecord = {
@@ -277,6 +285,7 @@ type SessionAccessContext = {
 const AUTH_CODE_TTL_MS = 5 * 60 * 1000
 const DEMO_AUTH_CODE = '1111'
 export const DEFAULT_DATA_FILE = resolve(process.cwd(), 'server/data/dev-db.json')
+const scrypt = promisify(nodeScrypt)
 const FALLBACK_CHAT_ACCENT = '#8c5738'
 const CHAT_ACCENT_PALETTE = Array.from(new Set(initialChats.map((chat) => chat.accent)))
 const CONTACT_REPORT_BLOCK_THRESHOLD = 10
@@ -376,6 +385,51 @@ function isAllowedTestPhone(identifier: string) {
 
 function sanitizeMessageText(value: string) {
   return value.trim()
+}
+
+function hasAccountPassword(account: Pick<Account, 'passwordHash'> | null | undefined) {
+  return Boolean(account?.passwordHash?.trim())
+}
+
+function buildExistingAccountPreview(account: Pick<Account, 'displayName' | 'surname'>): {
+  displayName: string
+  surname: string
+} {
+  return {
+    displayName: account.displayName,
+    surname: account.surname ?? '',
+  }
+}
+
+function assertValidPassword(password: string, confirmPassword: string) {
+  if (password.length < passwordFieldMinLength) {
+    throw new Error(`Пароль должен быть не короче ${passwordFieldMinLength} символов.`)
+  }
+
+  if (password !== confirmPassword) {
+    throw new Error('Пароли не совпадают.')
+  }
+}
+
+async function hashPassword(password: string) {
+  const salt = randomBytes(16).toString('base64url')
+  const derivedKey = (await scrypt(password, salt, 64)) as Buffer
+  return `scrypt$${salt}$${derivedKey.toString('base64url')}`
+}
+
+async function verifyPassword(password: string, passwordHash: string) {
+  const [algorithm, salt, expectedHash] = passwordHash.split('$')
+  if (algorithm !== 'scrypt' || !salt || !expectedHash) {
+    return false
+  }
+
+  const derivedKey = (await scrypt(password, salt, 64)) as Buffer
+  const expectedBuffer = Buffer.from(expectedHash, 'base64url')
+  if (derivedKey.length !== expectedBuffer.length) {
+    return false
+  }
+
+  return timingSafeEqual(derivedKey, expectedBuffer)
 }
 
 function sanitizeThreadCommentText(value: string) {
@@ -1985,8 +2039,16 @@ export class TinychokStore {
     return store
   }
 
-  async requestCode(identifier: string): Promise<RequestCodeResponse> {
+  async requestCode(
+    identifier: string,
+    options?: {
+      entryPoint?: AuthEntrypoint
+      flow?: AuthRequestCodeFlow
+    },
+  ): Promise<RequestCodeResponse> {
     const normalizedIdentifier = normalizeIdentifier(identifier)
+    const entryPoint = options?.entryPoint ?? 'user'
+    const flow = options?.flow ?? 'default'
 
     if (!normalizedIdentifier || normalizedIdentifier.length < 12) {
       throw new Error('Проверь номер телефона.')
@@ -1996,8 +2058,28 @@ export class TinychokStore {
       throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
     }
 
-    const expiresAt = new Date(Date.now() + AUTH_CODE_TTL_MS).toISOString()
     const existingAccount = this.findAccount(normalizedIdentifier)
+    if (entryPoint === 'user' && flow === 'default' && existingAccount && hasAccountPassword(existingAccount)) {
+      return {
+        existingAccount: buildExistingAccountPreview(existingAccount),
+        hasPassword: true,
+        status: 'needs-password-login',
+      }
+    }
+
+    if (entryPoint === 'user' && flow === 'password-reset' && !existingAccount) {
+      throw new Error('Аккаунт с таким номером не найден.')
+    }
+
+    const expiresAt = new Date(Date.now() + AUTH_CODE_TTL_MS).toISOString()
+    const purpose =
+      entryPoint === 'admin'
+        ? 'admin'
+        : flow === 'password-reset'
+          ? 'password-reset'
+          : existingAccount
+            ? 'password-setup'
+            : 'registration'
 
     this.database.authChallenges = this.database.authChallenges
       .filter((challenge) => challenge.identifier !== normalizedIdentifier)
@@ -2005,6 +2087,7 @@ export class TinychokStore {
         code: DEMO_AUTH_CODE,
         expiresAt,
         identifier: normalizedIdentifier,
+        purpose,
       })
 
     await this.persist()
@@ -2012,33 +2095,75 @@ export class TinychokStore {
 
     return {
       delivery: 'sms',
-      existingAccount: existingAccount
-        ? {
-            displayName: existingAccount.displayName,
-            surname: existingAccount.surname ?? '',
-          }
-        : null,
+      existingAccount: existingAccount ? buildExistingAccountPreview(existingAccount) : null,
       expiresAt,
+      hasPassword: hasAccountPassword(existingAccount),
+      status:
+        entryPoint === 'admin'
+          ? 'code-sent'
+          : flow === 'password-reset'
+            ? 'needs-sms-reset'
+            : existingAccount
+              ? 'needs-sms-password-setup'
+              : 'needs-sms-registration',
     }
   }
 
-  async verifyCode(identifier: string, code: string, accessContext?: Omit<SessionAccessContext, 'source'>): Promise<VerifyCodeResponse> {
+  async verifyCode(
+    identifier: string,
+    code: string,
+    options?: {
+      accessContext?: Omit<SessionAccessContext, 'source'>
+      entryPoint?: AuthEntrypoint
+    },
+  ): Promise<VerifyCodeResponse> {
     const normalizedIdentifier = normalizeIdentifier(identifier)
+    const entryPoint = options?.entryPoint ?? 'user'
     if (!isAllowedTestPhone(normalizedIdentifier)) {
       throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
     }
 
-    this.assertValidChallenge(normalizedIdentifier, code)
+    const challenge = this.assertValidChallenge(normalizedIdentifier, code)
 
     if (this.isIdentifierBlockedByReports(normalizedIdentifier)) {
       throw new Error(CONTACT_REPORT_BLOCK_MESSAGE)
     }
 
     const existingAccount = this.findAccount(normalizedIdentifier)
+    if (entryPoint === 'admin') {
+      if (!existingAccount) {
+        return {
+          existingAccount: null,
+          status: 'needs-profile-and-password',
+        }
+      }
+
+      if (isAccountBlocked(existingAccount)) {
+        throw new Error(existingAccount.blockedReason || 'Аккаунт заблокирован staff-командой.')
+      }
+
+      const token = await this.createSessionToken(normalizedIdentifier, {
+        ip: options?.accessContext?.ip ?? '',
+        source: 'verify-code',
+        userAgent: options?.accessContext?.userAgent,
+      })
+      this.clearChallenge(normalizedIdentifier)
+      await this.persist()
+
+      return {
+        snapshot: this.buildSnapshot(existingAccount, token),
+        status: 'authenticated',
+      }
+    }
+
+    if (!existingAccount && challenge.purpose !== 'registration') {
+      throw new Error('Аккаунт с таким номером не найден.')
+    }
+
     if (!existingAccount) {
       return {
         existingAccount: null,
-        status: 'needs-profile',
+        status: 'needs-profile-and-password',
       }
     }
 
@@ -2046,18 +2171,21 @@ export class TinychokStore {
       throw new Error(existingAccount.blockedReason || 'Аккаунт заблокирован staff-командой.')
     }
 
-    const token = await this.createSessionToken(normalizedIdentifier, {
-      ip: accessContext?.ip ?? '',
-      source: 'verify-code',
-      userAgent: accessContext?.userAgent,
-    })
-    this.clearChallenge(normalizedIdentifier)
-    await this.persist()
-
-    return {
-      snapshot: this.buildSnapshot(existingAccount, token),
-      status: 'authenticated',
+    if (challenge.purpose === 'password-reset') {
+      return {
+        existingAccount: buildExistingAccountPreview(existingAccount),
+        status: 'needs-password-reset',
+      }
     }
+
+    if (!hasAccountPassword(existingAccount)) {
+      return {
+        existingAccount: buildExistingAccountPreview(existingAccount),
+        status: 'needs-password-setup',
+      }
+    }
+
+    throw new Error('Для этого аккаунта уже задан пароль. Войдите по паролю.')
   }
 
   async registerAccount(payload: RegisterBody, accessContext?: Omit<SessionAccessContext, 'source'>): Promise<AppSnapshot> {
@@ -2066,16 +2194,23 @@ export class TinychokStore {
       throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
     }
 
-    this.assertValidChallenge(normalizedIdentifier, payload.code)
+    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code)
 
     if (this.findAccount(normalizedIdentifier)) {
       throw new Error('Аккаунт уже существует. Попробуйте войти.')
+    }
+
+    if (challenge.purpose !== 'registration') {
+      throw new Error('Для этого шага нужен код подтверждения регистрации.')
     }
 
     const displayName = sanitizePersonField(payload.displayName, displayNameFieldMaxLength)
     if (!displayName) {
       throw new Error('Для регистрации нужен ник или имя.')
     }
+
+    assertValidPassword(payload.password, payload.confirmPassword)
+    const passwordHash = await hashPassword(payload.password)
 
     const nextAccount: Account = {
       avatarImage: undefined,
@@ -2089,6 +2224,8 @@ export class TinychokStore {
       isTestEntity: false,
       lastActiveAt: new Date().toISOString(),
       nickname: '',
+      passwordHash,
+      passwordSetAt: new Date().toISOString(),
       premium: true,
       premiumExpiresAt: makePremiumExpiry(30),
       soundsDisabled: true,
@@ -2108,6 +2245,103 @@ export class TinychokStore {
     await this.persist()
 
     return this.buildSnapshot(nextAccount, token)
+  }
+
+  async loginWithPassword(
+    payload: LoginPasswordBody,
+    accessContext?: Omit<SessionAccessContext, 'source'>,
+  ): Promise<AppSnapshot> {
+    const normalizedIdentifier = normalizeIdentifier(payload.identifier)
+    const existingAccount = this.findAccount(normalizedIdentifier)
+
+    if (!existingAccount) {
+      throw new Error('Аккаунт с таким номером не найден.')
+    }
+
+    if (isAccountBlocked(existingAccount)) {
+      throw new Error(existingAccount.blockedReason || 'Аккаунт заблокирован staff-командой.')
+    }
+
+    if (!hasAccountPassword(existingAccount)) {
+      throw new Error('Для этого аккаунта пароль ещё не задан. Подтвердите номер через SMS.')
+    }
+
+    const passwordMatches = await verifyPassword(payload.password, existingAccount.passwordHash!)
+    if (!passwordMatches) {
+      throw new Error('Неверный пароль.')
+    }
+
+    const token = await this.createSessionToken(normalizedIdentifier, {
+      ip: accessContext?.ip ?? '',
+      source: 'password-login',
+      userAgent: accessContext?.userAgent,
+    })
+    await this.persist()
+    return this.buildSnapshot(existingAccount, token)
+  }
+
+  async setPasswordAfterCode(
+    payload: SetPasswordBody,
+    accessContext?: Omit<SessionAccessContext, 'source'>,
+  ): Promise<AppSnapshot> {
+    const normalizedIdentifier = normalizeIdentifier(payload.identifier)
+    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code)
+    const existingAccount = this.findAccount(normalizedIdentifier)
+
+    if (!existingAccount) {
+      throw new Error('Аккаунт с таким номером не найден.')
+    }
+
+    if (challenge.purpose !== 'password-setup') {
+      throw new Error('Для этого шага нужен код подтверждения установки пароля.')
+    }
+
+    if (hasAccountPassword(existingAccount)) {
+      throw new Error('Для этого аккаунта уже задан пароль. Войдите по паролю.')
+    }
+
+    assertValidPassword(payload.password, payload.confirmPassword)
+    existingAccount.passwordHash = await hashPassword(payload.password)
+    existingAccount.passwordSetAt = new Date().toISOString()
+
+    const token = await this.createSessionToken(normalizedIdentifier, {
+      ip: accessContext?.ip ?? '',
+      source: 'password-setup',
+      userAgent: accessContext?.userAgent,
+    })
+    this.clearChallenge(normalizedIdentifier)
+    await this.persist()
+    return this.buildSnapshot(existingAccount, token)
+  }
+
+  async resetPasswordAfterCode(
+    payload: ResetPasswordBody,
+    accessContext?: Omit<SessionAccessContext, 'source'>,
+  ): Promise<AppSnapshot> {
+    const normalizedIdentifier = normalizeIdentifier(payload.identifier)
+    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code)
+    const existingAccount = this.findAccount(normalizedIdentifier)
+
+    if (!existingAccount) {
+      throw new Error('Аккаунт с таким номером не найден.')
+    }
+
+    if (challenge.purpose !== 'password-reset') {
+      throw new Error('Для этого шага нужен код подтверждения сброса пароля.')
+    }
+
+    assertValidPassword(payload.password, payload.confirmPassword)
+    existingAccount.passwordHash = await hashPassword(payload.password)
+    existingAccount.passwordSetAt = new Date().toISOString()
+
+    const token = await this.createSessionToken(normalizedIdentifier, {
+      ip: accessContext?.ip ?? '',
+      source: 'password-reset',
+      userAgent: accessContext?.userAgent,
+    })
+    this.clearChallenge(normalizedIdentifier)
+    await this.persist()
+    return this.buildSnapshot(existingAccount, token)
   }
 
   getSnapshotByToken(token: string) {
@@ -6843,6 +7077,8 @@ export class TinychokStore {
     if (challenge.code !== code.trim()) {
       throw new Error('Неверный код из SMS.')
     }
+
+    return challenge
   }
 
   private buildSnapshot(account: Account, token: string): AppSnapshot {
@@ -8406,13 +8642,19 @@ export class TinychokStore {
     const existingLogs = this.getIpAccessLogsForIdentifier(normalizedIdentifier)
     const latestEvent = existingLogs.at(-1)
     const latestIp = latestEvent?.ip
-    const eventType: AdminIpLogEventType = context.source === 'register' || context.source === 'verify-code'
+    const isLoginSource =
+      context.source === 'register' ||
+      context.source === 'verify-code' ||
+      context.source === 'password-login' ||
+      context.source === 'password-setup' ||
+      context.source === 'password-reset'
+    const eventType: AdminIpLogEventType = isLoginSource
       ? 'login'
       : latestIp && latestIp !== ip
         ? 'ip-change'
         : 'login'
 
-    if (context.source !== 'register' && context.source !== 'verify-code' && latestIp === ip) {
+    if (!isLoginSource && latestIp === ip) {
       return false
     }
 
@@ -10159,7 +10401,15 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         notes: report.notes ?? [],
         status: report.status === 'closed' ? 'closed' : 'open',
       })),
-      authChallenges: normalized.authChallenges ?? [],
+      authChallenges: (normalized.authChallenges ?? []).map((challenge) => ({
+        ...challenge,
+        purpose:
+          challenge.purpose === 'admin' ||
+          challenge.purpose === 'password-reset' ||
+          challenge.purpose === 'password-setup'
+            ? challenge.purpose
+            : 'registration',
+      })),
       contactReports: normalized.contactReports ?? [],
       dialogs: normalized.dialogs ?? [],
       dialogMessages: normalized.dialogMessages ?? [],
@@ -10170,6 +10420,9 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         eventType: entry.eventType === 'ip-change' ? 'ip-change' : 'login',
         source:
           entry.source === 'register' ||
+          entry.source === 'password-login' ||
+          entry.source === 'password-reset' ||
+          entry.source === 'password-setup' ||
           entry.source === 'verify-code' ||
           entry.source === 'websocket'
             ? entry.source

@@ -3,6 +3,7 @@ import { formatAccountName } from '../app/utils'
 import type { RefObject } from 'react'
 
 type AuthScreenProps = {
+  authCodeFlow: 'password-reset' | 'password-setup' | 'registration'
   authError: string
   authExistingAccount: Pick<Account, 'displayName' | 'surname'> | null
   authStep: AuthStep
@@ -13,15 +14,22 @@ type AuthScreenProps = {
   displayName: string
   displayNameMaxLength: number
   identifier: string
+  password: string
+  passwordConfirm: string
+  passwordMinLength: number
   smsCode: string
   onDisplayNameChange: (value: string) => void
+  onForgotPassword: () => void
   onIdentifierChange: (value: string) => void
+  onPasswordChange: (value: string) => void
+  onPasswordConfirmChange: (value: string) => void
   onSupportEmailClick: () => void
   onSmsCodeChange: (value: string) => void
   onSubmit: () => void
 }
 
 export function AuthScreen({
+  authCodeFlow,
   authError,
   authExistingAccount,
   authStep,
@@ -32,13 +40,43 @@ export function AuthScreen({
   displayName,
   displayNameMaxLength,
   identifier,
+  password,
+  passwordConfirm,
+  passwordMinLength,
   smsCode,
   onDisplayNameChange,
+  onForgotPassword,
   onIdentifierChange,
+  onPasswordChange,
+  onPasswordConfirmChange,
   onSupportEmailClick,
   onSmsCodeChange,
   onSubmit,
 }: AuthScreenProps) {
+  const isPasswordStep = authStep === 'password'
+  const isCodeStep = authStep === 'code'
+  const isProfilePasswordStep = authStep === 'profile-password'
+  const isPasswordSetupStep = authStep === 'password-setup'
+  const isPasswordResetStep = authStep === 'password-reset'
+  const isPhoneStep = authStep === 'phone'
+
+  const submitLabel =
+    authStep === 'phone'
+      ? 'Продолжить'
+      : authStep === 'password'
+        ? 'Войти'
+        : authStep === 'code'
+          ? authCodeFlow === 'password-reset'
+            ? 'Подтвердить номер'
+            : authExistingAccount
+              ? 'Подтвердить вход'
+              : 'Подтвердить номер'
+          : authStep === 'profile-password'
+            ? 'Создать тайник'
+            : authStep === 'password-setup'
+              ? 'Сохранить пароль и войти'
+              : 'Задать новый пароль'
+
   return (
     <main className="auth-shell">
       <section className="auth-panel auth-promo">
@@ -73,7 +111,7 @@ export function AuthScreen({
             onSubmit()
           }}
         >
-          {authStep === 'profile' ? (
+          {isProfilePasswordStep ? (
             <label className="auth-field">
               <span>Имя в Тайничке</span>
               <input
@@ -86,7 +124,7 @@ export function AuthScreen({
             </label>
           ) : null}
 
-          {authStep === 'phone' ? (
+          {isPhoneStep ? (
             <label className="auth-field">
               <span>Номер телефона</span>
               <input
@@ -98,7 +136,7 @@ export function AuthScreen({
             </label>
           ) : null}
 
-          {authStep === 'code' ? (
+          {isPasswordStep ? (
             <>
               {authExistingAccount ? (
                 <p className="auth-returning-title">
@@ -106,7 +144,42 @@ export function AuthScreen({
                 </p>
               ) : null}
               <div className="auth-code-note">
-                <span className="settings-label">Код отправлен на номер</span>
+                <span className="settings-label">Вход по паролю для номера</span>
+                <strong>{identifier}</strong>
+              </div>
+              <label className="auth-field">
+                <span>Пароль</span>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="Введите пароль"
+                  value={password}
+                  onChange={(event) => onPasswordChange(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="auth-secondary-action"
+                onClick={onForgotPassword}
+              >
+                Забыли пароль?
+              </button>
+            </>
+          ) : null}
+
+          {isCodeStep ? (
+            <>
+              {authExistingAccount ? (
+                <p className="auth-returning-title">
+                  С возвращением, {formatAccountName(authExistingAccount)}
+                </p>
+              ) : null}
+              <div className="auth-code-note">
+                <span className="settings-label">
+                  {authCodeFlow === 'password-reset'
+                    ? 'Подтвердите номер через SMS'
+                    : 'Код отправлен на номер'}
+                </span>
                 <strong>{identifier}</strong>
               </div>
               <label className="auth-field">
@@ -122,9 +195,34 @@ export function AuthScreen({
             </>
           ) : null}
 
+          {isProfilePasswordStep || isPasswordSetupStep || isPasswordResetStep ? (
+            <>
+              <label className="auth-field">
+                <span>Пароль</span>
+                <input
+                  type="password"
+                  autoComplete={isProfilePasswordStep ? 'new-password' : 'new-password'}
+                  placeholder={`Минимум ${passwordMinLength} символов`}
+                  value={password}
+                  onChange={(event) => onPasswordChange(event.target.value)}
+                />
+              </label>
+              <label className="auth-field">
+                <span>Подтвердите пароль</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="Повторите пароль"
+                  value={passwordConfirm}
+                  onChange={(event) => onPasswordConfirmChange(event.target.value)}
+                />
+              </label>
+            </>
+          ) : null}
+
           {authError ? <p className="auth-error">{authError}</p> : null}
 
-          {authStep === 'phone' && captchaRequired && captchaProvider === 'smartcaptcha' ? (
+          {isPhoneStep && captchaRequired && captchaProvider === 'smartcaptcha' ? (
             <div className="auth-captcha">
               <div ref={captchaContainerRef} className="auth-captcha-widget" aria-hidden="true" />
               <p className="auth-captcha-note">
@@ -134,16 +232,10 @@ export function AuthScreen({
           ) : null}
 
           <button type="submit" className="send-button auth-submit" disabled={captchaBusy}>
-            {authStep === 'phone'
-              ? 'Получить код'
-              : authStep === 'code'
-                ? authExistingAccount
-                  ? 'Подтвердить вход'
-                  : 'Подтвердить номер'
-                : 'Создать тайник'}
+            {submitLabel}
           </button>
 
-          {authStep === 'phone' ? (
+          {isPhoneStep ? (
             <p className="auth-submit-note">
               Продолжая авторизацию, вы соглашаетесь с{' '}
               <a className="auth-submit-note-link" href="/user-agreement.html">

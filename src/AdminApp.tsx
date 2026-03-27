@@ -653,7 +653,7 @@ export default function AdminApp() {
 
     try {
       const captchaToken = getCaptchaTokenOrThrow()
-      const response = await requestAuthCode({ captchaToken, identifier })
+      const response = await requestAuthCode({ captchaToken, entryPoint: 'admin', identifier })
       setAuthHint(
         response.existingAccount
           ? `Код отправлен staff-аккаунту ${response.existingAccount.displayName}.`
@@ -675,6 +675,7 @@ export default function AdminApp() {
     try {
       const response = await verifyAuthCode({
         code: smsCode,
+        entryPoint: 'admin',
         identifier,
       })
 

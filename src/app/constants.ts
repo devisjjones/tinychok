@@ -39,6 +39,7 @@ export {
   messagePhotoUploadMaxSizeBytes,
   messagePhotoSendOriginalPreferenceStorageKey,
   nicknameFieldMaxLength,
+  passwordFieldMinLength,
   freeStorageQuotaBytes,
   orphanUploadTtlMs,
   premiumGroupMemberLimit,

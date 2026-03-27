@@ -16,9 +16,11 @@ import type {
   GroupHistoryResponse,
   InviteGroupMemberBody,
   InviteManagedChannelMembersBody,
+  LoginPasswordBody,
   ManageSubscriptionChannelSubscriberBody,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
+  ResetPasswordBody,
   RegisterUserGifBody,
   ReportContactBody,
   ReportMediaBody,
@@ -33,6 +35,7 @@ import type {
   SendManagedChannelPostBody,
   SendGroupThreadCommentBody,
   SendSubscriptionChannelThreadCommentBody,
+  SetPasswordBody,
   SubscriptionChannelHistoryResponse,
   UpdateDialogBody,
   UpdateGroupBody,
@@ -310,12 +313,22 @@ app.get('/api/client-config', async () => ({
 app.post('/api/auth/request-code', async (request, reply) => {
   try {
     const body = parseJsonPayload<RequestCodeBody>(request.body)
-    await verifyCaptchaOrThrow({
-      action: 'auth.request-code',
-      remoteIp: request.ip,
-      token: body.captchaToken,
+    const entryPoint = body.entryPoint ?? 'user'
+    const flow = body.flow ?? 'default'
+    const captchaRequired = entryPoint === 'admin' || flow === 'default'
+
+    if (captchaRequired) {
+      await verifyCaptchaOrThrow({
+        action: 'auth.request-code',
+        remoteIp: request.ip,
+        token: body.captchaToken,
+      })
+    }
+
+    return await store.requestCode(body.identifier ?? '', {
+      entryPoint,
+      flow,
     })
-    return await store.requestCode(body.identifier ?? '')
   } catch (error) {
     return sendError(reply, error)
   }
@@ -325,9 +338,25 @@ app.post('/api/auth/verify-code', async (request, reply) => {
   try {
     const body = parseJsonPayload<VerifyCodeBody>(request.body)
     return await store.verifyCode(body.identifier ?? '', body.code ?? '', {
+      accessContext: {
+        ip: request.ip,
+        userAgent: request.headers['user-agent'],
+      },
+      entryPoint: body.entryPoint ?? 'user',
+    })
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/auth/login-password', async (request, reply) => {
+  try {
+    const body = parseJsonPayload<LoginPasswordBody>(request.body)
+    const snapshot = await store.loginWithPassword(body, {
       ip: request.ip,
       userAgent: request.headers['user-agent'],
     })
+    return { snapshot }
   } catch (error) {
     return sendError(reply, error)
   }
@@ -337,6 +366,32 @@ app.post('/api/auth/register', async (request, reply) => {
   try {
     const body = parseJsonPayload<RegisterBody>(request.body)
     const snapshot = await store.registerAccount(body, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+    })
+    return { snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/auth/set-password', async (request, reply) => {
+  try {
+    const body = parseJsonPayload<SetPasswordBody>(request.body)
+    const snapshot = await store.setPasswordAfterCode(body, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+    })
+    return { snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/auth/reset-password', async (request, reply) => {
+  try {
+    const body = parseJsonPayload<ResetPasswordBody>(request.body)
+    const snapshot = await store.resetPasswordAfterCode(body, {
       ip: request.ip,
       userAgent: request.headers['user-agent'],
     })

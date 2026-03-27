@@ -41,10 +41,14 @@ import type {
   GroupHistoryResponse,
   InviteGroupMemberBody,
   InviteManagedChannelMembersBody,
+  LoginPasswordBody,
+  LoginPasswordResponse,
   ManageSubscriptionChannelSubscriberBody,
   MutationResponse,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
+  ResetPasswordBody,
+  ResetPasswordResponse,
   RegisterUserGifBody,
   ReportContactBody,
   ReportMediaBody,
@@ -54,6 +58,8 @@ import type {
   RealtimeEvent,
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
+  SetPasswordBody,
+  SetPasswordResponse,
   SendManagedChannelPostBody,
   SearchUserGifsResponse,
   SendDirectMessageBody,
@@ -343,6 +349,33 @@ export async function verifyAuthCode(body: VerifyCodeBody) {
 export async function registerAccount(body: RegisterBody) {
   const response = await fetch(makeHttpUrl('/api/auth/register'), makeJsonRequestInit('POST', body))
   const payload = await readJsonResponse<RegisterResponse>(response)
+  return {
+    ...payload,
+    snapshot: normalizeSnapshot(payload.snapshot),
+  }
+}
+
+export async function loginWithPassword(body: LoginPasswordBody) {
+  const response = await fetch(makeHttpUrl('/api/auth/login-password'), makeJsonRequestInit('POST', body))
+  const payload = await readJsonResponse<LoginPasswordResponse>(response)
+  return {
+    ...payload,
+    snapshot: normalizeSnapshot(payload.snapshot),
+  }
+}
+
+export async function setPassword(body: SetPasswordBody) {
+  const response = await fetch(makeHttpUrl('/api/auth/set-password'), makeJsonRequestInit('POST', body))
+  const payload = await readJsonResponse<SetPasswordResponse>(response)
+  return {
+    ...payload,
+    snapshot: normalizeSnapshot(payload.snapshot),
+  }
+}
+
+export async function resetPassword(body: ResetPasswordBody) {
+  const response = await fetch(makeHttpUrl('/api/auth/reset-password'), makeJsonRequestInit('POST', body))
+  const payload = await readJsonResponse<ResetPasswordResponse>(response)
   return {
     ...payload,
     snapshot: normalizeSnapshot(payload.snapshot),

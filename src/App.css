@@ -434,6 +434,19 @@
   justify-content: center;
 }
 
+.auth-secondary-action {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
 .auth-submit:disabled {
   opacity: 0.7;
   cursor: progress;

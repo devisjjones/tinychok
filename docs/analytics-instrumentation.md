@@ -45,8 +45,11 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 ### Current Virtual Routes
 
 - `/auth/phone`
+- `/auth/password`
 - `/auth/code`
-- `/auth/profile`
+- `/auth/profile-password`
+- `/auth/password-setup`
+- `/auth/password-reset`
 - `/dialogs`
 - `/dialogs/:chatId`
 - `/groups`
@@ -75,6 +78,17 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `auth_code_request_failed`
 - `auth_code_verify_succeeded`
 - `auth_code_verify_failed`
+- `auth_password_prompt_shown`
+- `auth_password_login_requested`
+- `auth_password_login_succeeded`
+- `auth_password_login_failed`
+- `auth_password_forgot_started`
+- `auth_password_reset_code_requested`
+- `auth_password_reset_code_verified`
+- `auth_password_set_succeeded`
+- `auth_password_set_failed`
+- `auth_password_reset_succeeded`
+- `auth_password_reset_failed`
 - `auth_registration_succeeded`
 - `auth_registration_failed`
 
@@ -168,11 +182,46 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `auth_code_request_succeeded`
   - `captchaRequired`
   - `existingAccount`
+  - `flow`
+  - `hasPassword`
 - `auth_code_request_failed`
   - `captchaRequired`
+  - `flow`
+  - `reason`
+- `auth_code_verify_succeeded`
+  - `flow`
+  - `outcome`
+- `auth_code_verify_failed`
+  - `blocked`
+  - `flow`
   - `reason`
 - `auth_captcha_completed`
   - `provider`
+- `auth_password_prompt_shown`
+  - `existingAccount`
+  - `hasPassword`
+- `auth_password_login_failed`
+  - `reason`
+- `auth_password_set_failed`
+  - `reason`
+- `auth_password_reset_failed`
+  - `reason`
+
+### Password Auth Funnel
+
+- повторный вход:
+  - `auth_password_prompt_shown`
+  - `auth_password_login_requested`
+  - `auth_password_login_succeeded`
+- forgot-password:
+  - `auth_password_forgot_started`
+  - `auth_password_reset_code_requested`
+  - `auth_password_reset_code_verified`
+  - `auth_password_reset_succeeded`
+- legacy migration на пароль:
+  - `auth_code_request_succeeded(flow=legacy-password-setup)`
+  - `auth_code_verify_succeeded(flow=legacy-password-setup)`
+  - `auth_password_set_succeeded`
 
 ### GIF Events
 
