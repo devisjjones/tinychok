@@ -182,6 +182,20 @@ function formatUserRole(value?: 'owner' | 'moderator' | 'support') {
   return value ? formatStaffRole(value) : 'Пользователь'
 }
 
+function getAdminUserLookupIdentifier(user: AdminUserSummary) {
+  return user.originalIdentifier || user.identifier
+}
+
+function formatAdminDeletionMode(user: AdminUserSummary) {
+  if (!user.deletedAt) {
+    return 'Нет'
+  }
+
+  return user.deletionMode === 'account-and-user-data-hidden'
+    ? 'Аккаунт и пользовательские данные скрыты'
+    : 'Только аккаунт'
+}
+
 const reportActionLabels: Record<AdminReportAction, string> = {
   close_report: 'Закрыть жалобу',
   delete_entity: 'Удалить сущность',
@@ -718,7 +732,7 @@ export default function AdminApp() {
       if (user.blocked) {
         const reason = getActionReason('Причина разблокировки', 'Проверка staff-командой')
         if (!reason) return
-        if (!window.confirm(`Снять блокировку с ${user.identifier}?`)) {
+        if (!window.confirm(`Снять блокировку с ${getAdminUserLookupIdentifier(user)}?`)) {
           return
         }
 
@@ -728,7 +742,7 @@ export default function AdminApp() {
       } else {
         const reason = getActionReason('Причина блокировки', 'Нарушение правил сервиса')
         if (!reason) return
-        if (!window.confirm(`Заблокировать ${user.identifier}?`)) {
+        if (!window.confirm(`Заблокировать ${getAdminUserLookupIdentifier(user)}?`)) {
           return
         }
 
@@ -767,7 +781,7 @@ export default function AdminApp() {
         durationDays = Number.isInteger(parsed) && parsed > 0 ? parsed : 30
       }
 
-      if (!window.confirm(`${enabled ? 'Выдать' : 'Снять'} premium для ${user.identifier}?`)) {
+      if (!window.confirm(`${enabled ? 'Выдать' : 'Снять'} premium для ${getAdminUserLookupIdentifier(user)}?`)) {
         return
       }
 
@@ -1455,7 +1469,7 @@ export default function AdminApp() {
                     <span className={user.blocked ? 'admin-user-status blocked' : 'admin-user-status'}>
                       {user.status || (user.blocked ? 'Заблокирован' : formatUserRole(user.staffRole))}
                     </span>
-                    <span>{user.identifier}</span>
+                    <span>{getAdminUserLookupIdentifier(user)}</span>
                   </button>
                 ))}
                 {visibleUsers.length === 0 ? (
@@ -1501,7 +1515,7 @@ export default function AdminApp() {
                   <dl className="admin-detail-grid">
                     <div>
                       <dt>ID</dt>
-                      <dd>{selectedUser.identifier}</dd>
+                      <dd>{getAdminUserLookupIdentifier(selectedUser)}</dd>
                     </div>
                     <div>
                       <dt>Username</dt>
@@ -1522,6 +1536,18 @@ export default function AdminApp() {
                     <div>
                       <dt>Последняя активность</dt>
                       <dd>{formatDateTime(selectedUser.lastActiveAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Удалён пользователем</dt>
+                      <dd>{selectedUser.deletedBySelfService ? 'Да' : 'Нет'}</dd>
+                    </div>
+                    <div>
+                      <dt>Дата удаления</dt>
+                      <dd>{formatDateTime(selectedUser.deletedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Режим удаления</dt>
+                      <dd>{formatAdminDeletionMode(selectedUser)}</dd>
                     </div>
                     <div>
                       <dt>Последний IP</dt>
@@ -2232,7 +2258,7 @@ export default function AdminApp() {
                         >
                           <strong>{user.displayName}</strong>
                           <span>{user.nickname ? `@${user.nickname}` : 'Нет юзернейма'}</span>
-                          <span>{user.identifier}</span>
+                          <span>{getAdminUserLookupIdentifier(user)}</span>
                         </button>
                       ))}
                     </div>

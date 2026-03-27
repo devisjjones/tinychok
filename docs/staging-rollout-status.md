@@ -135,6 +135,15 @@ curl -s https://api.staging.tinychok.ru/healthz
   - после `3` неверных password attempts на шаге пароля появляется обязательная SmartCaptcha
   - password-login режется server-side lockout по `identifier + ip`
   - после `password-setup` и `password-reset` старые bearer sessions перестают работать
+  - в `Настройки -> Управление` есть:
+    - `Сменить пароль`
+    - `Удалить аккаунт`
+  - self-service удаление аккаунта:
+    - требует текущий пароль
+    - умеет чекбокс `Удалить и данные тоже`
+    - разлогинивает пользователя
+    - освобождает номер для новой регистрации как нового аккаунта
+    - не уничтожает серверный архив старого аккаунта для admin/legal
 - публичные статические страницы тоже входят в staging build:
   - `/privacy-policy.html`
   - `/user-agreement.html`
@@ -145,6 +154,11 @@ curl -s https://api.staging.tinychok.ru/healthz
 - login на staging под allowlist номером
 - login по паролю на существующем аккаунте
 - forgot-password через SMS reset и установка нового пароля
+- смена пароля из `Настройки -> Управление`
+- self-service удаление аккаунта:
+  - удаляет доступ для пользователя
+  - после этого тот же номер может заново зарегистрироваться как новый аккаунт
+  - старый архивный аккаунт остаётся доступен в admin/legal контуре
 - repeated wrong password attempts:
   - `5` подряд -> блок `5 минут`
   - следующий порог -> `30 минут`

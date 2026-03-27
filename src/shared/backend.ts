@@ -144,10 +144,14 @@ export type AdminUserSummary = {
   blockedAt?: string
   blockedReason?: string
   createdAt: string
+  deletedAt?: string
+  deletedBySelfService?: boolean
+  deletionMode?: 'account-and-user-data-hidden' | 'account-only'
   displayName: string
   identifier: string
   lastActiveAt?: string
   nickname?: string
+  originalIdentifier?: string
   premium: boolean
   premiumExpiresAt?: string
   staffRole?: StaffRole
@@ -536,6 +540,15 @@ export type ChangePasswordBody = {
 
 export type ChangePasswordResponse = {
   snapshot: AppSnapshot
+}
+
+export type DeleteAccountBody = {
+  deleteDataToo: boolean
+  password: string
+}
+
+export type DeleteAccountResponse = {
+  success: true
 }
 
 export type SaveSnapshotBody = {

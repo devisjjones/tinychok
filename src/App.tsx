@@ -69,6 +69,7 @@ import {
   deleteDialogMessage as deleteDialogMessageRequest,
   deleteGroupMessage as deleteGroupMessageRequest,
   deleteGroupThreadComment as deleteGroupThreadCommentRequest,
+  deleteAccount as deleteAccountRequest,
   blacklistSubscriptionChannelSubscriber as blacklistSubscriptionChannelSubscriberRequest,
   changePassword as changePasswordRequest,
   deleteManagedChannel as deleteManagedChannelRequest,
@@ -1074,6 +1075,12 @@ function App() {
   const [changePasswordCurrentVisible, setChangePasswordCurrentVisible] = useState(false)
   const [changePasswordNextVisible, setChangePasswordNextVisible] = useState(false)
   const [changePasswordConfirmVisible, setChangePasswordConfirmVisible] = useState(false)
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false)
+  const [deleteAccountBusy, setDeleteAccountBusy] = useState(false)
+  const [deleteAccountError, setDeleteAccountError] = useState('')
+  const [deleteAccountPasswordValue, setDeleteAccountPasswordValue] = useState('')
+  const [deleteAccountPasswordVisible, setDeleteAccountPasswordVisible] = useState(false)
+  const [deleteAccountDataToo, setDeleteAccountDataToo] = useState(false)
   const [backendReady, setBackendReady] = useState(false)
   const [confirmingLogout, setConfirmingLogout] = useState(false)
   const [bottomSection, setBottomSection] = useState<'chats' | 'contacts'>('chats')
@@ -2278,6 +2285,7 @@ function App() {
     changePasswordCurrentValue.trim().length > 0 ||
     changePasswordNextValue.trim().length > 0 ||
     changePasswordConfirmValue.trim().length > 0
+  const deleteAccountDirty = deleteAccountPasswordValue.trim().length > 0
   const creatingGroupMemberLimit = sessionHasPremium ? premiumGroupMemberLimit : defaultGroupMemberLimit
   const selectedGroupCreateChats = creatableGroupChats.filter((chat) =>
     creatingGroupMemberChatIds.includes(chat.id),
@@ -2961,6 +2969,8 @@ function App() {
     setChannelPostError('')
     setChannelPostReplyTarget(null)
     setConfirmingLogout(false)
+    setDeleteAccountOpen(false)
+    resetDeleteAccountForm()
     setChatActionsOpen(false)
     setBlockedActionChatId(null)
     setPremiumGiftChatId(null)
@@ -7456,6 +7466,14 @@ function App() {
     setChangePasswordConfirmVisible(false)
   }
 
+  function resetDeleteAccountForm() {
+    setDeleteAccountBusy(false)
+    setDeleteAccountError('')
+    setDeleteAccountPasswordValue('')
+    setDeleteAccountPasswordVisible(false)
+    setDeleteAccountDataToo(false)
+  }
+
   async function saveChangedPassword() {
     if (!session?.sessionToken) {
       setChangePasswordError('Смена пароля сейчас недоступна. Войдите снова.')
@@ -7488,6 +7506,55 @@ function App() {
       return false
     } finally {
       setChangePasswordBusy(false)
+    }
+  }
+
+  async function deleteCurrentAccount() {
+    if (!session?.sessionToken) {
+      setDeleteAccountError('Удаление аккаунта сейчас недоступно. Войдите снова.')
+      return false
+    }
+
+    setDeleteAccountBusy(true)
+    setDeleteAccountError('')
+    trackAnalyticsEvent('account_deletion_requested', {
+      deleteDataToo: deleteAccountDataToo,
+      source: 'settings-management',
+    })
+
+    try {
+      const deleteDataToo = deleteAccountDataToo
+      await deleteAccountRequest(session.sessionToken, {
+        deleteDataToo,
+        password: deleteAccountPasswordValue,
+      })
+
+      if (typeof window !== 'undefined') {
+        const currentAccounts = loadAccounts()
+        const nextAccounts = currentAccounts.filter((account) => account.identifier !== session.identifier)
+        window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
+      }
+
+      resetDeleteAccountForm()
+      setDeleteAccountOpen(false)
+      trackAnalyticsEvent('account_deletion_succeeded', {
+        deleteDataToo,
+        source: 'settings-management',
+      })
+      window.alert('Аккаунт удалён. Для входа нужно будет зарегистрироваться заново.')
+      logout()
+      return true
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось удалить аккаунт.'
+      setDeleteAccountError(message)
+      trackAnalyticsEvent('account_deletion_failed', {
+        deleteDataToo: deleteAccountDataToo,
+        message,
+        source: 'settings-management',
+      })
+      return false
+    } finally {
+      setDeleteAccountBusy(false)
     }
   }
 
@@ -12352,6 +12419,8 @@ function App() {
                           resetChangePasswordForm()
                         } else {
                           setChangePasswordError('')
+                          setDeleteAccountOpen(false)
+                          resetDeleteAccountForm()
                         }
                         return nextOpen
                       })
@@ -12536,12 +12605,85 @@ function App() {
                       {cookieConsentToggleLabel}
                     </button>
                   </article>
-                  <button type="button" className="settings-action-card danger">
+                  <button
+                    type="button"
+                    className="settings-action-card danger"
+                    onClick={() => {
+                      setDeleteAccountOpen((current) => {
+                        const nextValue = !current
+                        if (!nextValue) {
+                          resetDeleteAccountForm()
+                        }
+                        setChangePasswordOpen(false)
+                        return nextValue
+                      })
+                    }}
+                  >
                     Удалить аккаунт
                   </button>
-                  <button type="button" className="settings-action-card danger">
-                    Удалить данные и аккаунт
-                  </button>
+                  {deleteAccountOpen ? (
+                    <article className="settings-item settings-inline-form">
+                      <span className="settings-label">Удаление аккаунта</span>
+                      <p className="settings-text">
+                        После удаления доступ к текущему аккаунту закроется. Чтобы войти снова,
+                        нужно будет зарегистрироваться заново по этому номеру телефона.
+                      </p>
+                      <div className="auth-password-input">
+                        <input
+                          type={deleteAccountPasswordVisible ? 'text' : 'password'}
+                          className="auth-input"
+                          placeholder="Текущий пароль"
+                          value={deleteAccountPasswordValue}
+                          onChange={(event) => setDeleteAccountPasswordValue(event.target.value)}
+                          autoComplete="current-password"
+                        />
+                        <button
+                          type="button"
+                          className="auth-password-visibility"
+                          aria-label={deleteAccountPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                          onClick={() => setDeleteAccountPasswordVisible((current) => !current)}
+                        >
+                          <img
+                            src={deleteAccountPasswordVisible ? '/icons/eyeoff.png' : '/icons/eyeon.png'}
+                            alt=""
+                            aria-hidden="true"
+                          />
+                        </button>
+                      </div>
+                      <label className="settings-checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={deleteAccountDataToo}
+                          onChange={(event) => setDeleteAccountDataToo(event.target.checked)}
+                        />
+                        <span>Удалить и данные тоже</span>
+                      </label>
+                      {deleteAccountError ? <p className="auth-error">{deleteAccountError}</p> : null}
+                      <div className="settings-actions settings-management-inline-actions settings-inline-actions">
+                        <button
+                          type="button"
+                          className="soft-button danger"
+                          onClick={() => {
+                            void deleteCurrentAccount()
+                          }}
+                          disabled={deleteAccountBusy || !deleteAccountDirty}
+                        >
+                          {deleteAccountBusy ? 'Удаляем...' : 'Удалить аккаунт'}
+                        </button>
+                        <button
+                          type="button"
+                          className="soft-button"
+                          onClick={() => {
+                            setDeleteAccountOpen(false)
+                            resetDeleteAccountForm()
+                          }}
+                          disabled={deleteAccountBusy}
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    </article>
+                  ) : null}
                 </div>
               ) : (
                 <div className="settings-stack">

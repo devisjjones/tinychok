@@ -5,6 +5,7 @@ export type AppStore = Pick<
   | 'createGroup'
   | 'createManagedChannel'
   | 'changePassword'
+  | 'deleteAccountSelfService'
   | 'addUserGif'
   | 'searchUserGifs'
   | 'removeUserGif'

@@ -93,6 +93,12 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `auth_password_set_failed`
 - `auth_password_reset_succeeded`
 - `auth_password_reset_failed`
+- `auth_password_change_requested`
+- `auth_password_change_succeeded`
+- `auth_password_change_failed`
+- `account_deletion_requested`
+- `account_deletion_succeeded`
+- `account_deletion_failed`
 - `auth_registration_succeeded`
 - `auth_registration_failed`
 
@@ -222,6 +228,20 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `reason`
 - `auth_password_reset_succeeded`
   - `revokedPreviousSessions`
+- `auth_password_change_failed`
+  - `message`
+- `auth_password_change_succeeded`
+  - `revokedPreviousSessions`
+- `account_deletion_requested`
+  - `deleteDataToo`
+  - `source`
+- `account_deletion_succeeded`
+  - `deleteDataToo`
+  - `source`
+- `account_deletion_failed`
+  - `deleteDataToo`
+  - `message`
+  - `source`
 
 ### Password Auth Funnel
 
@@ -246,6 +266,14 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `auth_code_request_succeeded(flow=legacy-password-setup)`
   - `auth_code_verify_succeeded(flow=legacy-password-setup)`
   - `auth_password_set_succeeded`
+- смена пароля в настройках:
+  - `auth_password_change_requested`
+  - `auth_password_change_succeeded`
+  - `auth_password_change_failed`
+- self-service удаление аккаунта:
+  - `account_deletion_requested`
+  - `account_deletion_succeeded`
+  - `account_deletion_failed`
 
 ### Password Security Notes
 

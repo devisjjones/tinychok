@@ -81,6 +81,8 @@ import type {
   ComplaintReason,
   CreateGroupBody,
   CreateManagedChannelBody,
+  DeleteAccountBody,
+  DeleteAccountResponse,
   DebugPremiumBody,
   DirectDialogHistoryResponse,
   GroupHistoryResponse,
@@ -129,7 +131,19 @@ import {
 import { deleteStoredMediaByUrl, readStoredMediaByUrl } from './media'
 
 type StoredAccount = SharedAccount & StoredAccountPasswordFields
-type Account = StoredAccount
+type AccountDeletionMode = 'account-and-user-data-hidden' | 'account-only'
+
+type StoredAccountLifecycleFields = {
+  accountId: string
+  archivedOriginalIdentifier?: string
+  deletedAt?: string
+  deletedBySelfService?: boolean
+  deletionMode?: AccountDeletionMode
+}
+
+type StoredAccountRecord = StoredAccount & StoredAccountLifecycleFields
+type AccountRecord = StoredAccountRecord
+type Account = AccountRecord
 
 type PersistedDialog = Omit<Chat, 'messages'> & {
   ownerIdentifier: string
@@ -243,12 +257,12 @@ type LegacyAccountState = {
   subscriptionChannels: SubscriptionChannel[]
 }
 
-type LegacyPersistedAccount = Account & {
+type LegacyPersistedAccount = AccountRecord & {
   state: LegacyAccountState
 }
 
 export type Database = {
-  accounts: Account[]
+  accounts: AccountRecord[]
   adminAuditLogs: AdminAuditLogRecord[]
   adminReports: AdminReportRecord[]
   authChallenges: AuthChallenge[]
@@ -366,11 +380,16 @@ function createSeedState() {
 
 function buildTestAccounts() {
   return initialChats.map((chat) => ({
+    accountId: `test_${encodeIdentifierToken(normalizeIdentifier(chat.phone))}`,
     avatarImage: undefined,
+    archivedOriginalIdentifier: undefined,
     blockedAt: undefined,
     blockedReason: undefined,
     blockedContactIds: [],
     createdAt: TEST_FIXTURE_CREATED_AT,
+    deletedAt: undefined,
+    deletedBySelfService: undefined,
+    deletionMode: undefined,
     displayName: chat.title,
     identifier: normalizeIdentifier(chat.phone),
     isTestEntity: true,
@@ -687,7 +706,40 @@ function isIdentifierInCommentBlacklist(
 }
 
 function sanitizeIdentifierList(values: string[] | undefined) {
-  return [...new Set((values ?? []).map((value) => normalizeIdentifier(value)).filter(Boolean))]
+  return [...new Set((values ?? []).map((value) => normalizeStoredIdentifierReference(value)).filter(Boolean))]
+}
+
+function normalizeStoredIdentifierReference(value: string | undefined | null) {
+  const trimmed = value?.trim() ?? ''
+  if (!trimmed) {
+    return ''
+  }
+
+  return normalizeIdentifier(trimmed) || trimmed
+}
+
+function resolveStoredIdentifierReference(value: string | undefined | null, fallback: string) {
+  return normalizeStoredIdentifierReference(value) || normalizeStoredIdentifierReference(fallback)
+}
+
+function encodeIdentifierToken(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[0-9]/gu, (digit) => String.fromCharCode(97 + Number(digit)))
+    .replace(/[^a-z]/gu, '')
+}
+
+function buildArchivedAccountIdentifier(accountId: string) {
+  const token = encodeIdentifierToken(accountId) || 'archived'
+  return `archived_${token}`
+}
+
+function getAccountOriginalIdentifier(account: Pick<AccountRecord, 'archivedOriginalIdentifier' | 'identifier'>) {
+  return normalizeIdentifier(account.archivedOriginalIdentifier ?? '') || normalizeIdentifier(account.identifier)
+}
+
+function isArchivedAccount(account: Pick<AccountRecord, 'deletedAt'>) {
+  return Boolean(account.deletedAt)
 }
 
 function buildAccountHandle(account: Account) {
@@ -887,7 +939,7 @@ function getAdminGroupParticipantIdentifiers(
   group: Pick<PersistedGroup, 'participants'>,
 ) {
   return [...new Set((group.participants ?? [])
-    .map((participant) => normalizeIdentifier(participant.identifier ?? ''))
+    .map((participant) => normalizeStoredIdentifierReference(participant.identifier ?? ''))
     .filter(Boolean))].sort()
 }
 
@@ -895,8 +947,8 @@ function getAdminGroupCanonicalOwnerIdentifier(
   group: Pick<PersistedGroup, 'creatorIdentifier' | 'ownerIdentifier' | 'participants'>,
 ) {
   return (
-    normalizeIdentifier(group.creatorIdentifier ?? '') ||
-    normalizeIdentifier(group.participants?.[0]?.identifier ?? '') ||
+    normalizeStoredIdentifierReference(group.creatorIdentifier ?? '') ||
+    normalizeStoredIdentifierReference(group.participants?.[0]?.identifier ?? '') ||
     group.ownerIdentifier
   )
 }
@@ -956,7 +1008,7 @@ function buildAdminThreadCommentAggregateKey(
   fallbackAuthorIdentifier: string,
   comment: Pick<ThreadComment, 'attachment' | 'authorIdentifier' | 'createdAt' | 'id' | 'text'>,
 ) {
-  const authorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || fallbackAuthorIdentifier
+  const authorIdentifier = resolveStoredIdentifierReference(comment.authorIdentifier ?? '', fallbackAuthorIdentifier)
   return `${parentThreadKey}:${authorIdentifier}:${comment.createdAt?.trim() ?? ''}:${comment.id}:${comment.text.trim()}:${comment.attachment?.fileName ?? ''}`
 }
 
@@ -1213,7 +1265,7 @@ function toPersistedSubscriptionChannel(
     participants:
       channel.participants?.map((participant) => ({
         ...participant,
-        identifier: participant.identifier ? normalizeIdentifier(participant.identifier) : undefined,
+        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
         nickname: normalizeNickname(participant.nickname ?? ''),
     })) ?? [],
     preview: channel.preview,
@@ -1302,7 +1354,7 @@ function materializeGroup(group: PersistedGroup): Omit<PersistedGroup, 'ownerIde
     muted: Boolean(group.muted),
     participants: (group.participants ?? fallbackParticipants).map((participant) => ({
       ...participant,
-      identifier: participant.identifier ? normalizeIdentifier(participant.identifier) : undefined,
+      identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
       nickname: normalizeNickname(participant.nickname ?? ''),
     })),
     preview: group.preview,
@@ -1413,7 +1465,7 @@ function materializeSubscriptionChannel(
     participants:
       channel.participants?.map((participant) => ({
         ...participant,
-        identifier: participant.identifier ? normalizeIdentifier(participant.identifier) : undefined,
+        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
         nickname: normalizeNickname(participant.nickname ?? ''),
       })) ?? [],
     readers: channel.readers ?? 0,
@@ -1619,12 +1671,17 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
   nextDatabase.threadStates = []
 
   for (const legacyAccount of value.accounts ?? []) {
-  nextDatabase.accounts.push({
+    nextDatabase.accounts.push({
+      accountId: randomUUID(),
       avatarImage: legacyAccount.avatarImage?.trim() || undefined,
+      archivedOriginalIdentifier: undefined,
       blockedAt: legacyAccount.blockedAt,
       blockedReason: legacyAccount.blockedReason,
       blockedContactIds: legacyAccount.blockedContactIds ?? [],
       createdAt: legacyAccount.createdAt,
+      deletedAt: undefined,
+      deletedBySelfService: undefined,
+      deletionMode: undefined,
       displayName: legacyAccount.displayName,
       gifLibrary: [...(legacyAccount.gifLibrary ?? [])],
       identifier: legacyAccount.identifier,
@@ -1668,7 +1725,7 @@ function materializeFullChats(database: Database, ownerIdentifier: string): Chat
     .filter((dialog) => dialog.ownerIdentifier === ownerIdentifier)
     .map((dialog) => {
       const contactAccount = database.accounts.find(
-        (account) => normalizeIdentifier(dialog.phone) === account.identifier,
+        (account) => normalizeStoredIdentifierReference(dialog.phone) === account.identifier,
       )
       const messages = database.dialogMessages
         .filter(
@@ -1756,7 +1813,7 @@ function materializeSubscriptionParticipants(
   if (explicitParticipants.length > 0) {
     return explicitParticipants.map((participant) => ({
       ...participant,
-      identifier: participant.identifier ? normalizeIdentifier(participant.identifier) : undefined,
+      identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
       nickname: normalizeNickname(participant.nickname ?? ''),
     }))
   }
@@ -2228,11 +2285,16 @@ export class TinychokStore {
     const passwordHash = await hashPassword(payload.password)
 
     const nextAccount: Account = {
+      accountId: randomUUID(),
       avatarImage: undefined,
+      archivedOriginalIdentifier: undefined,
       blockedAt: undefined,
       blockedReason: undefined,
       blockedContactIds: [],
       createdAt: new Date().toISOString(),
+      deletedAt: undefined,
+      deletedBySelfService: undefined,
+      deletionMode: undefined,
       displayName,
       gifLibrary: [],
       identifier: normalizedIdentifier,
@@ -2429,6 +2491,63 @@ export class TinychokStore {
     return this.buildSnapshot(existingAccount, nextToken)
   }
 
+  async deleteAccountSelfService(token: string, payload: DeleteAccountBody): Promise<DeleteAccountResponse> {
+    const existingAccount = this.findAccountByToken(token)
+
+    if (!existingAccount) {
+      throw new Error('Сессия устарела. Войдите снова.')
+    }
+
+    if (!hasAccountPassword(existingAccount)) {
+      throw new Error('Для удаления аккаунта сначала задайте пароль.')
+    }
+
+    const currentPasswordMatches = await verifyPassword(payload.password ?? '', existingAccount.passwordHash!)
+    if (!currentPasswordMatches) {
+      throw new Error('Текущий пароль введён неверно.')
+    }
+
+    const liveIdentifier = existingAccount.identifier
+    const archivedIdentifier = buildArchivedAccountIdentifier(existingAccount.accountId)
+    const deletedAt = new Date().toISOString()
+    const deletionMode: AccountDeletionMode = payload.deleteDataToo
+      ? 'account-and-user-data-hidden'
+      : 'account-only'
+
+    this.revokeSessionsForIdentifier(liveIdentifier)
+    this.clearPasswordLoginAttempts(liveIdentifier)
+    this.clearChallenge(liveIdentifier)
+    this.rewriteAccountIdentifierReferences(liveIdentifier, archivedIdentifier)
+
+    existingAccount.archivedOriginalIdentifier = normalizeIdentifier(liveIdentifier)
+    existingAccount.deletedAt = deletedAt
+    existingAccount.deletedBySelfService = true
+    existingAccount.deletionMode = deletionMode
+    existingAccount.identifier = archivedIdentifier
+    existingAccount.lastActiveAt = deletedAt
+
+    await this.appendSystemAuditLog({
+      action: 'user.account.delete.self-service',
+      nextValue: {
+        archivedIdentifier,
+        deleteDataToo: Boolean(payload.deleteDataToo),
+        deletedAt,
+        originalIdentifier: existingAccount.archivedOriginalIdentifier,
+      },
+      summary: `Пользователь ${buildAdminAuditAccountLabel({
+        displayName: existingAccount.displayName,
+        identifier: existingAccount.archivedOriginalIdentifier ?? liveIdentifier,
+        nickname: existingAccount.nickname ?? '',
+        surname: existingAccount.surname ?? '',
+      })} удалил аккаунт через настройки`,
+      targetId: existingAccount.accountId,
+      targetType: 'user-self-service',
+    })
+
+    await this.persist()
+    return { success: true }
+  }
+
   getSnapshotByToken(token: string) {
     const account = this.findAccountByToken(token)
     return account ? this.buildSnapshot(account, token) : null
@@ -2592,7 +2711,7 @@ export class TinychokStore {
   }
 
   private revokeSessionsForIdentifier(identifier: string) {
-    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const normalizedIdentifier = normalizeStoredIdentifierReference(identifier)
     if (!normalizedIdentifier) {
       return
     }
@@ -2600,6 +2719,179 @@ export class TinychokStore {
     this.database.sessions = this.database.sessions.filter(
       (session) => session.identifier !== normalizedIdentifier,
     )
+  }
+
+  private rewriteAccountIdentifierReferences(
+    liveIdentifier: string,
+    archivedIdentifier: string,
+  ) {
+    const nextGroupThreadId = (threadId: string | undefined) =>
+      threadId?.replaceAll(`group:${liveIdentifier}:`, `group:${archivedIdentifier}:`)
+
+    for (const entry of this.database.adminAuditLogs) {
+      if (entry.actorIdentifier === liveIdentifier) {
+        entry.actorIdentifier = archivedIdentifier
+      }
+
+      if (entry.targetType === 'user' && entry.targetId === liveIdentifier) {
+        entry.targetId = archivedIdentifier
+      }
+    }
+
+    for (const report of this.database.adminReports) {
+      if (report.reporterIdentifier === liveIdentifier) {
+        report.reporterIdentifier = archivedIdentifier
+      }
+      if (report.entityOwnerIdentifier === liveIdentifier) {
+        report.entityOwnerIdentifier = archivedIdentifier
+      }
+      if (report.relatedUserIdentifier === liveIdentifier) {
+        report.relatedUserIdentifier = archivedIdentifier
+      }
+    }
+
+    this.database.authChallenges = this.database.authChallenges.filter(
+      (challenge) => challenge.identifier !== liveIdentifier,
+    )
+    this.database.passwordAuthAttempts = this.database.passwordAuthAttempts.filter(
+      (attempt) => attempt.identifier !== liveIdentifier,
+    )
+    this.database.sessions = this.database.sessions.filter((session) => session.identifier !== liveIdentifier)
+
+    for (const report of this.database.contactReports) {
+      if (report.reporterIdentifier === liveIdentifier) {
+        report.reporterIdentifier = archivedIdentifier
+      }
+      if (report.targetIdentifier === liveIdentifier) {
+        report.targetIdentifier = archivedIdentifier
+      }
+    }
+
+    for (const dialog of this.database.dialogs) {
+      if (dialog.ownerIdentifier === liveIdentifier) {
+        dialog.ownerIdentifier = archivedIdentifier
+      }
+      if (normalizeStoredIdentifierReference(dialog.phone) === liveIdentifier) {
+        dialog.phone = archivedIdentifier
+      }
+    }
+
+    for (const message of this.database.dialogMessages) {
+      if (message.ownerIdentifier === liveIdentifier) {
+        message.ownerIdentifier = archivedIdentifier
+      }
+    }
+
+    for (const group of this.database.groups) {
+      if (group.ownerIdentifier === liveIdentifier) {
+        group.ownerIdentifier = archivedIdentifier
+      }
+      if (resolveStoredIdentifierReference(group.creatorIdentifier, group.ownerIdentifier) === liveIdentifier) {
+        group.creatorIdentifier = archivedIdentifier
+      }
+      if (group.sharedId?.trim() === `${liveIdentifier}:${group.id}`) {
+        group.sharedId = `${archivedIdentifier}:${group.id}`
+      }
+      group.commentBlacklistIdentifiers = (group.commentBlacklistIdentifiers ?? []).map((identifier) =>
+        normalizeStoredIdentifierReference(identifier) === liveIdentifier ? archivedIdentifier : identifier,
+      )
+      group.participants = (group.participants ?? []).map((participant) => ({
+        ...participant,
+        identifier:
+          normalizeStoredIdentifierReference(participant.identifier ?? '') === liveIdentifier
+            ? archivedIdentifier
+            : participant.identifier,
+      }))
+    }
+
+    for (const message of this.database.groupMessages) {
+      if (message.ownerIdentifier === liveIdentifier) {
+        message.ownerIdentifier = archivedIdentifier
+      }
+      if (message.threadId) {
+        message.threadId = nextGroupThreadId(message.threadId)
+      }
+      message.threadComments = compactThreadComments(message.threadComments).map((comment) => ({
+        ...comment,
+        authorIdentifier:
+          normalizeStoredIdentifierReference(comment.authorIdentifier ?? '') === liveIdentifier
+            ? archivedIdentifier
+            : comment.authorIdentifier,
+      }))
+    }
+
+    for (const channel of this.database.managedChannels) {
+      if (channel.ownerIdentifier === liveIdentifier) {
+        channel.ownerIdentifier = archivedIdentifier
+      }
+      channel.commentBlacklistIdentifiers = (channel.commentBlacklistIdentifiers ?? []).map((identifier) =>
+        normalizeStoredIdentifierReference(identifier) === liveIdentifier ? archivedIdentifier : identifier,
+      )
+    }
+
+    for (const entry of this.database.ipAccessLogs) {
+      if (entry.identifier === liveIdentifier) {
+        entry.identifier = archivedIdentifier
+      }
+    }
+
+    for (const upload of this.database.pendingMediaUploads) {
+      if (upload.ownerIdentifier === liveIdentifier) {
+        upload.ownerIdentifier = archivedIdentifier
+      }
+    }
+
+    for (const report of this.database.subscriptionChannelReports) {
+      if (report.reporterIdentifier === liveIdentifier) {
+        report.reporterIdentifier = archivedIdentifier
+      }
+    }
+
+    for (const channel of this.database.subscriptionChannels) {
+      if (channel.ownerIdentifier === liveIdentifier) {
+        channel.ownerIdentifier = archivedIdentifier
+      }
+      channel.commentBlacklistIdentifiers = (channel.commentBlacklistIdentifiers ?? []).map((identifier) =>
+        normalizeStoredIdentifierReference(identifier) === liveIdentifier ? archivedIdentifier : identifier,
+      )
+      channel.participants = (channel.participants ?? []).map((participant) => ({
+        ...participant,
+        identifier:
+          normalizeStoredIdentifierReference(participant.identifier ?? '') === liveIdentifier
+            ? archivedIdentifier
+            : participant.identifier,
+      }))
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      if (post.ownerIdentifier === liveIdentifier) {
+        post.ownerIdentifier = archivedIdentifier
+      }
+      if (post.threadId) {
+        post.threadId = post.threadId.replaceAll(
+          `channel:${liveIdentifier}:`,
+          `channel:${archivedIdentifier}:`,
+        )
+      }
+      post.threadComments = compactThreadComments(post.threadComments).map((comment) => ({
+        ...comment,
+        authorIdentifier:
+          normalizeStoredIdentifierReference(comment.authorIdentifier ?? '') === liveIdentifier
+            ? archivedIdentifier
+            : comment.authorIdentifier,
+      }))
+    }
+
+    for (const state of this.database.threadStates) {
+      if (state.ownerIdentifier === liveIdentifier) {
+        state.ownerIdentifier = archivedIdentifier
+      }
+      if (state.threadId) {
+        state.threadId = state.threadId
+          .replaceAll(`group:${liveIdentifier}:`, `group:${archivedIdentifier}:`)
+          .replaceAll(`channel:${liveIdentifier}:`, `channel:${archivedIdentifier}:`)
+      }
+    }
   }
 
   searchAccounts(token: string, query: string) {
@@ -2619,13 +2911,13 @@ export class TinychokStore {
     const existingDialogPhones = new Set(
       this.database.dialogs
         .filter((dialog) => dialog.ownerIdentifier === account.identifier)
-        .map((dialog) => normalizeIdentifier(dialog.phone)),
+        .map((dialog) => normalizeStoredIdentifierReference(dialog.phone)),
     )
 
     return this.database.accounts
-      .filter((candidate) => candidate.identifier !== account.identifier)
+      .filter((candidate) => !candidate.deletedAt && candidate.identifier !== account.identifier)
       .filter((candidate) => {
-        const candidateDigits = candidate.identifier.replace(/[^\d]/g, '')
+        const candidateDigits = (getAccountOriginalIdentifier(candidate) || '').replace(/[^\d]/g, '')
         const displayName = formatAccountName(candidate).toLowerCase()
         const handle = buildAccountHandle(candidate).toLowerCase()
 
@@ -2658,9 +2950,9 @@ export class TinychokStore {
         accent: pickAccentForIdentifier(candidate.identifier),
         handle: buildAccountHandle(candidate),
         id: index + 1,
-        phone: candidate.identifier,
+        phone: getAccountOriginalIdentifier(candidate) || candidate.identifier,
         subtitle: buildSearchSubtitle(candidate),
-        title: formatAccountName(candidate) || candidate.identifier,
+        title: formatAccountName(candidate) || getAccountOriginalIdentifier(candidate) || candidate.identifier,
       }))
   }
 
@@ -2757,16 +3049,22 @@ export class TinychokStore {
 
         const displayLabel = buildAccountDisplayLabel(account).toLowerCase()
         const nickname = normalizeNickname(account.nickname ?? '').toLowerCase()
-        const accountDigits = account.identifier.replace(/[^\d]/g, '')
+        const accountDigits = (getAccountOriginalIdentifier(account) || '').replace(/[^\d]/g, '')
 
         return (
-          account.identifier === normalizedIdentifier ||
+          account.identifier === trimmedQuery ||
+          getAccountOriginalIdentifier(account) === normalizedIdentifier ||
           (digitsQuery !== '' && accountDigits.includes(digitsQuery)) ||
           displayLabel.includes(normalizedQuery) ||
           nickname.includes(normalizedQuery)
         )
       })
       .sort((left, right) => {
+        const activeDelta = Number(Boolean(left.deletedAt)) - Number(Boolean(right.deletedAt))
+        if (activeDelta !== 0) {
+          return activeDelta
+        }
+
         const blockedDelta = Number(isAccountBlocked(right)) - Number(isAccountBlocked(left))
         if (blockedDelta !== 0) {
           return blockedDelta
@@ -3222,11 +3520,10 @@ export class TinychokStore {
       const comments = compactThreadComments(message.threadComments)
       if (comments.length === 0) continue
       const rootAuthorIdentifier =
-        normalizeIdentifier(
+        resolveStoredIdentifierReference(
           group.participants.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
-        ) ||
-        normalizeIdentifier(group.creatorIdentifier ?? '') ||
-        message.ownerIdentifier
+          resolveStoredIdentifierReference(group.creatorIdentifier ?? '', message.ownerIdentifier),
+        )
 
       upsertThread({
         commentCount: comments.length,
@@ -3293,10 +3590,10 @@ export class TinychokStore {
       .filter(
         (dialog) =>
           dialog.ownerIdentifier === owner.identifier &&
-          normalizeIdentifier(dialog.phone) !== owner.identifier,
+          normalizeStoredIdentifierReference(dialog.phone) !== owner.identifier,
       )
       .map((dialog): AdminDialogSummary | null => {
-        const peerIdentifier = normalizeIdentifier(dialog.phone)
+        const peerIdentifier = normalizeStoredIdentifierReference(dialog.phone)
         if (!peerIdentifier) {
           return null
         }
@@ -3614,7 +3911,7 @@ export class TinychokStore {
     const ownerDialog = this.database.dialogs.find(
       (item) =>
         item.ownerIdentifier === dialog.owner.identifier &&
-        normalizeIdentifier(item.phone) === dialog.peer.identifier,
+        normalizeStoredIdentifierReference(item.phone) === dialog.peer.identifier,
     )
     if (!ownerDialog) {
       throw new Error('Диалог не найден.')
@@ -3673,6 +3970,28 @@ export class TinychokStore {
       throw new Error('Нужно указать основание для выгрузки.')
     }
 
+    const targetAccounts = this.findAccountsByOriginalIdentifier(
+      getAccountOriginalIdentifier(target) || body.targetIdentifier,
+    )
+    const lifecycleAccounts = targetAccounts.length > 0 ? targetAccounts : [target]
+    const lifecycleIdentifiers = new Set(lifecycleAccounts.map((account) => account.identifier))
+    const lifecycleOriginalIdentifiers = new Set(
+      lifecycleAccounts
+        .map((account) => getAccountOriginalIdentifier(account))
+        .filter((identifier): identifier is string => Boolean(identifier)),
+    )
+    const primaryTarget =
+      lifecycleAccounts.find((account) => !account.deletedAt) ?? lifecycleAccounts[0] ?? target
+    const matchesTargetIdentifier = (value: string | undefined | null) => {
+      const storedIdentifier = normalizeStoredIdentifierReference(value)
+      if (storedIdentifier && lifecycleIdentifiers.has(storedIdentifier)) {
+        return true
+      }
+
+      const normalizedIdentifier = normalizeIdentifier(value ?? '')
+      return normalizedIdentifier ? lifecycleOriginalIdentifiers.has(normalizedIdentifier) : false
+    }
+
     const fromTimestamp = parseIsoDate(body.from)
     const toTimestamp = parseIsoDate(body.to)
     const includeMedia = Boolean(body.includeMedia)
@@ -3721,12 +4040,12 @@ export class TinychokStore {
     >()
 
     for (const dialog of this.database.dialogs) {
-      const peerIdentifier = normalizeIdentifier(dialog.phone)
+      const peerIdentifier = normalizeStoredIdentifierReference(dialog.phone)
       if (!peerIdentifier || peerIdentifier === dialog.ownerIdentifier) {
         continue
       }
 
-      if (dialog.ownerIdentifier !== target.identifier && peerIdentifier !== target.identifier) {
+      if (!matchesTargetIdentifier(dialog.ownerIdentifier) && !matchesTargetIdentifier(peerIdentifier)) {
         continue
       }
 
@@ -3811,13 +4130,13 @@ export class TinychokStore {
     const relevantGroupIds = new Set<string>()
     for (const group of this.database.groups) {
       const participantIdentifiers = (group.participants ?? []).map((participant) =>
-        normalizeIdentifier(participant.identifier ?? ''),
+        normalizeStoredIdentifierReference(participant.identifier ?? ''),
       )
-      const creatorIdentifier = normalizeIdentifier(group.creatorIdentifier ?? '') || group.ownerIdentifier
+      const creatorIdentifier = resolveStoredIdentifierReference(group.creatorIdentifier ?? '', group.ownerIdentifier)
       if (
-        normalizeIdentifier(group.ownerIdentifier) === target.identifier ||
-        creatorIdentifier === target.identifier ||
-        participantIdentifiers.includes(target.identifier)
+        matchesTargetIdentifier(group.ownerIdentifier) ||
+        matchesTargetIdentifier(creatorIdentifier) ||
+        participantIdentifiers.some((identifier) => matchesTargetIdentifier(identifier))
       ) {
         relevantGroupIds.add(this.getSharedGroupId(group))
       }
@@ -3826,15 +4145,14 @@ export class TinychokStore {
       const group = this.findGroup(message.ownerIdentifier, message.groupId)
       if (!group) continue
       const authorIdentifier =
-        normalizeIdentifier(
+        resolveStoredIdentifierReference(
           group.participants?.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
-        ) ||
-        normalizeIdentifier(group.creatorIdentifier ?? '') ||
-        message.ownerIdentifier
+          resolveStoredIdentifierReference(group.creatorIdentifier ?? '', message.ownerIdentifier),
+        )
       if (
-        authorIdentifier === target.identifier ||
+        matchesTargetIdentifier(authorIdentifier) ||
         compactThreadComments(message.threadComments).some(
-          (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === target.identifier,
+          (comment) => matchesTargetIdentifier(comment.authorIdentifier ?? ''),
         )
       ) {
         relevantGroupIds.add(this.getSharedGroupId(group))
@@ -3863,11 +4181,10 @@ export class TinychokStore {
         .map((message) => {
           const parentGroup = this.findGroup(message.ownerIdentifier, message.groupId) ?? primaryGroup
           const messageAuthorIdentifier =
-            normalizeIdentifier(
+            resolveStoredIdentifierReference(
               parentGroup.participants?.find((participant) => participant.id === message.groupParticipantId)?.identifier ?? '',
-            ) ||
-            normalizeIdentifier(parentGroup.creatorIdentifier ?? '') ||
-            message.ownerIdentifier
+              resolveStoredIdentifierReference(parentGroup.creatorIdentifier ?? '', message.ownerIdentifier),
+            )
           const author = this.findAccount(messageAuthorIdentifier)
           const comments = compactThreadComments(message.threadComments).filter(
             (comment) =>
@@ -3886,12 +4203,15 @@ export class TinychokStore {
             authorDisplayName: author ? buildAccountDisplayLabel(author) : messageAuthorIdentifier,
             authorIdentifier: messageAuthorIdentifier,
             comments: comments.map((comment) => {
-              const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
-              const commentAuthor = this.findAccount(commentAuthorIdentifier)
+              const resolvedCommentAuthorIdentifier = resolveStoredIdentifierReference(
+                comment.authorIdentifier ?? '',
+                message.ownerIdentifier,
+              )
+              const commentAuthor = this.findAccount(resolvedCommentAuthorIdentifier)
               return {
                 attachment: comment.attachment ?? null,
-                authorDisplayName: commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
-                authorIdentifier: commentAuthorIdentifier,
+                authorDisplayName: commentAuthor ? buildAccountDisplayLabel(commentAuthor) : resolvedCommentAuthorIdentifier,
+                authorIdentifier: resolvedCommentAuthorIdentifier,
                 createdAt: comment.createdAt,
                 deliveryId: comment.deliveryId,
                 id: comment.id,
@@ -3974,16 +4294,16 @@ export class TinychokStore {
     const relevantChannelHandles = new Set<string>()
     for (const channel of this.database.managedChannels) {
       const handle = sanitizeChannelDirectLink(channel.directLink) || channel.directLink
-      if (normalizeIdentifier(channel.ownerIdentifier) === target.identifier) {
+      if (matchesTargetIdentifier(channel.ownerIdentifier)) {
         relevantChannelHandles.add(handle)
       }
     }
     for (const channel of this.database.subscriptionChannels) {
       const handle = sanitizeChannelDirectLink(channel.handle) || channel.handle
       const participantIdentifiers = (channel.participants ?? []).map((participant) =>
-        normalizeIdentifier(participant.identifier ?? ''),
+        normalizeStoredIdentifierReference(participant.identifier ?? ''),
       )
-      if (normalizeIdentifier(channel.ownerIdentifier) === target.identifier || participantIdentifiers.includes(target.identifier)) {
+      if (matchesTargetIdentifier(channel.ownerIdentifier) || participantIdentifiers.some((identifier) => matchesTargetIdentifier(identifier))) {
         relevantChannelHandles.add(handle)
       }
     }
@@ -3992,9 +4312,9 @@ export class TinychokStore {
       if (!channel) continue
       const handle = sanitizeChannelDirectLink(channel.handle) || channel.handle
       if (
-        post.ownerIdentifier === target.identifier ||
+        matchesTargetIdentifier(post.ownerIdentifier) ||
         compactThreadComments(post.threadComments).some(
-          (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === target.identifier,
+          (comment) => matchesTargetIdentifier(comment.authorIdentifier ?? ''),
         )
       ) {
         relevantChannelHandles.add(handle)
@@ -4044,7 +4364,7 @@ export class TinychokStore {
             authorDisplayName: channelOwner ? buildAccountDisplayLabel(channelOwner) : channelOwnerIdentifier,
             authorIdentifier: channelOwnerIdentifier,
             comments: comments.map((comment) => {
-              const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
+              const commentAuthorIdentifier = resolveStoredIdentifierReference(comment.authorIdentifier ?? '', post.ownerIdentifier)
               const commentAuthor = this.findAccount(commentAuthorIdentifier)
               return {
                 attachment: comment.attachment ?? null,
@@ -4147,9 +4467,9 @@ export class TinychokStore {
         }
 
         return (
-          report.reporterIdentifier === target.identifier ||
-          normalizeIdentifier(report.entityOwnerIdentifier ?? '') === target.identifier ||
-          normalizeIdentifier(report.relatedUserIdentifier ?? '') === target.identifier
+          matchesTargetIdentifier(report.reporterIdentifier) ||
+          matchesTargetIdentifier(report.entityOwnerIdentifier ?? '') ||
+          matchesTargetIdentifier(report.relatedUserIdentifier ?? '')
         )
       })
       .map((report) => this.buildAdminReportSummary(report))
@@ -4170,20 +4490,19 @@ export class TinychokStore {
       ]),
     ])
 
-    const auditRows = [
-      ...this.adminListAuditLogs({
-        from: body.from,
-        limit: Number.MAX_SAFE_INTEGER,
-        targetIdentifier: target.identifier,
-        to: body.to,
-      }),
-      ...this.adminListAuditLogs({
-        actorIdentifier: target.identifier,
-        from: body.from,
-        limit: Number.MAX_SAFE_INTEGER,
-        to: body.to,
-      }),
-    ]
+    const auditRows = this.database.adminAuditLogs
+      .filter((entry) => {
+        const createdAt = parseIsoDate(entry.createdAt)
+        if (fromTimestamp !== null && (createdAt === null || createdAt < fromTimestamp)) {
+          return false
+        }
+        if (toTimestamp !== null && (createdAt === null || createdAt > toTimestamp)) {
+          return false
+        }
+
+        return matchesTargetIdentifier(entry.actorIdentifier) || this.adminAuditEntryTargetsIdentifier(entry, body.targetIdentifier)
+      })
+      .map((entry) => this.buildAdminAuditEntry(entry))
     const uniqueAuditRows = [...new Map(auditRows.map((entry) => [entry.id, entry] as const)).values()]
       .sort((left, right) => compareIsoDateDesc(left.createdAt, right.createdAt))
     registerJson('audit/audit.json', uniqueAuditRows)
@@ -4200,7 +4519,8 @@ export class TinychokStore {
       ]),
     ])
 
-    const ipAccessRows = this.getIpAccessLogsForIdentifier(target.identifier)
+    const ipAccessRows = this.database.ipAccessLogs
+      .filter((entry) => matchesTargetIdentifier(entry.identifier))
       .filter((entry) => isTimestampWithinRange(entry.createdAt, fromTimestamp, toTimestamp))
     registerJson('ip/ip-log.json', ipAccessRows)
     registerCsv('ip/ip-log.csv', [
@@ -4218,8 +4538,8 @@ export class TinychokStore {
     const mediaItems = this.collectAdminMediaItems()
       .filter(
         (item) =>
-          item.owner.identifier === target.identifier ||
-          item.relatedUsers.some((user) => normalizeIdentifier(user.identifier) === target.identifier),
+          matchesTargetIdentifier(item.owner.identifier) ||
+          item.relatedUsers.some((user) => matchesTargetIdentifier(user.identifier)),
       )
       .sort((left, right) => compareIsoDateDesc(left.createdAt, right.createdAt))
 
@@ -4286,11 +4606,12 @@ export class TinychokStore {
       registerJson('media/media-errors.json', mediaFailures)
     }
 
-    const accountSummary = this.buildAdminUserSummary(target)
+    const accountSummary = this.buildAdminUserSummary(primaryTarget)
     registerJson('account.json', accountSummary)
+    registerJson('accounts.json', lifecycleAccounts.map((account) => this.buildAdminUserSummary(account)))
 
     const manifest = {
-      accountIdentifier: target.identifier,
+      accountIdentifier: body.targetIdentifier,
       actorIdentifier: actor.identifier,
       actorRole: actor.staffRole,
       archiveVersion: 1,
@@ -4301,6 +4622,7 @@ export class TinychokStore {
       },
       includeMedia,
       counts: {
+        accountLifecycles: lifecycleAccounts.length,
         auditEntries: uniqueAuditRows.length,
         channels: channelManifest.length,
         dialogs: dialogManifest.length,
@@ -4316,7 +4638,7 @@ export class TinychokStore {
     }
     registerJson('manifest.json', manifest)
 
-    const archiveFileName = `legal-export-${sanitizeExportFileName(accountSummary.displayName) || target.identifier}-${formatExportDateStamp()}.zip`
+    const archiveFileName = `legal-export-${sanitizeExportFileName(accountSummary.displayName) || primaryTarget.identifier}-${formatExportDateStamp()}.zip`
     await this.appendAdminAuditLog(actor, {
       action: 'admin.legal-export.download',
       nextValue: {
@@ -4327,8 +4649,8 @@ export class TinychokStore {
         to: body.to,
       },
       reason: normalizedReason,
-      summary: `Сформирована юридическая выгрузка для ${buildAdminAuditAccountLabel(target)} · ${normalizedReason}`,
-      targetId: target.identifier,
+      summary: `Сформирована юридическая выгрузка для ${buildAdminAuditAccountLabel(primaryTarget)} · ${normalizedReason}`,
+      targetId: body.targetIdentifier,
       targetType: 'user',
     })
 
@@ -7296,8 +7618,21 @@ export class TinychokStore {
 
   private findAccountForAdmin(identifier: string) {
     const trimmed = identifier.trim()
-    const normalizedIdentifier = normalizeIdentifier(trimmed)
-    return this.findAccount(normalizedIdentifier || trimmed)
+    if (!trimmed) {
+      return null
+    }
+
+    const accountById = this.database.accounts.find((account) => account.accountId === trimmed)
+    if (accountById) {
+      return accountById
+    }
+
+    const directMatch = this.findAccount(trimmed)
+    if (directMatch) {
+      return directMatch
+    }
+
+    return this.findAccountsByOriginalIdentifier(trimmed)[0] ?? null
   }
 
   private buildAdminUserSummary(account: Account): AdminUserSummary {
@@ -7307,10 +7642,14 @@ export class TinychokStore {
       blockedAt: account.blockedAt,
       blockedReason: account.blockedReason?.trim() || undefined,
       createdAt: account.createdAt,
+      deletedAt: account.deletedAt,
+      deletedBySelfService: account.deletedBySelfService,
+      deletionMode: account.deletionMode,
       displayName: buildAccountDisplayLabel(account),
       identifier: account.identifier,
       lastActiveAt: account.lastActiveAt,
       nickname: normalizeNickname(account.nickname ?? '') || undefined,
+      originalIdentifier: account.archivedOriginalIdentifier,
       premium: hasActivePremium(account.premium, account.premiumExpiresAt),
       premiumExpiresAt: account.premiumExpiresAt,
       staffRole: sanitizeStaffRole(account.staffRole),
@@ -7407,6 +7746,21 @@ export class TinychokStore {
       return describeUser(entry.targetId, 'Аватарка пользователя')
     }
 
+    if (entry.targetType === 'user-self-service') {
+      const account = this.findAccountForAdmin(entry.targetId)
+      if (account) {
+        return `Self-service удаление аккаунта · ${buildAdminAuditAccountLabel(account)}`
+      }
+
+      const originalIdentifier =
+        [entry.nextValue, entry.previousValue]
+          .flatMap((candidate) => (candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? [candidate] : []))
+          .map((candidate) => (candidate as { originalIdentifier?: string }).originalIdentifier?.trim())
+          .find((candidate): candidate is string => Boolean(candidate)) ?? entry.targetId
+
+      return `Self-service удаление аккаунта · ${originalIdentifier}`
+    }
+
     if (entry.targetType === 'report') {
       const report =
         this.findAdminReport(entry.targetId) ??
@@ -7498,10 +7852,22 @@ export class TinychokStore {
       return false
     }
 
+    const matchesIdentifier = (value: string | undefined | null) => {
+      const storedIdentifier = normalizeStoredIdentifierReference(value)
+      if (storedIdentifier) {
+        const directAccount = this.findAccount(storedIdentifier)
+        if (directAccount && getAccountOriginalIdentifier(directAccount) === normalizedIdentifier) {
+          return true
+        }
+      }
+
+      return normalizeIdentifier(value ?? '') === normalizedIdentifier
+    }
+
     const scan = (value: unknown): boolean => {
       if (!value) return false
       if (typeof value === 'string') {
-        return normalizeIdentifier(value) === normalizedIdentifier
+        return matchesIdentifier(value)
       }
       if (Array.isArray(value)) {
         return value.some((item) => scan(item))
@@ -7512,7 +7878,7 @@ export class TinychokStore {
       return false
     }
 
-    if (normalizeIdentifier(entry.targetId) === normalizedIdentifier) {
+    if (matchesIdentifier(entry.targetId)) {
       return true
     }
 
@@ -7526,7 +7892,7 @@ export class TinychokStore {
         mediaItem &&
         (normalizeIdentifier(mediaItem.owner.identifier) === normalizedIdentifier ||
           mediaItem.relatedUsers.some(
-            (user) => normalizeIdentifier(user.identifier) === normalizedIdentifier,
+            (user) => matchesIdentifier(user.identifier),
           ))
       ) {
         return true
@@ -7541,7 +7907,7 @@ export class TinychokStore {
           report.entityOwnerIdentifier,
           report.relatedUserIdentifier,
           report.reporterIdentifier,
-        ].some((value) => normalizeIdentifier(value ?? '') === normalizedIdentifier)
+        ].some((value) => matchesIdentifier(value ?? ''))
       ) {
         return true
       }
@@ -7550,15 +7916,15 @@ export class TinychokStore {
     if (entry.targetType === 'dialog') {
       const [ownerIdentifier, peerIdentifier] = entry.targetId.split('::')
       return (
-        normalizeIdentifier(ownerIdentifier) === normalizedIdentifier ||
-        normalizeIdentifier(peerIdentifier) === normalizedIdentifier
+        matchesIdentifier(ownerIdentifier) ||
+        matchesIdentifier(peerIdentifier)
       )
     }
 
     if (entry.targetType === 'channel') {
       const handle = sanitizeChannelDirectLink(entry.targetId) || entry.targetId
       const channel = this.findManagedChannelByHandle(handle)
-      if (channel && normalizeIdentifier(channel.ownerIdentifier) === normalizedIdentifier) {
+      if (channel && matchesIdentifier(channel.ownerIdentifier)) {
         return true
       }
     }
@@ -7572,16 +7938,16 @@ export class TinychokStore {
       }
 
       const creatorIdentifier =
-        normalizeIdentifier(group.creatorIdentifier ?? '') || group.ownerIdentifier
+        resolveStoredIdentifierReference(group.creatorIdentifier ?? '', group.ownerIdentifier)
       return (
-        normalizeIdentifier(group.ownerIdentifier) === normalizedIdentifier ||
-        creatorIdentifier === normalizedIdentifier
+        matchesIdentifier(group.ownerIdentifier) ||
+        matchesIdentifier(creatorIdentifier)
       )
     }
 
     if (entry.targetType === 'thread') {
       const thread = this.adminListThreads('').find((candidate) => candidate.id === entry.targetId)
-      if (thread && normalizeIdentifier(thread.owner.identifier) === normalizedIdentifier) {
+      if (thread && matchesIdentifier(thread.owner.identifier)) {
         return true
       }
     }
@@ -7605,6 +7971,18 @@ export class TinychokStore {
       id: randomUUID(),
     })
     await this.persist()
+  }
+
+  private async appendSystemAuditLog(
+    entry: Omit<AdminAuditLogRecord, 'actorIdentifier' | 'actorRole' | 'createdAt' | 'id'>,
+  ) {
+    this.database.adminAuditLogs.push({
+      ...entry,
+      actorIdentifier: 'system:self-service',
+      actorRole: 'owner',
+      createdAt: new Date().toISOString(),
+      id: randomUUID(),
+    })
   }
 
   private upsertAdminReport(record: Omit<AdminReportRecord, 'closedAt' | 'closedByIdentifier' | 'id' | 'notes' | 'resolutionAction' | 'resolutionReason' | 'status' | 'updatedAt'>) {
@@ -9124,9 +9502,9 @@ export class TinychokStore {
   }
 
   private getIpAccessLogsForIdentifier(identifier: string) {
-    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const normalizedIdentifier = normalizeStoredIdentifierReference(identifier)
     return this.database.ipAccessLogs
-      .filter((entry) => normalizeIdentifier(entry.identifier) === normalizedIdentifier)
+      .filter((entry) => normalizeStoredIdentifierReference(entry.identifier) === normalizedIdentifier)
       .sort((left, right) => (parseIsoDate(left.createdAt) ?? 0) - (parseIsoDate(right.createdAt) ?? 0))
   }
 
@@ -9145,7 +9523,7 @@ export class TinychokStore {
   }
 
   private async recordIpAccessEvent(identifier: string, context: SessionAccessContext) {
-    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const normalizedIdentifier = normalizeStoredIdentifierReference(identifier)
     const ip = sanitizeIpAddress(context.ip)
     if (!normalizedIdentifier || !ip) {
       return false
@@ -9186,7 +9564,32 @@ export class TinychokStore {
   }
 
   private findAccount(identifier: string) {
-    return this.database.accounts.find((account) => account.identifier === identifier) ?? null
+    const normalizedIdentifier = normalizeStoredIdentifierReference(identifier)
+    if (!normalizedIdentifier) {
+      return null
+    }
+
+    return (
+      this.database.accounts.find((account) => account.identifier === normalizedIdentifier) ?? null
+    )
+  }
+
+  private findAccountsByOriginalIdentifier(identifier: string) {
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    if (!normalizedIdentifier) {
+      return [] as Account[]
+    }
+
+    return this.database.accounts
+      .filter((account) => getAccountOriginalIdentifier(account) === normalizedIdentifier)
+      .sort((left, right) => {
+        const activeDelta = Number(isArchivedAccount(left)) - Number(isArchivedAccount(right))
+        if (activeDelta !== 0) {
+          return activeDelta
+        }
+
+        return compareIsoDateDesc(left.deletedAt ?? left.lastActiveAt, right.deletedAt ?? right.lastActiveAt)
+      })
   }
 
   private resolveDeliveryId(clientDeliveryId?: string) {
@@ -10906,8 +11309,19 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
       ...normalized,
       accounts: (normalized.accounts ?? []).map((account) => ({
         ...account,
+        accountId: account.accountId?.trim() || randomUUID(),
+        archivedOriginalIdentifier: normalizeIdentifier(account.archivedOriginalIdentifier ?? '') || undefined,
         blockedAt: account.blockedAt || undefined,
         blockedReason: account.blockedReason || undefined,
+        deletedAt: account.deletedAt || undefined,
+        deletedBySelfService: Boolean(account.deletedBySelfService),
+        deletionMode:
+          account.deletionMode === 'account-and-user-data-hidden'
+            ? 'account-and-user-data-hidden'
+            : account.deletionMode === 'account-only'
+              ? 'account-only'
+              : undefined,
+        identifier: normalizeStoredIdentifierReference(account.identifier),
         lastActiveAt: account.lastActiveAt || account.createdAt,
         passwordHash: account.passwordHash?.trim() || undefined,
         passwordSetAt: account.passwordSetAt || undefined,

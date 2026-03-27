@@ -25,6 +25,9 @@ export type AnalyticsEventName =
   | 'auth_password_change_requested'
   | 'auth_password_change_succeeded'
   | 'auth_password_change_failed'
+  | 'account_deletion_requested'
+  | 'account_deletion_succeeded'
+  | 'account_deletion_failed'
   | 'auth_registration_succeeded'
   | 'auth_registration_failed'
   | 'auth_support_email_clicked'
@@ -195,6 +198,18 @@ export const analyticsEventCatalog: Record<
   auth_password_change_failed: {
     category: 'auth',
     description: 'Смена пароля в настройках завершилась ошибкой.',
+  },
+  account_deletion_requested: {
+    category: 'auth',
+    description: 'Пользователь начал self-service удаление аккаунта из настроек.',
+  },
+  account_deletion_succeeded: {
+    category: 'auth',
+    description: 'Self-service удаление аккаунта завершилось успешно.',
+  },
+  account_deletion_failed: {
+    category: 'auth',
+    description: 'Self-service удаление аккаунта завершилось ошибкой.',
   },
   auth_registration_succeeded: {
     category: 'auth',

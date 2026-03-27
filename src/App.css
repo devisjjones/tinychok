@@ -2291,6 +2291,10 @@
   gap: 10px;
 }
 
+.settings-inline-form {
+  gap: 12px;
+}
+
 .settings-password-field {
   display: grid;
   gap: 8px;
@@ -2298,6 +2302,26 @@
 
 .settings-management-inline-actions .send-button {
   justify-content: center;
+}
+
+.settings-inline-actions {
+  justify-content: flex-start;
+}
+
+.settings-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 0.96rem;
+  cursor: pointer;
+}
+
+.settings-checkbox-row input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: rgba(140, 87, 56, 0.92);
 }
 
 .storage-usage-header {

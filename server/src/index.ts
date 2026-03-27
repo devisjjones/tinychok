@@ -11,6 +11,7 @@ import type {
   CreateGroupBody,
   CreateManagedChannelBody,
   ChangePasswordBody,
+  DeleteAccountBody,
   DebugPremiumBody,
   DiscoverySearchResponse,
   DirectDialogHistoryResponse,
@@ -436,6 +437,20 @@ app.post('/api/session/change-password', async (request, reply) => {
       userAgent: request.headers['user-agent'],
     })
     return { snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/session/delete-account', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const body = parseJsonPayload<DeleteAccountBody>(request.body)
+    return await store.deleteAccountSelfService(token, body)
   } catch (error) {
     return sendError(reply, error)
   }

@@ -37,6 +37,8 @@ import type {
   CreateGroupResponse,
   CreateManagedChannelBody,
   CreateManagedChannelResponse,
+  DeleteAccountBody,
+  DeleteAccountResponse,
   DebugPremiumBody,
   DiscoverySearchResponse,
   DirectDialogHistoryResponse,
@@ -394,6 +396,14 @@ export async function changePassword(sessionToken: string, body: ChangePasswordB
     ...payload,
     snapshot: normalizeSnapshot(payload.snapshot),
   }
+}
+
+export async function deleteAccount(sessionToken: string, body: DeleteAccountBody) {
+  const response = await fetch(
+    makeHttpUrl('/api/session/delete-account'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  return readJsonResponse<DeleteAccountResponse>(response)
 }
 
 export async function fetchBootstrap(sessionToken: string) {
