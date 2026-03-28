@@ -22,6 +22,7 @@ Production-архитектура под `Yandex Cloud` для `10k+` польз
   - существующий пользователь с паролем: `phone -> password`
   - `forgot password`: `password -> SMS reset -> new password`
   - в `Настройки -> Управление` пользователь может `Сменить пароль`
+  - новые live-аккаунты по умолчанию создаются без premium
 - SmartCaptcha на user и admin auth request-code шаге
 - browser notifications promo/toggle и `Notification API`
 - отдельная user/admin аналитика через `Yandex Metrica` на staging
@@ -98,6 +99,7 @@ npm run start:server
   - `needs-password-setup`
   - `needs-password-reset`
 - `POST /api/auth/register` создаёт новый аккаунт сразу с паролем и seed state
+  - новый аккаунт создаётся как free-tier аккаунт без `premiumExpiresAt`
 - `POST /api/auth/set-password` завершает migration-flow для legacy аккаунта без пароля
 - `POST /api/auth/reset-password` завершает forgot-password flow после SMS
 - `POST /api/session/delete-account` архивирует self-service удалённый аккаунт, отзывает его сессии и освобождает номер для новой регистрации как нового жизненного цикла
@@ -119,10 +121,17 @@ npm run start:server
 - `POST /api/groups/:groupId/messages` отправляет сообщение в группу и теперь тоже поддерживает attachment metadata и attachment-only сообщения
 - `POST /api/groups/:groupId/read` помечает группу прочитанной
 - `POST /api/channels` создаёт управляемый канал
+  - create-flow стартует с пустыми `title`, `statusText` и `description`, без seeded draft-значений
+  - после создания в истории сразу появляется системный элемент `Канал создан`
 - `PUT /api/channels/:channelId` обновляет текстовые поля, аватар и приватность управляемого канала
+  - `statusText` и `description` хранятся и редактируются раздельно
 - `DELETE /api/channels/:channelId` удаляет управляемый канал
 - `POST /api/subscription-channels/:channelId/read` помечает канал прочитанным
-- UI subscription channels уже умеет рендерить attachment-ready posts и брать preview/time из последнего поста
+- UI subscription channels уже умеет:
+  - рендерить attachment-ready posts
+  - показывать системный элемент `Канал создан`
+  - хранить отдельные `statusText` и `description`
+  - отдавать новым подписчикам всю историческую ленту канала, а не только посты после подписки
 - `GET /ws` отправляет realtime-обновления snapshot для текущего аккаунта
 - внутри dev-backend данные уже хранятся не одним blob, а в нормализованных сущностях `accounts / dialogs / messages / groups / channels / posts`
 - сервер пишет IP-историю успешных логинов и смен IP
