@@ -736,8 +736,9 @@ export type CreateManagedChannelBody = {
   commentBlacklistIdentifiers?: string[]
   commentsEnabledForAll?: boolean
   commentsEnabledForPremium?: boolean
-  description: string
+  description?: string
   directLink: string
+  statusText?: string
   title: string
   visibility: Channel['visibility']
 }
@@ -747,6 +748,7 @@ export type UpdateManagedChannelBody = Partial<
     Channel,
     | 'title'
     | 'directLink'
+    | 'statusText'
     | 'description'
     | 'visibility'
     | 'avatarTone'

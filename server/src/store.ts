@@ -1651,6 +1651,7 @@ function materializeManagedChannel(
     commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
     commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
     description: channel.description,
+    statusText: channel.statusText?.trim() || undefined,
     directLink: sanitizeChannelDirectLink(channel.directLink) || '@kanal',
     id: channel.id,
     status: channel.status,
@@ -1668,6 +1669,8 @@ function materializeSubscriptionChannel(
     archivedAt: channel.archivedAt,
     archiveReason: channel.archiveReason,
     avatarImage: channel.avatarImage,
+    creatorIdentifier: normalizeStoredIdentifierReference(channel.creatorIdentifier ?? '') || undefined,
+    description: channel.description?.trim() || undefined,
     statusText: channel.statusText?.trim() || undefined,
     commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
     commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
@@ -1713,6 +1716,7 @@ function materializeSubscriptionPost(
     createdAt: post.createdAt,
     id: post.id,
     replyTo: post.replyTo,
+    system: Boolean(post.system),
     text: post.text,
     threadComments: materializeThreadCommentsForViewer(database, viewerIdentifier, post.threadComments),
     threadId: post.threadId?.trim() || undefined,
@@ -2580,8 +2584,8 @@ export class TinychokStore {
       nickname: '',
       passwordHash,
       passwordSetAt: new Date().toISOString(),
-      premium: true,
-      premiumExpiresAt: makePremiumExpiry(30),
+      premium: false,
+      premiumExpiresAt: undefined,
       soundsDisabled: true,
       staffRole: undefined,
       status: '',
@@ -6228,36 +6232,12 @@ export class TinychokStore {
     }
     const replyTo = sanitizeReplyTarget(payload.replyTo)
 
-    let channelCopies = this.listSubscriptionChannelCopiesByHandle(channel.directLink)
-
-    if (channelCopies.length === 0) {
-      const ownerCopy: PersistedSubscriptionChannel = {
-        accent: channel.avatarTone,
-        avatarImage: channel.avatarImage,
-        commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
-        commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
-        commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
-        draft: channel.status === 'draft',
-        handle: channel.directLink,
-        id: this.getNextOwnedId(this.database.subscriptionChannels, account.identifier),
-        muted: false,
-        ownerIdentifier: account.identifier,
-        participants: [],
-        preview: channel.description,
-        readers: 0,
-        time: '',
-        title: channel.title,
-        unread: 0,
-        visibility: channel.visibility,
-      }
-
-      this.database.subscriptionChannels.push(ownerCopy)
-      this.syncManagedChannelSubscriptionCopies(channel)
-      channelCopies = [ownerCopy]
-    }
+    this.ensureSubscriptionChannelCopyForOwner(channel, account.identifier)
+    const channelCopies = this.syncManagedChannelSubscriptionCopies(channel)
 
     const createdAt = new Date().toISOString()
     const time = formatNowTime()
+    const fallbackPreview = buildManagedChannelFallbackPreview(channel)
 
     for (const channelCopy of channelCopies) {
       this.database.subscriptionPosts.push({
@@ -6273,7 +6253,7 @@ export class TinychokStore {
         time,
       })
 
-      channelCopy.preview = text || (attachment ? `Файл: ${attachment.fileName}` : channelCopy.preview)
+      channelCopy.preview = text || (attachment ? `Файл: ${attachment.fileName}` : fallbackPreview)
       channelCopy.time = time
       channelCopy.unread =
         channelCopy.ownerIdentifier === account.identifier || channelCopy.muted
@@ -7112,6 +7092,9 @@ export class TinychokStore {
       throw new Error('Пост канала не найден.')
     }
     this.assertSubscriptionChannelWritable(target.channel)
+    if (target.post.system) {
+      throw new Error('Техническое сообщение канала не поддерживает комментарии.')
+    }
 
     this.assertCanCommentInSubscriptionChannel(target.channel, account)
 
@@ -7161,6 +7144,9 @@ export class TinychokStore {
     if (!target) {
       throw new Error('Пост канала не найден.')
     }
+    if (target.post.system) {
+      throw new Error('Техническое сообщение канала не поддерживает тред.')
+    }
 
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
     this.upsertThreadState(account.identifier, threadId, {
@@ -7189,6 +7175,9 @@ export class TinychokStore {
     const target = this.getSubscriptionPostById(account.identifier, channelId, postId)
     if (!target) {
       throw new Error('Пост канала не найден.')
+    }
+    if (target.post.system) {
+      throw new Error('Техническое сообщение канала не поддерживает тред.')
     }
 
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
@@ -7408,9 +7397,8 @@ export class TinychokStore {
       ],
       title,
     )
-    const description =
-      sanitizeChannelDescription(payload.description) ||
-      'Статус канала не задан.'
+    const statusText = sanitizeStatusField(payload.statusText ?? '')
+    const description = sanitizeChannelDescription(payload.description ?? '')
     const visibility =
       payload.visibility === 'public' || payload.visibility === 'closed'
         ? payload.visibility
@@ -7426,6 +7414,7 @@ export class TinychokStore {
       directLink,
       id: channelId,
       ownerIdentifier: account.identifier,
+      statusText: statusText || undefined,
       status: 'draft',
       title,
       visibility,
@@ -7434,6 +7423,7 @@ export class TinychokStore {
     const createdChannel = this.findManagedChannel(account.identifier, channelId)
     if (createdChannel) {
       this.ensureSubscriptionChannelCopyForOwner(createdChannel, account.identifier)
+      this.createManagedChannelSystemPost(createdChannel, 'Канал создан')
       this.clearPendingMediaUpload(createdChannel.avatarImage)
     }
 
@@ -7630,6 +7620,10 @@ export class TinychokStore {
       )
     }
 
+    if (payload.statusText !== undefined) {
+      channel.statusText = sanitizeStatusField(payload.statusText) || undefined
+    }
+
     if (payload.description !== undefined) {
       channel.description = sanitizeChannelDescription(payload.description)
     }
@@ -7665,7 +7659,7 @@ export class TinychokStore {
       channel.status = payload.status === 'active' ? 'active' : 'draft'
     }
 
-    const subscriptionChannelCopies = [
+    const legacyCopies = [
       ...new Map(
         [previousDirectLink, channel.directLink]
           .map((handle) => sanitizeChannelDirectLink(handle) || handle)
@@ -7676,36 +7670,13 @@ export class TinychokStore {
           ),
       ).values(),
     ]
-
-    for (const channelCopy of subscriptionChannelCopies) {
-      channelCopy.accent = channel.avatarTone
-      channelCopy.avatarImage = channel.avatarImage
-      channelCopy.draft = channel.status === 'draft'
-      channelCopy.handle = channel.directLink
-      channelCopy.preview = channelCopy.preview || channel.description
-      channelCopy.statusText = channel.description
-      channelCopy.title = channel.title
-      channelCopy.visibility = channel.visibility
-    }
-
-    if (payload.commentsEnabledForAll !== undefined) {
-      for (const channelCopy of subscriptionChannelCopies) {
-        channelCopy.commentsEnabledForAll = Boolean(payload.commentsEnabledForAll)
+    for (const copy of legacyCopies) {
+      if (copy.handle !== channel.directLink) {
+        copy.handle = channel.directLink
       }
     }
 
-    if (payload.commentsEnabledForPremium !== undefined) {
-      for (const channelCopy of subscriptionChannelCopies) {
-        channelCopy.commentsEnabledForPremium = Boolean(payload.commentsEnabledForPremium)
-      }
-    }
-
-    if (payload.commentBlacklistIdentifiers !== undefined) {
-      const nextBlacklist = sanitizeIdentifierList(payload.commentBlacklistIdentifiers)
-      for (const channelCopy of subscriptionChannelCopies) {
-        channelCopy.commentBlacklistIdentifiers = nextBlacklist
-      }
-    }
+    const subscriptionChannelCopies = this.syncManagedChannelSubscriptionCopies(channel)
 
     await this.persist()
 
@@ -10105,15 +10076,17 @@ export class TinychokStore {
       commentBlacklistIdentifiers: sanitizeIdentifierList(sourceChannel.commentBlacklistIdentifiers),
       commentsEnabledForAll: Boolean(sourceChannel.commentsEnabledForAll),
       commentsEnabledForPremium: Boolean(sourceChannel.commentsEnabledForPremium),
+      creatorIdentifier: sourceChannel.ownerIdentifier,
+      description: sourceChannel.description,
       draft: sourceChannel.status === 'draft',
       handle: sourceChannel.directLink,
       id: this.getNextOwnedId(this.database.subscriptionChannels, ownerIdentifier),
       muted: false,
       ownerIdentifier,
       participants: [],
-      preview: sourceChannel.description,
+      preview: buildManagedChannelFallbackPreview(sourceChannel),
       readers: 0,
-      statusText: sourceChannel.description,
+      statusText: sourceChannel.statusText?.trim() || undefined,
       time: '',
       title: sourceChannel.title,
       unread: 0,
@@ -10123,6 +10096,33 @@ export class TinychokStore {
     this.database.subscriptionChannels.push(nextCopy)
     this.syncManagedChannelSubscriptionCopies(sourceChannel)
     return nextCopy
+  }
+
+  private createManagedChannelSystemPost(
+    sourceChannel: PersistedManagedChannel,
+    text: string,
+  ) {
+    this.ensureSubscriptionChannelCopyForOwner(sourceChannel, sourceChannel.ownerIdentifier)
+    const channelCopies = this.syncManagedChannelSubscriptionCopies(sourceChannel)
+    const createdAt = new Date().toISOString()
+    const time = formatNowTime()
+
+    for (const channelCopy of channelCopies) {
+      this.database.subscriptionPosts.push({
+        channelId: channelCopy.id,
+        createdAt,
+        id: this.getNextSubscriptionPostId(channelCopy.ownerIdentifier, channelCopy.id),
+        ownerIdentifier: channelCopy.ownerIdentifier,
+        system: true,
+        text,
+        threadComments: [],
+        threadId: getSubscriptionPostThreadId(channelCopy, { createdAt, id: 0, text, time }),
+        time,
+      })
+      channelCopy.preview = text
+      channelCopy.time = time
+      channelCopy.unread = 0
+    }
   }
 
   private getGroupMessageById(ownerIdentifier: string, groupId: number, messageId: number) {
@@ -10667,31 +10667,7 @@ export class TinychokStore {
   }
 
   private syncManagedChannelSubscriptionCopies(sourceChannel: PersistedManagedChannel) {
-    const normalizedHandle = sanitizeChannelDirectLink(sourceChannel.directLink) || sourceChannel.directLink
-    const copies = this.database.subscriptionChannels.filter(
-      (channel) =>
-        (sanitizeChannelDirectLink(channel.handle) || channel.handle) === normalizedHandle,
-    )
-    const subscriberCount = Math.max(1, new Set(copies.map((copy) => copy.ownerIdentifier)).size)
-
-    for (const copy of copies) {
-      copy.accent = sourceChannel.avatarTone
-      copy.archivedAt = sourceChannel.archivedAt
-      copy.archiveReason = sourceChannel.archiveReason
-      copy.avatarImage = sourceChannel.avatarImage
-      copy.commentBlacklistIdentifiers = sanitizeIdentifierList(sourceChannel.commentBlacklistIdentifiers)
-      copy.commentsEnabledForAll = Boolean(sourceChannel.commentsEnabledForAll)
-      copy.commentsEnabledForPremium = Boolean(sourceChannel.commentsEnabledForPremium)
-      copy.draft = sourceChannel.status === 'draft'
-      copy.handle = sourceChannel.directLink
-      copy.preview = copy.preview || sourceChannel.description
-      copy.statusText = sourceChannel.description
-      copy.readers = subscriberCount
-      copy.title = sourceChannel.title
-      copy.visibility = sourceChannel.visibility
-    }
-
-    return copies
+    return syncManagedChannelCopiesInDatabase(this.database, sourceChannel).copies
   }
 
   private revokeSubscriptionChannelAccess(handle: string, targetIdentifier: string) {
@@ -10929,7 +10905,7 @@ function normalizeChannelHandleForComparison(handle: string | undefined) {
 }
 
 function getPersistedSubscriptionPostSignature(
-  post: Pick<PersistedSubscriptionPost, 'attachment' | 'createdAt' | 'replyTo' | 'text' | 'time'>,
+  post: Pick<PersistedSubscriptionPost, 'attachment' | 'createdAt' | 'replyTo' | 'system' | 'text' | 'time'>,
 ) {
   return JSON.stringify({
     attachmentFileName: post.attachment?.fileName ?? '',
@@ -10939,9 +10915,246 @@ function getPersistedSubscriptionPostSignature(
     replyAuthor: post.replyTo?.author ?? '',
     replyId: post.replyTo?.id ?? 0,
     replyText: post.replyTo?.text ?? '',
+    system: Boolean(post.system),
     text: post.text,
     time: post.time,
   })
+}
+
+function buildManagedChannelFallbackPreview(
+  channel: Pick<PersistedManagedChannel, 'description' | 'statusText'>,
+) {
+  return channel.statusText?.trim() || channel.description?.trim() || ''
+}
+
+function buildSubscriptionPostPreviewText(
+  post: Pick<PersistedSubscriptionPost, 'attachment' | 'system' | 'text'>,
+  fallbackPreview: string,
+) {
+  const text = post.text.trim()
+  if (text) {
+    return text
+  }
+
+  if (post.system) {
+    return 'Канал создан'
+  }
+
+  if (post.attachment) {
+    return `Файл: ${post.attachment.fileName}`
+  }
+
+  return fallbackPreview
+}
+
+function cloneThreadCommentRecord(comment: ThreadComment): ThreadComment {
+  return {
+    ...comment,
+    attachment: comment.attachment ? { ...comment.attachment } : undefined,
+    replyTo: comment.replyTo ? { ...comment.replyTo } : undefined,
+  }
+}
+
+function clonePersistedSubscriptionPostForCopy(
+  post: PersistedSubscriptionPost,
+  channelCopy: PersistedSubscriptionChannel,
+  nextId: number,
+): PersistedSubscriptionPost {
+  return {
+    attachment: post.attachment ? { ...post.attachment } : undefined,
+    channelId: channelCopy.id,
+    createdAt: post.createdAt,
+    id: nextId,
+    ownerIdentifier: channelCopy.ownerIdentifier,
+    replyTo: post.replyTo ? { ...post.replyTo } : undefined,
+    system: Boolean(post.system),
+    text: post.text,
+    threadComments: (post.threadComments ?? []).map(cloneThreadCommentRecord),
+    threadId: post.threadId?.trim() || getSubscriptionPostThreadId(channelCopy, post),
+    time: post.time,
+  }
+}
+
+function syncManagedChannelCopiesInDatabase(
+  database: Database,
+  sourceChannel: PersistedManagedChannel,
+) {
+  const normalizedHandle = sanitizeChannelDirectLink(sourceChannel.directLink) || sourceChannel.directLink
+  const copies = database.subscriptionChannels.filter(
+    (channel) =>
+      (sanitizeChannelDirectLink(channel.handle) || channel.handle) === normalizedHandle,
+  )
+  const subscriberCount = Math.max(1, new Set(copies.map((copy) => copy.ownerIdentifier)).size)
+  const canonicalCopy =
+    copies
+      .map((copy) => ({
+        copy,
+        postCount: database.subscriptionPosts.filter(
+          (post) => post.ownerIdentifier === copy.ownerIdentifier && post.channelId === copy.id,
+        ).length,
+      }))
+      .sort((left, right) => {
+        if (left.postCount !== right.postCount) {
+          return right.postCount - left.postCount
+        }
+        if (left.copy.ownerIdentifier === sourceChannel.ownerIdentifier) return -1
+        if (right.copy.ownerIdentifier === sourceChannel.ownerIdentifier) return 1
+        return left.copy.id - right.copy.id
+      })[0]?.copy ?? null
+  const fallbackPreview = buildManagedChannelFallbackPreview(sourceChannel)
+  const canonicalPosts = canonicalCopy
+    ? database.subscriptionPosts
+      .filter(
+        (post) =>
+          post.ownerIdentifier === canonicalCopy.ownerIdentifier &&
+          post.channelId === canonicalCopy.id,
+      )
+      .sort((left, right) => {
+        const leftCreatedAt = parseIsoDate(left.createdAt)
+        const rightCreatedAt = parseIsoDate(right.createdAt)
+
+        if (leftCreatedAt !== null && rightCreatedAt !== null && leftCreatedAt !== rightCreatedAt) {
+          return leftCreatedAt - rightCreatedAt
+        }
+        if (leftCreatedAt !== null && rightCreatedAt === null) return -1
+        if (leftCreatedAt === null && rightCreatedAt !== null) return 1
+        return left.id - right.id
+      })
+    : []
+  const canonicalSignatures = new Set(
+    canonicalPosts.map((post) => getPersistedSubscriptionPostSignature(post)),
+  )
+  let didMutate = false
+
+  for (const copy of copies) {
+    if (copy.accent !== sourceChannel.avatarTone) {
+      copy.accent = sourceChannel.avatarTone
+      didMutate = true
+    }
+    if (copy.archivedAt !== sourceChannel.archivedAt) {
+      copy.archivedAt = sourceChannel.archivedAt
+      didMutate = true
+    }
+    if (copy.archiveReason !== sourceChannel.archiveReason) {
+      copy.archiveReason = sourceChannel.archiveReason
+      didMutate = true
+    }
+    if (copy.avatarImage !== sourceChannel.avatarImage) {
+      copy.avatarImage = sourceChannel.avatarImage
+      didMutate = true
+    }
+    const nextBlacklist = sanitizeIdentifierList(sourceChannel.commentBlacklistIdentifiers)
+    if (JSON.stringify(copy.commentBlacklistIdentifiers ?? []) !== JSON.stringify(nextBlacklist)) {
+      copy.commentBlacklistIdentifiers = nextBlacklist
+      didMutate = true
+    }
+    if (Boolean(copy.commentsEnabledForAll) !== Boolean(sourceChannel.commentsEnabledForAll)) {
+      copy.commentsEnabledForAll = Boolean(sourceChannel.commentsEnabledForAll)
+      didMutate = true
+    }
+    if (Boolean(copy.commentsEnabledForPremium) !== Boolean(sourceChannel.commentsEnabledForPremium)) {
+      copy.commentsEnabledForPremium = Boolean(sourceChannel.commentsEnabledForPremium)
+      didMutate = true
+    }
+    if (copy.creatorIdentifier !== sourceChannel.ownerIdentifier) {
+      copy.creatorIdentifier = sourceChannel.ownerIdentifier
+      didMutate = true
+    }
+    if (copy.description !== sourceChannel.description) {
+      copy.description = sourceChannel.description
+      didMutate = true
+    }
+    if (copy.draft !== (sourceChannel.status === 'draft')) {
+      copy.draft = sourceChannel.status === 'draft'
+      didMutate = true
+    }
+    if (copy.handle !== sourceChannel.directLink) {
+      copy.handle = sourceChannel.directLink
+      didMutate = true
+    }
+    if (copy.statusText !== (sourceChannel.statusText?.trim() || undefined)) {
+      copy.statusText = sourceChannel.statusText?.trim() || undefined
+      didMutate = true
+    }
+    if (copy.title !== sourceChannel.title) {
+      copy.title = sourceChannel.title
+      didMutate = true
+    }
+    if (copy.visibility !== sourceChannel.visibility) {
+      copy.visibility = sourceChannel.visibility
+      didMutate = true
+    }
+    if (copy.readers !== subscriberCount) {
+      copy.readers = subscriberCount
+      didMutate = true
+    }
+
+    const existingPosts = database.subscriptionPosts
+      .filter(
+        (post) =>
+          post.ownerIdentifier === copy.ownerIdentifier &&
+          post.channelId === copy.id,
+      )
+      .sort((left, right) => left.id - right.id)
+    const removablePostIds = new Set(
+      existingPosts
+        .filter((post) => !canonicalSignatures.has(getPersistedSubscriptionPostSignature(post)))
+        .map((post) => `${post.ownerIdentifier}:${post.channelId}:${post.id}`),
+    )
+
+    if (removablePostIds.size > 0) {
+      database.subscriptionPosts = database.subscriptionPosts.filter(
+        (post) => !removablePostIds.has(`${post.ownerIdentifier}:${post.channelId}:${post.id}`),
+      )
+      didMutate = true
+    }
+
+    const keptPosts = database.subscriptionPosts
+      .filter(
+        (post) =>
+          post.ownerIdentifier === copy.ownerIdentifier &&
+          post.channelId === copy.id,
+      )
+      .sort((left, right) => left.id - right.id)
+    const existingSignatures = new Set(
+      keptPosts.map((post) => getPersistedSubscriptionPostSignature(post)),
+    )
+    let nextPostId = keptPosts.reduce((maxId, post) => Math.max(maxId, post.id), 0) + 1
+
+    for (const canonicalPost of canonicalPosts) {
+      const signature = getPersistedSubscriptionPostSignature(canonicalPost)
+      if (existingSignatures.has(signature)) {
+        continue
+      }
+
+      database.subscriptionPosts.push(
+        clonePersistedSubscriptionPostForCopy(canonicalPost, copy, nextPostId),
+      )
+      existingSignatures.add(signature)
+      nextPostId += 1
+      didMutate = true
+    }
+
+    const latestPost = canonicalPosts.at(-1)
+    const nextPreview = latestPost
+      ? buildSubscriptionPostPreviewText(latestPost, fallbackPreview)
+      : fallbackPreview
+    const nextTime = latestPost?.time ?? ''
+
+    if (copy.preview !== nextPreview) {
+      copy.preview = nextPreview
+      didMutate = true
+    }
+    if (copy.time !== nextTime) {
+      copy.time = nextTime
+      didMutate = true
+    }
+  }
+
+  return {
+    copies,
+    didMutate,
+  }
 }
 
 function repairSubscriptionChannelIdentityConflicts(database: Database) {
@@ -11934,8 +12147,16 @@ function ensureManagedChannelOwnerCopies(database: Database) {
         existingCopy.avatarImage = channel.avatarImage
         didMutate = true
       }
-      if (existingCopy.statusText !== channel.description) {
-        existingCopy.statusText = channel.description
+      if (existingCopy.creatorIdentifier !== channel.ownerIdentifier) {
+        existingCopy.creatorIdentifier = channel.ownerIdentifier
+        didMutate = true
+      }
+      if (existingCopy.description !== channel.description) {
+        existingCopy.description = channel.description
+        didMutate = true
+      }
+      if (existingCopy.statusText !== (channel.statusText?.trim() || undefined)) {
+        existingCopy.statusText = channel.statusText?.trim() || undefined
         didMutate = true
       }
       if (existingCopy.draft !== (channel.status === 'draft')) {
@@ -11954,20 +12175,15 @@ function ensureManagedChannelOwnerCopies(database: Database) {
         existingCopy.visibility = channel.visibility
         didMutate = true
       }
-      if (
-        (!existingCopy.preview || existingCopy.preview === 'Пока пусто') &&
-        existingCopy.preview !== channel.description
-      ) {
-        existingCopy.preview = channel.description
-        didMutate = true
-      }
       continue
     }
 
     database.subscriptionChannels.push({
       accent: channel.avatarTone,
       avatarImage: channel.avatarImage,
-      statusText: channel.description,
+      creatorIdentifier: channel.ownerIdentifier,
+      description: channel.description,
+      statusText: channel.statusText?.trim() || undefined,
       commentBlacklistIdentifiers: sanitizeIdentifierList(channel.commentBlacklistIdentifiers),
       commentsEnabledForAll: Boolean(channel.commentsEnabledForAll),
       commentsEnabledForPremium: Boolean(channel.commentsEnabledForPremium),
@@ -11983,7 +12199,7 @@ function ensureManagedChannelOwnerCopies(database: Database) {
       muted: false,
       ownerIdentifier: channel.ownerIdentifier,
       participants: [],
-      preview: channel.description,
+      preview: buildManagedChannelFallbackPreview(channel),
       readers: 0,
       time: '',
       title: channel.title,
@@ -11991,6 +12207,13 @@ function ensureManagedChannelOwnerCopies(database: Database) {
       visibility: channel.visibility,
     })
     didMutate = true
+  }
+
+  for (const channel of database.managedChannels) {
+    const syncState = syncManagedChannelCopiesInDatabase(database, channel)
+    if (syncState.didMutate) {
+      didMutate = true
+    }
   }
 
   return didMutate
@@ -12140,7 +12363,17 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
             ? entry.source
             : 'http-api',
       })),
-      managedChannels: normalized.managedChannels ?? [],
+      managedChannels: (normalized.managedChannels ?? []).map((channel) => {
+        const normalizedStatusText = sanitizeStatusField(channel.statusText ?? '')
+        const normalizedDescription = sanitizeChannelDescription(channel.description ?? '')
+        const legacyStatusText = normalizedStatusText || normalizedDescription || undefined
+
+        return {
+          ...channel,
+          description: normalizedStatusText ? normalizedDescription : '',
+          statusText: legacyStatusText,
+        }
+      }),
       pendingMediaUploads: (normalized.pendingMediaUploads ?? []).map((upload) => ({
         ...upload,
         linked: Boolean(upload.linked),

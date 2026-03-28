@@ -89,6 +89,7 @@ export type ChannelPost = {
   time: string
   createdAt?: string
   attachment?: MessageAttachment
+  system?: boolean
   threadComments?: ThreadComment[]
   threadId?: string
 }
@@ -200,9 +201,11 @@ export type SubscriptionChannel = {
   title: string
   handle: string
   avatarImage?: string
+  creatorIdentifier?: string
   archivedAt?: string
   archiveReason?: ArchiveReason
   statusText?: string
+  description?: string
   isTestEntity?: boolean
   latestActivityAt?: string
   historyHasMore?: boolean
@@ -260,6 +263,7 @@ export type Channel = {
   id: number
   title: string
   directLink: string
+  statusText?: string
   description: string
   avatarTone: string
   avatarImage?: string

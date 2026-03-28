@@ -31,6 +31,13 @@ export function ForwardedChannelHeader({
   sourceChannel,
   onClick,
 }: ForwardedChannelHeaderProps) {
+  const sourceClassName = sourceChannel.leadText
+    ? 'bubble-forwarded-source bubble-forwarded-source-button bubble-forwarded-source-invite'
+    : 'bubble-forwarded-source bubble-forwarded-source-button'
+  const passiveSourceClassName = sourceChannel.leadText
+    ? 'bubble-forwarded-source bubble-forwarded-source-invite'
+    : 'bubble-forwarded-source'
+
   return (
     <>
       {sourceChannel.leadText ? (
@@ -39,7 +46,7 @@ export function ForwardedChannelHeader({
       {onClick ? (
         <button
           type="button"
-          className="bubble-forwarded-source bubble-forwarded-source-button"
+          className={sourceClassName}
           onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
             event.stopPropagation()
             onClick()
@@ -59,7 +66,7 @@ export function ForwardedChannelHeader({
           </span>
         </button>
       ) : (
-        <div className="bubble-forwarded-source">
+        <div className={passiveSourceClassName}>
           <span
             className="avatar bubble-forwarded-source-avatar"
             style={{ backgroundColor: sourceChannel.accent ?? '#8c5738' }}

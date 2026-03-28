@@ -13,6 +13,7 @@ import {
   channelAvatarUploadAcceptedMimeTypes,
   channelAvatarTones,
   channelBlockedMenuHeight,
+  channelDescriptionMaxLength,
   channelDirectLinkMaxLength,
   channelTitleMaxLength,
   chatActionMenuHeight,
@@ -482,19 +483,33 @@ function buildPreviewSubscriptionChannelFromManagedChannel(channel: Channel): Su
     commentBlacklistIdentifiers: channel.commentBlacklistIdentifiers ?? [],
     commentsEnabledForAll: channel.commentsEnabledForAll ?? false,
     commentsEnabledForPremium: channel.commentsEnabledForPremium ?? false,
+    creatorIdentifier: undefined,
+    description: channel.description,
     draft: channel.status === 'draft',
     handle: channel.directLink,
     id: getSyntheticChannelId(`managed-preview:${channel.directLink}:${channel.title}`),
     latestActivityAt: undefined,
     participants: [],
     posts: [],
-    preview: channel.description,
+    preview: channel.statusText || channel.description,
     readers: 1,
-    statusText: channel.description,
+    statusText: channel.statusText,
     time: '',
     title: channel.title,
     unread: 0,
     visibility: channel.visibility,
+  }
+}
+
+function buildLocalChannelSystemPost(): ChannelPost {
+  const createdAt = new Date().toISOString()
+  return {
+    createdAt,
+    id: Date.now(),
+    system: true,
+    text: 'Канал создан',
+    threadComments: [],
+    time: formatNowTime(),
   }
 }
 
@@ -1156,6 +1171,7 @@ function App() {
   const [creatingChannelTitle, setCreatingChannelTitle] = useState('')
   const [creatingChannelDirectLink, setCreatingChannelDirectLink] = useState('')
   const [creatingChannelDirectLinkDirty, setCreatingChannelDirectLinkDirty] = useState(false)
+  const [creatingChannelStatusText, setCreatingChannelStatusText] = useState('')
   const [creatingChannelDescription, setCreatingChannelDescription] = useState('')
   const [creatingChannelAvatarTone, setCreatingChannelAvatarTone] = useState(channelAvatarTones[0])
   const [creatingChannelAvatarDraft, setCreatingChannelAvatarDraft] = useState<ChannelAvatarDraft | null>(
@@ -1242,6 +1258,7 @@ function App() {
   const [channelReportBusy, setChannelReportBusy] = useState(false)
   const [channelReportError, setChannelReportError] = useState('')
   const [channelReportSuccessOpen, setChannelReportSuccessOpen] = useState(false)
+  const [channelDescriptionOpen, setChannelDescriptionOpen] = useState(false)
   const [confirmingLeaveSubscriptionChannelId, setConfirmingLeaveSubscriptionChannelId] = useState<number | null>(null)
   const [channelSubscribersOpen, setChannelSubscribersOpen] = useState(false)
   const [channelSubscribersSearchQuery, setChannelSubscribersSearchQuery] = useState('')
@@ -1694,6 +1711,16 @@ function App() {
       .map((participant) => normalizeIdentifier(participant.identifier ?? ''))
       .filter((identifier): identifier is string => Boolean(identifier)),
   )
+  const currentSubscriptionChannelCreatorIdentifier = normalizeIdentifier(
+    currentSubscriptionChannel?.creatorIdentifier ??
+      (isCurrentSubscriptionChannelOwner ? session?.identifier ?? '' : ''),
+  )
+  const currentSubscriptionChannelCreatorChat =
+    currentSubscriptionChannelCreatorIdentifier && currentSubscriptionChannelCreatorIdentifier !== session?.identifier
+      ? chats.find(
+          (chat) => normalizeIdentifier(chat.phone) === currentSubscriptionChannelCreatorIdentifier,
+        ) ?? null
+      : null
   const filteredCurrentSubscriptionChannelParticipants = (currentSubscriptionChannel?.participants ?? [])
     .filter((participant) => {
       if (participant.identifier === session?.identifier) return true
@@ -1866,6 +1893,8 @@ function App() {
         : null
   const subscriptionMenuFallbackHeight =
     currentSubscriptionChannel?.visibility === 'closed' ? channelBlockedMenuHeight : channelActionMenuHeight
+  const resolvedChannelActionsMenuHeight =
+    (currentSubscriptionChannelArchived ? channelBlockedMenuHeight : channelActionMenuHeight) + 54
   const { menuRef: subscriptionPostMenuRef, style: subscriptionPostMenuStyle } = useAnchoredMenu(
     subscriptionPostActionAnchor,
     channelActionMenuWidth,
@@ -1875,7 +1904,7 @@ function App() {
   const { menuRef: channelActionsMenuRef, style: channelActionsMenuStyle } = useAnchoredMenu(
     channelActionsAnchor,
     channelActionMenuWidth,
-    channelActionMenuHeight,
+    resolvedChannelActionsMenuHeight,
   )
   const { menuRef: groupMessageMenuRef, style: groupMessageMenuStyle } = useAnchoredMenu(
     groupMessageActionAnchor,
@@ -4624,6 +4653,7 @@ function App() {
       attachment?: Message['attachment']
       createdAt?: string
       replyTo?: Message['replyTo']
+      system?: boolean
       time?: string
     },
   ) {
@@ -4642,11 +4672,13 @@ function App() {
               text: channelPostReplyTarget.text,
             }
           : undefined),
+      system: Boolean(options?.system),
       text,
       threadComments: [],
       time,
     }
     const normalizedHandle = sanitizeChannelDirectLink(managedChannel.directLink)
+    const fallbackPreview = managedChannel.statusText || managedChannel.description || 'Канал'
 
     setSubscriptionChannels((currentChannels) =>
       currentChannels.map((channel) => {
@@ -4660,9 +4692,13 @@ function App() {
               commentsEnabledForAll: managedChannel.commentsEnabledForAll ?? channel.commentsEnabledForAll,
               commentsEnabledForPremium:
                 managedChannel.commentsEnabledForPremium ?? channel.commentsEnabledForPremium,
+              description: managedChannel.description,
               latestActivityAt: createdAt,
               posts: [...channel.posts, nextPost],
-              preview: text || (options?.attachment ? `Файл: ${options.attachment.fileName}` : channel.preview),
+              preview:
+                text ||
+                (options?.attachment ? `Файл: ${options.attachment.fileName}` : fallbackPreview),
+              statusText: managedChannel.statusText,
               time,
               unread: 0,
             }
@@ -4684,9 +4720,13 @@ function App() {
               managedChannel.commentsEnabledForAll ?? currentChannel.commentsEnabledForAll,
             commentsEnabledForPremium:
               managedChannel.commentsEnabledForPremium ?? currentChannel.commentsEnabledForPremium,
+            description: managedChannel.description,
             latestActivityAt: createdAt,
             posts: [...currentChannel.posts, nextPost],
-            preview: text,
+            preview:
+              text ||
+              (options?.attachment ? `Файл: ${options.attachment.fileName}` : fallbackPreview),
+            statusText: managedChannel.statusText,
             time,
             unread: 0,
           }
@@ -4702,7 +4742,7 @@ function App() {
       null
     const managedChannelHandle = sanitizeChannelDirectLink(managedChannel?.directLink ?? '')
     const managedChannelDescription =
-      managedChannel?.description ?? previewSubscriptionChannel?.preview ?? 'Пока пусто'
+      managedChannel?.statusText ?? managedChannel?.description ?? previewSubscriptionChannel?.preview ?? 'Пока пусто'
 
     setSubscriptionChannels((currentChannels) =>
       currentChannels.map((channel) => {
@@ -8378,8 +8418,9 @@ function App() {
     releaseChannelAvatarDraft(creatingChannelAvatarDraft)
     const nextDraft = makeDraftChannel(channelNumber, channelId)
     setCreatingChannelTitle(nextDraft.title)
-    setCreatingChannelDirectLink(buildUniqueChannelDirectLinkFromTitle(nextDraft.title))
+    setCreatingChannelDirectLink('')
     setCreatingChannelDirectLinkDirty(false)
+    setCreatingChannelStatusText(nextDraft.statusText ?? '')
     setCreatingChannelDescription(nextDraft.description)
     setCreatingChannelAvatarTone(nextDraft.avatarTone)
     setCreatingChannelAvatarDraft(null)
@@ -8487,6 +8528,7 @@ function App() {
     setChannelReportBusy(false)
     setChannelReportError('')
     setChannelReportSuccessOpen(false)
+    setChannelDescriptionOpen(false)
     setConfirmingLeaveSubscriptionChannelId(null)
     setTopListView('channels')
     setSearchOpen(false)
@@ -8508,6 +8550,13 @@ function App() {
       sanitizeChannelDirectLink(nextPatch.directLink) !== sanitizeChannelDirectLink(baselineChannel.directLink)
     ) {
       normalizedPatch.directLink = nextPatch.directLink
+    }
+
+    if (
+      nextPatch.statusText !== undefined &&
+      nextPatch.statusText !== baselineChannel.statusText
+    ) {
+      normalizedPatch.statusText = nextPatch.statusText
     }
 
     if (
@@ -8597,9 +8646,10 @@ function App() {
           commentBlacklistIdentifiers: nextChannelState.commentBlacklistIdentifiers ?? [],
           commentsEnabledForAll: Boolean(nextChannelState.commentsEnabledForAll),
           commentsEnabledForPremium: Boolean(nextChannelState.commentsEnabledForPremium),
+          description: nextChannelState.description,
           draft: nextChannelState.status === 'draft',
           handle: nextChannelState.directLink,
-          statusText: nextChannelState.description,
+          statusText: nextChannelState.statusText,
           title: nextChannelState.title,
           visibility: nextChannelState.visibility,
         }
@@ -8626,9 +8676,10 @@ function App() {
         commentBlacklistIdentifiers: nextChannelState.commentBlacklistIdentifiers ?? [],
         commentsEnabledForAll: Boolean(nextChannelState.commentsEnabledForAll),
         commentsEnabledForPremium: Boolean(nextChannelState.commentsEnabledForPremium),
+        description: nextChannelState.description,
         draft: nextChannelState.status === 'draft',
         handle: nextChannelState.directLink,
-        statusText: nextChannelState.description,
+        statusText: nextChannelState.statusText,
         title: nextChannelState.title,
         visibility: nextChannelState.visibility,
       }
@@ -8703,6 +8754,7 @@ function App() {
         channelId,
         changedAvatar: pendingPatch.avatarImage !== undefined,
         changedDescription: pendingPatch.description !== undefined,
+        changedStatus: pendingPatch.statusText !== undefined,
         changedTitle: pendingPatch.title !== undefined,
       })
 
@@ -8972,6 +9024,7 @@ function App() {
     const shouldSyncRoomChannel =
       normalizedPatch.directLink !== undefined ||
       normalizedPatch.title !== undefined ||
+      normalizedPatch.statusText !== undefined ||
       normalizedPatch.description !== undefined ||
       normalizedPatch.visibility !== undefined ||
       normalizedPatch.avatarTone !== undefined ||
@@ -8995,9 +9048,17 @@ function App() {
                 ...channel,
                 ...(normalizedPatch.directLink !== undefined ? { handle: normalizedPatch.directLink } : {}),
                 ...(normalizedPatch.title !== undefined ? { title: normalizedPatch.title } : {}),
+                ...(normalizedPatch.statusText !== undefined
+                  ? {
+                      statusText: normalizedPatch.statusText || undefined,
+                      ...(channel.posts.length === 0 && normalizedPatch.statusText
+                        ? { preview: normalizedPatch.statusText }
+                        : {}),
+                    }
+                  : {}),
                 ...(normalizedPatch.description !== undefined
                   ? {
-                      statusText: normalizedPatch.description,
+                      description: normalizedPatch.description,
                       ...(channel.posts.length === 0 ? { preview: normalizedPatch.description } : {}),
                     }
                   : {}),
@@ -9041,9 +9102,17 @@ function App() {
               ...currentChannel,
               ...(normalizedPatch.directLink !== undefined ? { handle: normalizedPatch.directLink } : {}),
               ...(normalizedPatch.title !== undefined ? { title: normalizedPatch.title } : {}),
+              ...(normalizedPatch.statusText !== undefined
+                ? {
+                    statusText: normalizedPatch.statusText || undefined,
+                    ...(currentChannel.posts.length === 0 && normalizedPatch.statusText
+                      ? { preview: normalizedPatch.statusText }
+                      : {}),
+                  }
+                : {}),
               ...(normalizedPatch.description !== undefined
                 ? {
-                    statusText: normalizedPatch.description,
+                    description: normalizedPatch.description,
                     ...(currentChannel.posts.length === 0 ? { preview: normalizedPatch.description } : {}),
                   }
                 : {}),
@@ -9089,6 +9158,10 @@ function App() {
 
     if (normalizedPatch.description !== undefined) {
       serverPatch.description = normalizedPatch.description
+    }
+
+    if (normalizedPatch.statusText !== undefined) {
+      serverPatch.statusText = normalizedPatch.statusText
     }
 
     if (normalizedPatch.visibility !== undefined) {
@@ -9512,6 +9585,7 @@ function App() {
           commentsEnabledForAll: creatingChannelCommentsForAll,
           commentsEnabledForPremium: creatingChannelCommentsForPremium,
           description: creatingChannelDescription,
+          statusText: creatingChannelStatusText,
           directLink: ensureUniqueChannelDirectLink(
             sanitizeChannelDirectLink(creatingChannelDirectLink) ||
               buildChannelDirectLinkFromTitle(creatingChannelTitle),
@@ -9570,8 +9644,8 @@ function App() {
       title,
     )
     const description =
-      sanitizeChannelDescription(creatingChannelDescription) ||
-      'Статус канала не задан.'
+      sanitizeChannelDescription(creatingChannelDescription)
+    const statusText = sanitizeStatusField(creatingChannelStatusText) || undefined
     const nextChannel: Channel = {
       avatarImage: creatingChannelAvatarDraft?.previewUrl,
       avatarTone: creatingChannelAvatarTone,
@@ -9581,14 +9655,24 @@ function App() {
       description,
       directLink,
       id: nextId,
+      statusText,
       status: 'draft',
       title,
       visibility: 'private',
     }
+    const createdSystemPost = buildLocalChannelSystemPost()
+    const nextPreviewChannel: SubscriptionChannel = {
+      ...buildPreviewSubscriptionChannelFromManagedChannel(nextChannel),
+      creatorIdentifier: session?.identifier,
+      latestActivityAt: createdSystemPost.createdAt,
+      posts: [createdSystemPost],
+      preview: createdSystemPost.text,
+      time: createdSystemPost.time,
+    }
 
     setChannels((currentChannels) => [...currentChannels, nextChannel])
     setSubscriptionChannels((currentChannels) => [
-      buildPreviewSubscriptionChannelFromManagedChannel(nextChannel),
+      nextPreviewChannel,
       ...currentChannels,
     ])
     trackAnalyticsEvent('channel_created', {
@@ -9604,7 +9688,7 @@ function App() {
     resetChannelInviteState()
     setChannelManagementOpenId(null)
     openManagedChannelRoom(nextChannel, [
-      buildPreviewSubscriptionChannelFromManagedChannel(nextChannel),
+      nextPreviewChannel,
       ...subscriptionChannels,
     ])
   }
@@ -10637,6 +10721,20 @@ function App() {
               type="button"
               className="message-menu-item"
               onClick={() => {
+                closeChannelActions()
+                setChannelDescriptionOpen(true)
+                setChannelShareOpen(false)
+                setChannelReportOpen(false)
+                setChannelShareError('')
+                setChannelReportError('')
+              }}
+            >
+              Описание канала
+            </button>
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => {
                 void toggleSubscriptionChannelMuted(
                   actionableSubscriptionChannel.id,
                   !actionableSubscriptionChannel.muted,
@@ -10770,6 +10868,85 @@ function App() {
                 disabled={channelShareBusy}
               >
                 {channelShareBusy ? 'Приглашаем...' : 'Пригласить'}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {channelDescriptionOpen && currentSubscriptionChannel ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть описание канала"
+            onClick={() => setChannelDescriptionOpen(false)}
+          />
+          <div className="room-confirm channel-description-dialog">
+            <div className="channel-description-dialog-header">
+              <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: currentSubscriptionChannel.accent }}>
+                {currentSubscriptionChannel.avatarImage ? (
+                  <img src={currentSubscriptionChannel.avatarImage} alt="" className="channel-avatar-image" />
+                ) : (
+                  formatChannelAvatarLabel(currentSubscriptionChannel.title)
+                )}
+              </span>
+              <div className="channel-description-dialog-copy">
+                <h3>{currentSubscriptionChannel.title}</h3>
+                {currentSubscriptionChannel.description ? (
+                  <p className="channel-description-dialog-text">{currentSubscriptionChannel.description}</p>
+                ) : (
+                  <p className="channel-description-dialog-text channel-description-dialog-empty">
+                    Описание канала пока не заполнено.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="room-forward-list">
+              <div className="room-forward-item channel-description-contact-card">
+                <span className="chat-avatar-stack">
+                  <span
+                    className="avatar"
+                    style={{ backgroundColor: currentSubscriptionChannelCreatorChat?.accent ?? currentSubscriptionChannel.accent ?? '#8c5738' }}
+                  >
+                    {session?.avatarImage && currentSubscriptionChannelCreatorIdentifier === session?.identifier ? (
+                      <img src={session.avatarImage} alt="" className="channel-avatar-image" />
+                    ) : (
+                      renderAccountAvatarContent(
+                        currentSubscriptionChannelCreatorChat?.title ??
+                          (currentSubscriptionChannelCreatorIdentifier === session?.identifier
+                            ? formatSessionName(session)
+                            : 'Создатель канала'),
+                      )
+                    )}
+                  </span>
+                </span>
+                <span className="group-create-member-copy">
+                  <strong className="group-create-member-name-row">
+                    <span>
+                      {currentSubscriptionChannelCreatorChat?.title ??
+                        (currentSubscriptionChannelCreatorIdentifier === session?.identifier
+                          ? formatSessionName(session)
+                          : 'Создатель канала')}
+                    </span>
+                  </strong>
+                  <span>
+                    {currentSubscriptionChannelCreatorChat
+                      ? currentSubscriptionChannelCreatorChat.handle || currentSubscriptionChannelCreatorChat.phone
+                      : currentSubscriptionChannelCreatorIdentifier === session?.identifier
+                        ? (session?.nickname ? `@${session.nickname}` : session?.identifier)
+                        : 'Контакт создателя'}
+                  </span>
+                </span>
+              </div>
+            </div>
+            <div className="room-confirm-actions room-confirm-actions-single">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setChannelDescriptionOpen(false)}
+              >
+                Назад
               </button>
             </div>
           </div>
@@ -13174,13 +13351,16 @@ function App() {
                     type="text"
                     className="settings-input"
                     maxLength={channelTitleMaxLength}
+                    placeholder="Введите название канала"
                     value={creatingChannelTitle}
                     onChange={(event) => {
                       const nextTitle = event.target.value.slice(0, channelTitleMaxLength)
                       setCreatingChannelTitle(nextTitle)
 
                       if (!creatingChannelDirectLinkDirty) {
-                        setCreatingChannelDirectLink(buildUniqueChannelDirectLinkFromTitle(nextTitle))
+                        setCreatingChannelDirectLink(
+                          nextTitle.trim() ? buildUniqueChannelDirectLinkFromTitle(nextTitle) : '',
+                        )
                       }
                     }}
                   />
@@ -13233,11 +13413,26 @@ function App() {
                   <textarea
                     className="channel-description-input"
                     maxLength={statusFieldMaxLength}
-                    placeholder="Статус канала не задан"
+                    placeholder="Введите статус канала"
+                    value={creatingChannelStatusText}
+                    onChange={(event) =>
+                      setCreatingChannelStatusText(
+                        sanitizeStatusField(event.target.value),
+                      )
+                    }
+                  />
+                </article>
+
+                <article className="settings-item channel-description-card">
+                  <span className="settings-label">Описание канала</span>
+                  <textarea
+                    className="channel-description-input"
+                    maxLength={channelDescriptionMaxLength}
+                    placeholder="Добавьте описание канала"
                     value={creatingChannelDescription}
                     onChange={(event) =>
                       setCreatingChannelDescription(
-                        sanitizeStatusField(event.target.value),
+                        sanitizeChannelDescription(event.target.value),
                       )
                     }
                   />
@@ -13500,11 +13695,26 @@ function App() {
                       <textarea
                         className="channel-description-input"
                         maxLength={statusFieldMaxLength}
-                        placeholder="Статус канала не задан"
+                        placeholder="Введите статус канала"
+                        value={activeChannel.statusText ?? ''}
+                        onChange={(event) =>
+                          updateChannel(activeChannel.id, {
+                            statusText: sanitizeStatusField(event.target.value),
+                          })
+                        }
+                      />
+                    </article>
+
+                    <article className="settings-item channel-description-card">
+                      <span className="settings-label">Описание канала</span>
+                      <textarea
+                        className="channel-description-input"
+                        maxLength={channelDescriptionMaxLength}
+                        placeholder="Добавьте описание канала"
                         value={activeChannel.description}
                         onChange={(event) =>
                           updateChannel(activeChannel.id, {
-                            description: sanitizeStatusField(event.target.value),
+                            description: sanitizeChannelDescription(event.target.value),
                           })
                         }
                       />

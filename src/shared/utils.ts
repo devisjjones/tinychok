@@ -415,7 +415,7 @@ export function ensureUniqueChannelDirectLink(
 }
 
 export function sanitizeChannelDescription(value: string) {
-  return sanitizeStatusField(value).slice(0, Math.min(statusFieldMaxLength, channelDescriptionMaxLength))
+  return value.replace(/\s+/g, ' ').trim().slice(0, channelDescriptionMaxLength)
 }
 
 export function makePremiumExpiry(days: number) {
@@ -467,40 +467,13 @@ export function formatChannelAvatarLabel(title: string) {
 }
 
 export function makeDraftChannel(channelNumber: number, channelId: number): Channel {
-  const templates = [
-    {
-      title: 'Ночной архив',
-      directLink: '@night_archive',
-      description:
-        'Черновик тихого канала для личных заметок, редких анонсов и сохранённых сообщений.',
-      avatarTone: '#8c5738',
-    },
-    {
-      title: 'Тихие релизы',
-      directLink: '@quiet_releases',
-      description: 'Канал для аккуратных обновлений продукта без шума, спама и лишних пингов.',
-      avatarTone: '#6eb6ff',
-    },
-    {
-      title: 'Клуб сигналов',
-      directLink: '@signal_club',
-      description:
-        'Подборка коротких сигналов, которые удобно публиковать для своей закрытой аудитории.',
-      avatarTone: '#82c9a3',
-    },
-  ] as const
-
-  const template = templates[channelNumber - 1]
-
   return {
     id: channelId,
-    title: template?.title ?? `Новый канал ${channelNumber}`,
-    directLink: template?.directLink ?? '@kanal',
-    description:
-      template?.description ??
-      'Описание канала пока не заполнено. Здесь можно подготовить текст до публикации.',
-    avatarTone:
-      template?.avatarTone ?? channelAvatarTones[(channelNumber - 1) % channelAvatarTones.length],
+    title: '',
+    directLink: '',
+    statusText: '',
+    description: '',
+    avatarTone: channelAvatarTones[(channelNumber - 1) % channelAvatarTones.length],
     status: 'draft',
     visibility: 'private',
   }

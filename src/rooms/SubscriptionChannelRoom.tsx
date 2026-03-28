@@ -229,44 +229,51 @@ export function SubscriptionChannelRoom({
                 {index === 0 || previousPostDayKey !== postDayKey ? (
                   <ConversationDayDivider label={formatConversationDayLabel(post.createdAt)} />
                 ) : null}
-                <ThreadedBubble
-                  variant="channel"
-                  threadCount={post.threadComments?.length ?? 0}
-                  onOpenThread={() => onOpenThread(post.id)}
-                  bubble={
-                    <AttachedReplyBubble
-                      className="channel"
-                      onReplyClick={
-                        replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
-                          ? () => jumpToPost(replyReference.id)
-                          : undefined
-                      }
-                      replyTo={replyReference}
-                      bubble={
-                        <button
-                          type="button"
-                          data-channel-post-id={post.id}
-                          className={
-                            activePostId === post.id
-                              ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
-                              : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
-                          }
-                          onClick={(event) => onPostSelect(event, post.id)}
-                        >
-                          <BubbleMessageContent
-                            imageOverlay={
-                              hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
+                {post.system ? (
+                  <div className="channel-system-post" data-channel-post-id={post.id}>
+                    <span className="channel-system-post-label">{post.text}</span>
+                    <time>{post.time}</time>
+                  </div>
+                ) : (
+                  <ThreadedBubble
+                    variant="channel"
+                    threadCount={post.threadComments?.length ?? 0}
+                    onOpenThread={() => onOpenThread(post.id)}
+                    bubble={
+                      <AttachedReplyBubble
+                        className="channel"
+                        onReplyClick={
+                          replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
+                            ? () => jumpToPost(replyReference.id)
+                            : undefined
+                        }
+                        replyTo={replyReference}
+                        bubble={
+                          <button
+                            type="button"
+                            data-channel-post-id={post.id}
+                            className={
+                              activePostId === post.id
+                                ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
+                                : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
                             }
-                            message={post}
-                            onOpenAttachment={onOpenAttachment}
-                            showReplyInline={false}
-                          />
-                          {!hasImageAttachment ? <time>{post.time}</time> : null}
-                        </button>
-                      }
-                    />
-                  }
-                />
+                            onClick={(event) => onPostSelect(event, post.id)}
+                          >
+                            <BubbleMessageContent
+                              imageOverlay={
+                                hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
+                              }
+                              message={post}
+                              onOpenAttachment={onOpenAttachment}
+                              showReplyInline={false}
+                            />
+                            {!hasImageAttachment ? <time>{post.time}</time> : null}
+                          </button>
+                        }
+                      />
+                    }
+                  />
+                )}
               </Fragment>
             )
           })}
