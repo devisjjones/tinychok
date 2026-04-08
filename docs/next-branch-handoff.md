@@ -211,6 +211,14 @@
   - при `on` новый участник получает backfill старых group messages в свой owner-copy в момент `joinGroupBySharedId`
   - при `off` новый участник видит только сообщения с момента вступления и не должен получать старый preview/history backfill
 
+### Left Rail Group Cards
+
+- карточки групп в левом списке используют отдельный compact-контракт:
+  - более плотный vertical padding, чем у default `chat-card`
+  - увеличенная avatar `56px`
+  - лёгкий сдвиг avatar влево, чтобы картинка не плавала внутри лишнего поля
+  - `chat-copy` внутри group-card держит более плотный текстовый gap, чем общий rail-card
+
 ### External Links
 
 - raw `http://` и `https://` в текстах сообщений и комментариев считаются отдельным linkify-контрактом:

@@ -15335,7 +15335,7 @@ function App() {
                   <button
                     key={group.id}
                     type="button"
-                    className={group.id === activeGroupId ? 'chat-card active' : 'chat-card'}
+                    className={group.id === activeGroupId ? 'chat-card group-list-card active' : 'chat-card group-list-card'}
                     onClick={() => openGroup(group.id)}
                   >
                     <span className="avatar" style={{ backgroundColor: group.accent }}>

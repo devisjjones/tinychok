@@ -1277,6 +1277,22 @@
   gap: 12px;
 }
 
+.chat-card.group-list-card {
+  padding: 10px 14px 10px 8px;
+  gap: 12px;
+}
+
+.chat-card.group-list-card .avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 20px;
+  margin-left: -2px;
+}
+
+.chat-card.group-list-card .chat-copy {
+  gap: 2px;
+}
+
 .chat-card.channel-list-card .avatar {
   width: 56px;
   height: 56px;
@@ -1521,6 +1537,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chat-card.group-list-card .chat-handle,
+.chat-card.group-list-card .chat-preview {
+  line-height: 1.2;
 }
 
 .chat-typing {

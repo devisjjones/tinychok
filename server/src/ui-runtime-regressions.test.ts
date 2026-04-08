@@ -574,6 +574,25 @@ test('left rail lists use a shared today-vs-date formatter for activity labels',
   assert.doesNotMatch(appSource, /chat-topline-meta">\{item\.latestCommentTime\}/u)
 })
 
+test('group left-rail cards keep compact copy padding and enlarged avatars', () => {
+  const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
+  const appCss = readFileSync(join(process.cwd(), 'src/App.css'), 'utf8')
+  const handoffDoc = readFileSync(join(process.cwd(), 'docs', 'next-branch-handoff.md'), 'utf8')
+  const rolloutDoc = readFileSync(join(process.cwd(), 'docs', 'staging-rollout-status.md'), 'utf8')
+  const releaseDoc = readFileSync(join(process.cwd(), 'docs', 'release-contracts.md'), 'utf8')
+
+  assert.match(appSource, /'chat-card group-list-card active'/u)
+  assert.match(appSource, /'chat-card group-list-card'/u)
+  assert.match(appCss, /\.chat-card\.group-list-card\s*\{[\s\S]*padding:\s*10px 14px 10px 8px;[\s\S]*gap:\s*12px;/u)
+  assert.match(appCss, /\.chat-card\.group-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;[\s\S]*margin-left:\s*-2px;/u)
+  assert.match(appCss, /\.chat-card\.group-list-card \.chat-copy\s*\{[\s\S]*gap:\s*2px;/u)
+  assert.match(appCss, /\.chat-card\.group-list-card \.chat-handle,\s*[\r\n]+\s*\.chat-card\.group-list-card \.chat-preview\s*\{[\s\S]*line-height:\s*1\.2;/u)
+  assert.match(handoffDoc, /карточки групп в левом списке используют отдельный compact-контракт/u)
+  assert.match(rolloutDoc, /карточки групп в левом списке должны оставаться компактнее по вертикали/u)
+  assert.match(releaseDoc, /### 11\.1\.2\. Group Left Rail Card Contract/u)
+  assert.match(releaseDoc, /`group` cards в левом списке используют отдельный compact layout/u)
+})
+
 test('settings storage scene stays wired to user-manageable media only', () => {
   const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
   const appCss = readFileSync(join(process.cwd(), 'src/App.css'), 'utf8')
