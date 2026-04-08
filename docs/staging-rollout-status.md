@@ -524,6 +524,7 @@ npm run bootstrap:staff -- <identifier> owner
 
 ```bash
 cd /home/devis/tinychok
+git remote get-url origin
 git fetch origin
 git checkout codex/staging-deploy
 git pull --ff-only origin codex/staging-deploy
@@ -548,6 +549,12 @@ bash scripts/deploy-staging.sh
 - тот же deploy-скрипт теперь обязан падать на:
   - грязном worktree без commit-backed состояния
   - `npm audit --audit-level=high`
+- staging VM больше не должна использовать alias-based git remote:
+  - ожидаемое значение `origin` = `git@github.com:devisjjones/tinychok.git`
+  - старый alias `github-tinychok` признан невалидным, потому что ломал воспроизводимый fetch/push path
+- staging rollout считается завершённым только если:
+  - `/home/devis/tinychok` на VM чистый
+  - live commit на VM совпадает с `origin/codex/staging-deploy`
 
 ### Verified Staging Checkpoint — 2026-04-08
 

@@ -51,6 +51,10 @@
   - перед staging deploy должны быть зелёными `npm test`, `npm run audit:release` и `npm run build:staging`
 - `scripts/deploy-staging.sh` теперь должен стартовать только из чистого commit-backed worktree:
   - rsync из dirty workspace больше не считается валидным staging rollout
+- staging VM git remote `origin` должен быть прямым:
+  - `git@github.com:devisjjones/tinychok.git`
+  - alias `github-tinychok` больше не использовать, потому что он уже ломал commit-backed sync с origin
+- staging VM branch не должен оставаться `ahead 1` / `behind` относительно `origin/codex/staging-deploy` после релизного deploy
 - `scripts/deploy-staging.sh` теперь retry-ит runtime verifier после restart:
   - brief `502` на `healthz` в первые секунды после `systemctl restart` больше не должен обрывать deploy раньше времени
 - fallback-защита на web-vhost тоже важна:

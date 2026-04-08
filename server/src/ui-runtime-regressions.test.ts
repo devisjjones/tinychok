@@ -3631,7 +3631,9 @@ test('staging frontend build contract protects against same-origin api auth loop
   assert.match(deployScript, /Chrome re-opens nginx basic auth/u)
   assert.match(deployScript, /npm run build:staging/u)
   assert.match(deployScript, /ensure_clean_worktree/u)
+  assert.match(deployScript, /ensure_origin_remote_contract/u)
   assert.match(deployScript, /Staging deploy requires a clean commit-backed worktree\./u)
+  assert.match(deployScript, /Staging deploy requires origin to point directly at github\.com/u)
   assert.match(deployScript, /npm run audit:release/u)
 
   assert.match(backendSource, /Staging frontend must be built with explicit VITE_API_BASE_URL/u)
@@ -3641,12 +3643,14 @@ test('staging frontend build contract protects against same-origin api auth loop
   assert.match(handoffDoc, /staging frontend нельзя выкатывать из plain `npm run build`/u)
   assert.match(handoffDoc, /Chrome зацикливает окно логина/u)
   assert.match(handoffDoc, /staging\.tinychok\.ru\/api\/\*` и `staging\.tinychok\.ru\/ws` должны проксироваться/u)
+  assert.match(handoffDoc, /git@github\.com:devisjjones\/tinychok\.git/u)
 
   assert.match(rolloutDoc, /только `npm run build:staging`/u)
   assert.match(rolloutDoc, /endless basic-auth prompt/u)
   assert.match(rolloutDoc, /staging\.tinychok\.ru\/api\/client-config/u)
   assert.match(rolloutDoc, /expected result = JSON runtime config, а не `index\.html`/u)
   assert.match(rolloutDoc, /expected result = обычный JSON `401` от backend/u)
+  assert.match(rolloutDoc, /git@github\.com:devisjjones\/tinychok\.git/u)
 })
 
 test('main entry lazy-loads user and admin frontends to keep the staging bootstrap bundle split', () => {

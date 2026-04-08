@@ -36,6 +36,21 @@ ensure_clean_worktree() {
   fi
 }
 
+ensure_origin_remote_contract() {
+  local origin_url
+  origin_url="$(git remote get-url origin 2>/dev/null || true)"
+
+  case "$origin_url" in
+    git@github.com:devisjjones/tinychok.git|https://github.com/devisjjones/tinychok.git)
+      ;;
+    *)
+      echo "Staging deploy requires origin to point directly at github.com for devisjjones/tinychok.git." >&2
+      echo "Current origin: ${origin_url:-<missing>}" >&2
+      exit 1
+      ;;
+  esac
+}
+
 verify_staging_runtime_release() {
   node scripts/verify-release-runtime.mjs \
     --client-config-url https://api.staging.tinychok.ru/api/client-config \
@@ -116,6 +131,8 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "==> Repo dir: $REPO_DIR"
 cd "$REPO_DIR"
+
+ensure_origin_remote_contract
 
 if [[ "$SKIP_PULL" -eq 0 ]]; then
   echo "==> Fetching branch $BRANCH"

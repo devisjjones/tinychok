@@ -23,6 +23,9 @@
 - если frontend падает обратно на same-origin `/api` и `/ws`, Chrome начинает заново открывать basic-auth окно и staging выглядит как "не пускает"
 - `scripts/verify-staging-dist.mjs` обязан проверять не только bootstrap `assets/main-*.js`, но и все staged `dist/assets/*.js`, потому что user/admin entry теперь lazy-split
 - staging deploy обязан стартовать только из чистого commit-backed worktree; rsync из грязного workspace больше не считается допустимым rollout
+- staging VM git remote `origin` обязан смотреть прямо на `git@github.com:devisjjones/tinychok.git`
+- кастомные SSH alias вроде `github-tinychok` не считаются допустимым release-контрактом, если из-за них staging теряет воспроизводимый `fetch/pull`
+- staging rollout нельзя считать закрытым, пока live VM commit не совпадает с `origin/codex/staging-deploy`
 
 ### 2. Runtime Health Contract
 
