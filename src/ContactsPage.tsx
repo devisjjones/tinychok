@@ -1,6 +1,8 @@
 import { useCookieConsent } from './app/useCookieConsent'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 
+// Public requisites page for users, payment providers and legal references. Keep реквизиты/support
+// contacts synced with approved legal documents and do not reintroduce private provider-only copy here.
 const contactsUpdatedAt = '26 марта 2026'
 
 const contactCards = [
@@ -63,18 +65,6 @@ export function ContactsPage() {
                 Вернуться в Тайничок
               </a>
             </div>
-          </article>
-
-          <article className="policy-page-callout">
-            <p className="eyebrow">Для YooKassa</p>
-            <p>
-              Если платёжный провайдер проверяет сайт вручную, в качестве страницы с реквизитами
-              можно указывать именно этот публичный URL.
-            </p>
-            <p>
-              На странице указаны ИНН, ОГРНИП, контакты для связи и способ получения цифрового
-              продукта после оплаты.
-            </p>
           </article>
 
           <section className="policy-page-grid">

@@ -42,6 +42,15 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
   roomKey: string | null
 }) {
   const { feedRef, hasOlderHistory, items, loadOlderPage, roomKey } = options
+  const [historyMutation, setHistoryMutation] = useState<{
+    kind: 'idle' | 'prepend' | 'reset'
+    roomKey: string | null
+    seq: number
+  }>({
+    kind: roomKey ? 'reset' : 'idle',
+    roomKey,
+    seq: 0,
+  })
   const [historyState, setHistoryState] = useState<{
     hasMore: boolean
     olderItems: T[]
@@ -64,6 +73,11 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
   }, [historyState.olderItems, historyState.roomKey, items, roomKey])
   const visibleItemsRef = useRef(visibleItems)
   const loadOlderPromiseRef = useRef<Promise<boolean> | null>(null)
+  const olderItemsRefreshSignatureRef = useRef<string | null>(null)
+  const recentItemsSignature = useMemo(
+    () => items.map((item) => `${item.id}:${item.createdAt ?? ''}`).join('|'),
+    [items],
+  )
 
   useEffect(() => {
     activeRoomKeyRef.current = roomKey
@@ -85,11 +99,17 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
   useEffect(() => {
     prependScrollStateRef.current = null
     loadOlderPromiseRef.current = null
+    olderItemsRefreshSignatureRef.current = null
     setHistoryState({
       hasMore: initialHasOlderHistoryRef.current,
       olderItems: [],
       roomKey,
     })
+    setHistoryMutation((currentMutation) => ({
+      kind: roomKey ? 'reset' : 'idle',
+      roomKey,
+      seq: currentMutation.seq + 1,
+    }))
   }, [roomKey])
 
   useEffect(() => {
@@ -108,6 +128,90 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
       }
     })
   }, [hasOlderHistory, roomKey])
+
+  useEffect(() => {
+    setHistoryState((currentState) => {
+      if (currentState.roomKey !== roomKey) {
+        return currentState
+      }
+
+      if (items.length > 0 || currentState.olderItems.length === 0) {
+        return currentState
+      }
+
+      // A destructive room reset (for example "delete history for everyone") can keep the
+      // same roomKey while replacing the recent slice with an empty list. In that case the
+      // previously prepended olderItems must be dropped too, otherwise the UI rehydrates
+      // stale history on top of an already-cleared snapshot.
+      return {
+        hasMore: hasOlderHistory,
+        olderItems: [],
+        roomKey,
+      }
+    })
+  }, [hasOlderHistory, items.length, roomKey])
+
+  useEffect(() => {
+    if (!roomKey || !loadOlderPage) return
+    if (historyState.roomKey !== roomKey || historyState.olderItems.length === 0) return
+
+    const oldestRecentItem = items[0]
+    if (!oldestRecentItem) return
+
+    const refreshSignature = `${roomKey}:${recentItemsSignature}:${historyState.olderItems.length}`
+    if (olderItemsRefreshSignatureRef.current === refreshSignature) {
+      return
+    }
+    olderItemsRefreshSignatureRef.current = refreshSignature
+
+    let cancelled = false
+
+    void (async () => {
+      let beforeItemId = oldestRecentItem.id
+      let remainingOlderItems = historyState.olderItems.length
+      let refreshedOlderItems: T[] = []
+
+      while (!cancelled && remainingOlderItems > 0) {
+        const page = await loadOlderPage(beforeItemId)
+        if (cancelled || page.items.length === 0) {
+          break
+        }
+
+        // When a live snapshot updates already-visible history (for example storage cleanup
+        // replacing an old attachment with a removal note), refresh the loaded older window too.
+        // This is important for the reader side: without it, the owner sees the quota notice
+        // but the other participant can stay stuck with an empty stale bubble until full reload.
+        refreshedOlderItems = mergeTimelineItems(refreshedOlderItems, page.items)
+        remainingOlderItems = historyState.olderItems.length - refreshedOlderItems.length
+
+        const nextBeforeItem = page.items[0]
+        if (!page.hasMore || !nextBeforeItem) {
+          break
+        }
+
+        beforeItemId = nextBeforeItem.id
+      }
+
+      if (cancelled || refreshedOlderItems.length === 0) {
+        return
+      }
+
+      setHistoryState((currentState) => {
+        if (currentState.roomKey !== roomKey) {
+          return currentState
+        }
+
+        return {
+          ...currentState,
+          olderItems: mergeTimelineItems(currentState.olderItems, refreshedOlderItems),
+        }
+      })
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [historyState.olderItems, historyState.roomKey, items, loadOlderPage, recentItemsSignature, roomKey])
 
   const loadOlderItems = useCallback(async () => {
     if (loadOlderPromiseRef.current) {
@@ -147,6 +251,15 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
         }
 
         hasMoreRef.current = page.hasMore
+        // Older history is prepended into the feed and must preserve viewport.
+        // Consumers use this explicit mutation signal to avoid treating prepend as append.
+        if (page.items.length > 0) {
+          setHistoryMutation((currentMutation) => ({
+            kind: 'prepend',
+            roomKey: activeRoomKey,
+            seq: currentMutation.seq + 1,
+          }))
+        }
         setHistoryState((currentState) => {
           if (currentState.roomKey !== activeRoomKey) {
             return currentState
@@ -207,6 +320,7 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
     const feed = feedRef.current
     if (!pendingScrollState || !feed) return
 
+    // Prepending older history must keep the reader anchored to the same visible viewport.
     prependScrollStateRef.current = null
     feed.scrollTop =
       feed.scrollHeight -
@@ -241,6 +355,7 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
 
   return {
     canLoadOlder: Boolean(roomKey && loadOlderPage && hasMoreRef.current),
+    historyMutation,
     revealItemById,
     visibleItems,
   }

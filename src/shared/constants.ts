@@ -9,16 +9,19 @@ export const accountStatusMaxFontSize = 15
 export const accountStatusMinFontSize = 10.5
 export const defaultGroupMemberLimit = 10
 export const premiumGroupMemberLimit = 200
+export const defaultGroupsPerUserLimit = 5
+export const premiumGroupsPerUserLimit = 20
 export const groupTitleMaxLength = 48
+export const composerAttachmentRenameMaxLength = 50
 export const channelTitleMaxLength = 30
 export const channelDirectLinkMaxLength = 30
-export const channelDescriptionMaxLength = 160
+export const channelDescriptionMaxLength = 500
 export const managedChannelsPerUserLimit = 5
 export const channelActionMenuWidth = 280
 export const channelActionMenuHeight = 132
 export const channelBlockedMenuHeight = 146
 export const groupActionMenuWidth = 280
-export const groupActionMenuHeight = 228
+export const groupActionMenuHeight = 276
 export const avatarSourceMaxSizeBytes = 5 * 1024 * 1024
 export const avatarAcceptedMimeTypes = [
   'image/jpeg',
@@ -31,6 +34,7 @@ export const channelAvatarUploadMaxSizeBytes = avatarSourceMaxSizeBytes
 export const channelAvatarUploadAcceptedMimeTypes = avatarAcceptedMimeTypes
 export const messagePhotoUploadMaxSizeBytes = 10 * 1024 * 1024
 export const messageFileUploadMaxSizeBytes = 10 * 1024 * 1024
+export const premiumMessageFileUploadMaxSizeBytes = 200 * 1024 * 1024
 export const messageGifUploadMaxSizeBytes = 5 * 1024 * 1024
 export const messagePhotoAcceptedMimeTypes = [
   'image/jpeg',
@@ -46,20 +50,32 @@ export const messageFileAcceptedMimeTypes = [
   'application/x-zip-compressed',
   'application/zip',
   'text/plain',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'video/x-m4v',
 ] as const
 export const messageFileAcceptedExtensions = [
   '.doc',
   '.docx',
+  '.m4v',
+  '.mov',
+  '.mp4',
   '.pdf',
   '.txt',
+  '.webm',
   '.xls',
   '.xlsx',
   '.zip',
 ] as const
 export const messagePhotoMaxDimensionPx = 1600
 export const messagePhotoCompressionTargetBytes = 1_600_000
-export const freeStorageQuotaBytes = 50 * 1024 * 1024
-export const premiumStorageQuotaBytes = 500 * 1024 * 1024
+export const freeStorageQuotaBytes = 100 * 1024 * 1024
+export const premiumStorageQuotaBytes = 1000 * 1024 * 1024
+export const freeArchiveStorageQuotaBytes = 200 * 1024 * 1024
+export const premiumArchiveStorageQuotaBytes = 500 * 1024 * 1024
+export const channelStorageQuotaBytes = 500 * 1024 * 1024
+export const channelArchiveStorageQuotaBytes = 200 * 1024 * 1024
 export const orphanUploadTtlMs = 24 * 60 * 60 * 1000
 export const chatActionMenuWidth = 320
 export const chatActionMenuHeight = 290

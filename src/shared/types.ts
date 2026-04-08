@@ -11,6 +11,12 @@ export type MessageAttachment = {
   width?: number
 }
 
+export type AttachmentRemovedNotice = {
+  removedAt: string
+  reason: 'storage-quota' | 'storage-manual'
+  text: string
+}
+
 export type StaffRole = 'owner' | 'moderator' | 'support'
 
 export type UserGifLibraryItem = {
@@ -24,6 +30,22 @@ export type UserGifLibraryItem = {
   width?: number
 }
 
+export type UserStorageItem = {
+  createdAt: string
+  fileName: string
+  height?: number
+  id: string
+  kind: 'attachment' | 'gif'
+  mediaUrl: string
+  mimeType: string
+  primaryLabel: string
+  size: number
+  usageCount: number
+  width?: number
+}
+
+export type StorageSubjectKind = 'user' | 'group' | 'channel'
+
 export type StorageUsage = {
   percentUsed: number
   quotaBytes: number
@@ -31,8 +53,22 @@ export type StorageUsage = {
   usedBytes: number
 }
 
+export type StorageQuotaUsage = StorageUsage
+export type StorageArchiveUsage = StorageUsage & {
+  unlimited?: boolean
+}
+
+export type StorageArchiveReason = 'manual-delete' | 'storage-quota' | 'retention-delete'
+
+export type StorageSubjectSummary = {
+  archiveUnlimited?: boolean
+  archiveUsage?: StorageArchiveUsage
+  storageUsage?: StorageQuotaUsage
+}
+
 export type ThreadComment = {
   attachment?: MessageAttachment
+  attachmentRemovedNotice?: AttachmentRemovedNotice
   id: number
   author: 'me' | 'them'
   authorIdentifier?: string
@@ -40,6 +76,8 @@ export type ThreadComment = {
   deliveryId?: string
   displayAuthor?: string
   replyTo?: Message['replyTo']
+  sourceChannel?: ChannelMessageSource
+  sourceContact?: ContactMessageSource
   text: string
   time: string
 }
@@ -82,14 +120,41 @@ export type ChannelThreadInboxItem = {
 
 export type ThreadInboxItem = GroupThreadInboxItem | ChannelThreadInboxItem
 
+export type SupportTicketComment = ThreadComment
+
+export type SupportTicketStatus = 'open' | 'needs_confirmation' | 'resolved' | 'reopened'
+
+export type SupportTicket = {
+  attachment?: MessageAttachment
+  attachmentRemovedNotice?: AttachmentRemovedNotice
+  comments: SupportTicketComment[]
+  createdAt: string
+  deliveryId?: string
+  id: number
+  latestActivityAt?: string
+  replyTo?: Message['replyTo']
+  status: SupportTicketStatus
+  text: string
+  threadId: string
+  time: string
+  unreadCount: number
+  updatedAt: string
+}
+
 export type ChannelPost = {
   replyTo?: Message['replyTo']
   id: number
+  deliveryId?: string
+  sourceChannel?: ChannelMessageSource
+  sourceContact?: ContactMessageSource
   text: string
   time: string
   createdAt?: string
   attachment?: MessageAttachment
+  attachmentRemovedNotice?: AttachmentRemovedNotice
   system?: boolean
+  threadArchivedAt?: string
+  threadArchiveReason?: ArchiveReason
   threadComments?: ThreadComment[]
   threadId?: string
 }
@@ -100,17 +165,50 @@ export type ChannelMessageSource = {
   handle?: string
   id?: number
   leadText?: string
+  statusText?: string
   title: string
   visibility?: SubscriptionChannel['visibility']
 }
 
 export type GroupMessageSource = {
   accent?: string
+  archivedAt?: string
+  archiveReason?: ArchiveReason
   avatarImage?: string
   creatorIdentifier?: string
   groupOwnerIdentifier?: string
   handle?: string
+  leadText?: string
   sharedId?: string
+  title: string
+}
+
+export type GroupSystemEventActor = {
+  identifier?: string
+  premium: boolean
+  title: string
+}
+
+export type GroupSystemEvent =
+  | {
+      kind: 'member-joined'
+      actor: GroupSystemEventActor
+    }
+  | {
+      kind: 'member-left'
+      actor: GroupSystemEventActor
+    }
+  | {
+      kind: 'owner-transferred'
+      actor: GroupSystemEventActor
+    }
+
+export type ContactMessageSource = {
+  accent?: string
+  avatarImage?: string
+  handle?: string
+  identifier?: string
+  status?: string
   title: string
 }
 
@@ -136,7 +234,9 @@ export type Message = {
   deliveryId?: string
   displayAuthor?: string
   attachment?: MessageAttachment
+  attachmentRemovedNotice?: AttachmentRemovedNotice
   readAt?: string
+  system?: boolean
   replyTo?: {
     id: number
     text: string
@@ -145,8 +245,12 @@ export type Message = {
   forwarded?: boolean
   forwardedAuthorName?: string
   groupParticipantId?: number
+  groupSystemEvent?: GroupSystemEvent
   sourceChannel?: ChannelMessageSource
+  sourceContact?: ContactMessageSource
   sourceGroup?: GroupMessageSource
+  threadArchivedAt?: string
+  threadArchiveReason?: ArchiveReason
   threadComments?: ThreadComment[]
   threadId?: string
 }
@@ -162,6 +266,9 @@ export type Chat = {
   title: string
   handle: string
   phone: string
+  avatarImage?: string
+  contactState?: ContactState
+  hidden?: boolean
   archivedAccount?: boolean
   isTestEntity?: boolean
   accent: string
@@ -182,8 +289,29 @@ export type Chat = {
   messages: Message[]
 }
 
+export type ContactState =
+  | 'none'
+  | 'pending-outgoing'
+  | 'pending-incoming'
+  | 'accepted'
+  | 'blocked-by-me'
+  | 'blocked-by-peer'
+
+export type ContactRequestPreview = {
+  accent: string
+  avatarImage?: string
+  createdAt: string
+  handle: string
+  identifier: string
+  premium?: boolean
+  status: string
+  title: string
+}
+
 export type ArchiveReason =
+  | 'admin-archived'
   | 'owner-self-deleted'
+  | 'owner-deleted'
   | 'self-service-data-hidden'
   | 'orphaned-group'
 
@@ -194,6 +322,20 @@ export type SearchResult = {
   phone: string
   accent: string
   subtitle: string
+}
+
+export type ChannelSearchResult = {
+  accent: string
+  archivedAt?: string
+  avatarImage?: string
+  description?: string
+  handle: string
+  id: number
+  muted?: boolean
+  statusText?: string
+  title: string
+  unread: number
+  visibility: SubscriptionChannel['visibility']
 }
 
 export type SubscriptionChannel = {
@@ -218,6 +360,7 @@ export type SubscriptionChannel = {
   time: string
   unread: number
   muted?: boolean
+  storageUsage?: StorageQuotaUsage
   draft?: boolean
   participants?: GroupParticipant[]
   visibility: 'private' | 'public' | 'closed'
@@ -233,10 +376,13 @@ export type GroupPreview = {
   archivedAt?: string
   archiveReason?: ArchiveReason
   creatorIdentifier?: string
+  description?: string
   groupOwnerIdentifier?: string
   isTestEntity?: boolean
   latestActivityAt?: string
   historyHasMore?: boolean
+  showHistoryToNewMembers?: boolean
+  viewerIsOwner?: boolean
   commentsEnabledForAll?: boolean
   commentsEnabledForPremium?: boolean
   commentBlacklistIdentifiers?: string[]
@@ -272,6 +418,7 @@ export type Channel = {
   commentsEnabledForAll?: boolean
   commentsEnabledForPremium?: boolean
   commentBlacklistIdentifiers?: string[]
+  storageUsage?: StorageQuotaUsage
   status: 'draft' | 'active'
   visibility: 'private' | 'public' | 'closed'
 }
@@ -286,8 +433,22 @@ export type AuthStep =
   | 'password-setup'
   | 'password-reset'
 export type StageView = 'main' | 'settings' | 'premium' | 'channels'
-export type SettingsView = 'profile' | 'management' | 'blocked'
+export type SettingsView = 'profile' | 'management' | 'blocked' | 'quiet' | 'support' | 'storage'
 export type CookieConsentChoice = 'necessary' | 'analytics'
+
+export type QuietModeSettings = {
+  dialogs: boolean
+  channels: boolean
+  groups: boolean
+  threads: boolean
+  contactRequests: boolean
+  autoInvisibility: boolean
+}
+
+export type AccountStatusHistoryEntry = {
+  setAt: string
+  status: string
+}
 
 export type Account = {
   identifier: string
@@ -295,11 +456,18 @@ export type Account = {
   surname?: string
   nickname?: string
   status?: string
+  statusHistory?: AccountStatusHistoryEntry[]
   avatarImage?: string
+  quietModeEnabled?: boolean
+  quietModeSettings?: QuietModeSettings
+  invisibilityEnabled?: boolean
+  invisibilityAutoEnabled?: boolean
   soundsDisabled?: boolean
   isTestEntity?: boolean
   premium?: boolean
   premiumExpiresAt?: string
+  retainedStorageQuotaBytes?: number
+  retainedArchiveStorageQuotaBytes?: number
   staffRole?: StaffRole
   blockedAt?: string
   blockedReason?: string
@@ -317,6 +485,10 @@ export type Session = {
   nickname?: string
   status?: string
   avatarImage?: string
+  quietModeEnabled?: boolean
+  quietModeSettings?: QuietModeSettings
+  invisibilityEnabled?: boolean
+  invisibilityAutoEnabled?: boolean
   soundsDisabled?: boolean
   premium?: boolean
   premiumExpiresAt?: string

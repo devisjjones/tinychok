@@ -1,6 +1,6 @@
 import { useEffect, type MouseEvent as ReactMouseEvent } from 'react'
 import type { MessageAttachment } from '../app/types'
-import { formatAttachmentSize, isImageMimeType } from '../app/utils'
+import { formatAttachmentSize, isImageMimeType, isVideoMimeType } from '../app/utils'
 
 type MediaViewerOverlayProps = {
   allowDownload?: boolean
@@ -26,6 +26,7 @@ export function MediaViewerOverlay({
   reportToast = '',
 }: MediaViewerOverlayProps) {
   const isImage = isImageMimeType(attachment.mimeType)
+  const isVideo = isVideoMimeType(attachment.mimeType)
 
   function handleDownloadClick(event: ReactMouseEvent<HTMLButtonElement>) {
     event.stopPropagation()
@@ -117,6 +118,15 @@ export function MediaViewerOverlay({
       <figure className="media-viewer-figure" onClick={onClose}>
         {isImage ? (
           <img src={attachment.mediaUrl} alt={attachment.fileName} className="media-viewer-image" />
+        ) : isVideo ? (
+          <video
+            src={attachment.mediaUrl}
+            className="media-viewer-video"
+            controls
+            playsInline
+            preload="metadata"
+            onClick={(event) => event.stopPropagation()}
+          />
         ) : (
           <div className="media-viewer-file-card" onClick={(event) => event.stopPropagation()}>
             <span className="media-viewer-file-badge">Файл</span>

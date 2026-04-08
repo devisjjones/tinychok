@@ -4,6 +4,20 @@
 
 ## Active Guard Layers
 
+## Temporary Review Exception
+
+- с `2026-04-07` public user frontend `https://staging.tinychok.ru` временно открыт без `nginx basic auth`
+- причина: внешний review с новых устройств, чтобы reviewers не упирались в логин/пароль до входа в сам продукт
+- это не отменяет основной guard-контракт и не должно считаться новой нормой staging
+- `admin.staging.tinychok.ru` остаётся за `basic auth`
+- backend allowlist и SmartCaptcha на staging остаются включёнными
+- вернуть guard нужно сразу после окончания review-окна:
+  - раскомментировать `auth_basic` и `auth_basic_user_file` в `/etc/nginx/sites-available/tinychok-staging-web`
+  - прогнать `sudo nginx -t`
+  - сделать `sudo systemctl reload nginx`
+- на staging VM сохранён backup до review-исключения:
+  - `/etc/nginx/sites-available/tinychok-staging-web.bak-20260407-review-auth`
+
 ### Frontend Guard
 
 - `https://staging.tinychok.ru` закрыт через `nginx basic auth`
@@ -92,6 +106,8 @@ curl -s https://api.staging.tinychok.ru/healthz
 ```
 
 Если user frontend или admin frontend внезапно открываются без basic auth, либо неподдерживаемый номер снова может пройти auth, проблема уже не в UI, а в `nginx` или staging `.env`.
+
+Исключение: во время review-окна, начатого `2026-04-07`, `staging.tinychok.ru` намеренно открыт без user basic auth. Это временное ручное решение и его нужно откатить сразу после ревью.
 
 Если `admin.staging.tinychok.ru` внезапно перестаёт банить после серии неверных basic auth, проблема уже не в React/admin UI, а в `fail2ban`, `nginx error.log` или jail-конфиге на VM.
 

@@ -1,18 +1,23 @@
-import { useEffect, useEffectEvent, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import './admin.css'
 import {
   ApiError,
   addAdminReportNote,
   applyAdminReportAction,
   blockAdminUser,
+  cancelAdminStorageExportJob,
   downloadAdminAuditCsv,
+  downloadAdminStorageExportJob,
   downloadAdminIpLogsCsv,
   downloadAdminLegalArchive,
   downloadAdminMedia,
   exportAdminChannelCsv,
+  exportAdminChannelSubscribersCsv,
   exportAdminDialogCsv,
   exportAdminGroupCsv,
+  exportAdminGroupParticipantsCsv,
   exportAdminThreadCsv,
+  exportAdminUserStatusHistoryCsv,
   fetchAdminChannels,
   fetchAdminDialogs,
   fetchAdminBootstrap,
@@ -21,6 +26,9 @@ import {
   fetchAdminMedia,
   fetchAdminReport,
   fetchAdminReports,
+  fetchAdminStorageExportJob,
+  fetchAdminSupportTicket,
+  fetchAdminSupportTickets,
   fetchAdminThreads,
   fetchAdminUser,
   fetchAdminUserAvatar,
@@ -28,31 +36,49 @@ import {
   fetchFilteredAdminAuditLog,
   moderateAdminMedia,
   requestAuthCode,
+  replyAdminSupportTicket,
   searchAdminUsers,
+  startAdminStorageExportJob,
+  setAdminGroupArchived,
+  setAdminChannelArchived,
+  setAdminThreadArchived,
+  setAdminStorageArchiveUnlimited,
   setAdminUserPremium,
   unblockAdminUser,
   viewAdminReportEntity,
   verifyAuthCode,
 } from './app/backend'
-import { confirmStaffIdentifierAction, getPromptedActionReason } from './app/adminExportUtils'
+import {
+  confirmStaffIdentifierAction,
+  getPromptedActionReason,
+  getPromptedCurrentPassword,
+} from './app/adminExportUtils'
 import { useCaptcha } from './app/useCaptcha'
 import { isAllowedAdminHost } from './app/runtimeMode'
+import {
+  formatAdminSupportTicketStatus,
+  supportTicketStatusOptions,
+} from './shared/utils'
 import type {
   AdminAuditActor,
   AdminAuditLogEntry,
   AdminBootstrapResponse,
   AdminDashboardResponse,
   AdminDialogSummary,
+  AdminLinkedUser,
   AdminManagedChannelSummary,
   AdminManagedGroupSummary,
   AdminMediaItem,
   AdminReportAction,
   AdminReportSummary,
+  AdminSupportTicketSummary,
+  AdminStorageExportJobResponse,
   AdminThreadSummary,
   AdminUserIpSummary,
   AdminUserSummary,
   ClientRuntimeConfigResponse,
 } from './shared/backend'
+import type { MessageAttachment, AccountStatusHistoryEntry } from './shared/types'
 
 type AdminSection =
   | 'dashboard'
@@ -61,15 +87,27 @@ type AdminSection =
   | 'channels'
   | 'groups'
   | 'threads'
+  | 'support'
   | 'dialogs'
   | 'media'
   | 'audit'
 type AdminAuthStep = 'phone' | 'code'
-type AdminUserListFilter = 'all' | 'blocked'
+type AdminUserListFilter = 'all' | 'blocked' | 'observed'
+type AdminEntityListFilter = 'all' | 'active' | 'archived'
 type AdminAuditPeriod = '24h' | '7d' | '30d' | '90d' | 'all'
+type AdminSupportFilter = 'all' | AdminSupportTicketSummary['status']
+type AdminStorageExportOverlayState = AdminStorageExportJobResponse & {
+  canceling: boolean
+  downloadedBytes: number
+  downloadProgressPercent: number
+  downloadTotalBytes: number | null
+  downloading: boolean
+  subjectLabel: string
+}
 
 const adminSessionStorageKey = 'tinychok.admin.session'
 const adminViewedReportsStoragePrefix = 'tinychok.admin.viewedReports'
+const adminDisplayTimeZone = 'Europe/Moscow'
 
 function loadAdminSessionToken() {
   if (typeof window === 'undefined') {
@@ -132,6 +170,8 @@ function formatDateTime(value?: string) {
   return new Intl.DateTimeFormat('ru-RU', {
     dateStyle: 'medium',
     timeStyle: 'short',
+    // Admin moderation timestamps must stay in Moscow time regardless of the operator locale.
+    timeZone: adminDisplayTimeZone,
   }).format(date)
 }
 
@@ -150,6 +190,77 @@ function formatBytes(value: number) {
   }
 
   return `${size >= 100 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`
+}
+
+function renderAdminStorageUsageCard(
+  label: string,
+  usage?: { percentUsed: number; quotaBytes: number; remainingBytes: number; usedBytes: number },
+  options?: { unlimited?: boolean },
+) {
+  const percent = Math.max(0, Math.min(100, usage?.percentUsed ?? 0))
+  return (
+    <div className="admin-storage-usage-card">
+      <div className="admin-storage-usage-header">
+        <dt>{label}</dt>
+        <dd>
+          {usage
+            ? `${formatBytes(usage.usedBytes)} / ${options?.unlimited ? 'без лимита' : formatBytes(usage.quotaBytes)}`
+            : 'Нет данных'}
+        </dd>
+      </div>
+      <div className="admin-storage-usage-bar" aria-hidden="true">
+        <span className="admin-storage-usage-bar-fill" style={{ width: `${Math.max(4, percent)}%` }} />
+      </div>
+      <span className="admin-storage-usage-meta">
+        {options?.unlimited
+          ? 'Ограничение архивного хранилища снято'
+          : usage
+            ? `Осталось ${formatBytes(usage.remainingBytes)}`
+            : 'Нет данных'}
+      </span>
+    </div>
+  )
+}
+
+function isAdminImageAttachment(attachment?: MessageAttachment | null) {
+  return Boolean(attachment?.mimeType?.startsWith('image/'))
+}
+
+function renderAdminSupportAttachment(
+  attachment: MessageAttachment | undefined,
+  emptyLabel = 'Вложение не прикреплено',
+) {
+  if (!attachment) {
+    return <span className="admin-support-attachment-empty">{emptyLabel}</span>
+  }
+
+  const meta = [attachment.fileName, formatBytes(attachment.size)].filter(Boolean).join(' · ')
+
+  return (
+    <div className="admin-support-attachment">
+      <a
+        href={attachment.mediaUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="admin-inline-link admin-support-attachment-link"
+      >
+        {isAdminImageAttachment(attachment) ? (
+          <img
+            src={attachment.mediaUrl}
+            alt={attachment.fileName}
+            className="admin-support-attachment-preview"
+            loading="lazy"
+          />
+        ) : (
+          <div className="admin-support-file-card">
+            <strong>Файл</strong>
+            <span>{attachment.fileName}</span>
+          </div>
+        )}
+      </a>
+      <span className="admin-support-attachment-meta">{meta}</span>
+    </div>
+  )
 }
 
 function formatAdminBannerLabel(value: 'DEVELOPMENT' | 'STAGING' | 'PRODUCTION') {
@@ -182,6 +293,12 @@ function formatUserRole(value?: 'owner' | 'moderator' | 'support') {
   return value ? formatStaffRole(value) : 'Пользователь'
 }
 
+function getAdminSupportStatusBadgeClassName(
+  status: AdminSupportTicketSummary['status'],
+) {
+  return `admin-badge admin-badge-inline admin-support-status-badge admin-support-status-badge-${status}`
+}
+
 function getAdminUserLookupIdentifier(user: AdminUserSummary) {
   return user.originalIdentifier || user.identifier
 }
@@ -196,8 +313,12 @@ function formatAdminDeletionMode(user: AdminUserSummary) {
     : 'Только аккаунт'
 }
 
-function formatArchiveReason(reason?: 'owner-self-deleted' | 'self-service-data-hidden' | 'orphaned-group') {
+function formatArchiveReason(
+  reason?: 'admin-archived' | 'owner-deleted' | 'owner-self-deleted' | 'self-service-data-hidden' | 'orphaned-group',
+) {
   if (!reason) return 'Нет'
+  if (reason === 'admin-archived') return 'Архивировано staff-командой'
+  if (reason === 'owner-deleted') return 'Удалено владельцем'
   if (reason === 'self-service-data-hidden') return 'Архивировано по self-service удалению с флагом "удалить и данные"'
   if (reason === 'orphaned-group') return 'Нет живого владельца/участников'
   return 'Владелец удалил аккаунт'
@@ -245,6 +366,49 @@ function buildAuditWindow(period: AdminAuditPeriod) {
   }
 }
 
+function formatAdminStorageExportElapsed(createdAt: string) {
+  const elapsedMs = Math.max(0, Date.now() - Date.parse(createdAt))
+  const totalSeconds = Math.max(1, Math.floor(elapsedMs / 1000))
+  if (totalSeconds < 60) {
+    return `${totalSeconds} с`
+  }
+
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return seconds > 0 ? `${minutes} мин ${seconds} с` : `${minutes} мин`
+}
+
+function getAdminStorageExportPhaseLabel(state: AdminStorageExportOverlayState) {
+  if (state.downloading) {
+    return 'Передаём архив браузеру'
+  }
+
+  return state.phase === 'zipping' ? 'Упаковываем архив' : 'Собираем файлы в архив'
+}
+
+function getAdminStorageExportSubtitle(state: AdminStorageExportOverlayState) {
+  if (state.downloading) {
+    return `Архив собран. Передаём его браузеру для скачивания · ${state.subjectLabel}`
+  }
+  return `${state.mode === 'archive' ? 'Архивное' : 'Активное'} хранилище · ${state.subjectLabel}`
+}
+
+function getAdminStorageExportDisplayPercent(state: AdminStorageExportOverlayState) {
+  if (!state.downloading) {
+    return state.progressPercent
+  }
+
+  if (state.downloadTotalBytes && state.downloadTotalBytes > 0) {
+    return Math.max(95, Math.min(100, 95 + Math.round(state.downloadProgressPercent * 0.05)))
+  }
+
+  return 95
+}
+
+function isAdminStorageExportDownloadIndeterminate(state: AdminStorageExportOverlayState) {
+  return state.downloading && (!state.downloadTotalBytes || state.downloadTotalBytes <= 0)
+}
+
 function downloadCsvFile(fileName: string, csv: string) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   downloadBlobFile(fileName, blob)
@@ -261,6 +425,27 @@ function downloadBlobFile(fileName: string, blob: Blob) {
   window.URL.revokeObjectURL(url)
 }
 
+function renderAdminArchiveIcon(label = 'Архивировано') {
+  return (
+    <span
+      className="admin-inline-icon-title admin-inline-icon-title-archive"
+      title={label}
+      aria-label={label}
+    >
+      <img src="/icons/archive.png" alt="" aria-hidden="true" />
+    </span>
+  )
+}
+
+function renderAdminArchiveMeta(value: string) {
+  return (
+    <span className="admin-icon-with-text admin-icon-with-text-archive" title="Архивировано" aria-label="Архивировано">
+      <img src="/icons/archive.png" alt="" aria-hidden="true" />
+      <span>{value}</span>
+    </span>
+  )
+}
+
 export default function AdminApp() {
   const [section, setSection] = useState<AdminSection>('dashboard')
   const [runtimeConfig, setRuntimeConfig] = useState<ClientRuntimeConfigResponse | null>(null)
@@ -268,6 +453,8 @@ export default function AdminApp() {
   const [sessionToken, setSessionToken] = useState(() => loadAdminSessionToken())
   const [appLoading, setAppLoading] = useState(true)
   const [appError, setAppError] = useState('')
+  const [storageExportOverlay, setStorageExportOverlay] = useState<AdminStorageExportOverlayState | null>(null)
+  const storageExportDownloadAbortRef = useRef<AbortController | null>(null)
 
   const [authStep, setAuthStep] = useState<AdminAuthStep>('phone')
   const [identifier, setIdentifier] = useState('')
@@ -293,6 +480,7 @@ export default function AdminApp() {
   const [selectedUserIdentifier, setSelectedUserIdentifier] = useState('')
   const [selectedUser, setSelectedUser] = useState<AdminUserSummary | null>(null)
   const [selectedUserIpSummary, setSelectedUserIpSummary] = useState<AdminUserIpSummary | null>(null)
+  const [selectedUserStatusHistory, setSelectedUserStatusHistory] = useState<AccountStatusHistoryEntry[]>([])
   const [selectedUserAvatarUrl, setSelectedUserAvatarUrl] = useState<string | null>(null)
   const [selectedUserAvatarState, setSelectedUserAvatarState] = useState<'idle' | 'loading' | 'ready' | 'none'>('idle')
 
@@ -306,14 +494,24 @@ export default function AdminApp() {
   const [mediaQuery, setMediaQuery] = useState('')
   const [mediaItems, setMediaItems] = useState<AdminMediaItem[]>([])
   const [channelQuery, setChannelQuery] = useState('')
+  const [channelListFilter, setChannelListFilter] = useState<AdminEntityListFilter>('all')
   const [channels, setChannels] = useState<AdminManagedChannelSummary[]>([])
   const [selectedChannelHandle, setSelectedChannelHandle] = useState('')
   const [groupQuery, setGroupQuery] = useState('')
+  const [groupListFilter, setGroupListFilter] = useState<AdminEntityListFilter>('all')
   const [groups, setGroups] = useState<AdminManagedGroupSummary[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [threadQuery, setThreadQuery] = useState('')
+  const [threadListFilter, setThreadListFilter] = useState<AdminEntityListFilter>('all')
   const [threads, setThreads] = useState<AdminThreadSummary[]>([])
   const [selectedThreadId, setSelectedThreadId] = useState('')
+  const [supportQuery, setSupportQuery] = useState('')
+  const [supportFilter, setSupportFilter] = useState<AdminSupportFilter>('all')
+  const [supportTickets, setSupportTickets] = useState<AdminSupportTicketSummary[]>([])
+  const [selectedSupportTicketId, setSelectedSupportTicketId] = useState<number | null>(null)
+  const [selectedSupportTicket, setSelectedSupportTicket] = useState<Awaited<ReturnType<typeof fetchAdminSupportTicket>>['ticket'] | null>(null)
+  const [supportReplyDraft, setSupportReplyDraft] = useState('')
+  const [supportReplyStatus, setSupportReplyStatus] = useState<Exclude<AdminSupportTicketSummary['status'], 'new'>>('open')
   const [dialogOwnerQuery, setDialogOwnerQuery] = useState('')
   const [dialogOwnerMatches, setDialogOwnerMatches] = useState<AdminUserSummary[]>([])
   const [selectedDialogOwner, setSelectedDialogOwner] = useState<AdminUserSummary | null>(null)
@@ -325,6 +523,32 @@ export default function AdminApp() {
   const [auditPeriod, setAuditPeriod] = useState<AdminAuditPeriod>('30d')
   const [auditEntries, setAuditEntries] = useState<AdminAuditLogEntry[]>([])
   const [userLogPeriod, setUserLogPeriod] = useState<AdminAuditPeriod>('30d')
+
+  const supportNewTicketCount = supportTickets.filter((ticket) => ticket.status === 'new').length
+  const supportFilterOptions: Array<{ value: AdminSupportFilter; label: string; count: number }> = [
+    { value: 'all', label: 'Все', count: supportTickets.length },
+    { value: 'new', label: 'Новое', count: supportTickets.filter((ticket) => ticket.status === 'new').length },
+    { value: 'open', label: 'Открыт', count: supportTickets.filter((ticket) => ticket.status === 'open').length },
+    {
+      value: 'reopened',
+      label: 'Переоткрыт',
+      count: supportTickets.filter((ticket) => ticket.status === 'reopened').length,
+    },
+    {
+      value: 'needs_confirmation',
+      label: 'Нужно подтверждение',
+      count: supportTickets.filter((ticket) => ticket.status === 'needs_confirmation').length,
+    },
+    {
+      value: 'resolved',
+      label: 'Решён',
+      count: supportTickets.filter((ticket) => ticket.status === 'resolved').length,
+    },
+  ]
+  const filteredSupportTickets =
+    supportFilter === 'all'
+      ? supportTickets
+      : supportTickets.filter((ticket) => ticket.status === supportFilter)
 
   useEffect(() => {
     const previousTitle = document.title
@@ -387,6 +611,7 @@ export default function AdminApp() {
   useEffect(() => {
     setSelectedUserAvatarUrl(null)
     setSelectedUserAvatarState('idle')
+    setSelectedUserStatusHistory([])
   }, [selectedUserIdentifier])
 
   async function refreshDashboard() {
@@ -409,6 +634,7 @@ export default function AdminApp() {
     const response = await fetchAdminUser(sessionToken, identifierToLoad)
     setSelectedUserIdentifier(response.user.identifier)
     setSelectedUserIpSummary(response.ipSummary)
+    setSelectedUserStatusHistory(response.statusHistory)
     setSelectedUser(response.user)
   }
 
@@ -494,6 +720,29 @@ export default function AdminApp() {
     }
   }
 
+  async function refreshSupportTickets(query = supportQuery) {
+    if (!sessionToken) return
+
+    const response = await fetchAdminSupportTickets(sessionToken, query)
+    setSupportTickets(response.tickets)
+    if (
+      selectedSupportTicketId !== null &&
+      !response.tickets.some((ticket) => ticket.id === selectedSupportTicketId)
+    ) {
+      setSelectedSupportTicketId(null)
+      setSelectedSupportTicket(null)
+    }
+  }
+
+  async function refreshSelectedSupportTicket(ticketId = selectedSupportTicketId) {
+    if (!sessionToken || ticketId === null) return
+
+    const response = await fetchAdminSupportTicket(sessionToken, ticketId)
+    setSelectedSupportTicket(response.ticket)
+    setSelectedSupportTicketId(response.ticket.id)
+    await refreshSupportTickets(supportQuery)
+  }
+
   async function refreshDialogOwnerMatches(query = dialogOwnerQuery) {
     if (!sessionToken) return
 
@@ -537,6 +786,127 @@ export default function AdminApp() {
     setAuditEntries(response.entries)
   }
 
+  const syncStorageExportJob = useEffectEvent(async (jobId: string) => {
+    if (!sessionToken) return
+
+    const job = await fetchAdminStorageExportJob(sessionToken, jobId)
+    if (job.status === 'failed') {
+      setStorageExportOverlay((current) => (current?.jobId === jobId ? null : current))
+      setAppError(job.errorMessage || 'Не удалось подготовить архив.')
+      return
+    }
+
+    if (job.status === 'cancelled') {
+      setStorageExportOverlay((current) => (current?.jobId === jobId ? null : current))
+      return
+    }
+
+    setStorageExportOverlay((current) =>
+      current?.jobId === jobId
+        ? {
+            ...current,
+            ...job,
+            canceling: false,
+          }
+        : current,
+    )
+  })
+
+  const completeStorageExportDownload = useEffectEvent(async (jobId: string) => {
+    if (!sessionToken) return
+
+    const controller = new AbortController()
+    storageExportDownloadAbortRef.current = controller
+    setStorageExportOverlay((current) =>
+      current?.jobId === jobId
+        ? {
+            ...current,
+            canceling: false,
+            downloadedBytes: 0,
+            downloadProgressPercent: 0,
+            downloadTotalBytes: null,
+            downloading: true,
+          }
+        : current,
+    )
+
+    try {
+      const response = await downloadAdminStorageExportJob(sessionToken, jobId, controller.signal, (progress) => {
+        setStorageExportOverlay((current) =>
+          current?.jobId === jobId
+            ? {
+                ...current,
+                downloadedBytes: progress.downloadedBytes,
+                downloadProgressPercent:
+                  progress.totalBytes && progress.totalBytes > 0
+                    ? Math.max(
+                        0,
+                        Math.min(100, Math.round((progress.downloadedBytes / progress.totalBytes) * 100)),
+                      )
+                    : current.downloadProgressPercent,
+                downloadTotalBytes: progress.totalBytes,
+              }
+            : current,
+        )
+      })
+      downloadBlobFile(response.fileName, response.blob)
+      await refreshAuditLog()
+      setStorageExportOverlay((current) => (current?.jobId === jobId ? null : current))
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setStorageExportOverlay((current) => (current?.jobId === jobId ? null : current))
+        setAppError(getErrorMessage(error))
+      }
+    } finally {
+      if (storageExportDownloadAbortRef.current === controller) {
+        storageExportDownloadAbortRef.current = null
+      }
+    }
+  })
+
+  useEffect(() => {
+    if (!sessionToken || !storageExportOverlay || storageExportOverlay.status !== 'running') {
+      return
+    }
+
+    let stopped = false
+    const tick = async () => {
+      if (stopped) return
+      try {
+        await syncStorageExportJob(storageExportOverlay.jobId)
+      } catch (error) {
+        if (!stopped) {
+          setStorageExportOverlay((current) => (current?.jobId === storageExportOverlay.jobId ? null : current))
+          setAppError(getErrorMessage(error))
+        }
+      }
+    }
+
+    void tick()
+    const intervalId = window.setInterval(() => {
+      void tick()
+    }, 900)
+
+    return () => {
+      stopped = true
+      window.clearInterval(intervalId)
+    }
+  }, [sessionToken, storageExportOverlay?.jobId, storageExportOverlay?.status, syncStorageExportJob])
+
+  useEffect(() => {
+    if (!sessionToken || !storageExportOverlay || storageExportOverlay.status !== 'ready' || storageExportOverlay.downloading) {
+      return
+    }
+
+    void completeStorageExportDownload(storageExportOverlay.jobId)
+  }, [
+    sessionToken,
+    storageExportOverlay?.downloading,
+    storageExportOverlay?.jobId,
+    storageExportOverlay?.status,
+    completeStorageExportDownload,
+  ])
+
   const hydrateAdminData = useEffectEvent(async () => {
     await refreshDashboard()
     await refreshUsers(userQuery)
@@ -544,6 +914,7 @@ export default function AdminApp() {
     await refreshChannels(channelQuery)
     await refreshGroups(groupQuery)
     await refreshThreads(threadQuery)
+    await refreshSupportTickets(supportQuery)
     await refreshMedia(mediaQuery)
     await refreshAuditLog()
   })
@@ -570,6 +941,10 @@ export default function AdminApp() {
 
   const syncThreadSearch = useEffectEvent(async () => {
     await refreshThreads(threadQuery)
+  })
+
+  const syncSupportSearch = useEffectEvent(async () => {
+    await refreshSupportTickets(supportQuery)
   })
 
   const syncDialogOwnerSearch = useEffectEvent(async () => {
@@ -639,6 +1014,31 @@ export default function AdminApp() {
 
     void syncThreadSearch()
   }, [sessionToken, bootstrap, threadQuery])
+
+  useEffect(() => {
+    if (!sessionToken || !bootstrap) {
+      return
+    }
+
+    void syncSupportSearch()
+  }, [sessionToken, bootstrap, supportQuery])
+
+  useEffect(() => {
+    if (!sessionToken || !bootstrap || selectedSupportTicketId === null) {
+      return
+    }
+
+    void refreshSelectedSupportTicket(selectedSupportTicketId)
+  }, [sessionToken, bootstrap, selectedSupportTicketId])
+
+  useEffect(() => {
+    if (!selectedSupportTicket) {
+      setSupportReplyStatus('open')
+      return
+    }
+
+    setSupportReplyStatus(selectedSupportTicket.status === 'new' ? 'open' : selectedSupportTicket.status)
+  }, [selectedSupportTicket])
 
   useEffect(() => {
     if (!sessionToken || !bootstrap || selectedDialogOwner) {
@@ -727,6 +1127,7 @@ export default function AdminApp() {
     setBootstrap(null)
     setSelectedUser(null)
     setSelectedUserIpSummary(null)
+    setSelectedUserStatusHistory([])
     setSelectedUserIdentifier('')
     setSelectedReport(null)
     setSelectedReportId('')
@@ -1012,6 +1413,18 @@ export default function AdminApp() {
     }
   }
 
+  async function handleDownloadUserStatusHistoryCsv(user: AdminUserSummary) {
+    if (!sessionToken) return
+
+    try {
+      const response = await exportAdminUserStatusHistoryCsv(sessionToken, user.identifier)
+      downloadCsvFile(response.fileName, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   async function handleDownloadLegalArchive(user: AdminUserSummary) {
     if (!sessionToken || !bootstrap) return
 
@@ -1061,6 +1474,160 @@ export default function AdminApp() {
     }
   }
 
+  async function handleDownloadCurrentStorage(
+    subjectKind: 'channel' | 'group' | 'user',
+    subjectId: string,
+    subjectLabel: string,
+  ) {
+    if (!sessionToken || !bootstrap) return
+
+    const currentPassword = getPromptedCurrentPassword(
+      'Для выгрузки текущего хранилища введите текущий пароль owner-аккаунта',
+    )
+    if (!currentPassword) {
+      setAppError('Подтверждение выгрузки текущего хранилища не прошло.')
+      return
+    }
+
+    const reason = getPromptedActionReason(
+      'Основание для выгрузки текущего хранилища',
+      `Проверка активного медиа-хранилища: ${subjectLabel}`,
+    )
+    if (!reason) return
+
+    try {
+      const response = await startAdminStorageExportJob(sessionToken, {
+        currentPassword,
+        mode: 'current',
+        reason,
+        subjectId,
+        subjectKind,
+      })
+      setStorageExportOverlay({
+        ...response,
+        canceling: false,
+        downloadedBytes: 0,
+        downloadProgressPercent: 0,
+        downloadTotalBytes: null,
+        downloading: false,
+        subjectLabel,
+      })
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDownloadArchiveStorage(
+    subjectKind: 'channel' | 'group' | 'user',
+    subjectId: string,
+    subjectLabel: string,
+  ) {
+    if (!sessionToken || !bootstrap) return
+
+    const currentPassword = getPromptedCurrentPassword(
+      'Для выгрузки архивного хранилища введите текущий пароль owner-аккаунта',
+    )
+    if (!currentPassword) {
+      setAppError('Подтверждение выгрузки архивного хранилища не прошло.')
+      return
+    }
+
+    const reason = getPromptedActionReason(
+      'Основание для выгрузки архивного хранилища',
+      `Проверка архивного медиа-хранилища: ${subjectLabel}`,
+    )
+    if (!reason) return
+
+    try {
+      const response = await startAdminStorageExportJob(sessionToken, {
+        currentPassword,
+        mode: 'archive',
+        reason,
+        subjectId,
+        subjectKind,
+      })
+      setStorageExportOverlay({
+        ...response,
+        canceling: false,
+        downloadedBytes: 0,
+        downloadProgressPercent: 0,
+        downloadTotalBytes: null,
+        downloading: false,
+        subjectLabel,
+      })
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleCancelStorageExport() {
+    if (!sessionToken || !storageExportOverlay) return
+
+    const jobId = storageExportOverlay.jobId
+    setStorageExportOverlay((current) =>
+      current?.jobId === jobId
+        ? {
+            ...current,
+            canceling: true,
+          }
+        : current,
+    )
+    storageExportDownloadAbortRef.current?.abort()
+    storageExportDownloadAbortRef.current = null
+
+    try {
+      await cancelAdminStorageExportJob(sessionToken, jobId)
+      setStorageExportOverlay((current) => (current?.jobId === jobId ? null : current))
+    } catch (error) {
+      setStorageExportOverlay((current) =>
+        current?.jobId === jobId
+          ? {
+              ...current,
+              canceling: false,
+            }
+          : current,
+      )
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleToggleArchiveUnlimited(
+    subjectKind: 'channel' | 'group' | 'user',
+    subjectId: string,
+    subjectLabel: string,
+    currentValue: boolean,
+  ) {
+    if (!sessionToken || !bootstrap) return
+
+    const reason = getPromptedActionReason(
+      currentValue ? 'Почему вернуть лимит архивного хранилища?' : 'Почему снять лимит архивного хранилища?',
+      currentValue
+        ? `Снять режим наблюдения: ${subjectLabel}`
+        : `Включить режим наблюдения: ${subjectLabel}`,
+    )
+    if (!reason) return
+
+    try {
+      await setAdminStorageArchiveUnlimited(sessionToken, {
+        enabled: !currentValue,
+        reason,
+        subjectId,
+        subjectKind,
+      })
+      await Promise.all([
+        refreshAuditLog(),
+        refreshUsers(),
+        refreshChannels(),
+        refreshGroups(),
+      ])
+      if (subjectKind === 'user') {
+        await refreshSelectedUser(subjectId)
+      }
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   async function handleDownloadChannelCsv(channel: AdminManagedChannelSummary) {
     if (!sessionToken) return
     const reason = getActionReason('Причина выгрузки CSV канала', 'Проверка канала')
@@ -1068,6 +1635,20 @@ export default function AdminApp() {
 
     try {
       const response = await exportAdminChannelCsv(sessionToken, channel.handle, { reason })
+      downloadCsvFile(response.fileName, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDownloadChannelSubscribersCsv(channel: AdminManagedChannelSummary) {
+    if (!sessionToken) return
+    const reason = getActionReason('Причина выгрузки CSV подписчиков канала', 'Проверка подписчиков канала')
+    if (!reason) return
+
+    try {
+      const response = await exportAdminChannelSubscribersCsv(sessionToken, channel.handle, { reason })
       downloadCsvFile(response.fileName, response.csv)
       await refreshAuditLog()
     } catch (error) {
@@ -1089,6 +1670,74 @@ export default function AdminApp() {
     }
   }
 
+  async function handleDownloadGroupParticipantsCsv(group: AdminManagedGroupSummary) {
+    if (!sessionToken) return
+    const reason = getActionReason('Причина выгрузки CSV участников группы', 'Проверка участников группы')
+    if (!reason) return
+
+    try {
+      const response = await exportAdminGroupParticipantsCsv(sessionToken, group.id, { reason })
+      downloadCsvFile(response.fileName, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleToggleGroupArchive(group: AdminManagedGroupSummary) {
+    if (!sessionToken || !bootstrap) return
+
+    const enableArchive = !group.archivedAt
+    const reason = getActionReason(
+      enableArchive ? 'Причина архивирования группы' : 'Причина разархивирования группы',
+      enableArchive ? 'Архивирование группы staff-командой' : 'Возврат группы из staff-архива',
+    )
+    if (!reason) return
+
+    if (!window.confirm(`${enableArchive ? 'Архивировать' : 'Разархивировать'} группу ${group.title}?`)) {
+      return
+    }
+
+    try {
+      await setAdminGroupArchived(sessionToken, group.id, {
+        enabled: enableArchive,
+        reason,
+      })
+      await refreshGroups()
+      await refreshDashboard()
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleToggleChannelArchive(channel: AdminManagedChannelSummary) {
+    if (!sessionToken || !bootstrap) return
+
+    const enableArchive = !channel.archivedAt
+    const reason = getActionReason(
+      enableArchive ? 'Причина архивирования канала' : 'Причина разархивирования канала',
+      enableArchive ? 'Архивирование канала staff-командой' : 'Возврат канала из staff-архива',
+    )
+    if (!reason) return
+
+    if (!window.confirm(`${enableArchive ? 'Архивировать' : 'Разархивировать'} канал ${channel.title}?`)) {
+      return
+    }
+
+    try {
+      await setAdminChannelArchived(sessionToken, channel.handle, {
+        enabled: enableArchive,
+        reason,
+      })
+      await refreshChannels()
+      await refreshDashboard()
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   async function handleDownloadThreadCsv(thread: AdminThreadSummary) {
     if (!sessionToken) return
     const reason = getActionReason('Причина выгрузки CSV треда', 'Проверка треда')
@@ -1097,6 +1746,32 @@ export default function AdminApp() {
     try {
       const response = await exportAdminThreadCsv(sessionToken, thread.id, { reason })
       downloadCsvFile(response.fileName, response.csv)
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleToggleThreadArchive(thread: AdminThreadSummary) {
+    if (!sessionToken || !bootstrap) return
+
+    const enableArchive = !thread.archivedAt
+    const reason = getActionReason(
+      enableArchive ? 'Причина архивирования треда' : 'Причина разархивирования треда',
+      enableArchive ? 'Архивирование треда staff-командой' : 'Возврат треда из staff-архива',
+    )
+    if (!reason) return
+
+    if (!window.confirm(`${enableArchive ? 'Архивировать' : 'Разархивировать'} тред ${thread.title}?`)) {
+      return
+    }
+
+    try {
+      await setAdminThreadArchived(sessionToken, thread.id, {
+        enabled: enableArchive,
+        reason,
+      })
+      await refreshThreads()
       await refreshAuditLog()
     } catch (error) {
       setAppError(getErrorMessage(error))
@@ -1117,6 +1792,24 @@ export default function AdminApp() {
     }
   }
 
+  async function handleReplySupportTicket() {
+    if (!sessionToken || selectedSupportTicketId === null || !supportReplyDraft.trim()) return
+
+    try {
+      const response = await replyAdminSupportTicket(sessionToken, selectedSupportTicketId, {
+        status: supportReplyStatus,
+        text: supportReplyDraft.trim(),
+      })
+      setSelectedSupportTicket(response.ticket)
+      setSupportReplyDraft('')
+      setSupportReplyStatus(response.ticket.status === 'new' ? 'open' : response.ticket.status)
+      await refreshSupportTickets()
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
   async function openUserFromAdmin(identifierToOpen: string) {
     if (!sessionToken) return
 
@@ -1130,6 +1823,22 @@ export default function AdminApp() {
     } catch (error) {
       setAppError(getErrorMessage(error))
     }
+  }
+
+  function renderAdminLinkedUserButton(user: AdminLinkedUser) {
+    if (!user.lookupIdentifier) {
+      return <span>{user.displayName}</span>
+    }
+
+    return (
+      <button
+        type="button"
+        className="admin-inline-link"
+        onClick={() => void openUserFromAdmin(user.lookupIdentifier!)}
+      >
+        {user.displayName}
+      </button>
+    )
   }
 
   async function openChannelFromAdmin(handleToOpen: string) {
@@ -1187,11 +1896,40 @@ export default function AdminApp() {
   }
 
   const blockedUsersCount = blockedUserTotalCount
+  const observedUsersCount = users.filter((user) => user.archiveUnlimited).length
   const unviewedOpenReportCount = openReportsInbox.filter(
     (report) => !viewedReportIds.includes(report.id),
   ).length
   const visibleUsers =
-    userListFilter === 'blocked' ? users.filter((user) => user.blocked) : users
+    userListFilter === 'blocked'
+      ? users.filter((user) => user.blocked)
+      : userListFilter === 'observed'
+        ? users.filter((user) => user.archiveUnlimited)
+        : users
+  const archivedChannelsCount = channels.filter((channel) => Boolean(channel.archivedAt)).length
+  const activeChannelsCount = channels.length - archivedChannelsCount
+  const visibleChannels =
+    channelListFilter === 'archived'
+      ? channels.filter((channel) => channel.archivedAt)
+      : channelListFilter === 'active'
+        ? channels.filter((channel) => !channel.archivedAt)
+        : channels
+  const archivedGroupsCount = groups.filter((group) => Boolean(group.archivedAt)).length
+  const activeGroupsCount = groups.length - archivedGroupsCount
+  const visibleGroups =
+    groupListFilter === 'archived'
+      ? groups.filter((group) => group.archivedAt)
+      : groupListFilter === 'active'
+        ? groups.filter((group) => !group.archivedAt)
+        : groups
+  const archivedThreadsCount = threads.filter((thread) => Boolean(thread.archivedAt)).length
+  const activeThreadsCount = threads.length - archivedThreadsCount
+  const visibleThreads =
+    threadListFilter === 'archived'
+      ? threads.filter((thread) => thread.archivedAt)
+      : threadListFilter === 'active'
+        ? threads.filter((thread) => !thread.archivedAt)
+        : threads
   const selectedChannel = channels.find((channel) => channel.handle === selectedChannelHandle) ?? null
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null
@@ -1283,8 +2021,18 @@ export default function AdminApp() {
 
           <div className="admin-auth-actions">
             {authStep === 'code' ? (
-              <button type="button" className="admin-secondary-button" onClick={() => setAuthStep('phone')}>
-                Назад
+              <button
+                type="button"
+                className="admin-secondary-button"
+                onClick={() => {
+                  setAuthError('')
+                  setSmsCode('')
+                  setAuthHint('')
+                  setAuthStep('phone')
+                  resetCaptcha()
+                }}
+              >
+                Запросить код заново
               </button>
             ) : null}
 
@@ -1320,6 +2068,7 @@ export default function AdminApp() {
             ['channels', 'Каналы'],
             ['groups', 'Группы'],
             ['threads', 'Треды'],
+            ['support', 'Поддержка'],
             ['dialogs', 'Диалоги'],
             ['media', 'Медиа'],
             ['audit', 'Аудит лог'],
@@ -1333,6 +2082,8 @@ export default function AdminApp() {
               <span>{label}</span>
               {item === 'reports' && unviewedOpenReportCount > 0 ? (
                 <span className="admin-nav-badge">{unviewedOpenReportCount}</span>
+              ) : item === 'support' && supportNewTicketCount > 0 ? (
+                <span className="admin-nav-badge">{supportNewTicketCount}</span>
               ) : null}
             </button>
           ))}
@@ -1421,7 +2172,7 @@ export default function AdminApp() {
           <section className="admin-two-column admin-section-split">
             <div className="admin-panel admin-list-panel">
               <div className="admin-panel-heading">
-                <h2>Users</h2>
+                <h2>Пользователи</h2>
               </div>
               <div className="admin-filter-tabs" role="tablist" aria-label="Фильтр пользователей">
                 <button
@@ -1429,14 +2180,28 @@ export default function AdminApp() {
                   className={userListFilter === 'all' ? 'admin-filter-tab active' : 'admin-filter-tab'}
                   onClick={() => setUserListFilter('all')}
                 >
-                  {`Все (${totalUserCount})`}
+                  <span>Все</span>
+                  <span className="admin-filter-count">{totalUserCount}</span>
                 </button>
                 <button
                   type="button"
                   className={userListFilter === 'blocked' ? 'admin-filter-tab active blocked' : 'admin-filter-tab blocked'}
                   onClick={() => setUserListFilter('blocked')}
+                  title={`Заблокированные (${blockedUsersCount})`}
+                  aria-label={`Заблокированные (${blockedUsersCount})`}
                 >
-                  {`Заблокированные (${blockedUsersCount})`}
+                  <img src="/icons/lock.png" alt="" aria-hidden="true" className="admin-filter-tab-icon admin-filter-tab-icon-danger" />
+                  <span className="admin-filter-count">{blockedUsersCount}</span>
+                </button>
+                <button
+                  type="button"
+                  className={userListFilter === 'observed' ? 'admin-filter-tab active observed' : 'admin-filter-tab observed'}
+                  onClick={() => setUserListFilter('observed')}
+                  title={`Под наблюдением (${observedUsersCount})`}
+                  aria-label={`Под наблюдением (${observedUsersCount})`}
+                >
+                  <img src="/icons/eyeon.png" alt="" aria-hidden="true" className="admin-filter-tab-icon" />
+                  <span className="admin-filter-count">{observedUsersCount}</span>
                 </button>
               </div>
               <div className="admin-section-note">
@@ -1471,11 +2236,17 @@ export default function AdminApp() {
                       <strong className={user.blocked ? 'admin-user-name-flag blocked' : undefined}>
                         {user.displayName}
                       </strong>
+                      {user.archiveUnlimited ? (
+                        <span
+                          className="admin-inline-icon-badge admin-inline-icon-badge-warning"
+                          title="Под наблюдением"
+                          aria-label="Под наблюдением"
+                        >
+                          <img src="/icons/eyeon.png" alt="" aria-hidden="true" />
+                        </span>
+                      ) : null}
                     </div>
                     <span>{user.nickname ? `@${user.nickname}` : 'Нет юзернейма'}</span>
-                    <span className={user.blocked ? 'admin-user-status blocked' : 'admin-user-status'}>
-                      {user.status || (user.blocked ? 'Заблокирован' : formatUserRole(user.staffRole))}
-                    </span>
                     <span>{getAdminUserLookupIdentifier(user)}</span>
                   </button>
                 ))}
@@ -1483,6 +2254,8 @@ export default function AdminApp() {
                   <div className="admin-empty-state admin-empty-state-inline">
                     {userListFilter === 'blocked'
                       ? 'Заблокированных пользователей по текущему поиску нет.'
+                      : userListFilter === 'observed'
+                        ? 'Пользователей под наблюдением по текущему поиску нет.'
                       : 'Пользователи по текущему поиску не найдены.'}
                   </div>
                 ) : null}
@@ -1497,7 +2270,6 @@ export default function AdminApp() {
                       <h2>{selectedUser.displayName}</h2>
                       <div className="admin-user-identity-meta">
                         <span>{selectedUser.nickname ? `@${selectedUser.nickname}` : 'Нет юзернейма'}</span>
-                        <span>{selectedUser.status || 'Нет статуса'}</span>
                       </div>
                     </div>
                   </div>
@@ -1518,6 +2290,53 @@ export default function AdminApp() {
                       )}
                     </div>
                   ) : null}
+
+                  <div className="admin-avatar-preview-card admin-user-status-card">
+                    <div className="admin-user-status-card-header">
+                      <div className="admin-user-status-card-copy">
+                        <strong>Статус пользователя</strong>
+                        <span>{selectedUser.status || 'Нет статуса'}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="admin-icon-action-button"
+                        onClick={() => void handleDownloadUserStatusHistoryCsv(selectedUser)}
+                        title="Скачать историю статусов CSV"
+                        aria-label="Скачать историю статусов CSV"
+                      >
+                        <img src="/icons/dwnl.png" alt="" aria-hidden="true" />
+                      </button>
+                    </div>
+                    <span className="admin-user-status-card-meta">
+                      В истории: {selectedUserStatusHistory.length}
+                    </span>
+                  </div>
+
+                  <div className="admin-avatar-preview-card admin-user-status-card">
+                    <div className="admin-user-status-card-header">
+                      <div className="admin-user-status-card-copy">
+                        <strong>IP-история</strong>
+                        <span>{selectedUserIpSummary?.latestIp || 'Нет данных'}</span>
+                      </div>
+                      {bootstrap.actor.permissions.includes('ip.read') ? (
+                        <button
+                          type="button"
+                          className="admin-icon-action-button"
+                          onClick={() => void handleDownloadUserIpLogsCsv(selectedUser)}
+                          title="Скачать историю IP CSV"
+                          aria-label="Скачать историю IP CSV"
+                        >
+                          <img src="/icons/dwnl.png" alt="" aria-hidden="true" />
+                        </button>
+                      ) : null}
+                    </div>
+                    <span className="admin-user-status-card-meta">
+                      Смен IP: {selectedUserIpSummary?.ipChangeCount ?? 0}
+                      {selectedUserIpSummary?.latestIpAt
+                        ? ` · Последний IP замечен ${formatDateTime(selectedUserIpSummary.latestIpAt)}`
+                        : ''}
+                    </span>
+                  </div>
 
                   <dl className="admin-detail-grid">
                     <div>
@@ -1577,10 +2396,22 @@ export default function AdminApp() {
                       <dd>{selectedUserIpSummary?.ipChangeCount ?? 0}</dd>
                     </div>
                     <div>
-                      <dt>Storage usage</dt>
+                      <dt>Основное хранилище</dt>
                       <dd>
                         {formatBytes(selectedUser.storageUsage.usedBytes)} /{' '}
                         {formatBytes(selectedUser.storageUsage.quotaBytes)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Архивное хранилище</dt>
+                      <dd>
+                        {selectedUser.archiveStorageUsage
+                          ? `${formatBytes(selectedUser.archiveStorageUsage.usedBytes)} / ${
+                              selectedUser.archiveUnlimited
+                                ? 'без лимита'
+                                : formatBytes(selectedUser.archiveStorageUsage.quotaBytes)
+                            }`
+                          : 'Нет данных'}
                       </dd>
                     </div>
                     <div>
@@ -1592,6 +2423,13 @@ export default function AdminApp() {
                       <dd>{selectedUser.blockedReason || 'Нет'}</dd>
                     </div>
                   </dl>
+
+                  <div className="admin-storage-usage-grid">
+                    {renderAdminStorageUsageCard('Основное хранилище', selectedUser.storageUsage)}
+                    {renderAdminStorageUsageCard('Архивное хранилище', selectedUser.archiveStorageUsage, {
+                      unlimited: selectedUser.archiveUnlimited,
+                    })}
+                  </div>
 
                   <div className="admin-actions-panel">
                     <div className="admin-inline-controls">
@@ -1615,15 +2453,6 @@ export default function AdminApp() {
                       >
                         Скачать audit CSV
                       </button>
-                      {bootstrap.actor.permissions.includes('ip.read') ? (
-                        <button
-                          type="button"
-                          className="admin-secondary-button"
-                          onClick={() => void handleDownloadUserIpLogsCsv(selectedUser)}
-                        >
-                          Логи IP
-                        </button>
-                      ) : null}
                       {bootstrap.actor.permissions.includes('legal.export') ? (
                         <button
                           type="button"
@@ -1633,7 +2462,49 @@ export default function AdminApp() {
                           Юр. выгрузка ZIP
                         </button>
                       ) : null}
+                      {bootstrap.actor.permissions.includes('users.media.export') ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() =>
+                            void handleDownloadCurrentStorage('user', selectedUser.identifier, selectedUser.displayName)
+                          }
+                        >
+                          Выгрузка активного хранилища
+                        </button>
+                      ) : null}
+                      {bootstrap.actor.permissions.includes('users.archive.export') ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() =>
+                            void handleDownloadArchiveStorage('user', selectedUser.identifier, selectedUser.displayName)
+                          }
+                        >
+                          Выгрузка архивного хранилища
+                        </button>
+                      ) : null}
                     </div>
+                    {bootstrap.actor.permissions.includes('users.archive.manage') ? (
+                      <label className="admin-toggle-row">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedUser.archiveUnlimited)}
+                          onChange={() =>
+                            void handleToggleArchiveUnlimited(
+                              'user',
+                              selectedUser.identifier,
+                              selectedUser.displayName,
+                              Boolean(selectedUser.archiveUnlimited),
+                            )
+                          }
+                        />
+                        <span className="admin-toggle-row-copy">
+                          <img src="/icons/eyeon.png" alt="" aria-hidden="true" />
+                          <span>Выключить ограничение архивного хранилища</span>
+                        </span>
+                      </label>
+                    ) : null}
                     <div className="admin-toolbar">
                       <button
                         type="button"
@@ -1643,10 +2514,16 @@ export default function AdminApp() {
                         {selectedUserAvatarState === 'ready' ? 'Скрыть аватарку' : 'Аватарка'}
                       </button>
                       <button type="button" className="admin-secondary-button" onClick={() => void handleToggleBlock(selectedUser)}>
-                        {selectedUser.blocked ? 'Разблокировать' : 'Заблокировать'}
+                        <span className="admin-button-with-icon">
+                          <img src="/icons/lock.png" alt="" aria-hidden="true" className="admin-button-with-icon-danger" />
+                          <span>{selectedUser.blocked ? 'Разблокировать' : 'Заблокировать'}</span>
+                        </span>
                       </button>
                       <button type="button" className="admin-primary-button" onClick={() => void handleTogglePremium(selectedUser)}>
-                        {selectedUser.premium ? 'Снять premium' : 'Выдать premium'}
+                        <span className="admin-button-with-icon">
+                          <img src="/icons/crown64.png" alt="" aria-hidden="true" />
+                          <span>{selectedUser.premium ? 'Снять premium' : 'Выдать premium'}</span>
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -1889,6 +2766,36 @@ export default function AdminApp() {
               <div className="admin-panel-heading">
                 <h2>Каналы</h2>
               </div>
+              <div className="admin-filter-tabs" role="tablist" aria-label="Фильтр каналов">
+                <button
+                  type="button"
+                  className={channelListFilter === 'all' ? 'admin-filter-tab active' : 'admin-filter-tab'}
+                  onClick={() => setChannelListFilter('all')}
+                >
+                  <span>Все</span>
+                  <span className="admin-filter-count">{channels.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className={channelListFilter === 'archived' ? 'admin-filter-tab active archive' : 'admin-filter-tab archive'}
+                  onClick={() => setChannelListFilter('archived')}
+                  title={`Архивированные каналы (${archivedChannelsCount})`}
+                  aria-label={`Архивированные каналы (${archivedChannelsCount})`}
+                >
+                  <img src="/icons/archive.png" alt="" aria-hidden="true" className="admin-filter-tab-icon admin-filter-tab-icon-archive" />
+                  <span className="admin-filter-count">{archivedChannelsCount}</span>
+                </button>
+                <button
+                  type="button"
+                  className={channelListFilter === 'active' ? 'admin-filter-tab active entity' : 'admin-filter-tab entity'}
+                  onClick={() => setChannelListFilter('active')}
+                  title={`Активные каналы (${activeChannelsCount})`}
+                  aria-label={`Активные каналы (${activeChannelsCount})`}
+                >
+                  <img src="/icons/news100.svg" alt="" aria-hidden="true" className="admin-filter-tab-icon" />
+                  <span className="admin-filter-count">{activeChannelsCount}</span>
+                </button>
+              </div>
               <input
                 className="admin-search-input"
                 type="search"
@@ -1897,23 +2804,29 @@ export default function AdminApp() {
                 onChange={(event) => setChannelQuery(event.target.value)}
               />
               <div className="admin-list">
-                {channels.map((channel) => (
+                {visibleChannels.map((channel) => (
                   <button
                     key={channel.handle}
                     type="button"
                     className={selectedChannelHandle === channel.handle ? 'admin-list-item active' : 'admin-list-item'}
                     onClick={() => setSelectedChannelHandle(channel.handle)}
                   >
-                    <strong>
-                      {channel.title}
-                      {channel.archivedAt ? <span className="admin-badge admin-badge-inline admin-badge-warning">Архив</span> : null}
-                    </strong>
+                    <div className="admin-list-item-title-row">
+                      <strong>{channel.title}</strong>
+                      {channel.archivedAt ? renderAdminArchiveIcon() : null}
+                    </div>
                     <span>{`@${channel.handle}`}</span>
-                    <span>{`${formatChannelStatus(channel.status)} · ${formatVisibility(channel.visibility)}`}</span>
+                    <span>{`Подписчиков: ${channel.readers}`}</span>
                   </button>
                 ))}
-                {channels.length === 0 ? (
-                  <div className="admin-empty-state admin-empty-state-inline">Каналы по текущему поиску не найдены.</div>
+                {visibleChannels.length === 0 ? (
+                  <div className="admin-empty-state admin-empty-state-inline">
+                    {channelListFilter === 'archived'
+                      ? 'Архивированные каналы по текущему поиску не найдены.'
+                      : channelListFilter === 'active'
+                        ? 'Активные каналы по текущему поиску не найдены.'
+                        : 'Каналы по текущему поиску не найдены.'}
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -1926,9 +2839,8 @@ export default function AdminApp() {
                       <h2>{selectedChannel.title}</h2>
                       <div className="admin-user-identity-meta">
                         <span>{`@${selectedChannel.handle}`}</span>
-                        <span>{`${formatChannelStatus(selectedChannel.status)} · ${formatVisibility(selectedChannel.visibility)}`}</span>
                         {selectedChannel.archivedAt ? (
-                          <span className="admin-badge admin-badge-warning">{`Архив: ${formatDateTime(selectedChannel.archivedAt)}`}</span>
+                          renderAdminArchiveMeta(formatDateTime(selectedChannel.archivedAt))
                         ) : null}
                       </div>
                     </div>
@@ -1949,6 +2861,14 @@ export default function AdminApp() {
                       </dd>
                     </div>
                     <div>
+                      <dt>Статус</dt>
+                      <dd>{formatChannelStatus(selectedChannel.status)}</dd>
+                    </div>
+                    <div>
+                      <dt>Приватность</dt>
+                      <dd>{formatVisibility(selectedChannel.visibility)}</dd>
+                    </div>
+                    <div>
                       <dt>Причина архивации</dt>
                       <dd>{formatArchiveReason(selectedChannel.archiveReason)}</dd>
                     </div>
@@ -1958,7 +2878,18 @@ export default function AdminApp() {
                     </div>
                     <div>
                       <dt>Читателей</dt>
-                      <dd>{selectedChannel.readers}</dd>
+                      <dd className="admin-detail-inline-action">
+                        <span>{selectedChannel.readers}</span>
+                        <button
+                          type="button"
+                          className="admin-icon-action-button admin-icon-action-button-inline"
+                          onClick={() => void handleDownloadChannelSubscribersCsv(selectedChannel)}
+                          title="Скачать CSV подписчиков канала"
+                          aria-label="Скачать CSV подписчиков канала"
+                        >
+                          <img src="/icons/dwnl.png" alt="" aria-hidden="true" />
+                        </button>
+                      </dd>
                     </div>
                     <div>
                       <dt>Жалоб</dt>
@@ -1969,12 +2900,69 @@ export default function AdminApp() {
                       <dd>{formatDateTime(selectedChannel.latestActivityAt)}</dd>
                     </div>
                   </dl>
+                  <div className="admin-storage-usage-grid">
+                    {renderAdminStorageUsageCard('Основное хранилище', selectedChannel.storageUsage)}
+                    {renderAdminStorageUsageCard('Архивное хранилище', selectedChannel.archiveStorageUsage, {
+                      unlimited: selectedChannel.archiveUnlimited,
+                    })}
+                  </div>
                   <div className="admin-actions-panel">
                     <div className="admin-toolbar">
                       <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadChannelCsv(selectedChannel)}>
                         Скачать CSV
                       </button>
+                      {bootstrap.actor.permissions.includes('channels.archive.manage') ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() => void handleToggleChannelArchive(selectedChannel)}
+                        >
+                          <span className="admin-button-with-icon">
+                            <img src="/icons/archive.png" alt="" aria-hidden="true" className="admin-button-with-icon-archive" />
+                            <span>{selectedChannel.archivedAt ? 'Разархивировать канал' : 'Архивировать канал'}</span>
+                          </span>
+                        </button>
+                      ) : null}
+                      {bootstrap.actor.permissions.includes('users.media.export') ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() =>
+                            void handleDownloadCurrentStorage('channel', selectedChannel.handle, selectedChannel.title)
+                          }
+                        >
+                          Выгрузка активного хранилища
+                        </button>
+                      ) : null}
+                      {bootstrap.actor.permissions.includes('users.archive.export') ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() =>
+                            void handleDownloadArchiveStorage('channel', selectedChannel.handle, selectedChannel.title)
+                          }
+                        >
+                          Выгрузка архивного хранилища
+                        </button>
+                      ) : null}
                     </div>
+                    {bootstrap.actor.permissions.includes('users.archive.manage') ? (
+                      <label className="admin-toggle-row">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedChannel.archiveUnlimited)}
+                          onChange={() =>
+                            void handleToggleArchiveUnlimited(
+                              'channel',
+                              selectedChannel.handle,
+                              selectedChannel.title,
+                              Boolean(selectedChannel.archiveUnlimited),
+                            )
+                          }
+                        />
+                        <span>Выключить ограничение архивного хранилища</span>
+                      </label>
+                    ) : null}
                   </div>
                 </>
               ) : (
@@ -1990,6 +2978,36 @@ export default function AdminApp() {
               <div className="admin-panel-heading">
                 <h2>Группы</h2>
               </div>
+              <div className="admin-filter-tabs" role="tablist" aria-label="Фильтр групп">
+                <button
+                  type="button"
+                  className={groupListFilter === 'all' ? 'admin-filter-tab active' : 'admin-filter-tab'}
+                  onClick={() => setGroupListFilter('all')}
+                >
+                  <span>Все</span>
+                  <span className="admin-filter-count">{groups.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className={groupListFilter === 'archived' ? 'admin-filter-tab active archive' : 'admin-filter-tab archive'}
+                  onClick={() => setGroupListFilter('archived')}
+                  title={`Архивированные группы (${archivedGroupsCount})`}
+                  aria-label={`Архивированные группы (${archivedGroupsCount})`}
+                >
+                  <img src="/icons/archive.png" alt="" aria-hidden="true" className="admin-filter-tab-icon admin-filter-tab-icon-archive" />
+                  <span className="admin-filter-count">{archivedGroupsCount}</span>
+                </button>
+                <button
+                  type="button"
+                  className={groupListFilter === 'active' ? 'admin-filter-tab active entity' : 'admin-filter-tab entity'}
+                  onClick={() => setGroupListFilter('active')}
+                  title={`Активные группы (${activeGroupsCount})`}
+                  aria-label={`Активные группы (${activeGroupsCount})`}
+                >
+                  <img src="/icons/group100.png" alt="" aria-hidden="true" className="admin-filter-tab-icon" />
+                  <span className="admin-filter-count">{activeGroupsCount}</span>
+                </button>
+              </div>
               <input
                 className="admin-search-input"
                 type="search"
@@ -1998,23 +3016,28 @@ export default function AdminApp() {
                 onChange={(event) => setGroupQuery(event.target.value)}
               />
               <div className="admin-list">
-                {groups.map((group) => (
+                {visibleGroups.map((group) => (
                   <button
                     key={group.id}
                     type="button"
                     className={selectedGroupId === group.id ? 'admin-list-item active' : 'admin-list-item'}
                     onClick={() => setSelectedGroupId(group.id)}
                   >
-                    <strong>
-                      {group.title}
-                      {group.archivedAt ? <span className="admin-badge admin-badge-inline admin-badge-warning">Архив</span> : null}
-                    </strong>
-                    <span>{group.id}</span>
+                    <div className="admin-list-item-title-row">
+                      <strong>{group.title}</strong>
+                      {group.archivedAt ? renderAdminArchiveIcon() : null}
+                    </div>
                     <span>{`${group.members} участников`}</span>
                   </button>
                 ))}
-                {groups.length === 0 ? (
-                  <div className="admin-empty-state admin-empty-state-inline">Группы по текущему поиску не найдены.</div>
+                {visibleGroups.length === 0 ? (
+                  <div className="admin-empty-state admin-empty-state-inline">
+                    {groupListFilter === 'archived'
+                      ? 'Архивированные группы по текущему поиску не найдены.'
+                      : groupListFilter === 'active'
+                        ? 'Активные группы по текущему поиску не найдены.'
+                        : 'Группы по текущему поиску не найдены.'}
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -2026,9 +3049,9 @@ export default function AdminApp() {
                     <div className="admin-user-identity">
                       <h2>{selectedGroup.title}</h2>
                       <div className="admin-user-identity-meta">
-                        <span>{selectedGroup.id}</span>
+                        <span>{selectedGroup.sharedId}</span>
                         {selectedGroup.archivedAt ? (
-                          <span className="admin-badge admin-badge-warning">{`Архив: ${formatDateTime(selectedGroup.archivedAt)}`}</span>
+                          renderAdminArchiveMeta(formatDateTime(selectedGroup.archivedAt))
                         ) : null}
                       </div>
                     </div>
@@ -2036,15 +3059,7 @@ export default function AdminApp() {
                   <dl className="admin-detail-grid">
                     <div>
                       <dt>Текущий владелец</dt>
-                      <dd>
-                        <button
-                          type="button"
-                          className="admin-inline-link"
-                          onClick={() => void openUserFromAdmin(selectedGroup.owner.identifier)}
-                        >
-                          {selectedGroup.owner.displayName}
-                        </button>
-                      </dd>
+                      <dd>{renderAdminLinkedUserButton(selectedGroup.owner)}</dd>
                     </div>
                     <div>
                       <dt>Телефон владельца</dt>
@@ -2053,13 +3068,7 @@ export default function AdminApp() {
                     <div>
                       <dt>Создатель</dt>
                       <dd className="admin-contact-card">
-                        <button
-                          type="button"
-                          className="admin-inline-link"
-                          onClick={() => void openUserFromAdmin(selectedGroup.creator.identifier)}
-                        >
-                          {selectedGroup.creator.displayName}
-                        </button>
+                        {renderAdminLinkedUserButton(selectedGroup.creator)}
                         <span>{selectedGroup.creator.nickname ? `@${selectedGroup.creator.nickname}` : 'Нет юзернейма'}</span>
                         <span>{selectedGroup.creator.identifier}</span>
                       </dd>
@@ -2070,7 +3079,18 @@ export default function AdminApp() {
                     </div>
                     <div>
                       <dt>Участников</dt>
-                      <dd>{selectedGroup.members}</dd>
+                      <dd className="admin-detail-inline-action">
+                        <span>{selectedGroup.members}</span>
+                        <button
+                          type="button"
+                          className="admin-icon-action-button admin-icon-action-button-inline"
+                          onClick={() => void handleDownloadGroupParticipantsCsv(selectedGroup)}
+                          title="Скачать CSV участников группы"
+                          aria-label="Скачать CSV участников группы"
+                        >
+                          <img src="/icons/dwnl.png" alt="" aria-hidden="true" />
+                        </button>
+                      </dd>
                     </div>
                     <div>
                       <dt>Жалоб</dt>
@@ -2086,6 +3106,18 @@ export default function AdminApp() {
                       <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadGroupCsv(selectedGroup)}>
                         Скачать CSV
                       </button>
+                      {bootstrap.actor.permissions.includes('groups.archive.manage') ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() => void handleToggleGroupArchive(selectedGroup)}
+                        >
+                          <span className="admin-button-with-icon">
+                            <img src="/icons/archive.png" alt="" aria-hidden="true" className="admin-button-with-icon-archive" />
+                            <span>{selectedGroup.archivedAt ? 'Разархивировать группу' : 'Архивировать группу'}</span>
+                          </span>
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </>
@@ -2102,6 +3134,36 @@ export default function AdminApp() {
               <div className="admin-panel-heading">
                 <h2>Треды</h2>
               </div>
+              <div className="admin-filter-tabs" role="tablist" aria-label="Фильтр тредов">
+                <button
+                  type="button"
+                  className={threadListFilter === 'all' ? 'admin-filter-tab active' : 'admin-filter-tab'}
+                  onClick={() => setThreadListFilter('all')}
+                >
+                  <span>Все</span>
+                  <span className="admin-filter-count">{threads.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className={threadListFilter === 'archived' ? 'admin-filter-tab active archive' : 'admin-filter-tab archive'}
+                  onClick={() => setThreadListFilter('archived')}
+                  title={`Архивированные треды (${archivedThreadsCount})`}
+                  aria-label={`Архивированные треды (${archivedThreadsCount})`}
+                >
+                  <img src="/icons/archive.png" alt="" aria-hidden="true" className="admin-filter-tab-icon admin-filter-tab-icon-archive" />
+                  <span className="admin-filter-count">{archivedThreadsCount}</span>
+                </button>
+                <button
+                  type="button"
+                  className={threadListFilter === 'active' ? 'admin-filter-tab active entity' : 'admin-filter-tab entity'}
+                  onClick={() => setThreadListFilter('active')}
+                  title={`Активные треды (${activeThreadsCount})`}
+                  aria-label={`Активные треды (${activeThreadsCount})`}
+                >
+                  <img src="/icons/omnichannel100.png" alt="" aria-hidden="true" className="admin-filter-tab-icon" />
+                  <span className="admin-filter-count">{activeThreadsCount}</span>
+                </button>
+              </div>
               <input
                 className="admin-search-input"
                 type="search"
@@ -2110,20 +3172,29 @@ export default function AdminApp() {
                 onChange={(event) => setThreadQuery(event.target.value)}
               />
               <div className="admin-list">
-                {threads.map((thread) => (
+                {visibleThreads.map((thread) => (
                   <button
                     key={thread.id}
                     type="button"
                     className={selectedThreadId === thread.id ? 'admin-list-item active' : 'admin-list-item'}
                     onClick={() => setSelectedThreadId(thread.id)}
                   >
-                    <strong>{thread.title}</strong>
+                    <div className="admin-list-item-title-row">
+                      <strong>{thread.title}</strong>
+                      {thread.archivedAt ? renderAdminArchiveIcon() : null}
+                    </div>
                     <span>{thread.contextLabel}</span>
                     <span>{`${thread.commentCount} комментариев`}</span>
                   </button>
                 ))}
-                {threads.length === 0 ? (
-                  <div className="admin-empty-state admin-empty-state-inline">Треды по текущему поиску не найдены.</div>
+                {visibleThreads.length === 0 ? (
+                  <div className="admin-empty-state admin-empty-state-inline">
+                    {threadListFilter === 'archived'
+                      ? 'Архивированные треды по текущему поиску не найдены.'
+                      : threadListFilter === 'active'
+                        ? 'Активные треды по текущему поиску не найдены.'
+                        : 'Треды по текущему поиску не найдены.'}
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -2136,6 +3207,7 @@ export default function AdminApp() {
                       <h2>{selectedThread.title}</h2>
                       <div className="admin-user-identity-meta">
                         <span>{selectedThread.kind === 'group' ? 'Источник треда: группа' : 'Источник треда: канал'}</span>
+                        {selectedThread.archivedAt ? renderAdminArchiveMeta(formatDateTime(selectedThread.archivedAt)) : null}
                         <button
                           type="button"
                           className="admin-inline-link"
@@ -2196,12 +3268,28 @@ export default function AdminApp() {
                       </dd>
                     </div>
                     <div>
+                      <dt>Причина архивирования</dt>
+                      <dd>{formatArchiveReason(selectedThread.archiveReason)}</dd>
+                    </div>
+                    <div>
                       <dt>Текст корневого сообщения</dt>
                       <dd>{selectedThread.sourceText || 'Без текста'}</dd>
                     </div>
                   </dl>
                   <div className="admin-actions-panel">
                     <div className="admin-toolbar">
+                      {bootstrap.actor.permissions.includes('threads.archive.manage') ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button"
+                          onClick={() => void handleToggleThreadArchive(selectedThread)}
+                        >
+                          <span className="admin-button-with-icon">
+                            <img src="/icons/archive.png" alt="" aria-hidden="true" className="admin-button-with-icon-archive" />
+                            <span>{selectedThread.archivedAt ? 'Разархивировать тред' : 'Архивировать тред'}</span>
+                          </span>
+                        </button>
+                      ) : null}
                       <button type="button" className="admin-secondary-button" onClick={() => void handleDownloadThreadCsv(selectedThread)}>
                         Скачать CSV
                       </button>
@@ -2210,6 +3298,178 @@ export default function AdminApp() {
                 </>
               ) : (
                 <div className="admin-empty-state">Выберите тред слева.</div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {section === 'support' ? (
+          <section className="admin-two-column admin-section-split">
+            <div className="admin-panel admin-list-panel">
+              <div className="admin-panel-heading">
+                <h2>Поддержка</h2>
+              </div>
+              <input
+                className="admin-search-input"
+                type="search"
+                placeholder="Поиск по тикету, телефону или тексту"
+                value={supportQuery}
+                onChange={(event) => setSupportQuery(event.target.value)}
+              />
+              <div className="admin-filter-tabs">
+                {supportFilterOptions.map((filter) => (
+                  <button
+                    key={`support-filter-${filter.value}`}
+                    type="button"
+                    className={supportFilter === filter.value ? 'admin-filter-tab active' : 'admin-filter-tab'}
+                    onClick={() => setSupportFilter(filter.value)}
+                  >
+                    <span>{filter.label}</span>
+                    <span className="admin-filter-count">{filter.count}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="admin-list">
+                {filteredSupportTickets.map((ticket) => (
+                  <button
+                    key={`support-ticket-${ticket.id}`}
+                    type="button"
+                    className={selectedSupportTicketId === ticket.id ? 'admin-list-item active' : 'admin-list-item'}
+                    onClick={() => setSelectedSupportTicketId(ticket.id)}
+                  >
+                    <div className="admin-report-title-row">
+                      <strong>{`Тикет #${ticket.ticketNumber}`}</strong>
+                      <span className={getAdminSupportStatusBadgeClassName(ticket.status)}>
+                        {formatAdminSupportTicketStatus(ticket.status)}
+                      </span>
+                    </div>
+                    <span>{ticket.owner.identifier}</span>
+                    <span>{ticket.rootText || 'Без текста'}</span>
+                    <span>{`${ticket.commentCount} комментариев`}</span>
+                  </button>
+                ))}
+                {filteredSupportTickets.length === 0 ? (
+                  <div className="admin-empty-state admin-empty-state-inline">Тикеты поддержки по текущему поиску не найдены.</div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="admin-panel admin-detail-panel">
+              {selectedSupportTicket ? (
+                <>
+                  {/* Support invariant: this queue is separate from moderation complaints and from user dialogs.
+                      Staff answer only through ticket comments so users keep one root ticket per issue. */}
+                  <div className="admin-panel-heading">
+                    <div className="admin-user-identity">
+                      <h2>{`Тикет #${selectedSupportTicket.ticketNumber}`}</h2>
+                      <div className="admin-user-identity-meta">
+                        <span>{formatDateTime(selectedSupportTicket.latestActivityAt ?? selectedSupportTicket.createdAt)}</span>
+                        <span className={getAdminSupportStatusBadgeClassName(selectedSupportTicket.status)}>
+                          {formatAdminSupportTicketStatus(selectedSupportTicket.status)}
+                        </span>
+                        <button
+                          type="button"
+                          className="admin-inline-link"
+                          onClick={() => void openUserFromAdmin(selectedSupportTicket.owner.identifier)}
+                        >
+                          {selectedSupportTicket.owner.displayName}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <dl className="admin-detail-grid">
+                    <div>
+                      <dt>Владелец</dt>
+                      <dd>
+                        <button
+                          type="button"
+                          className="admin-detail-link-card"
+                          onClick={() => void openUserFromAdmin(selectedSupportTicket.owner.identifier)}
+                        >
+                          {selectedSupportTicket.owner.displayName}
+                        </button>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Телефон</dt>
+                      <dd>{selectedSupportTicket.owner.identifier}</dd>
+                    </div>
+                    <div>
+                      <dt>Создан</dt>
+                      <dd>{formatDateTime(selectedSupportTicket.createdAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Последняя активность</dt>
+                      <dd>{formatDateTime(selectedSupportTicket.latestActivityAt ?? selectedSupportTicket.createdAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Комментарии</dt>
+                      <dd>{selectedSupportTicket.commentCount}</dd>
+                    </div>
+                    <div>
+                      <dt>Статус</dt>
+                      <dd>{formatAdminSupportTicketStatus(selectedSupportTicket.status)}</dd>
+                    </div>
+                    <div>
+                      <dt>Ожидает ответа</dt>
+                      <dd>{selectedSupportTicket.needsReply ? 'Да' : 'Нет'}</dd>
+                    </div>
+                    <div>
+                      <dt>Текст обращения</dt>
+                      <dd className="admin-support-ticket-body">
+                        <span>{selectedSupportTicket.rootText || 'Без текста'}</span>
+                        {renderAdminSupportAttachment(selectedSupportTicket.attachment)}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="admin-card-grid">
+                    {selectedSupportTicket.comments.map((comment) => (
+                      <article key={`support-comment-${comment.id}`} className="admin-card">
+                        <strong>{comment.displayAuthor ?? comment.authorIdentifier ?? 'Комментарий'}</strong>
+                        <span>{formatDateTime(comment.createdAt)}</span>
+                        <p>{comment.text || 'Без текста'}</p>
+                        {renderAdminSupportAttachment(comment.attachment)}
+                      </article>
+                    ))}
+                    {selectedSupportTicket.comments.length === 0 ? (
+                      <div className="admin-empty-state admin-empty-state-inline">Комментариев пока нет.</div>
+                    ) : null}
+                  </div>
+                  <div className="admin-inline-form">
+                    <textarea
+                      className="admin-textarea"
+                      rows={4}
+                      placeholder="Ответить в комментарии к тикету..."
+                      value={supportReplyDraft}
+                      onChange={(event) => setSupportReplyDraft(event.target.value)}
+                    />
+                    <div className="admin-toolbar admin-support-reply-actions">
+                      <select
+                        className="admin-select"
+                        value={supportReplyStatus}
+                        onChange={(event) =>
+                          setSupportReplyStatus(event.target.value as Exclude<AdminSupportTicketSummary['status'], 'new'>)
+                        }
+                      >
+                        {supportTicketStatusOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="admin-secondary-button"
+                        disabled={!supportReplyDraft.trim()}
+                        onClick={() => void handleReplySupportTicket()}
+                      >
+                        Ответить
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="admin-empty-state">Выберите тикет поддержки слева.</div>
               )}
             </div>
           </section>
@@ -2451,6 +3711,69 @@ export default function AdminApp() {
           </section>
         ) : null}
       </section>
+      {storageExportOverlay ? (
+        <div className="admin-modal-backdrop" role="presentation">
+          <section
+            className="admin-progress-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-storage-export-title"
+          >
+            {(() => {
+              const displayPercent = getAdminStorageExportDisplayPercent(storageExportOverlay)
+              const indeterminateDownload = isAdminStorageExportDownloadIndeterminate(storageExportOverlay)
+              return (
+                <>
+            <div className="admin-panel-heading admin-progress-modal-heading">
+              <h2 id="admin-storage-export-title">Подготавливаем архив</h2>
+            </div>
+            <p className="admin-progress-modal-subtitle">{getAdminStorageExportSubtitle(storageExportOverlay)}</p>
+            <div className="admin-progress-bar" aria-hidden="true">
+              <span
+                className={`admin-progress-bar-fill${
+                  indeterminateDownload ? ' admin-progress-bar-fill-indeterminate' : ''
+                }`}
+                style={indeterminateDownload ? undefined : { width: `${displayPercent}%` }}
+              />
+            </div>
+            <div className="admin-progress-meta">
+              <span>{getAdminStorageExportPhaseLabel(storageExportOverlay)}</span>
+              <strong>{`${displayPercent}%`}</strong>
+            </div>
+            <div className="admin-progress-stats">
+              {storageExportOverlay.downloading ? (
+                <span>
+                  {`Передано: ${formatBytes(storageExportOverlay.downloadedBytes)}${
+                    storageExportOverlay.downloadTotalBytes
+                      ? ` из ${formatBytes(storageExportOverlay.downloadTotalBytes)}`
+                      : ''
+                  }`}
+                </span>
+              ) : (
+                <span>{`Обработано: ${storageExportOverlay.processedItems} из ${storageExportOverlay.totalItems}`}</span>
+              )}
+              <span>{`Файлов в архиве: ${storageExportOverlay.fileCount}`}</span>
+              {storageExportOverlay.failedFiles > 0 ? (
+                <span>{`Ошибок чтения: ${storageExportOverlay.failedFiles}`}</span>
+              ) : null}
+              <span>{`Прошло: ${formatAdminStorageExportElapsed(storageExportOverlay.createdAt)}`}</span>
+            </div>
+            <div className="admin-toolbar admin-progress-actions">
+              <button
+                type="button"
+                className="admin-secondary-button admin-progress-cancel-button"
+                onClick={() => void handleCancelStorageExport()}
+                disabled={storageExportOverlay.canceling}
+              >
+                {storageExportOverlay.canceling ? 'Отменяем...' : 'Отмена'}
+              </button>
+            </div>
+                </>
+              )
+            })()}
+          </section>
+        </div>
+      ) : null}
     </main>
   )
 }

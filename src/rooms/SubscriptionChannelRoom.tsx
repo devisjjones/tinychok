@@ -1,11 +1,13 @@
-import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
+import type { ChangeEvent, ClipboardEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import { Fragment, useEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import {
+  formatChannelAvatarLabel,
   formatConversationDayLabel,
   getConversationDayKey,
   insertComposerTextAtCursor,
   isImageMimeType,
+  isVideoMimeType,
   scrollFeedChildIntoView,
   shouldSubmitComposerWithEnter,
 } from '../app/utils'
@@ -16,6 +18,7 @@ import { ComposerAttachmentPicker } from '../components/ComposerAttachmentPicker
 import { ComposerAttachmentPreview } from '../components/ComposerAttachmentPreview'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { EmojiPicker } from '../components/EmojiPicker'
+import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
 import { ThreadedBubble } from '../components/ThreadedBubble'
 
 type SubscriptionChannelRoomProps = {
@@ -28,8 +31,10 @@ type SubscriptionChannelRoomProps = {
   onOpenChannelActions?: (event: MouseEvent<HTMLButtonElement>) => void
   onOpenSubscribers?: () => void
   onOpenAttachment: (attachment: NonNullable<Message['attachment']>) => void
-  onOpenThread: (postId: number) => void
-  onPostSelect: (event: MouseEvent<HTMLButtonElement>, postId: number) => void
+  onOpenExternalLink?: (url: string) => void
+  onOpenSourceContact?: (sourceContact: NonNullable<Message['sourceContact']>) => void
+  onOpenThread?: (postId: number) => void
+  onPostSelect: (anchorElement: HTMLElement, postId: number) => void
   onReplyReferenceJump?: (postId: number) => void
   publisher?: {
     attachmentDraft?: ComposerAttachmentDraft
@@ -39,8 +44,10 @@ type SubscriptionChannelRoomProps = {
     error?: string
     isBusy?: boolean
     onAttachmentChange?: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
+    onComposerPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void | Promise<void>
     onAttachmentClear?: () => void
     onAttachmentPreviewOpen?: () => void
+    onRenameAttachmentFileBaseName?: (nextBaseName: string) => void
     onOpenAttachmentPicker?: (mode: 'file' | 'photo') => void
     onOpenPremiumUpsell?: () => void
     onReplyCancel: () => void
@@ -54,12 +61,16 @@ type SubscriptionChannelRoomProps = {
     gifLibrary?: UserGifLibraryItem[]
     gifSelectionBlockedReason?: string | null
     replyTarget: ReplyTarget | null
+    storageCleanupWarning?: ReactNode
     onSubmit: () => void
   }
   subscriptionAction?: {
+    busy?: boolean
+    error?: string
     label: string
     onClick: () => void
   }
+  showOwnerEditIcon?: boolean
   subscriberCountLabel: string
 }
 
@@ -73,10 +84,13 @@ export function SubscriptionChannelRoom({
   onOpenChannelActions,
   onOpenSubscribers,
   onOpenAttachment,
+  onOpenExternalLink,
+  onOpenSourceContact,
   onOpenThread,
   onPostSelect,
   onReplyReferenceJump,
   publisher,
+  showOwnerEditIcon,
   subscriberCountLabel,
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
@@ -89,7 +103,9 @@ export function SubscriptionChannelRoom({
   const publisherBusy = Boolean(publisher?.isBusy)
   const publisherOnAttachmentChange = publisher?.onAttachmentChange
   const publisherOnAttachmentClear = publisher?.onAttachmentClear
+  const publisherOnComposerPaste = publisher?.onComposerPaste
   const publisherOnAttachmentPreviewOpen = publisher?.onAttachmentPreviewOpen
+  const publisherOnRenameAttachmentFileBaseName = publisher?.onRenameAttachmentFileBaseName
   const publisherOnOpenAttachmentPicker = publisher?.onOpenAttachmentPicker
   const publisherOnOpenPremiumUpsell = publisher?.onOpenPremiumUpsell
   const publisherOnReplyCancel = publisher?.onReplyCancel
@@ -103,6 +119,7 @@ export function SubscriptionChannelRoom({
   const publisherGifLibrary = publisher?.gifLibrary ?? []
   const publisherGifSelectionBlockedReason = publisher?.gifSelectionBlockedReason ?? null
   const publisherReplyTarget = publisher?.replyTarget ?? null
+  const publisherStorageCleanupWarning = publisher?.storageCleanupWarning ?? null
   const publisherOnSubmit = publisher?.onSubmit
   const publisherCanSubmit = publisherAttachmentDraft
     ? publisherAttachmentDraft.status === 'ready' && !publisherBusy
@@ -110,7 +127,9 @@ export function SubscriptionChannelRoom({
   const publisherPlaceholder = publisherAttachmentDraft
     ? isImageMimeType(publisherAttachmentDraft.mimeType)
       ? 'Добавьте подпись к фотографии...'
-      : 'Добавьте подпись к файлу...'
+      : isVideoMimeType(publisherAttachmentDraft.mimeType)
+        ? 'Добавьте подпись к видео...'
+        : 'Добавьте подпись к файлу...'
     : 'Напишите сообщение в канал...'
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -151,6 +170,14 @@ export function SubscriptionChannelRoom({
     })
   }, [publisherReplyTarget])
 
+  useEffect(() => {
+    if (!publisher) return
+
+    window.requestAnimationFrame(() => {
+      publisherInputRef.current?.focus()
+    })
+  }, [channel.id, publisher])
+
   return (
     <>
       <section className="chat-room channel-room">
@@ -169,27 +196,36 @@ export function SubscriptionChannelRoom({
             {channel.avatarImage ? (
               <img src={channel.avatarImage} alt="" className="channel-avatar-image" />
             ) : (
-              channel.title.slice(0, 1)
+              formatChannelAvatarLabel(channel.title)
             )}
           </span>
             <div>
-              <div className="room-title">
+                <div className="room-title">
                 <div className="room-title-name">
                   <h3>{channel.title}</h3>
+                  <span className="chat-star">
+                    <img src="/icons/news100.svg" alt="Канал" />
+                  </span>
+                  {showOwnerEditIcon ? (
+                    <span className="room-owner-edit-badge" aria-label="Вы владелец канала" title="Вы владелец канала">
+                      <img src="/icons/edit100.png" alt="" aria-hidden="true" />
+                    </span>
+                  ) : null}
                   {channel.archivedAt ? <span className="room-archive-badge">Архив</span> : null}
                   {channel.muted ? (
                     <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                       <img src="/icons/bell-100.png" alt="" />
                     </span>
                   ) : null}
-                  <span className="chat-star">
-                    <img src="/icons/news100.svg" alt="Канал" />
-                  </span>
                 </div>
               </div>
               {channel.statusText ? <p className="room-channel-status">{channel.statusText}</p> : null}
               {channel.archivedAt ? (
-                <p className="room-archive-note">Канал находится в архиве и доступен только для чтения.</p>
+                <p className="room-archive-note">
+                  {channel.archiveReason === 'owner-deleted'
+                    ? 'Канал удалён владельцем и доступен только как пустой архивный экран.'
+                    : 'Канал находится в архиве и доступен только для чтения.'}
+                </p>
               ) : null}
               {onOpenSubscribers ? (
                 <button type="button" className="room-members-link" onClick={onOpenSubscribers}>
@@ -238,7 +274,7 @@ export function SubscriptionChannelRoom({
                   <ThreadedBubble
                     variant="channel"
                     threadCount={post.threadComments?.length ?? 0}
-                    onOpenThread={() => onOpenThread(post.id)}
+                    onOpenThread={onOpenThread ? () => onOpenThread(post.id) : undefined}
                     bubble={
                       <AttachedReplyBubble
                         className="channel"
@@ -249,26 +285,67 @@ export function SubscriptionChannelRoom({
                         }
                         replyTo={replyReference}
                         bubble={
-                          <button
-                            type="button"
-                            data-channel-post-id={post.id}
-                            className={
-                              activePostId === post.id
-                                ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
-                                : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
-                            }
-                            onClick={(event) => onPostSelect(event, post.id)}
-                          >
-                            <BubbleMessageContent
-                              imageOverlay={
-                                hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
+                          isImageOnlyBubble ? (
+                            <MediaOnlyBubbleRow
+                              actionLabel="Открыть действия публикации"
+                              bubbleAttributes={{ 'data-channel-post-id': post.id }}
+                              bubbleClassName={
+                                activePostId === post.id
+                                  ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
+                                  : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
                               }
-                              message={post}
-                              onOpenAttachment={onOpenAttachment}
-                              showReplyInline={false}
-                            />
-                            {!hasImageAttachment ? <time>{post.time}</time> : null}
-                          </button>
+                              lane="channel"
+                              onOpenActions={(anchorElement) => onPostSelect(anchorElement, post.id)}
+                            >
+                              <BubbleMessageContent
+                                imageOverlay={
+                                  hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
+                                }
+                                message={post}
+                                onOpenAttachment={onOpenAttachment}
+                                onOpenExternalLink={onOpenExternalLink}
+                                onOpenSourceContact={
+                                  post.sourceContact
+                                    ? () =>
+                                        onOpenSourceContact?.(
+                                          post.sourceContact as NonNullable<Message['sourceContact']>,
+                                        )
+                                    : undefined
+                                }
+                                showReplyInline={false}
+                              />
+                            </MediaOnlyBubbleRow>
+                          ) : (
+                            <button
+                              type="button"
+                              data-channel-post-id={post.id}
+                              className={
+                                activePostId === post.id
+                                  ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
+                                  : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
+                              }
+                              onClick={(event) => onPostSelect(event.currentTarget, post.id)}
+                            >
+                              <BubbleMessageContent
+                                imageOverlay={
+                                  hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
+                                }
+                                message={post}
+                                onOpenAttachment={onOpenAttachment}
+                                onOpenExternalLink={onOpenExternalLink}
+                                onOpenSourceContact={
+                                  post.sourceContact
+                                    ? () =>
+                                        onOpenSourceContact?.(
+                                          post.sourceContact as NonNullable<Message['sourceContact']>,
+                                        )
+                                    : undefined
+                                }
+                                showReplyInline={false}
+                              />
+                              {!hasImageAttachment ? <time>{post.time}</time> : null}
+                            </button>
+                          )
                         }
                       />
                     }
@@ -311,9 +388,11 @@ export function SubscriptionChannelRoom({
                       attachmentDraft={publisherAttachmentDraft}
                       onClear={publisherOnAttachmentClear}
                       onOpenPreview={publisherOnAttachmentPreviewOpen}
+                      onRenameFileBaseName={publisherOnRenameAttachmentFileBaseName}
                       onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
                       onToggleSendOriginal={publisherOnToggleSendOriginal}
                       premiumUnlocked={publisherPremiumUnlocked}
+                      storageCleanupWarning={publisherStorageCleanupWarning}
                     />
                   ) : null}
                   {publisherAttachmentInputRef && publisherOnAttachmentChange ? (
@@ -326,10 +405,10 @@ export function SubscriptionChannelRoom({
                   ) : null}
                   <textarea
                     ref={publisherInputRef}
-                    rows={1}
                     placeholder={publisherPlaceholder}
                     value={publisherDraft}
                     onChange={(event) => publisherOnDraftChange?.(event.target.value)}
+                    onPaste={(event) => publisherOnComposerPaste?.(event)}
                     onKeyDown={handleComposerKeyDown}
                   />
                   <div className="composer-tools">
@@ -356,6 +435,7 @@ export function SubscriptionChannelRoom({
                       <ComposerAttachmentPicker
                         attachmentName={publisherAttachmentName}
                         onSelectMode={publisherOnOpenAttachmentPicker}
+                        premiumUnlocked={publisherPremiumUnlocked}
                       />
                     ) : null}
                     {publisherDraft.trim() || publisherAttachmentDraft ? (
@@ -376,10 +456,12 @@ export function SubscriptionChannelRoom({
             <button
               type="button"
               className="send-button channel-subscribe-button"
+              disabled={subscriptionAction.busy}
               onClick={subscriptionAction.onClick}
             >
               {subscriptionAction.label}
             </button>
+            {subscriptionAction.error ? <p className="auth-error">{subscriptionAction.error}</p> : null}
           </div>
         ) : null}
       </section>

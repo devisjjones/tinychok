@@ -1,8 +1,12 @@
 import type {
   Account,
+  AccountStatusHistoryEntry,
+  ArchiveReason,
   Channel,
+  ChannelSearchResult,
   ChannelThreadInboxItem,
   Chat,
+  ContactRequestPreview,
   GroupThreadInboxItem,
   GroupPreview,
   MessageAttachment,
@@ -10,9 +14,14 @@ import type {
   SearchResult,
   Session,
   StaffRole,
-  StorageUsage,
+  StorageArchiveReason,
+  StorageArchiveUsage,
+  StorageQuotaUsage,
+  StorageSubjectKind,
+  SupportTicket,
   SubscriptionChannel,
   UserGifLibraryItem,
+  UserStorageItem,
 } from './types'
 
 export type ExistingAccountPreview = Pick<Account, 'displayName' | 'surname'>
@@ -22,7 +31,12 @@ export type AppSnapshot = {
   chats: Chat[]
   groups: GroupPreview[]
   channels: Channel[]
+  contactRequests: ContactRequestPreview[]
+  outgoingContactRequests: ContactRequestPreview[]
   subscriptionChannels: SubscriptionChannel[]
+  supportTicketCooldownUntil?: string
+  supportTickets: SupportTicket[]
+  supportUnreadCount: number
   threadInbox: Array<GroupThreadInboxItem | ChannelThreadInboxItem>
   discoveryResults: SearchResult[]
 }
@@ -36,7 +50,13 @@ export type AdminPermission =
   | 'dashboard.read'
   | 'users.read'
   | 'users.block'
+  | 'channels.archive.manage'
+  | 'groups.archive.manage'
+  | 'threads.archive.manage'
   | 'users.premium.write'
+  | 'users.media.export'
+  | 'users.archive.export'
+  | 'users.archive.manage'
   | 'ip.read'
   | 'legal.export'
   | 'reports.read'
@@ -75,6 +95,7 @@ export type AdminMediaItemEntityType =
 export type AdminLinkedUser = {
   displayName: string
   identifier: string
+  lookupIdentifier?: string
   nickname?: string
 }
 
@@ -139,6 +160,8 @@ export type AdminDashboardResponse = {
 }
 
 export type AdminUserSummary = {
+  archiveStorageUsage?: StorageArchiveUsage
+  archiveUnlimited?: boolean
   avatarImage?: string
   blocked: boolean
   blockedAt?: string
@@ -156,7 +179,7 @@ export type AdminUserSummary = {
   premiumExpiresAt?: string
   staffRole?: StaffRole
   status?: string
-  storageUsage: StorageUsage
+  storageUsage: StorageQuotaUsage
 }
 
 export type AdminUsersResponse = {
@@ -175,6 +198,7 @@ export type AdminUserIpSummary = {
 
 export type AdminUserDetailResponse = {
   ipSummary: AdminUserIpSummary
+  statusHistory: AccountStatusHistoryEntry[]
   user: AdminUserSummary
 }
 
@@ -271,6 +295,8 @@ export type AdminMediaListResponse = {
 }
 
 export type AdminManagedChannelSummary = {
+  archiveStorageUsage?: StorageArchiveUsage
+  archiveUnlimited?: boolean
   archivedAt?: string
   archiveReason?: Channel['archiveReason']
   csvFileName: string
@@ -282,6 +308,7 @@ export type AdminManagedChannelSummary = {
   readers: number
   relatedReportCount: number
   status: Channel['status']
+  storageUsage?: StorageQuotaUsage
   title: string
   visibility: Channel['visibility']
 }
@@ -300,7 +327,89 @@ export type AdminManagedGroupSummary = {
   members: number
   owner: AdminLinkedUser
   relatedReportCount: number
+  sharedId: string
   title: string
+}
+
+export type StorageSubjectUsageResponse = {
+  archiveUsage?: StorageArchiveUsage
+  archiveUnlimited?: boolean
+  storageUsage: StorageQuotaUsage
+}
+
+export type StoragePrimaryItemsResponse = {
+  items: UserStorageItem[]
+  usage: StorageSubjectUsageResponse
+}
+
+export type UserStorageItemsResponse = StoragePrimaryItemsResponse
+
+export type DeleteStorageItemBody = {
+  storageItemId: string
+}
+
+export type AdminStorageExportBody = {
+  currentPassword: string
+  reason: string
+  subjectId: string
+  subjectKind: StorageSubjectKind
+}
+
+export type AdminStorageExportMode = 'archive' | 'current'
+
+export type AdminStorageExportJobPhase = 'preparing' | 'zipping'
+export type AdminStorageExportJobStatus = 'running' | 'ready' | 'cancelled' | 'failed'
+
+export type AdminStorageExportJobStartBody = AdminStorageExportBody & {
+  mode: AdminStorageExportMode
+}
+
+export type AdminStorageExportJobResponse = {
+  createdAt: string
+  errorMessage?: string
+  failedFiles: number
+  fileCount: number
+  fileName?: string
+  jobId: string
+  mode: AdminStorageExportMode
+  phase: AdminStorageExportJobPhase | null
+  processedItems: number
+  progressPercent: number
+  status: AdminStorageExportJobStatus
+  subjectId: string
+  subjectKind: StorageSubjectKind
+  totalItems: number
+  updatedAt: string
+}
+
+export type AdminStorageExportJobCancelBody = {
+  jobId: string
+}
+
+export type AdminStorageArchiveToggleBody = {
+  enabled: boolean
+  reason: string
+  subjectId: string
+  subjectKind: StorageSubjectKind
+}
+
+export type StorageArchiveManifestItem = {
+  archivePath?: string
+  archiveReason?: StorageArchiveReason
+  archivedAt?: string
+  exportError?: string
+  fileName: string
+  kind: 'attachment' | 'gif'
+  mediaUrl: string
+  mimeType: string
+  originalContext: string
+  ownerIdentifier?: string
+  primaryLabel: string
+  retentionOnly?: boolean
+  size: number
+  storageSubject: string
+  storageSubjectKind: StorageSubjectKind
+  usageCount: number
 }
 
 export type AdminManagedGroupsResponse = {
@@ -308,6 +417,8 @@ export type AdminManagedGroupsResponse = {
 }
 
 export type AdminThreadSummary = {
+  archiveReason?: ArchiveReason
+  archivedAt?: string
   commentCount: number
   contextLabel: string
   csvFileName: string
@@ -324,6 +435,42 @@ export type AdminThreadSummary = {
 
 export type AdminThreadsResponse = {
   threads: AdminThreadSummary[]
+}
+
+export type AdminSupportTicketStatus = SupportTicket['status'] | 'new'
+
+export type AdminSupportTicketSummary = {
+  commentCount: number
+  createdAt: string
+  id: number
+  latestActivityAt?: string
+  needsReply: boolean
+  owner: AdminLinkedUser
+  rootText: string
+  status: AdminSupportTicketStatus
+  ticketNumber: number
+  unreadCount: number
+}
+
+export type AdminSupportTicketsResponse = {
+  tickets: AdminSupportTicketSummary[]
+}
+
+export type AdminSupportTicketDetailResponse = {
+  ticket: AdminSupportTicketSummary & {
+    attachment?: SupportTicket['attachment']
+    comments: SupportTicket['comments']
+    threadId: string
+    time: string
+  }
+}
+
+export type AdminSupportTicketReplyBody = {
+  attachment?: MessageAttachment
+  clientDeliveryId?: string
+  replyTo?: Message['replyTo']
+  status: SupportTicket['status']
+  text: string
 }
 
 export type AdminMediaActionBody = {
@@ -391,12 +538,31 @@ export type AdminContentCsvExportBody = {
   reason: string
 }
 
+export type AdminEntityArchiveToggleBody = {
+  enabled: boolean
+  reason: string
+}
+
+export type AdminThreadCsvExportBody = AdminContentCsvExportBody & {
+  threadId: string
+}
+
+export type AdminThreadArchiveToggleBody = AdminEntityArchiveToggleBody & {
+  threadId: string
+}
+
 export type AdminLegalExportBody = {
   from?: string
   includeMedia?: boolean
   reason: string
   targetIdentifier: string
   to?: string
+}
+
+export type AdminUserMediaExportBody = {
+  currentPassword: string
+  reason: string
+  targetIdentifier: string
 }
 
 export type AdminIpLogEventType = 'login' | 'ip-change'
@@ -462,7 +628,16 @@ export type DiscoverySearchResponse = {
   results: SearchResult[]
 }
 
+export type ChannelDiscoverySearchResponse = {
+  results: ChannelSearchResult[]
+}
+
 export type RequestCodeResponse =
+  | {
+      existingAccount: ExistingAccountPreview
+      hasPassword: boolean
+      status: 'blocked'
+    }
   | {
       existingAccount: ExistingAccountPreview
       hasPassword: true
@@ -567,10 +742,26 @@ export type OpenDirectDialogBody = {
   identifier: string
 }
 
+export type SendContactRequestBody = {
+  identifier: string
+}
+
+export type DeleteDialogHistoryBody = {
+  scope?: 'everyone' | 'me'
+}
+
+export type DeleteDialogMessageBody = {
+  scope?: 'everyone' | 'me'
+}
+
 export type ComplaintReason = 'spam' | 'fraud' | 'very_unpleasant'
 
 export type MutationResponse = {
   snapshot: AppSnapshot
+}
+
+export type LogoutResponse = {
+  ok: true
 }
 
 export type DirectDialogHistoryResponse = {
@@ -591,9 +782,15 @@ export type SubscriptionChannelHistoryResponse = {
   posts: SubscriptionChannel['posts']
 }
 
+export type SubscriptionChannelPreviewResponse = {
+  channel: SubscriptionChannel
+}
+
 export type OpenDirectDialogResponse = MutationResponse & {
   dialogId: number
 }
+
+export type ContactRequestActionResponse = MutationResponse
 
 export type UploadMediaKind =
   | 'attachment'
@@ -617,6 +814,10 @@ export type SearchUserGifsResponse = {
   items: UserGifLibraryItem[]
 }
 
+export type DeleteUserStorageItemBody = {
+  storageItemId: string
+}
+
 export type DebugPremiumBody = {
   enabled: boolean
   durationDays?: number
@@ -625,7 +826,16 @@ export type DebugPremiumBody = {
 export type UpdateSessionBody = Partial<
   Pick<
     Session,
-    'displayName' | 'surname' | 'nickname' | 'status' | 'blockedContactIds' | 'avatarImage' | 'soundsDisabled'
+    | 'displayName'
+    | 'surname'
+    | 'nickname'
+    | 'status'
+    | 'blockedContactIds'
+    | 'avatarImage'
+    | 'quietModeEnabled'
+    | 'quietModeSettings'
+    | 'invisibilityEnabled'
+    | 'soundsDisabled'
   >
 >
 
@@ -637,6 +847,7 @@ export type SendDirectMessageBody = {
   markAsRead?: boolean
   replyTo?: Message['replyTo']
   sourceChannel?: Message['sourceChannel']
+  sourceContact?: Message['sourceContact']
   sourceGroup?: Message['sourceGroup']
   text: string
 }
@@ -683,7 +894,9 @@ export type UpdateGroupBody = Partial<
     | 'muted'
     | 'avatarImage'
     | 'creatorIdentifier'
+    | 'description'
     | 'title'
+    | 'showHistoryToNewMembers'
     | 'commentsEnabledForAll'
     | 'commentsEnabledForPremium'
     | 'commentBlacklistIdentifiers'
@@ -698,11 +911,33 @@ export type InviteManagedChannelMembersBody = {
   dialogIds: number[]
 }
 
+export type ManageGroupParticipantBody = {
+  identifier: string
+}
+
 export type ManageSubscriptionChannelSubscriberBody = {
   identifier: string
 }
 
+export type TransferManagedChannelBody = {
+  currentPassword: string
+  identifier: string
+}
+
 export type SendSubscriptionChannelThreadCommentBody = {
+  attachment?: MessageAttachment
+  clientDeliveryId?: string
+  replyTo?: Message['replyTo']
+  text: string
+}
+
+export type SendSupportTicketBody = {
+  attachment?: MessageAttachment
+  clientDeliveryId?: string
+  text: string
+}
+
+export type SendSupportTicketCommentBody = {
   attachment?: MessageAttachment
   clientDeliveryId?: string
   replyTo?: Message['replyTo']
@@ -715,6 +950,7 @@ export type ThreadSubscriptionResponse = MutationResponse & {
 
 export type SendManagedChannelPostBody = {
   attachment?: MessageAttachment
+  clientDeliveryId?: string
   replyTo?: Message['replyTo']
   text: string
 }
@@ -764,18 +1000,28 @@ export type CreateManagedChannelResponse = MutationResponse & {
   channelId: number
 }
 
+export type SubscribeToChannelResponse = MutationResponse & {
+  channelId: number
+}
+
 export type CreateGroupBody = {
   accent?: string
   avatarImage?: string
   commentBlacklistIdentifiers?: string[]
   commentsEnabledForAll?: boolean
   commentsEnabledForPremium?: boolean
+  description?: string
   handle?: string
   memberDialogIds: number[]
+  showHistoryToNewMembers?: boolean
   title: string
 }
 
 export type CreateGroupResponse = MutationResponse & {
+  groupId: number
+}
+
+export type JoinGroupFromInviteResponse = MutationResponse & {
   groupId: number
 }
 

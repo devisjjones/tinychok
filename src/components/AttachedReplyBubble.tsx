@@ -28,7 +28,9 @@ export function AttachedReplyBubble({
     if (!node) return
 
     const updateBubbleWidth = () => {
-      const nextWidth = Math.ceil(node.getBoundingClientRect().width)
+      const measuredNode =
+        (node.querySelector('[data-bubble-measure="true"]') as HTMLElement | null) ?? node
+      const nextWidth = Math.ceil(measuredNode.getBoundingClientRect().width)
       setBubbleWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
     }
 

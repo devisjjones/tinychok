@@ -15,3 +15,12 @@ export function getPromptedActionReason(promptText: string, fallback: string) {
 
   return reason.trim() || fallback
 }
+
+export function getPromptedCurrentPassword(promptText: string) {
+  const password = window.prompt(promptText, '')
+  if (password === null) {
+    return null
+  }
+
+  return password.length > 0 ? password : null
+}

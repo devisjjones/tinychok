@@ -1,35 +1,59 @@
-import type { ComposerAttachmentDraft } from '../app/composerAttachments'
-import { formatAttachmentImageDimensions, formatAttachmentSize } from '../app/utils'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+
+import { composerAttachmentRenameMaxLength } from '../app/constants'
+import {
+  getComposerAttachmentFileNameParts,
+  type ComposerAttachmentDraft,
+} from '../app/composerAttachments'
+import { formatAttachmentImageDimensions, formatAttachmentSize, isVideoMimeType } from '../app/utils'
 
 type ComposerAttachmentPreviewProps = {
   attachmentDraft: ComposerAttachmentDraft
   onClear: () => void
   onOpenPreview?: () => void
+  onRenameFileBaseName?: (nextBaseName: string) => void
   onOpenPremiumUpsell?: () => void
   onToggleSendOriginal?: () => void
   premiumUnlocked?: boolean
+  storageCleanupWarning?: ReactNode
 }
 
 export function ComposerAttachmentPreview({
   attachmentDraft,
   onClear,
   onOpenPreview,
+  onRenameFileBaseName,
   onOpenPremiumUpsell,
   onToggleSendOriginal,
   premiumUnlocked = false,
+  storageCleanupWarning = null,
 }: ComposerAttachmentPreviewProps) {
+  const [renameOpen, setRenameOpen] = useState(false)
   const imageAttachment = attachmentDraft.kind === 'image'
+  const videoAttachment = !imageAttachment && isVideoMimeType(attachmentDraft.mimeType)
+  const fileNameParts = useMemo(
+    () => getComposerAttachmentFileNameParts(attachmentDraft.fileName),
+    [attachmentDraft.fileName],
+  )
+  const [renameBaseName, setRenameBaseName] = useState(
+    fileNameParts.baseName.slice(0, composerAttachmentRenameMaxLength),
+  )
   const dimensionsLabel = imageAttachment
     ? formatAttachmentImageDimensions(attachmentDraft.width, attachmentDraft.height)
     : null
   let statusCopy: string
+
+  useEffect(() => {
+    if (renameOpen) return
+    setRenameBaseName(fileNameParts.baseName.slice(0, composerAttachmentRenameMaxLength))
+  }, [fileNameParts.baseName, renameOpen])
 
   if (attachmentDraft.status === 'preparing') {
     statusCopy = 'Подготавливаем фото...'
   } else if (attachmentDraft.status === 'error') {
     statusCopy = attachmentDraft.error ?? 'Не удалось подготовить вложение.'
   } else if (!imageAttachment) {
-    statusCopy = formatAttachmentSize(attachmentDraft.size)
+    statusCopy = `${videoAttachment ? 'Видео' : 'Файл'} ${formatAttachmentSize(attachmentDraft.size)}`
   } else if (attachmentDraft.mimeType === 'image/gif') {
     statusCopy = `GIF ${formatAttachmentSize(attachmentDraft.size)}${dimensionsLabel ? `, ${dimensionsLabel}` : ''}`
   } else if (attachmentDraft.sendOriginal) {
@@ -41,6 +65,21 @@ export function ComposerAttachmentPreview({
     statusCopy = `Сжатая версия ${formatAttachmentSize(attachmentDraft.processedSize)}, ${dimensionsLabel}`
   } else {
     statusCopy = `Фото ${formatAttachmentSize(attachmentDraft.size)}, ${dimensionsLabel}`
+  }
+
+  const canRename = Boolean(onRenameFileBaseName) && attachmentDraft.status !== 'preparing'
+  const canSaveRename = renameBaseName.trim().length > 0
+
+  function handleOpenRename() {
+    setRenameBaseName(fileNameParts.baseName.slice(0, composerAttachmentRenameMaxLength))
+    setRenameOpen(true)
+  }
+
+  function handleSaveRename() {
+    const nextBaseName = renameBaseName.trim()
+    if (!nextBaseName || !onRenameFileBaseName) return
+    onRenameFileBaseName(nextBaseName)
+    setRenameOpen(false)
   }
 
   return (
@@ -59,11 +98,38 @@ export function ComposerAttachmentPreview({
             className="composer-attachment-preview-image"
           />
         </button>
+      ) : videoAttachment && onOpenPreview ? (
+        <button
+          type="button"
+          className="composer-attachment-preview-file-button"
+          onClick={() => onOpenPreview()}
+          aria-label="Открыть превью видео"
+          title="Открыть превью видео"
+        >
+          <span className="composer-attachment-preview-file-badge video">Видео</span>
+        </button>
       ) : (
-        <div className="composer-attachment-preview-file-badge">Файл</div>
+        <div className={`composer-attachment-preview-file-badge${videoAttachment ? ' video' : ''}`}>
+          {videoAttachment ? 'Видео' : 'Файл'}
+        </div>
       )}
       <div className="composer-attachment-preview-copy">
-        <strong>{attachmentDraft.fileName}</strong>
+        <div className="composer-attachment-preview-title-row">
+          <span className="composer-attachment-preview-title-inline">
+            <strong title={attachmentDraft.fileName}>{attachmentDraft.fileName}</strong>
+            {canRename ? (
+              <button
+                type="button"
+                className="composer-attachment-rename-trigger"
+                onClick={handleOpenRename}
+                aria-label="Изменить название файла"
+                title="Изменить название файла"
+              >
+                <img src="/icons/edit100.png" alt="" aria-hidden="true" />
+              </button>
+            ) : null}
+          </span>
+        </div>
         <span className={attachmentDraft.status === 'error' ? 'composer-attachment-preview-status error' : 'composer-attachment-preview-status'}>
           {statusCopy}
         </span>
@@ -95,6 +161,9 @@ export function ComposerAttachmentPreview({
             </span>
           </button>
         ) : null}
+        {storageCleanupWarning ? (
+          <span className="composer-attachment-storage-warning">{storageCleanupWarning}</span>
+        ) : null}
       </div>
       <button
         type="button"
@@ -110,6 +179,67 @@ export function ComposerAttachmentPreview({
           className="composer-attachment-preview-clear-icon"
         />
       </button>
+      {renameOpen ? (
+        <>
+          <button
+            type="button"
+            className="composer-attachment-rename-backdrop"
+            aria-label="Закрыть изменение названия файла"
+            onClick={() => setRenameOpen(false)}
+          />
+          <div
+            className="composer-attachment-rename-popover"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Изменить название файла"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <strong className="composer-attachment-rename-heading">Файл</strong>
+            <div className="composer-attachment-rename-fieldset">
+              <span className="composer-attachment-rename-label">Текущее название</span>
+              <span className="composer-attachment-rename-current" title={attachmentDraft.fileName}>
+                {attachmentDraft.fileName}
+              </span>
+            </div>
+            <div className="composer-attachment-rename-fieldset">
+              <label className="composer-attachment-rename-label" htmlFor="composer-attachment-rename-input">
+                Новое название
+              </label>
+              <div className="composer-attachment-rename-input-row">
+                <input
+                  id="composer-attachment-rename-input"
+                  type="text"
+                  className="composer-attachment-rename-input"
+                  value={renameBaseName}
+                  onChange={(event) => setRenameBaseName(event.target.value.slice(0, composerAttachmentRenameMaxLength))}
+                  maxLength={composerAttachmentRenameMaxLength}
+                  autoFocus
+                />
+                {fileNameParts.extension ? (
+                  <span className="composer-attachment-rename-extension">{fileNameParts.extension}</span>
+                ) : null}
+              </div>
+            </div>
+            <div className="composer-attachment-rename-actions">
+              <button
+                type="button"
+                className="send-button composer-attachment-rename-save"
+                disabled={!canSaveRename}
+                onClick={handleSaveRename}
+              >
+                Сохранить
+              </button>
+              <button
+                type="button"
+                className="soft-button composer-attachment-rename-back"
+                onClick={() => setRenameOpen(false)}
+              >
+                Назад
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

@@ -1,11 +1,11 @@
 import type {
   ChangeEvent,
-  FormEvent,
+  ClipboardEvent,
   KeyboardEvent,
-  MouseEvent,
+  ReactNode,
   RefObject,
 } from 'react'
-import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import type { ChannelMessageSource, Chat, Message, ReplyTarget, UserGifLibraryItem } from '../app/types'
 import {
@@ -13,8 +13,8 @@ import {
   formatMessagePreview,
   formatRoomPresence,
   getConversationDayKey,
-  insertComposerTextAtCursor,
   isImageMimeType,
+  isVideoMimeType,
   scrollFeedChildIntoView,
   shouldSubmitComposerWithEnter,
   shouldShowDeliveryCaption,
@@ -23,12 +23,32 @@ import {
   BubbleMessageContent,
   BubbleImageOverlayMeta,
   ForwardedChannelHeader,
+  shouldUseLightDeliveryIndicatorTint,
 } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
-import { ComposerAttachmentPreview } from '../components/ComposerAttachmentPreview'
-import { ComposerAttachmentPicker } from '../components/ComposerAttachmentPicker'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
-import { EmojiPicker } from '../components/EmojiPicker'
+import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
+import { RoomComposer } from '../components/RoomComposer'
+
+type DirectChatComposerGate =
+  | {
+      kind: 'action'
+      actionLabel: string
+      busy?: boolean
+      message?: ReactNode
+      messageTone?: 'danger' | 'friendly'
+      tone?: 'danger' | 'neutral' | 'primary'
+    }
+  | {
+      kind: 'incoming-request'
+      actionError?: string
+      busy?: boolean
+      message: ReactNode
+    }
+  | {
+      kind: 'disabled' | 'status'
+      message: ReactNode
+    }
 
 type DirectChatRoomProps = {
   activeChat: Chat
@@ -42,30 +62,41 @@ type DirectChatRoomProps = {
   messageFeedRef: RefObject<HTMLDivElement | null>
   onAttachmentClear: () => void
   onAttachmentPreviewOpen?: () => void
+  onRenameAttachmentFileBaseName?: (nextBaseName: string) => void
   pinnedMessage: Message | null
   quietMode: boolean
   replyTarget: ReplyTarget | null
   visibleMessages: Message[]
   composerDisabledNotice?: string | null
+  composerGate?: DirectChatComposerGate | null
   onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
+  onComposerPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void | Promise<void>
   onBack: () => void
   onBlockChat: () => void
   onCloseChatActions: () => void
   onCreateGroup: () => void
   onDraftChange: (value: string) => void
-  onMessageSelect: (event: MouseEvent<HTMLButtonElement>, message: Message) => void
+  onMessageSelect: (anchorElement: HTMLElement, message: Message) => void
   onOpenAttachment: (attachment: NonNullable<Message['attachment']>) => void
+  onOpenExternalLink?: (url: string) => void
   onOpenLinkedChannel: (sourceChannel: ChannelMessageSource) => void
+  onOpenSourceContact: (sourceContact: NonNullable<Message['sourceContact']>) => void
+  onOpenSourceGroup: (sourceGroup: NonNullable<Message['sourceGroup']>) => void
   onOpenSourceChannel: (message: Message) => void
   onOpenAttachmentPicker: (mode: 'file' | 'photo') => void
   onOpenPremiumGift: () => void
   onOpenPremiumUpsell?: () => void
+  onComposerGateAction?: () => void
+  onComposerGateAccept?: () => void
+  onComposerGateReject?: () => void
+  onComposerGateBlock?: () => void
   onReplyCancel: () => void
   onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
   onSearchGifs?: (query: string) => Promise<UserGifLibraryItem[]>
   onRequestDeleteContact: () => void
   onRequestDeleteHistory: () => void
   onRequestReportContact: () => void
+  onShareContact: () => void
   onSelectGif?: (gif: UserGifLibraryItem) => void
   onUploadGif?: (file: File) => Promise<void>
   onReplyReferenceJump?: (messageId: number) => void
@@ -79,6 +110,7 @@ type DirectChatRoomProps = {
   onToggleChatActions: () => void
   onToggleFavoriteChat: () => void
   onUnpinMessage: () => void
+  storageCleanupWarning?: ReactNode
 }
 
 export function DirectChatRoom({
@@ -93,12 +125,15 @@ export function DirectChatRoom({
   messageFeedRef,
   onAttachmentClear,
   onAttachmentPreviewOpen,
+  onRenameAttachmentFileBaseName,
   pinnedMessage,
   quietMode,
   replyTarget,
   visibleMessages,
   composerDisabledNotice = null,
+  composerGate = null,
   onAttachmentChange,
+  onComposerPaste,
   onBack,
   onBlockChat,
   onCloseChatActions,
@@ -106,11 +141,18 @@ export function DirectChatRoom({
   onDraftChange,
   onMessageSelect,
   onOpenAttachment,
+  onOpenExternalLink,
   onOpenLinkedChannel,
+  onOpenSourceContact,
+  onOpenSourceGroup,
   onOpenSourceChannel,
   onOpenAttachmentPicker,
   onOpenPremiumGift,
   onOpenPremiumUpsell,
+  onComposerGateAction,
+  onComposerGateAccept,
+  onComposerGateReject,
+  onComposerGateBlock,
   onReplyCancel,
   onDeleteGif,
   onSearchGifs,
@@ -120,6 +162,7 @@ export function DirectChatRoom({
   onRequestDeleteContact,
   onRequestDeleteHistory,
   onRequestReportContact,
+  onShareContact,
   onToggleSendOriginal,
   onToggleChatMuted,
   gifLibrary = [],
@@ -130,17 +173,20 @@ export function DirectChatRoom({
   onToggleChatActions,
   onToggleFavoriteChat,
   onUnpinMessage,
+  storageCleanupWarning = null,
 }: DirectChatRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
   const effectiveVisibleMessages = activeChat.archivedAccount ? [] : visibleMessages
   const effectiveComposerDisabledNotice =
     composerDisabledNotice ?? (activeChat.archivedAccount ? 'Аккаунт удалён. Переписка недоступна.' : null)
-  const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
+  const effectiveComposerGate = effectiveComposerDisabledNotice ? null : composerGate
   const canSubmitComposer = attachmentDraft ? attachmentDraft.status === 'ready' : draft.trim().length > 0
   const composerPlaceholder = attachmentDraft
     ? isImageMimeType(attachmentDraft.mimeType)
       ? 'Добавьте подпись к фотографии...'
-      : 'Добавьте подпись к файлу...'
+      : isVideoMimeType(attachmentDraft.mimeType)
+        ? 'Добавьте подпись к видео...'
+        : 'Добавьте подпись к файлу...'
     : 'Напиши сообщение в тайник...'
 
   async function submitComposer() {
@@ -169,19 +215,6 @@ export function DirectChatRoom({
     void submitComposer()
   }
 
-  useLayoutEffect(() => {
-    const textarea = draftInputRef.current
-    if (!textarea) return
-
-    const viewportHeight = window.visualViewport?.height ?? window.innerHeight
-    const maxHeight = Math.max(120, Math.floor(viewportHeight * 0.5))
-
-    textarea.style.height = '0px'
-    const nextHeight = Math.min(textarea.scrollHeight, maxHeight)
-    textarea.style.height = `${Math.max(56, nextHeight)}px`
-    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
-  }, [draft])
-
   useEffect(() => {
     if (!replyTarget) return
 
@@ -189,6 +222,14 @@ export function DirectChatRoom({
       draftInputRef.current?.focus()
     })
   }, [replyTarget])
+
+  useEffect(() => {
+    if (effectiveComposerDisabledNotice || effectiveComposerGate || activeChat.archivedAccount) return
+
+    window.requestAnimationFrame(() => {
+      draftInputRef.current?.focus()
+    })
+  }, [activeChat.id, activeChat.archivedAccount, effectiveComposerDisabledNotice, effectiveComposerGate])
 
   function jumpToMessage(messageId: number) {
     if (onReplyReferenceJump) {
@@ -215,7 +256,9 @@ export function DirectChatRoom({
         </button>
         <div className="room-id">
           <span className="avatar large" style={{ backgroundColor: activeChat.accent }}>
-            {activeChat.archivedAccount ? (
+            {activeChat.avatarImage ? (
+              <img src={activeChat.avatarImage} alt="" className="channel-avatar-image" />
+            ) : activeChat.archivedAccount ? (
               <img src="/icons/ghost.png" alt="" aria-hidden="true" className="avatar-ghost-icon" />
             ) : (
               activeChat.title.slice(0, 1)
@@ -283,13 +326,18 @@ export function DirectChatRoom({
                 <button type="button" className="room-menu-item" onClick={onCreateGroup}>
                   Создать группу
                 </button>
+                {!activeChat.archivedAccount ? (
+                  <button type="button" className="room-menu-item" onClick={onShareContact}>
+                    Поделиться контактом
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="room-menu-item room-menu-item-premium"
                   onClick={onOpenPremiumGift}
                 >
                   <span>Подарить</span>
-                  <img src="/icons/crown100.png" alt="" />
+                  <img src="/icons/crown64.png" alt="" />
                 </button>
                 <button type="button" className="room-menu-item danger" onClick={onBlockChat}>
                   Заблокировать
@@ -338,7 +386,8 @@ export function DirectChatRoom({
           const previousMessage = index > 0 ? effectiveVisibleMessages[index - 1] : null
           const messageDayKey = getConversationDayKey(message.createdAt)
           const previousMessageDayKey = previousMessage ? getConversationDayKey(previousMessage.createdAt) : null
-          const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
+          const linkedChannel =
+            message.sourceChannel || message.sourceContact ? null : resolveLinkedChannelFromMessage(message)
           const messageDeliveryIssue =
             message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
           const hasImageAttachment = Boolean(
@@ -407,6 +456,11 @@ export function DirectChatRoom({
               {index === 0 || previousMessageDayKey !== messageDayKey ? (
                 <ConversationDayDivider label={formatConversationDayLabel(message.createdAt)} />
               ) : null}
+              {message.system ? (
+                <div className="direct-system-message" data-direct-message-id={message.id}>
+                  <span className="direct-system-message-label">{message.text}</span>
+                </div>
+              ) : (
               <AttachedReplyBubble
                 mine={message.author === 'me'}
                 onReplyClick={
@@ -417,65 +471,129 @@ export function DirectChatRoom({
                 replyChatTitle={activeChat.title}
                 replyTo={replyReference}
                 bubble={
-                  <button
-                    type="button"
-                    data-direct-message-id={message.id}
-                    className={bubbleClassNames.join(' ')}
-                    onClick={(event) => onMessageSelect(event, message)}
-                  >
-                    {message.sourceChannel ? (
-                      <>
-                        <ForwardedChannelHeader
-                          sourceChannel={message.sourceChannel}
-                          onClick={() => onOpenSourceChannel(message)}
-                        />
-                        {!message.sourceChannel.leadText ? (
-                          <span className="bubble-meta">Переслано</span>
-                        ) : null}
-                      </>
-                    ) : null}
-                    {message.forwarded && !message.sourceChannel ? (
-                      <span className="bubble-meta">
-                        {message.forwardedAuthorName
-                          ? `Переслано ${message.forwardedAuthorName}`
-                          : 'Переслано'}
-                      </span>
-                    ) : null}
-                    <BubbleMessageContent
-                      imageOverlay={
-                        hasImageAttachment ? (
-                          <BubbleImageOverlayMeta
-                            deliveryIndicatorSrc={
-                              showDeliveryIndicator ? deliveryIndicatorSrc : null
-                            }
-                            time={message.time}
-                          />
-                        ) : undefined
-                      }
-                      linkedChannel={linkedChannel}
-                      message={message}
-                      onOpenAttachment={onOpenAttachment}
-                      onOpenLinkedChannel={
-                        linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                      }
-                      replyChatTitle={activeChat.title}
-                      showReplyInline={false}
-                    />
-                    {!hasImageAttachment ? <time>{message.time}</time> : null}
-                    {!hasImageAttachment && showDeliveryCaption ? (
-                      <span className="bubble-delivery-caption">Сообщение не отправлено</span>
-                    ) : null}
-                    {!hasImageAttachment && showDeliveryIndicator ? (
-                      <img
-                        className="bubble-delivery-indicator"
-                        src={deliveryIndicatorSrc}
-                        alt=""
-                        aria-hidden="true"
+                  isImageOnlyBubble ? (
+                    <MediaOnlyBubbleRow
+                      actionLabel="Открыть действия сообщения"
+                      bubbleAttributes={{ 'data-direct-message-id': message.id }}
+                      bubbleClassName={bubbleClassNames.join(' ')}
+                      mine={message.author === 'me'}
+                      onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
+                    >
+                      <BubbleMessageContent
+                        imageOverlay={
+                          hasImageAttachment ? (
+                            <BubbleImageOverlayMeta
+                              deliveryIndicatorSrc={
+                                showDeliveryIndicator ? deliveryIndicatorSrc : null
+                              }
+                              time={message.time}
+                            />
+                          ) : undefined
+                        }
+                        linkedChannel={linkedChannel}
+                        message={message}
+                        onOpenAttachment={onOpenAttachment}
+                        onOpenExternalLink={onOpenExternalLink}
+                        onOpenLinkedChannel={
+                          linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                        }
+                        onOpenSourceContact={
+                          message.sourceContact
+                            ? () =>
+                                onOpenSourceContact(
+                                  message.sourceContact as NonNullable<Message['sourceContact']>,
+                                )
+                            : undefined
+                        }
+                        onOpenSourceGroup={
+                          message.sourceGroup
+                            ? () => onOpenSourceGroup(message.sourceGroup as NonNullable<Message['sourceGroup']>)
+                            : undefined
+                        }
+                        replyChatTitle={activeChat.title}
+                        showReplyInline={false}
                       />
-                    ) : null}
-                  </button>
+                    </MediaOnlyBubbleRow>
+                  ) : (
+                    <button
+                      type="button"
+                      data-direct-message-id={message.id}
+                      className={bubbleClassNames.join(' ')}
+                      onClick={(event) => onMessageSelect(event.currentTarget, message)}
+                    >
+                      {message.sourceChannel ? (
+                        <>
+                          <ForwardedChannelHeader
+                            sourceChannel={message.sourceChannel}
+                            onClick={() => onOpenSourceChannel(message)}
+                          />
+                          {!message.sourceChannel.leadText ? (
+                            <span className="bubble-meta">Переслано</span>
+                          ) : null}
+                        </>
+                      ) : null}
+                      {message.forwarded && !message.sourceChannel ? (
+                        <span className="bubble-meta">
+                          {message.forwardedAuthorName
+                            ? `Переслано ${message.forwardedAuthorName}`
+                            : 'Переслано'}
+                        </span>
+                      ) : null}
+                      <BubbleMessageContent
+                        imageOverlay={
+                          hasImageAttachment ? (
+                            <BubbleImageOverlayMeta
+                              deliveryIndicatorSrc={
+                                showDeliveryIndicator ? deliveryIndicatorSrc : null
+                              }
+                              time={message.time}
+                            />
+                          ) : undefined
+                        }
+                        linkedChannel={linkedChannel}
+                        message={message}
+                        onOpenAttachment={onOpenAttachment}
+                        onOpenExternalLink={onOpenExternalLink}
+                        onOpenLinkedChannel={
+                          linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                        }
+                        onOpenSourceContact={
+                          message.sourceContact
+                            ? () =>
+                                onOpenSourceContact(
+                                  message.sourceContact as NonNullable<Message['sourceContact']>,
+                                )
+                            : undefined
+                        }
+                        onOpenSourceGroup={
+                          message.sourceGroup
+                            ? () => onOpenSourceGroup(message.sourceGroup as NonNullable<Message['sourceGroup']>)
+                            : undefined
+                        }
+                        replyChatTitle={activeChat.title}
+                        showReplyInline={false}
+                      />
+                      {!hasImageAttachment ? <time>{message.time}</time> : null}
+                      {!hasImageAttachment && showDeliveryCaption ? (
+                        <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                      ) : null}
+                      {!hasImageAttachment && showDeliveryIndicator ? (
+                        <img
+                          className={
+                            shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
+                              ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
+                              : 'bubble-delivery-indicator'
+                          }
+                          src={deliveryIndicatorSrc}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </button>
+                  )
                 }
               />
+              )}
             </Fragment>
           )
         })}
@@ -494,95 +612,108 @@ export function DirectChatRoom({
         <div className="composer composer-disabled">
           <p className="composer-disabled-note">{effectiveComposerDisabledNotice}</p>
         </div>
-      ) : (
-        <form
-          className="composer"
-          onSubmit={async (event: FormEvent<HTMLFormElement>) => {
-            event.preventDefault()
-            await submitComposer()
-          }}
-        >
-          <div className="composer-input">
-            {replyTarget ? (
-              <div className="composer-reply">
-                <div>
-                  <span className="settings-label">Ответ</span>
-                  <p>{replyTarget.text}</p>
-                </div>
+      ) : effectiveComposerGate ? (
+        <div className="composer composer-disabled composer-gated">
+          {effectiveComposerGate.message ? (
+            <p
+              className={[
+                'composer-disabled-note',
+                effectiveComposerGate.kind === 'action' && effectiveComposerGate.messageTone === 'friendly'
+                  ? 'composer-disabled-note-friendly'
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              {effectiveComposerGate.message}
+            </p>
+          ) : null}
+          {effectiveComposerGate.kind === 'incoming-request' ? (
+            <>
+              {/* Incoming requests are resolved only inside the shared room so users can
+                  inspect preserved history before they accept, reject, or block. */}
+              {effectiveComposerGate.actionError ? (
+                <p className="auth-error">{effectiveComposerGate.actionError}</p>
+              ) : null}
+              <div className="composer-gate-actions">
                 <button
                   type="button"
-                  className="soft-button composer-reply-cancel"
-                  onClick={onReplyCancel}
-                  aria-label="Отменить ответ"
-                  title="Отменить ответ"
+                  className="send-button channel-subscribe-button composer-gate-button"
+                  onClick={onComposerGateAccept}
+                  disabled={effectiveComposerGate.busy}
                 >
-                  <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
+                  {effectiveComposerGate.busy ? 'Обрабатываем...' : 'Подтвердить контакт'}
+                </button>
+                <button
+                  type="button"
+                  className="room-confirm-button composer-gate-button"
+                  onClick={onComposerGateReject}
+                  disabled={effectiveComposerGate.busy}
+                >
+                  Отклонить контакт
+                </button>
+                <button
+                  type="button"
+                  className="room-confirm-button room-confirm-danger composer-gate-button"
+                  onClick={onComposerGateBlock}
+                  disabled={effectiveComposerGate.busy}
+                >
+                  Заблокировать контакт
                 </button>
               </div>
-            ) : null}
-            <div className="composer-entry">
-              <div className="composer-field">
-                {attachmentDraft ? (
-                  <ComposerAttachmentPreview
-                    attachmentDraft={attachmentDraft}
-                    onClear={onAttachmentClear}
-                    onOpenPreview={onAttachmentPreviewOpen}
-                    onOpenPremiumUpsell={onOpenPremiumUpsell}
-                    onToggleSendOriginal={onToggleSendOriginal}
-                    premiumUnlocked={premiumUnlocked}
-                  />
-                ) : null}
-                <input
-                  ref={attachmentInputRef}
-                  type="file"
-                  className="composer-attachment-input"
-                  onChange={onAttachmentChange}
-                />
-                <textarea
-                  ref={draftInputRef}
-                  rows={1}
-                  placeholder={composerPlaceholder}
-                  value={draft}
-                  onChange={(event) => onDraftChange(event.target.value)}
-                  onKeyDown={handleComposerKeyDown}
-                />
-                <div className="composer-tools">
-                  <EmojiPicker
-                    canSelectGif={!gifSelectionBlockedReason}
-                    gifLibrary={gifLibrary}
-                    gifSelectionBlockedReason={gifSelectionBlockedReason}
-                    onDeleteGif={onDeleteGif}
-                    onOpenPremiumUpsell={onOpenPremiumUpsell}
-                    onSearchGifs={onSearchGifs}
-                    onSelect={(emoji) =>
-                      insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
-                    }
-                    onSelectGif={onSelectGif}
-                    onUploadGif={onUploadGif}
-                    premiumUnlocked={premiumUnlocked}
-                  />
-                  <ComposerAttachmentPicker
-                    attachmentName={attachmentName}
-                    onSelectMode={onOpenAttachmentPicker}
-                  />
-                  {hasComposerPayload ? (
-                    <button
-                      type="submit"
-                      className="send-button composer-send"
-                      disabled={!canSubmitComposer}
-                      aria-label="Отправить"
-                      title="Отправить"
-                    >
-                      <span className="composer-send-icon" aria-hidden="true">
-                        <img src="/icons/sent.png" alt="" />
-                      </span>
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </div>
-        </form>
+            </>
+          ) : null}
+          {effectiveComposerGate.kind === 'action' ? (
+            <button
+              type="button"
+              className={[
+                'composer-gate-button',
+                effectiveComposerGate.tone === 'danger'
+                  ? 'room-confirm-button room-confirm-danger'
+                  : effectiveComposerGate.tone === 'neutral'
+                    ? 'room-confirm-button'
+                  : 'send-button channel-subscribe-button',
+              ].join(' ')}
+              onClick={onComposerGateAction}
+              disabled={effectiveComposerGate.busy}
+            >
+              {effectiveComposerGate.actionLabel}
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <RoomComposer
+          attachmentDraft={attachmentDraft}
+          attachmentInputRef={attachmentInputRef}
+          attachmentName={attachmentName}
+          draft={draft}
+          draftInputRef={draftInputRef}
+          gifLibrary={gifLibrary}
+          gifSelectionBlockedReason={gifSelectionBlockedReason}
+          onAttachmentChange={onAttachmentChange}
+          onAttachmentClear={onAttachmentClear}
+          onAttachmentPreviewOpen={onAttachmentPreviewOpen}
+          onRenameAttachmentFileBaseName={onRenameAttachmentFileBaseName}
+          onComposerPaste={onComposerPaste}
+          onDeleteGif={onDeleteGif}
+          onDraftChange={onDraftChange}
+          onKeyDown={handleComposerKeyDown}
+          onOpenAttachmentPicker={onOpenAttachmentPicker}
+          onOpenPremiumUpsell={onOpenPremiumUpsell}
+          onReplyCancel={onReplyCancel}
+          onSearchGifs={onSearchGifs}
+          onSelectGif={onSelectGif}
+          onSubmit={submitComposer}
+          onToggleSendOriginal={onToggleSendOriginal}
+          onUploadGif={onUploadGif}
+          placeholder={composerPlaceholder}
+          premiumUnlocked={premiumUnlocked}
+          replyTarget={replyTarget}
+          storageCleanupWarning={storageCleanupWarning}
+          submitAriaLabel="Отправить"
+          submitDisabled={!canSubmitComposer}
+          submitTitle="Отправить"
+        />
       )}
     </section>
   )

@@ -7,6 +7,7 @@ import {
   privacyPolicyUpdatedAt,
 } from './privacyPolicyContent'
 
+// Legal pages are public compliance surfaces. Keep links, PDF downloads and top-level copy stable.
 export function PrivacyPolicyPage() {
   const { cookieConsent, updateCookieConsent } = useCookieConsent()
 
@@ -50,18 +51,6 @@ export function PrivacyPolicyPage() {
                 Вернуться в Тайничок
               </a>
             </div>
-          </article>
-
-          <article className="policy-page-callout">
-            <p className="eyebrow">Важно</p>
-            <p>
-              Политика распространяется на сайт <strong>tinychok.com</strong>, а также на
-              связанные с ним сервисы, приложения и функционал мессенджера Tinychok.
-            </p>
-            <p>
-              По вопросам обработки персональных данных и реализации прав субъекта персональных
-              данных можно написать на <strong>devisjjones@gmail.com</strong>.
-            </p>
           </article>
 
           <section className="policy-page-grid">

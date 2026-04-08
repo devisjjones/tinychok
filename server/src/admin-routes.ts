@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type {
   AdminAuditCsvExportBody,
@@ -8,8 +9,15 @@ import type {
   AdminDialogsResponse,
   AdminDialogDetailResponse,
   AdminDialogLookupBody,
+  AdminEntityArchiveToggleBody,
   AdminIpLogCsvExportBody,
   AdminLegalExportBody,
+  AdminStorageArchiveToggleBody,
+  AdminStorageExportBody,
+  AdminStorageExportJobResponse,
+  AdminStorageExportJobStartBody,
+  AdminStorageExportMode,
+  AdminUserMediaExportBody,
   AdminManagedChannelsResponse,
   AdminManagedGroupsResponse,
   AdminMediaDownloadBody,
@@ -23,12 +31,17 @@ import type {
   AdminReportViewBody,
   AdminReportViewResponse,
   AdminReportsResponse,
+  AdminSupportTicketDetailResponse,
+  AdminSupportTicketReplyBody,
+  AdminSupportTicketsResponse,
   AdminUserAvatarBody,
   AdminUserAvatarResponse,
   AdminUserBlockBody,
   AdminUserPremiumBody,
   AdminUsersResponse,
   AdminThreadsResponse,
+  AdminThreadArchiveToggleBody,
+  AdminThreadCsvExportBody,
 } from '../../src/shared/backend'
 import { getAdminPermissionsForRole, hasAdminPermission } from './admin-permissions'
 import { runtimeConfig } from './config'
@@ -59,6 +72,89 @@ function buildAttachmentContentDisposition(fileName: string) {
   return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedName}`
 }
 
+type AdminStorageExportJobRecord = {
+  actorIdentifier: string
+  buffer?: Buffer
+  cleanupTimer?: ReturnType<typeof setTimeout>
+  createdAt: string
+  errorMessage?: string
+  failedFiles: number
+  fileCount: number
+  fileName?: string
+  id: string
+  mode: AdminStorageExportMode
+  phase: 'preparing' | 'zipping' | null
+  processedItems: number
+  status: 'running' | 'ready' | 'cancelled' | 'failed'
+  subjectId: string
+  subjectKind: AdminStorageExportJobStartBody['subjectKind']
+  totalItems: number
+  updatedAt: string
+  abortController: AbortController
+}
+
+const adminStorageExportJobs = new Map<string, AdminStorageExportJobRecord>()
+const adminStorageExportJobTtlMs = 10 * 60 * 1000
+const adminStorageExportCancelledMessage = 'Подготовка архива отменена.'
+
+function getStorageExportPermission(mode: AdminStorageExportMode): AdminPermission {
+  return mode === 'archive' ? 'users.archive.export' : 'users.media.export'
+}
+
+function computeAdminStorageExportJobProgressPercent(job: AdminStorageExportJobRecord) {
+  if (job.status === 'ready') return 100
+  if (job.phase === 'zipping') return 95
+  if (job.totalItems <= 0) return 12
+  return Math.max(5, Math.min(90, Math.round((job.processedItems / job.totalItems) * 90)))
+}
+
+function serializeAdminStorageExportJob(job: AdminStorageExportJobRecord): AdminStorageExportJobResponse {
+  return {
+    createdAt: job.createdAt,
+    errorMessage: job.errorMessage,
+    failedFiles: job.failedFiles,
+    fileCount: job.fileCount,
+    fileName: job.fileName,
+    jobId: job.id,
+    mode: job.mode,
+    phase: job.phase,
+    processedItems: job.processedItems,
+    progressPercent: computeAdminStorageExportJobProgressPercent(job),
+    status: job.status,
+    subjectId: job.subjectId,
+    subjectKind: job.subjectKind,
+    totalItems: job.totalItems,
+    updatedAt: job.updatedAt,
+  }
+}
+
+function touchAdminStorageExportJob(
+  job: AdminStorageExportJobRecord,
+  patch: Partial<
+    Pick<
+      AdminStorageExportJobRecord,
+      'buffer' | 'errorMessage' | 'failedFiles' | 'fileCount' | 'fileName' | 'phase' | 'processedItems' | 'status' | 'totalItems'
+    >
+  >,
+) {
+  Object.assign(job, patch, { updatedAt: new Date().toISOString() })
+}
+
+function scheduleAdminStorageExportJobCleanup(jobId: string, delayMs = adminStorageExportJobTtlMs) {
+  const job = adminStorageExportJobs.get(jobId)
+  if (!job) return
+  if (job.cleanupTimer) {
+    clearTimeout(job.cleanupTimer)
+  }
+  job.cleanupTimer = setTimeout(() => {
+    const current = adminStorageExportJobs.get(jobId)
+    if (current?.cleanupTimer) {
+      clearTimeout(current.cleanupTimer)
+    }
+    adminStorageExportJobs.delete(jobId)
+  }, delayMs)
+}
+
 function sendError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : 'Внутренняя ошибка сервера.'
   return reply.code(400).send({ message })
@@ -68,6 +164,17 @@ function getRouteParam(request: FastifyRequest, key: string) {
   return decodeURIComponent(
     ((request.params as Record<string, string | undefined> | undefined)?.[key] ?? '').trim(),
   )
+}
+
+function getNonNegativeNumericRouteParam(request: FastifyRequest, key: string) {
+  const rawValue = (request.params as Record<string, string | undefined> | undefined)?.[key]
+  const numericValue = Number(rawValue)
+
+  if (!rawValue || !Number.isInteger(numericValue) || numericValue < 0) {
+    throw new Error('Некорректный идентификатор ресурса.')
+  }
+
+  return numericValue
 }
 
 function getSearchQuery(request: FastifyRequest) {
@@ -170,7 +277,27 @@ function requireAdminActor(
   }
 }
 
-export async function registerAdminRoutes(app: FastifyInstance, store: AppStore) {
+function requireAdminStorageExportJobActor(
+  store: AppStore,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  job: AdminStorageExportJobRecord,
+) {
+  const auth = requireAdminActor(store, request, reply, getStorageExportPermission(job.mode))
+  if (!auth) return null
+  const actor = store.getAdminActorByToken(auth.token)
+  if (!actor || actor.identifier !== job.actorIdentifier) {
+    reply.code(403).send({ message: 'Эта выгрузка принадлежит другому owner-аккаунту.' })
+    return null
+  }
+  return auth
+}
+
+export async function registerAdminRoutes(
+  app: FastifyInstance,
+  store: AppStore,
+  broadcastSnapshotsForIdentifiers: (identifiers: string[]) => void | Promise<void>,
+) {
   app.get('/api/admin/bootstrap', async (request, reply) => {
     try {
       const auth = requireAdminActor(store, request, reply, 'admin.access')
@@ -222,6 +349,20 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       if (!auth) return reply
 
       return store.adminGetUser(getRouteParam(request, 'identifier'))
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/users/:identifier/status-history/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.read')
+      if (!auth) return reply
+
+      return await store.adminExportUserStatusHistoryCsv(
+        auth.token,
+        getRouteParam(request, 'identifier'),
+      ) satisfies AdminCsvExportResponse
     } catch (error) {
       return sendError(reply, error)
     }
@@ -429,6 +570,55 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
     }
   })
 
+  app.get('/api/admin/support-tickets', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'reports.read')
+      if (!auth) return reply
+
+      return {
+        tickets: store.adminListSupportTickets(getSearchQuery(request)),
+      } satisfies AdminSupportTicketsResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.get('/api/admin/support-tickets/:ticketId', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'reports.read')
+      if (!auth) return reply
+
+      const ticket = await store.adminGetSupportTicket(
+        auth.token,
+        getNonNegativeNumericRouteParam(request, 'ticketId'),
+      )
+      return {
+        ticket,
+      } satisfies AdminSupportTicketDetailResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/support-tickets/:ticketId/reply', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'reports.note')
+      if (!auth) return reply
+
+      const payload = await store.adminReplySupportTicket(
+        auth.token,
+        getNonNegativeNumericRouteParam(request, 'ticketId'),
+        parseJsonPayload<AdminSupportTicketReplyBody>(request.body),
+      )
+      await broadcastSnapshotsForIdentifiers(payload.broadcastIdentifiers)
+      return {
+        ticket: payload.ticket,
+      } satisfies AdminSupportTicketDetailResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
   app.get('/api/admin/dialogs', async (request, reply) => {
     try {
       const auth = requireAdminActor(store, request, reply, 'users.read')
@@ -474,6 +664,78 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
     }
   })
 
+  app.post('/api/admin/groups/:groupId/participants/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminContentCsvExportBody>(request.body)
+      return await store.adminExportGroupParticipantsCsv(
+        auth.token,
+        getRouteParam(request, 'groupId'),
+        body.reason,
+      ) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/groups/:groupId/archive-toggle', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'groups.archive.manage')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminEntityArchiveToggleBody>(request.body)
+      const payload = await store.adminSetGroupArchived(
+        auth.token,
+        getRouteParam(request, 'groupId'),
+        body,
+      )
+      await broadcastSnapshotsForIdentifiers(payload.broadcastIdentifiers)
+      return {
+        groups: payload.groups,
+      } satisfies AdminManagedGroupsResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/channels/:handle/subscribers/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminContentCsvExportBody>(request.body)
+      return await store.adminExportChannelSubscribersCsv(
+        auth.token,
+        getRouteParam(request, 'handle'),
+        body.reason,
+      ) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/channels/:handle/archive-toggle', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'channels.archive.manage')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminEntityArchiveToggleBody>(request.body)
+      const payload = await store.adminSetManagedChannelArchived(
+        auth.token,
+        getRouteParam(request, 'handle'),
+        body,
+      )
+      await broadcastSnapshotsForIdentifiers(payload.broadcastIdentifiers)
+      return {
+        channels: payload.channels,
+      } satisfies AdminManagedChannelsResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
   app.post('/api/admin/threads/:threadId/export', async (request, reply) => {
     try {
       const auth = requireAdminActor(store, request, reply, 'media.read')
@@ -485,6 +747,62 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
         getRouteParam(request, 'threadId'),
         body.reason,
       ) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/threads/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'media.read')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminThreadCsvExportBody>(request.body)
+      return await store.adminExportThreadCsv(
+        auth.token,
+        body.threadId,
+        body.reason,
+      ) satisfies AdminCsvExportResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/threads/:threadId/archive-toggle', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'threads.archive.manage')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminEntityArchiveToggleBody>(request.body)
+      const payload = await store.adminSetThreadArchived(
+        auth.token,
+        getRouteParam(request, 'threadId'),
+        body,
+      )
+      await broadcastSnapshotsForIdentifiers(payload.broadcastIdentifiers)
+      return {
+        threads: payload.threads,
+      } satisfies AdminThreadsResponse
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/threads/archive-toggle', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'threads.archive.manage')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminThreadArchiveToggleBody>(request.body)
+      const payload = await store.adminSetThreadArchived(
+        auth.token,
+        body.threadId,
+        body,
+      )
+      await broadcastSnapshotsForIdentifiers(payload.broadcastIdentifiers)
+      return {
+        threads: payload.threads,
+      } satisfies AdminThreadsResponse
     } catch (error) {
       return sendError(reply, error)
     }
@@ -530,6 +848,236 @@ export async function registerAdminRoutes(app: FastifyInstance, store: AppStore)
       reply.header('Content-Type', 'application/zip')
       reply.header('Content-Disposition', buildAttachmentContentDisposition(payload.fileName))
       return reply.send(payload.buffer)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/users/media-export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.media.export')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminUserMediaExportBody>(request.body)
+      const payload = await store.adminExportUserMediaArchive(auth.token, body)
+      reply.header('Content-Type', 'application/zip')
+      reply.header('Content-Disposition', buildAttachmentContentDisposition(payload.fileName))
+      return reply.send(payload.buffer)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/storage/export-jobs', async (request, reply) => {
+    try {
+      const body = parseJsonPayload<AdminStorageExportJobStartBody>(request.body)
+      const mode: AdminStorageExportMode = body.mode === 'archive' ? 'archive' : 'current'
+      const auth = requireAdminActor(store, request, reply, getStorageExportPermission(mode))
+      if (!auth) return reply
+
+      const actor = store.getAdminActorByToken(auth.token)
+      if (!actor) {
+        reply.code(403).send({ message: 'Доступ к admin panel разрешён только staff-аккаунтам.' })
+        return reply
+      }
+
+      const now = new Date().toISOString()
+      const jobId = randomUUID()
+      const job: AdminStorageExportJobRecord = {
+        abortController: new AbortController(),
+        actorIdentifier: actor.identifier,
+        createdAt: now,
+        failedFiles: 0,
+        fileCount: 0,
+        id: jobId,
+        mode,
+        phase: 'preparing',
+        processedItems: 0,
+        status: 'running',
+        subjectId: body.subjectId,
+        subjectKind: body.subjectKind,
+        totalItems: 0,
+        updatedAt: now,
+      }
+      adminStorageExportJobs.set(jobId, job)
+
+      void (async () => {
+        try {
+          const payload =
+            mode === 'archive'
+              ? await store.adminExportStorageArchive(auth.token, body, {
+                  onProgress: (progress) => {
+                    if (job.status !== 'running') return
+                    touchAdminStorageExportJob(job, {
+                      failedFiles: progress.failedFiles,
+                      fileCount: progress.fileCount,
+                      phase: progress.phase,
+                      processedItems: progress.processedItems,
+                      totalItems: progress.totalItems,
+                    })
+                  },
+                  signal: job.abortController.signal,
+                })
+              : await store.adminExportCurrentStorage(auth.token, body, {
+                  onProgress: (progress) => {
+                    if (job.status !== 'running') return
+                    touchAdminStorageExportJob(job, {
+                      failedFiles: progress.failedFiles,
+                      fileCount: progress.fileCount,
+                      phase: progress.phase,
+                      processedItems: progress.processedItems,
+                      totalItems: progress.totalItems,
+                    })
+                  },
+                  signal: job.abortController.signal,
+                })
+
+          if (job.abortController.signal.aborted || job.status === 'cancelled') {
+            touchAdminStorageExportJob(job, {
+              buffer: undefined,
+              errorMessage: adminStorageExportCancelledMessage,
+              phase: null,
+              status: 'cancelled',
+            })
+            scheduleAdminStorageExportJobCleanup(jobId, 30_000)
+            return
+          }
+
+          touchAdminStorageExportJob(job, {
+            buffer: payload.buffer,
+            fileName: payload.fileName,
+            phase: null,
+            status: 'ready',
+          })
+          scheduleAdminStorageExportJobCleanup(jobId)
+        } catch (error) {
+          if (job.abortController.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+            touchAdminStorageExportJob(job, {
+              buffer: undefined,
+              errorMessage: adminStorageExportCancelledMessage,
+              phase: null,
+              status: 'cancelled',
+            })
+            scheduleAdminStorageExportJobCleanup(jobId, 30_000)
+            return
+          }
+
+          touchAdminStorageExportJob(job, {
+            buffer: undefined,
+            errorMessage: error instanceof Error ? error.message : 'Не удалось подготовить архив.',
+            phase: null,
+            status: 'failed',
+          })
+          scheduleAdminStorageExportJobCleanup(jobId, 60_000)
+        }
+      })()
+
+      return serializeAdminStorageExportJob(job)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.get('/api/admin/storage/export-jobs/:jobId', async (request, reply) => {
+    try {
+      const job = adminStorageExportJobs.get(getRouteParam(request, 'jobId'))
+      if (!job) {
+        reply.code(404).send({ message: 'Выгрузка архива не найдена.' })
+        return reply
+      }
+      const auth = requireAdminStorageExportJobActor(store, request, reply, job)
+      if (!auth) return reply
+      return serializeAdminStorageExportJob(job)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/storage/export-jobs/:jobId/cancel', async (request, reply) => {
+    try {
+      const job = adminStorageExportJobs.get(getRouteParam(request, 'jobId'))
+      if (!job) {
+        reply.code(404).send({ message: 'Выгрузка архива не найдена.' })
+        return reply
+      }
+      const auth = requireAdminStorageExportJobActor(store, request, reply, job)
+      if (!auth) return reply
+
+      job.abortController.abort()
+      touchAdminStorageExportJob(job, {
+        buffer: undefined,
+        errorMessage: adminStorageExportCancelledMessage,
+        phase: null,
+        status: 'cancelled',
+      })
+      scheduleAdminStorageExportJobCleanup(job.id, 15_000)
+      return serializeAdminStorageExportJob(job)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/storage/export-jobs/:jobId/download', async (request, reply) => {
+    try {
+      const job = adminStorageExportJobs.get(getRouteParam(request, 'jobId'))
+      if (!job) {
+        reply.code(404).send({ message: 'Выгрузка архива не найдена.' })
+        return reply
+      }
+      const auth = requireAdminStorageExportJobActor(store, request, reply, job)
+      if (!auth) return reply
+      if (job.status !== 'ready' || !job.buffer || !job.fileName) {
+        throw new Error('Архив ещё не готов к скачиванию.')
+      }
+
+      const payload = job.buffer
+      const fileName = job.fileName
+      scheduleAdminStorageExportJobCleanup(job.id, 0)
+      reply.header('Content-Type', 'application/zip')
+      reply.header('Content-Disposition', buildAttachmentContentDisposition(fileName))
+      return reply.send(payload)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/storage/export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.media.export')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminStorageExportBody>(request.body)
+      const payload = await store.adminExportCurrentStorage(auth.token, body)
+      reply.header('Content-Type', 'application/zip')
+      reply.header('Content-Disposition', buildAttachmentContentDisposition(payload.fileName))
+      return reply.send(payload.buffer)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/storage/archive-export', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.archive.export')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminStorageExportBody>(request.body)
+      const payload = await store.adminExportStorageArchive(auth.token, body)
+      reply.header('Content-Type', 'application/zip')
+      reply.header('Content-Disposition', buildAttachmentContentDisposition(payload.fileName))
+      return reply.send(payload.buffer)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/storage/archive-toggle', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.archive.manage')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminStorageArchiveToggleBody>(request.body)
+      return await store.adminSetStorageArchiveUnlimited(auth.token, body)
     } catch (error) {
       return sendError(reply, error)
     }

@@ -9,10 +9,10 @@ import {
   avatarSourceMaxSizeBytes,
   messageFileAcceptedExtensions,
   messageFileAcceptedMimeTypes,
-  messageFileUploadMaxSizeBytes,
   messageGifUploadMaxSizeBytes,
   messagePhotoAcceptedMimeTypes,
   messagePhotoUploadMaxSizeBytes,
+  premiumMessageFileUploadMaxSizeBytes,
 } from '../../src/shared/constants'
 import { makePublicUrl, runtimeConfig } from './config'
 
@@ -29,6 +29,10 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'image/png': '.png',
   'image/webp': '.webp',
   'text/plain': '.txt',
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'video/webm': '.webm',
+  'video/x-m4v': '.m4v',
 }
 
 const SUPPORTED_IMAGE_ATTACHMENT_MIME_TYPES = new Set(messagePhotoAcceptedMimeTypes)
@@ -67,7 +71,9 @@ const MEDIA_KIND_CONFIG: Record<
   },
   attachment: {
     directory: 'attachments',
-    maxSizeBytes: messagePhotoUploadMaxSizeBytes,
+    // Transport must allow the premium file ceiling. Final permission is enforced
+    // later by the authenticated upload route based on the current session tier.
+    maxSizeBytes: premiumMessageFileUploadMaxSizeBytes,
   },
 }
 
@@ -256,8 +262,8 @@ function isSupportedFileAttachment(fileName: string, mimeType: string) {
     return false
   }
 
-  if (!mimeType) {
-    return extension === '.txt'
+  if (!mimeType || mimeType === 'application/octet-stream') {
+    return true
   }
 
   return SUPPORTED_FILE_ATTACHMENT_MIME_TYPES.has(
@@ -370,12 +376,12 @@ export async function storeMediaBuffer(options: {
   }
 
   if (options.kind === 'attachment') {
-    if (options.buffer.byteLength > messageFileUploadMaxSizeBytes) {
-      throw new Error('Файл слишком большой. Максимальный размер 10 МБ.')
+    if (options.buffer.byteLength > premiumMessageFileUploadMaxSizeBytes) {
+      throw new Error('Файл слишком большой. Максимальный размер 200 МБ.')
     }
 
     if (!isSupportedFileAttachment(options.fileName, normalizedMimeType)) {
-      throw new Error('Поддерживаются только PDF, DOC, DOCX, XLS, XLSX, TXT и ZIP.')
+      throw new Error('Поддерживаются PDF, DOC, DOCX, XLS, XLSX, TXT, ZIP и видео MP4, MOV, WEBM, M4V.')
     }
 
     return runtimeConfig.storage.mediaBackend === 'object-storage'

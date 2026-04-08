@@ -1,5 +1,7 @@
 export {
   buildChannelDirectLinkFromTitle,
+  type ComposerTextMarkup,
+  type ComposerTextInputElement,
   ensureUniqueChannelDirectLink,
   formatAccountName,
   formatAttachmentImageDimensions,
@@ -7,6 +9,9 @@ export {
   formatChannelAvatarLabel,
   formatConversationDayLabel,
   formatContactStatus,
+  formatSidebarActivityLabel,
+  formatSupportTicketCreatedAt,
+  extendPremiumExpiry,
   formatGroupLatestAuthor,
   formatGroupPreview,
   formatGroupTime,
@@ -16,18 +21,23 @@ export {
   formatPreview,
   formatRoomPresence,
   formatSessionName,
+  formatSupportTicketStatus,
   formatSubscriptionChannelPreview,
   formatSubscriptionChannelReaders,
   formatSubscriptionChannelSubscribers,
   formatSubscriptionChannelTime,
   formatUnreadBadgeCount,
+  getEffectiveQuietModeSettings,
   getChannelVisibilityDescription,
   getChannelVisibilityLabel,
   getConversationDayKey,
   getNextChannelVisibility,
   getPremiumDaysLeft,
+  getSupportTicketStatusSortOrder,
   hasActivePremium,
+  insertComposerTextAtCursor,
   isImageMimeType,
+  isVideoMimeType,
   isPhoneQuery,
   makeDraftChannel,
   makePremiumExpiry,
@@ -35,7 +45,12 @@ export {
   moveUnreadItemsFirst,
   normalizeIdentifier,
   normalizeNickname,
+  normalizeQuietModeSettings,
   normalizePremiumExpiry,
+  parseMessageTextSegments,
+  nonPremiumQuietModeSettings,
+  renderComposerMarkupToHtml,
+  resolveQuietModeInvisibilityState,
   sanitizeChannelDescription,
   sanitizeChannelDirectLink,
   sanitizeChannelTitle,
@@ -46,6 +61,11 @@ export {
   sortChatsByRecentActivity,
   sortGroupsByRecentActivity,
   sortSubscriptionChannelsByRecentActivity,
+  stripMessageFormattingMarkup,
+  supportTicketStatusOptions,
+  extractComposerMarkupFromEditable,
+  wrapComposerVisibleSelectionWithMarkup,
+  wrapComposerSelectionWithMarkup,
 } from '../shared/utils'
 
 export function scrollFeedChildIntoView(
@@ -71,31 +91,4 @@ export function scrollFeedChildIntoView(
   })
 
   return true
-}
-
-export function insertComposerTextAtCursor(
-  input: HTMLTextAreaElement | null,
-  currentValue: string,
-  insertedText: string,
-  onChange: (value: string) => void,
-) {
-  if (!input) {
-    onChange(`${currentValue}${insertedText}`)
-    return
-  }
-
-  const selectionStart = input.selectionStart ?? currentValue.length
-  const selectionEnd = input.selectionEnd ?? currentValue.length
-  const nextValue =
-    currentValue.slice(0, selectionStart) +
-    insertedText +
-    currentValue.slice(selectionEnd)
-
-  onChange(nextValue)
-
-  const nextCursorPosition = selectionStart + insertedText.length
-  window.requestAnimationFrame(() => {
-    input.focus()
-    input.setSelectionRange(nextCursorPosition, nextCursorPosition)
-  })
 }

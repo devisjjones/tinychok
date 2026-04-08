@@ -6,17 +6,165 @@ import {
   nicknameFieldMaxLength,
   statusFieldMaxLength,
 } from './constants'
-import type { Account, Channel, Chat, GroupPreview, Message, Session, SubscriptionChannel } from './types'
+import type {
+  Account,
+  Channel,
+  Chat,
+  GroupPreview,
+  Message,
+  QuietModeSettings,
+  Session,
+  SupportTicketStatus,
+  SubscriptionChannel,
+} from './types'
+import type { AdminSupportTicketStatus } from './backend'
+
+export const defaultQuietModeSettings: QuietModeSettings = {
+  autoInvisibility: true,
+  channels: true,
+  contactRequests: true,
+  dialogs: true,
+  groups: true,
+  threads: true,
+}
+
+export const nonPremiumQuietModeSettings: QuietModeSettings = {
+  autoInvisibility: false,
+  channels: true,
+  contactRequests: true,
+  dialogs: true,
+  groups: true,
+  threads: true,
+}
+
+export const supportTicketStatusOptions: ReadonlyArray<{
+  label: string
+  value: SupportTicketStatus
+}> = [
+  { value: 'open', label: 'Открыт' },
+  { value: 'reopened', label: 'Переоткрыт' },
+  { value: 'needs_confirmation', label: 'Нужно подтверждение' },
+  { value: 'resolved', label: 'Решён' },
+]
+
+export function formatSupportTicketStatus(status: SupportTicketStatus) {
+  return supportTicketStatusOptions.find((option) => option.value === status)?.label ?? 'Открыт'
+}
+
+export function getSupportTicketStatusSortOrder(status: SupportTicketStatus) {
+  const sortOrder = supportTicketStatusOptions.findIndex((option) => option.value === status)
+  return sortOrder === -1 ? 0 : sortOrder
+}
+
+export const adminSupportTicketStatusOptions: ReadonlyArray<{
+  label: string
+  value: AdminSupportTicketStatus
+}> = [
+  { value: 'new', label: 'Новое' },
+  { value: 'open', label: 'Открыт' },
+  { value: 'reopened', label: 'Переоткрыт' },
+  { value: 'needs_confirmation', label: 'Нужно подтверждение' },
+  { value: 'resolved', label: 'Решён' },
+]
+
+export function formatAdminSupportTicketStatus(status: AdminSupportTicketStatus) {
+  return adminSupportTicketStatusOptions.find((option) => option.value === status)?.label ?? 'Открыт'
+}
+
+export function getAdminSupportTicketStatusSortOrder(status: AdminSupportTicketStatus) {
+  const sortOrder = adminSupportTicketStatusOptions.findIndex((option) => option.value === status)
+  return sortOrder === -1 ? 1 : sortOrder
+}
+
+export function normalizeQuietModeSettings(
+  settings?: Partial<QuietModeSettings> | null,
+): QuietModeSettings {
+  return {
+    autoInvisibility: settings?.autoInvisibility ?? defaultQuietModeSettings.autoInvisibility,
+    channels: settings?.channels ?? defaultQuietModeSettings.channels,
+    contactRequests: settings?.contactRequests ?? defaultQuietModeSettings.contactRequests,
+    dialogs: settings?.dialogs ?? defaultQuietModeSettings.dialogs,
+    groups: settings?.groups ?? defaultQuietModeSettings.groups,
+    threads: settings?.threads ?? defaultQuietModeSettings.threads,
+  }
+}
+
+export function getEffectiveQuietModeSettings(
+  settings: Partial<QuietModeSettings> | null | undefined,
+  hasPremiumAccess: boolean,
+): QuietModeSettings {
+  return hasPremiumAccess
+    ? normalizeQuietModeSettings(settings)
+    : nonPremiumQuietModeSettings
+}
+
+export function resolveQuietModeInvisibilityState(options: {
+  autoInvisibility: boolean
+  currentInvisibilityAutoEnabled: boolean
+  currentInvisibilityEnabled: boolean
+  currentQuietModeEnabled: boolean
+  nextQuietModeEnabled: boolean
+}) {
+  // Keep this helper shared between client and server:
+  // `Тихо` may auto-enable invisibility, but only that auto-enabled invisibility is allowed to
+  // auto-disable again when quiet-mode turns off.
+  const {
+    autoInvisibility,
+    currentInvisibilityAutoEnabled,
+    currentInvisibilityEnabled,
+    currentQuietModeEnabled,
+    nextQuietModeEnabled,
+  } = options
+
+  if (nextQuietModeEnabled === currentQuietModeEnabled) {
+    return {
+      invisibilityAutoEnabled: currentInvisibilityAutoEnabled,
+      invisibilityEnabled: currentInvisibilityEnabled,
+    }
+  }
+
+  if (nextQuietModeEnabled) {
+    if (autoInvisibility && !currentInvisibilityEnabled) {
+      return {
+        invisibilityAutoEnabled: true,
+        invisibilityEnabled: true,
+      }
+    }
+
+    return {
+      invisibilityAutoEnabled: false,
+      invisibilityEnabled: currentInvisibilityEnabled,
+    }
+  }
+
+  if (currentInvisibilityAutoEnabled) {
+    return {
+      invisibilityAutoEnabled: false,
+      invisibilityEnabled: false,
+    }
+  }
+
+  return {
+    invisibilityAutoEnabled: false,
+    invisibilityEnabled: currentInvisibilityEnabled,
+  }
+}
 
 export function formatMessagePreview(
-  message: Pick<Message, 'attachment' | 'sourceChannel' | 'sourceGroup' | 'text'>,
+  message: Pick<
+    Message,
+    'attachment' | 'attachmentRemovedNotice' | 'sourceChannel' | 'sourceContact' | 'sourceGroup' | 'text'
+  >,
 ) {
-  const text = message.text.trim()
+  const text = stripMessageFormattingMarkup(message.text).trim()
   if (text) return text
   if (message.sourceChannel?.leadText) return message.sourceChannel.leadText
+  if (message.sourceGroup?.leadText) return message.sourceGroup.leadText
   if (message.attachment) return `Файл: ${message.attachment.fileName}`
+  if (message.attachmentRemovedNotice) return message.attachmentRemovedNotice.text
   if (message.sourceChannel) return `Канал: ${message.sourceChannel.title}`
-  if (message.sourceGroup) return `Приглашение в группу: ${message.sourceGroup.title}`
+  if (message.sourceContact) return `Контакт: ${message.sourceContact.title}`
+  if (message.sourceGroup) return `Пользователь приглашает вас в группу: ${message.sourceGroup.title}`
   return 'Пока пусто'
 }
 
@@ -72,6 +220,10 @@ export function isImageMimeType(mimeType: string) {
   return mimeType.startsWith('image/')
 }
 
+export function isVideoMimeType(mimeType: string) {
+  return mimeType.startsWith('video/')
+}
+
 export function formatPreview(chat: Chat) {
   const latest = chat.messages.at(-1)
   return latest ? formatMessagePreview(latest) : 'Пока пусто'
@@ -106,6 +258,43 @@ export function formatConversationDayLabel(createdAt?: string) {
   })
 
   return formatter.format(date)
+}
+
+export function formatSupportTicketCreatedAt(createdAt?: string) {
+  const timestamp = parseIsoDate(createdAt)
+  const date = timestamp === null ? new Date() : new Date(timestamp)
+  const formatter = new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
+  return formatter.format(date)
+}
+
+export function formatSidebarActivityLabel(createdAt?: string, fallback = '', now = new Date()) {
+  const timestamp = parseIsoDate(createdAt)
+  if (timestamp === null) {
+    return fallback
+  }
+
+  const date = new Date(timestamp)
+  const todayKey = formatLocalDateKey(now)
+  const valueKey = formatLocalDateKey(date)
+
+  if (valueKey === todayKey) {
+    return new Intl.DateTimeFormat('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date)
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+  }).format(date)
 }
 
 function getChatLastActivityTimestamp(chat: Chat) {
@@ -187,7 +376,7 @@ export function formatGroupLatestAuthor(group: GroupPreview) {
 
 export function formatGroupTime(group: GroupPreview) {
   const latest = group.messages.at(-1)
-  return latest ? latest.time : group.time
+  return formatSidebarActivityLabel(latest?.createdAt ?? group.latestActivityAt, latest?.time ?? group.time)
 }
 
 export function formatSubscriptionChannelPreview(channel: SubscriptionChannel) {
@@ -221,7 +410,7 @@ export function formatSubscriptionChannelSubscribers(count: number) {
 
 export function formatSubscriptionChannelTime(channel: SubscriptionChannel) {
   const latest = channel.posts.at(-1)
-  return latest ? latest.time : channel.time
+  return formatSidebarActivityLabel(latest?.createdAt ?? channel.latestActivityAt, latest?.time ?? channel.time)
 }
 
 function getSubscriptionChannelLastActivityTimestamp(channel: SubscriptionChannel) {
@@ -415,12 +604,727 @@ export function ensureUniqueChannelDirectLink(
 }
 
 export function sanitizeChannelDescription(value: string) {
-  return value.replace(/\s+/g, ' ').trim().slice(0, channelDescriptionMaxLength)
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u0000/g, '')
+    .slice(0, channelDescriptionMaxLength)
+}
+
+export type MessageTextSegment =
+  | {
+      kind: 'text'
+      style: MessageTextStyle
+      value: string
+    }
+  | {
+      kind: 'external-link'
+      href: string
+      style: MessageTextStyle
+      value: string
+    }
+
+export type MessageTextStyle = {
+  bold: boolean
+  italic: boolean
+  strike: boolean
+  underline: boolean
+}
+
+export type ComposerTextMarkup = 'bold' | 'italic' | 'strikethrough' | 'underline'
+export type ComposerTextInputElement = HTMLTextAreaElement | HTMLDivElement
+
+const defaultMessageTextStyle: MessageTextStyle = {
+  bold: false,
+  italic: false,
+  strike: false,
+  underline: false,
+}
+
+const externalLinkPattern = /https?:\/\/[^\s<>"']+/giu
+const formattingTagPattern = /^<(\/)?([bius])>/iu
+const formattingMarkupTags: Record<ComposerTextMarkup, { close: string, open: string }> = {
+  bold: { open: '<b>', close: '</b>' },
+  italic: { open: '<i>', close: '</i>' },
+  strikethrough: { open: '<s>', close: '</s>' },
+  underline: { open: '<u>', close: '</u>' },
+}
+const composerBlockTagNames = new Set(['DIV', 'LI', 'P'])
+
+function escapeComposerHtml(value: string) {
+  return value
+    .replace(/&/gu, '&amp;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;')
+    .replace(/"/gu, '&quot;')
+    .replace(/'/gu, '&#39;')
+}
+
+function wrapComposerHtmlWithStyle(value: string, style: MessageTextStyle) {
+  let result = escapeComposerHtml(value)
+
+  if (style.bold) {
+    result = `<b>${result}</b>`
+  }
+
+  if (style.italic) {
+    result = `<i>${result}</i>`
+  }
+
+  if (style.underline) {
+    result = `<u>${result}</u>`
+  }
+
+  if (style.strike) {
+    result = `<s>${result}</s>`
+  }
+
+  return result
+}
+
+function wrapComposerMarkupWithStyle(value: string, style: MessageTextStyle) {
+  let result = value
+
+  if (style.bold) {
+    result = `<b>${result}</b>`
+  }
+
+  if (style.italic) {
+    result = `<i>${result}</i>`
+  }
+
+  if (style.underline) {
+    result = `<u>${result}</u>`
+  }
+
+  if (style.strike) {
+    result = `<s>${result}</s>`
+  }
+
+  return result
+}
+
+function getComposerInputTagName(input: ComposerTextInputElement | null) {
+  if (!input || typeof input !== 'object' || !('tagName' in input)) {
+    return ''
+  }
+
+  const tagName = input.tagName
+  return typeof tagName === 'string' ? tagName.toUpperCase() : ''
+}
+
+function isComposerTextareaInput(
+  input: ComposerTextInputElement | null,
+): input is HTMLTextAreaElement {
+  return getComposerInputTagName(input) === 'TEXTAREA'
+}
+
+function isComposerEditableInput(
+  input: ComposerTextInputElement | null,
+): input is HTMLDivElement {
+  return getComposerInputTagName(input) === 'DIV' && Boolean((input as HTMLDivElement)?.isContentEditable)
+}
+
+function placeComposerEditableCaretAtEnd(input: HTMLDivElement) {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return null
+
+  const selection = window.getSelection()
+  if (!selection) return null
+
+  const range = document.createRange()
+  range.selectNodeContents(input)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return range
+}
+
+function getComposerEditableSelectionRange(input: HTMLDivElement) {
+  if (typeof window === 'undefined') return null
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) {
+    return placeComposerEditableCaretAtEnd(input)
+  }
+
+  const range = selection.getRangeAt(0)
+  if (!input.contains(range.commonAncestorContainer)) {
+    return placeComposerEditableCaretAtEnd(input)
+  }
+
+  return range
+}
+
+function getComposerEditableSelectionOffsets(input: HTMLDivElement) {
+  const range = getComposerEditableSelectionRange(input)
+  if (!range || typeof document === 'undefined') {
+    return null
+  }
+
+  const startRange = document.createRange()
+  startRange.selectNodeContents(input)
+  startRange.setEnd(range.startContainer, range.startOffset)
+
+  const endRange = document.createRange()
+  endRange.selectNodeContents(input)
+  endRange.setEnd(range.endContainer, range.endOffset)
+
+  return {
+    end: endRange.toString().length,
+    start: startRange.toString().length,
+  }
+}
+
+function resolveComposerEditableSelectionPoint(
+  root: Node,
+  visibleOffset: number,
+): { node: Node, offset: number } | null {
+  const normalizedOffset = Math.max(0, visibleOffset)
+  let traversed = 0
+  const childNodes = Array.from(root.childNodes)
+
+  for (let index = 0; index < childNodes.length; index += 1) {
+    const child = childNodes[index]
+
+    if (child.nodeType === Node.TEXT_NODE) {
+      const textLength = (child.textContent ?? '').replace(/\u00a0/gu, ' ').replace(/\u200b/gu, '').length
+      if (normalizedOffset <= traversed + textLength) {
+        return {
+          node: child,
+          offset: Math.max(0, normalizedOffset - traversed),
+        }
+      }
+      traversed += textLength
+      continue
+    }
+
+    if (child.nodeType === Node.ELEMENT_NODE) {
+      const element = child as HTMLElement
+      if (element.tagName.toUpperCase() === 'BR') {
+        if (normalizedOffset <= traversed + 1) {
+          return {
+            node: root,
+            offset: index + 1,
+          }
+        }
+        traversed += 1
+        continue
+      }
+
+      const childTextLength = element.innerText?.length ?? element.textContent?.length ?? 0
+      if (normalizedOffset <= traversed + childTextLength) {
+        return resolveComposerEditableSelectionPoint(child, normalizedOffset - traversed)
+      }
+      traversed += childTextLength
+    }
+  }
+
+  if (root.nodeType === Node.TEXT_NODE) {
+    const textLength = (root.textContent ?? '').length
+    return {
+      node: root,
+      offset: Math.min(textLength, normalizedOffset),
+    }
+  }
+
+  return {
+    node: root,
+    offset: childNodes.length,
+  }
+}
+
+function restoreComposerEditableSelection(
+  input: HTMLDivElement,
+  startOffset: number,
+  endOffset: number,
+) {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return
+
+  const start = resolveComposerEditableSelectionPoint(input, startOffset)
+  const end = resolveComposerEditableSelectionPoint(input, endOffset)
+  if (!start || !end) {
+    placeComposerEditableCaretAtEnd(input)
+    return
+  }
+
+  const selection = window.getSelection()
+  if (!selection) return
+
+  const range = document.createRange()
+  range.setStart(start.node, start.offset)
+  range.setEnd(end.node, end.offset)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function mapVisibleTextOffsetToMarkupOffset(markup: string, visibleOffset: number) {
+  if (visibleOffset <= 0) return 0
+
+  let currentMarkupOffset = 0
+  let currentVisibleOffset = 0
+
+  while (currentMarkupOffset < markup.length) {
+    const tagMatch = markup.slice(currentMarkupOffset).match(formattingTagPattern)
+    if (tagMatch) {
+      currentMarkupOffset += tagMatch[0].length
+      continue
+    }
+
+    if (currentVisibleOffset >= visibleOffset) {
+      break
+    }
+
+    currentMarkupOffset += 1
+    currentVisibleOffset += 1
+  }
+
+  return currentMarkupOffset
+}
+
+function isSameMessageTextStyle(left: MessageTextStyle, right: MessageTextStyle) {
+  return (
+    left.bold === right.bold &&
+    left.italic === right.italic &&
+    left.strike === right.strike &&
+    left.underline === right.underline
+  )
+}
+
+function applyComposerMarkupToStyle(style: MessageTextStyle, markup: ComposerTextMarkup): MessageTextStyle {
+  return {
+    bold: style.bold || markup === 'bold',
+    italic: style.italic || markup === 'italic',
+    strike: style.strike || markup === 'strikethrough',
+    underline: style.underline || markup === 'underline',
+  }
+}
+
+function serializeComposerSegmentsToMarkup(
+  segments: ReadonlyArray<{ style: MessageTextStyle, value: string }>,
+) {
+  const mergedSegments: Array<{ style: MessageTextStyle, value: string }> = []
+
+  segments.forEach((segment) => {
+    if (!segment.value) return
+
+    const previous = mergedSegments.at(-1)
+    if (previous && isSameMessageTextStyle(previous.style, segment.style)) {
+      previous.value += segment.value
+      return
+    }
+
+    mergedSegments.push({
+      style: segment.style,
+      value: segment.value,
+    })
+  })
+
+  return mergedSegments
+    .map((segment) => wrapComposerMarkupWithStyle(segment.value, segment.style))
+    .join('')
+}
+
+export function wrapComposerVisibleSelectionWithMarkup(
+  currentValue: string,
+  selectionStart: number,
+  selectionEnd: number,
+  markup: ComposerTextMarkup,
+) {
+  const { close, open } = formattingMarkupTags[markup]
+  const normalizedSelectionStart = Math.max(0, Math.min(selectionStart, selectionEnd))
+  const normalizedSelectionEnd = Math.max(selectionStart, selectionEnd)
+  if (normalizedSelectionStart === normalizedSelectionEnd) {
+    const markupOffset = mapVisibleTextOffsetToMarkupOffset(currentValue, normalizedSelectionStart)
+    return currentValue.slice(0, markupOffset) + open + close + currentValue.slice(markupOffset)
+  }
+
+  const nextSegments: Array<{ style: MessageTextStyle, value: string }> = []
+  let visibleCursor = 0
+
+  parseMessageTextSegments(currentValue).forEach((segment) => {
+    const segmentStart = visibleCursor
+    const segmentEnd = segmentStart + segment.value.length
+    visibleCursor = segmentEnd
+
+    if (!segment.value) return
+
+    if (segmentEnd <= normalizedSelectionStart || segmentStart >= normalizedSelectionEnd) {
+      nextSegments.push({
+        style: segment.style,
+        value: segment.value,
+      })
+      return
+    }
+
+    const beforeLength = Math.max(0, normalizedSelectionStart - segmentStart)
+    const selectedLength = Math.min(segmentEnd, normalizedSelectionEnd) - Math.max(segmentStart, normalizedSelectionStart)
+    const afterStart = beforeLength + selectedLength
+
+    if (beforeLength > 0) {
+      nextSegments.push({
+        style: segment.style,
+        value: segment.value.slice(0, beforeLength),
+      })
+    }
+
+    if (selectedLength > 0) {
+      nextSegments.push({
+        style: applyComposerMarkupToStyle(segment.style, markup),
+        value: segment.value.slice(beforeLength, afterStart),
+      })
+    }
+
+    if (afterStart < segment.value.length) {
+      nextSegments.push({
+        style: segment.style,
+        value: segment.value.slice(afterStart),
+      })
+    }
+  })
+
+  return serializeComposerSegmentsToMarkup(nextSegments)
+}
+
+function serializeComposerEditableNode(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node.textContent ?? '').replace(/\u00a0/gu, ' ').replace(/\u200b/gu, '')
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return ''
+  }
+
+  const element = node as HTMLElement
+  const tagName = element.tagName.toUpperCase()
+  const children = serializeComposerEditableChildren(element)
+  const textDecoration = `${element.style.textDecoration ?? ''} ${element.style.textDecorationLine ?? ''}`
+  const normalizedFontWeight = element.style.fontWeight.trim().toLowerCase()
+  const style: MessageTextStyle = {
+    bold:
+      tagName === 'B' ||
+      tagName === 'STRONG' ||
+      normalizedFontWeight === 'bold' ||
+      normalizedFontWeight === 'bolder' ||
+      Number(normalizedFontWeight) >= 600,
+    italic: tagName === 'I' || tagName === 'EM' || element.style.fontStyle.trim().toLowerCase() === 'italic',
+    strike:
+      tagName === 'S' ||
+      tagName === 'STRIKE' ||
+      tagName === 'DEL' ||
+      /line-through/iu.test(textDecoration),
+    underline: tagName === 'U' || /underline/iu.test(textDecoration),
+  }
+
+  switch (tagName) {
+    case 'BR':
+      return '\n'
+    default:
+      return children ? wrapComposerMarkupWithStyle(children, style) : ''
+  }
+}
+
+function serializeComposerEditableChildren(parent: Node) {
+  const children = Array.from(parent.childNodes)
+  let result = ''
+
+  children.forEach((child, index) => {
+    if (
+      child.nodeType === Node.ELEMENT_NODE &&
+      composerBlockTagNames.has((child as HTMLElement).tagName.toUpperCase())
+    ) {
+      const blockContent = serializeComposerEditableNode(child)
+      result += blockContent
+      if (index < children.length - 1) {
+        result += '\n'
+      }
+      return
+    }
+
+    result += serializeComposerEditableNode(child)
+  })
+
+  return result
+}
+
+export function renderComposerMarkupToHtml(text: string) {
+  if (!text) return ''
+
+  return text
+    .split('\n')
+    .map((line) =>
+      parseMessageTextSegments(line)
+        .map((segment) => wrapComposerHtmlWithStyle(segment.value, segment.style))
+        .join(''),
+    )
+    .join('<br>')
+}
+
+export function extractComposerMarkupFromEditable(input: HTMLDivElement | null) {
+  if (!input) return ''
+
+  return serializeComposerEditableChildren(input)
+    .replace(/\n{3,}/gu, '\n\n')
+    .replace(/^\n+|\n+$/gu, '')
+}
+
+function splitTrailingExternalLinkPunctuation(rawUrl: string) {
+  const match = rawUrl.match(/([),.!?:;]+)$/u)
+  if (!match) {
+    return { punctuation: '', url: rawUrl }
+  }
+
+  const punctuation = match[1]
+  const trimmedUrl = rawUrl.slice(0, -punctuation.length)
+  if (!trimmedUrl) {
+    return { punctuation: '', url: rawUrl }
+  }
+
+  return {
+    punctuation,
+    url: trimmedUrl,
+  }
+}
+
+export function parseMessageTextSegments(text: string): MessageTextSegment[] {
+  if (!text) {
+    return [{ kind: 'text', style: defaultMessageTextStyle, value: '' }]
+  }
+
+  const segments: MessageTextSegment[] = []
+  const formattingDepth: Record<'b' | 'i' | 's' | 'u', number> = {
+    b: 0,
+    i: 0,
+    s: 0,
+    u: 0,
+  }
+  let cursor = 0
+  let buffer = ''
+
+  function getCurrentStyle(): MessageTextStyle {
+    return {
+      bold: formattingDepth.b > 0,
+      italic: formattingDepth.i > 0,
+      strike: formattingDepth.s > 0,
+      underline: formattingDepth.u > 0,
+    }
+  }
+
+  function pushBufferedText(value: string, style: MessageTextStyle) {
+    if (!value) return
+
+    let textCursor = 0
+    for (const match of value.matchAll(externalLinkPattern)) {
+      const rawUrl = match[0]
+      const matchIndex = match.index ?? -1
+      if (matchIndex < 0) continue
+
+      if (matchIndex > textCursor) {
+        segments.push({
+          kind: 'text',
+          style,
+          value: value.slice(textCursor, matchIndex),
+        })
+      }
+
+      const { punctuation, url } = splitTrailingExternalLinkPunctuation(rawUrl)
+      segments.push({
+        href: url,
+        kind: 'external-link',
+        style,
+        value: url,
+      })
+
+      if (punctuation) {
+        segments.push({
+          kind: 'text',
+          style,
+          value: punctuation,
+        })
+      }
+
+      textCursor = matchIndex + rawUrl.length
+    }
+
+    if (textCursor < value.length) {
+      segments.push({
+        kind: 'text',
+        style,
+        value: value.slice(textCursor),
+      })
+    }
+  }
+
+  function flushBuffer() {
+    if (!buffer) return
+    pushBufferedText(buffer, getCurrentStyle())
+    buffer = ''
+  }
+
+  while (cursor < text.length) {
+    const tagMatch = text.slice(cursor).match(formattingTagPattern)
+    if (!tagMatch) {
+      buffer += text[cursor]
+      cursor += 1
+      continue
+    }
+
+    const rawTag = tagMatch[0]
+    const isClosing = tagMatch[1] === '/'
+    const tagName = (tagMatch[2] ?? '').toLowerCase() as 'b' | 'i' | 's' | 'u'
+
+    if (isClosing && formattingDepth[tagName] === 0) {
+      buffer += rawTag
+      cursor += rawTag.length
+      continue
+    }
+
+    flushBuffer()
+    formattingDepth[tagName] = Math.max(0, formattingDepth[tagName] + (isClosing ? -1 : 1))
+    cursor += rawTag.length
+  }
+
+  flushBuffer()
+
+  return segments.length > 0 ? segments : [{ kind: 'text', style: defaultMessageTextStyle, value: text }]
+}
+
+export function stripMessageFormattingMarkup(text: string) {
+  return text.replace(/<\/?[bius]>/giu, '')
+}
+
+export function wrapComposerSelectionWithMarkup(
+  input: ComposerTextInputElement | null,
+  currentValue: string,
+  markup: ComposerTextMarkup,
+  onChange: (value: string) => void,
+) {
+  const { close, open } = formattingMarkupTags[markup]
+
+  if (!input) {
+    onChange(`${currentValue}${open}${close}`)
+    return
+  }
+
+  if (isComposerTextareaInput(input)) {
+    const selectionStart = input.selectionStart ?? currentValue.length
+    const selectionEnd = input.selectionEnd ?? currentValue.length
+    const selectedText = currentValue.slice(selectionStart, selectionEnd)
+    const nextValue =
+      currentValue.slice(0, selectionStart) +
+      open +
+      selectedText +
+      close +
+      currentValue.slice(selectionEnd)
+
+    onChange(nextValue)
+
+    const nextSelectionStart = selectionStart + open.length
+    const nextSelectionEnd = nextSelectionStart + selectedText.length
+    window.requestAnimationFrame(() => {
+      input.focus()
+      input.setSelectionRange(nextSelectionStart, nextSelectionEnd)
+    })
+    return
+  }
+
+  if (!isComposerEditableInput(input) || typeof document === 'undefined') {
+    onChange(`${currentValue}${open}${close}`)
+    return
+  }
+
+  input.focus()
+  const selectionOffsets = getComposerEditableSelectionOffsets(input)
+  if (!selectionOffsets) {
+    onChange(`${currentValue}${open}${close}`)
+    return
+  }
+
+  const nextValue = wrapComposerVisibleSelectionWithMarkup(
+    currentValue,
+    selectionOffsets.start,
+    selectionOffsets.end,
+    markup,
+  )
+  onChange(nextValue)
+
+  if (typeof window !== 'undefined') {
+    window.requestAnimationFrame(() => {
+      input.focus()
+      restoreComposerEditableSelection(input, selectionOffsets.start, selectionOffsets.end)
+    })
+  }
+}
+
+export function insertComposerTextAtCursor(
+  input: ComposerTextInputElement | null,
+  currentValue: string,
+  insertedText: string,
+  onChange: (value: string) => void,
+) {
+  if (!input) {
+    onChange(`${currentValue}${insertedText}`)
+    return
+  }
+
+  if (isComposerTextareaInput(input)) {
+    const selectionStart = input.selectionStart ?? currentValue.length
+    const selectionEnd = input.selectionEnd ?? currentValue.length
+    const nextValue =
+      currentValue.slice(0, selectionStart) +
+      insertedText +
+      currentValue.slice(selectionEnd)
+
+    onChange(nextValue)
+
+    const nextCursorPosition = selectionStart + insertedText.length
+    window.requestAnimationFrame(() => {
+      input.focus()
+      input.setSelectionRange(nextCursorPosition, nextCursorPosition)
+    })
+    return
+  }
+
+  if (!isComposerEditableInput(input) || typeof document === 'undefined' || typeof window === 'undefined') {
+    onChange(`${currentValue}${insertedText}`)
+    return
+  }
+
+  input.focus()
+  const range = getComposerEditableSelectionRange(input)
+  if (!range) {
+    onChange(`${currentValue}${insertedText}`)
+    return
+  }
+
+  range.deleteContents()
+  const textNode = document.createTextNode(insertedText)
+  range.insertNode(textNode)
+  range.setStartAfter(textNode)
+  range.collapse(true)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+  onChange(extractComposerMarkupFromEditable(input))
 }
 
 export function makePremiumExpiry(days: number) {
   const expiryDate = new Date()
   expiryDate.setDate(expiryDate.getDate() + days)
+  return expiryDate.toISOString()
+}
+
+export function extendPremiumExpiry(
+  days: number,
+  premiumExpiresAt?: string,
+  now = Date.now(),
+) {
+  const nextDays = Number.isInteger(days) && days > 0 ? days : 30
+  const currentExpiry = premiumExpiresAt ? Date.parse(premiumExpiresAt) : Number.NaN
+  const baseTimestamp =
+    Number.isNaN(currentExpiry) || currentExpiry <= now
+      ? now
+      : currentExpiry
+  const expiryDate = new Date(baseTimestamp)
+  expiryDate.setDate(expiryDate.getDate() + nextDays)
   return expiryDate.toISOString()
 }
 

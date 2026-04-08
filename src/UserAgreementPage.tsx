@@ -1,11 +1,13 @@
 import { useCookieConsent } from './app/useCookieConsent'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import {
-  userAgreementLead,
+  userAgreementIntroBlocks,
+  userAgreementPdfPath,
   userAgreementSections,
   userAgreementUpdatedAt,
 } from './userAgreementContent'
 
+// Legal pages are public compliance surfaces. Keep links, PDF downloads and top-level copy stable.
 export function UserAgreementPage() {
   const { cookieConsent, updateCookieConsent } = useCookieConsent()
 
@@ -22,11 +24,38 @@ export function UserAgreementPage() {
               <div className="policy-page-badge">Редакция от {userAgreementUpdatedAt}</div>
             </div>
 
-            <p className="policy-page-copy">{userAgreementLead}</p>
+            {userAgreementIntroBlocks.map((block) =>
+              block.type === 'paragraph' ? (
+                <p className="policy-page-copy" key={block.content}>
+                  {block.content}
+                </p>
+              ) : (
+                <ul className="policy-page-list" key={block.items.join('|')}>
+                  {block.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ),
+            )}
 
             <div className="policy-page-actions">
               <a className="policy-page-link" href="/contacts.html">
                 Контакты и реквизиты
+              </a>
+              <a
+                className="policy-page-button"
+                href={userAgreementPdfPath}
+                download="Пользовательское соглашение. Тайничок.pdf"
+              >
+                Скачать
+              </a>
+              <a
+                className="policy-page-link"
+                href={userAgreementPdfPath}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Открыть PDF
               </a>
               <a className="policy-page-link" href="/privacy-policy.html">
                 Политика данных
@@ -35,18 +64,6 @@ export function UserAgreementPage() {
                 Вернуться в Тайничок
               </a>
             </div>
-          </article>
-
-          <article className="policy-page-callout">
-            <p className="eyebrow">Важно</p>
-            <p>
-              Это соглашение применяется к авторизации по номеру телефона, использованию аккаунта,
-              сообщениям, группам, каналам, вложениям и другим функциям Tinychok.
-            </p>
-            <p>
-              Отдельно действует <a href="/privacy-policy.html">Политика обработки персональных данных</a>,
-              которая регулирует порядок обработки и защиты данных пользователей.
-            </p>
           </article>
 
           <section className="policy-page-grid">
@@ -71,10 +88,14 @@ export function UserAgreementPage() {
 
           <footer className="policy-page-footer">
             <span className="policy-page-caption">
-              На странице размещён полный текст пользовательского соглашения Tinychok.
+              На странице размещён полный текст документа, а PDF-версия доступна по прямой ссылке.
             </span>
-            <a className="policy-page-link" href="/privacy-policy.html">
-              Открыть политику данных
+            <a
+              className="policy-page-button"
+              href={userAgreementPdfPath}
+              download="Пользовательское соглашение. Тайничок.pdf"
+            >
+              Скачать PDF
             </a>
           </footer>
         </section>

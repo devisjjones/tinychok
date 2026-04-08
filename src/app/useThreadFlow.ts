@@ -13,6 +13,10 @@ export type ThreadTarget =
       channelId: number
       postId: number
     }
+  | {
+      kind: 'support'
+      ticketId: number
+    }
 
 export function useThreadFlow() {
   const [threadTarget, setThreadTarget] = useState<ThreadTarget | null>(null)

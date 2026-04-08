@@ -1,11 +1,17 @@
 import type { ActionAnchor, ChannelPost, GroupParticipant, Message, ThreadComment } from '../app/types'
 import { isImageMimeType, shouldShowDeliveryCaption } from '../app/utils'
-import { BubbleImageOverlayMeta, BubbleMessageContent, ForwardedChannelHeader } from './BubbleMessageContent'
+import {
+  BubbleImageOverlayMeta,
+  BubbleMessageContent,
+  ForwardedChannelHeader,
+  shouldUseLightDeliveryIndicatorTint,
+} from './BubbleMessageContent'
 
 type SelectedBubbleOverlayProps =
   | {
       anchor: ActionAnchor
       onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
+      onOpenExternalLink?: (url: string) => void
       kind: 'direct'
       deliveryIssue?: 'pending' | 'failed'
       linkedChannel?: NonNullable<Message['sourceChannel']> | null
@@ -21,6 +27,7 @@ type SelectedBubbleOverlayProps =
       message: Message
       mine: boolean
       onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
+      onOpenExternalLink?: (url: string) => void
       participant?: GroupParticipant | null
     }
   | {
@@ -28,6 +35,7 @@ type SelectedBubbleOverlayProps =
       kind: 'channel'
       channelTitle: string
       onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
+      onOpenExternalLink?: (url: string) => void
       post: ChannelPost
       draft: boolean
     }
@@ -37,17 +45,31 @@ type SelectedBubbleOverlayProps =
       comment: ThreadComment
       mine: boolean
       onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
+      onOpenExternalLink?: (url: string) => void
       participant?: GroupParticipant | null
     }
 
 function getOverlayPosition(anchor: ActionAnchor) {
   const viewportInset = 16
+  const safeBottom = (() => {
+    const composerSelectors = ['.composer', '.composer-disabled', '.settings-support-composer', '.channel-room-footer']
+    const candidateTops = composerSelectors.flatMap((selector) =>
+      Array.from(document.querySelectorAll<HTMLElement>(selector))
+        .map((node) => node.getBoundingClientRect())
+        .filter((rect) => rect.height > 0 && rect.width > 0 && rect.top < window.innerHeight && rect.bottom > 0)
+        .map((rect) => Math.max(viewportInset, rect.top - 8)),
+    )
+
+    return candidateTops.length > 0
+      ? Math.min(window.innerHeight - viewportInset, ...candidateTops)
+      : window.innerHeight - viewportInset
+  })()
   const overlayHeight = Math.max(0, anchor.bottom - anchor.top)
-  const maxHeight = Math.max(120, window.innerHeight - viewportInset * 2)
+  const maxHeight = Math.max(0, safeBottom - viewportInset)
   const boundedHeight = Math.min(overlayHeight, maxHeight)
   const top = Math.min(
     Math.max(viewportInset, anchor.top),
-    Math.max(viewportInset, window.innerHeight - viewportInset - boundedHeight),
+    Math.max(viewportInset, safeBottom - boundedHeight),
   )
 
   return {
@@ -73,6 +95,37 @@ function resolveDirectDeliveryIndicatorSrc(
   return readAt ? '/icons/double-tick-50.png' : '/icons/check-mark-50.png'
 }
 
+function renderGroupOverlayAuthor(
+  mine: boolean,
+  displayAuthor: string | undefined,
+  participant?: GroupParticipant | null,
+) {
+  if (mine) {
+    return <span className="bubble-meta">Вы</span>
+  }
+
+  if (participant) {
+    return (
+      <div className="bubble-sender">
+        <span className="bubble-sender-avatar-stack">
+          <span className="avatar bubble-sender-avatar" style={{ backgroundColor: participant.accent }}>
+            {participant.title.slice(0, 1)}
+          </span>
+          {participant.online ? <span className="bubble-sender-presence-dot" aria-label="В сети" /> : null}
+        </span>
+        <span className="bubble-sender-name">{participant.title}</span>
+        {participant.premium ? (
+          <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+            <img src="/icons/crown64.png" alt="" />
+          </span>
+        ) : null}
+      </div>
+    )
+  }
+
+  return <span className="bubble-meta">{displayAuthor ?? 'Участник группы'}</span>
+}
+
 export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
   if (props.kind === 'channel') {
     const hasImageAttachment = Boolean(
@@ -88,8 +141,14 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       >
         <BubbleMessageContent
           imageOverlay={hasImageAttachment ? <BubbleImageOverlayMeta time={props.post.time} /> : undefined}
-          message={{ attachment: props.post.attachment, replyTo: undefined, text: props.post.text }}
+          message={{
+            attachment: props.post.attachment,
+            replyTo: undefined,
+            sourceContact: props.post.sourceContact,
+            text: props.post.text,
+          }}
           onOpenAttachment={props.onOpenAttachment}
+          onOpenExternalLink={props.onOpenExternalLink}
           showReplyInline={false}
         />
         {!hasImageAttachment ? <time>{props.post.time}</time> : null}
@@ -109,30 +168,12 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         style={getOverlayPosition(props.anchor)}
         aria-hidden="true"
       >
-        {props.mine ? (
-          <span className="bubble-meta">Вы</span>
-        ) : props.participant ? (
-          <div className="bubble-sender">
-            <span className="bubble-sender-avatar-stack">
-              <span
-                className="avatar bubble-sender-avatar"
-                style={{ backgroundColor: props.participant.accent }}
-              >
-                {props.participant.title.slice(0, 1)}
-              </span>
-              {props.participant.online ? (
-                <span className="bubble-sender-presence-dot" aria-label="В сети" />
-              ) : null}
-            </span>
-            <span className="bubble-sender-name">{props.participant.title}</span>
-            {props.participant.premium ? (
-              <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
-                <img src="/icons/crown64.png" alt="" />
-              </span>
-            ) : null}
+        {isImageOnlyBubble ? (
+          <div className="bubble-media-header">
+            {renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)}
           </div>
         ) : (
-          <span className="bubble-meta">{props.comment.displayAuthor ?? 'Участник'}</span>
+          renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
         )}
         <BubbleMessageContent
           imageOverlay={
@@ -143,10 +184,12 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           message={{
             attachment: props.comment.attachment,
             replyTo: props.comment.replyTo,
+            sourceContact: props.comment.sourceContact,
             sourceGroup: undefined,
             text: props.comment.text,
           }}
           onOpenAttachment={props.onOpenAttachment}
+          onOpenExternalLink={props.onOpenExternalLink}
           showReplyInline={false}
         />
         {!hasImageAttachment ? <time>{props.comment.time}</time> : null}
@@ -163,8 +206,22 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     hasImageAttachment &&
     !props.linkedChannel &&
     !props.message.sourceChannel &&
+    !props.message.sourceContact &&
     !props.message.sourceGroup &&
     props.message.text.trim().length === 0
+  const isGroupCaptionedImageBubble =
+    props.kind === 'group' &&
+    hasImageAttachment &&
+    props.message.text.trim().length > 0 &&
+    !props.linkedChannel &&
+    !props.message.sourceChannel &&
+    !props.message.sourceContact &&
+    !props.message.sourceGroup
+  const shouldRenderExternalGroupAuthor =
+    props.kind === 'group' &&
+    props.message.author !== 'me' &&
+    !hasImageAttachment &&
+    !isGroupCaptionedImageBubble
   const showDeliveryCaption = hasDeliveryIssue && shouldShowDeliveryCaption(props.message)
 
   if (props.mine) {
@@ -191,10 +248,14 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     bubbleClassNames.push('media-only-bubble')
   }
 
-  return (
+  if (isGroupCaptionedImageBubble) {
+    bubbleClassNames.push('group-captioned-media-bubble')
+  }
+
+  const bubbleNode = (
     <div
       className={bubbleClassNames.join(' ')}
-      style={getOverlayPosition(props.anchor)}
+      style={shouldRenderExternalGroupAuthor ? undefined : getOverlayPosition(props.anchor)}
       aria-hidden="true"
     >
       {props.kind === 'direct' ? (
@@ -206,31 +267,23 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           </span>
         ) : null
       ) : (
-        props.message.author === 'me' ? (
-          <span className="bubble-meta">Вы</span>
-        ) : props.participant ? (
-          <div className="bubble-sender">
-            <span className="bubble-sender-avatar-stack">
-              <span
-                className="avatar bubble-sender-avatar"
-                style={{ backgroundColor: props.participant.accent }}
-              >
-                {props.participant.title.slice(0, 1)}
-              </span>
-              {props.participant.online ? (
-                <span className="bubble-sender-presence-dot" aria-label="В сети" />
-              ) : null}
-            </span>
-            <span className="bubble-sender-name">{props.participant.title}</span>
-            {props.participant.premium ? (
-              <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
-                <img src="/icons/crown64.png" alt="" />
-              </span>
-            ) : null}
+        isImageOnlyBubble ? (
+          <div className="bubble-media-header">
+            {renderGroupOverlayAuthor(
+              props.message.author === 'me',
+              props.message.displayAuthor,
+              props.participant,
+            )}
           </div>
-        ) : (
-          <span className="bubble-meta">{props.message.displayAuthor ?? 'Участник группы'}</span>
-        )
+        ) : isGroupCaptionedImageBubble ? (
+          <div className="bubble-media-header bubble-media-header-captioned">
+            {renderGroupOverlayAuthor(
+              props.message.author === 'me',
+              props.message.displayAuthor,
+              props.participant,
+            )}
+          </div>
+        ) : null
       )}
       {props.message.sourceChannel ? (
         <>
@@ -239,8 +292,6 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
             <span className="bubble-meta">Переслано</span>
           ) : null}
         </>
-      ) : props.message.sourceGroup ? (
-        <span className="bubble-meta">Приглашение в группу</span>
       ) : null}
       <BubbleMessageContent
         imageOverlay={
@@ -261,6 +312,8 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         linkedChannel={props.linkedChannel}
         message={props.message}
         onOpenAttachment={props.onOpenAttachment}
+        onOpenExternalLink={props.onOpenExternalLink}
+        onOpenSourceGroup={undefined}
         replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
         showReplyInline={false}
       />
@@ -270,7 +323,16 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       ) : null}
       {!hasImageAttachment && props.mine ? (
         <img
-          className="bubble-delivery-indicator"
+          className={
+            shouldUseLightDeliveryIndicatorTint(
+              resolveDirectDeliveryIndicatorSrc(
+                props.deliveryIssue,
+                props.kind === 'direct' ? props.message.readAt : undefined,
+              ),
+            )
+              ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
+              : 'bubble-delivery-indicator'
+          }
           src={resolveDirectDeliveryIndicatorSrc(
             props.deliveryIssue,
             props.kind === 'direct' ? props.message.readAt : undefined,
@@ -280,5 +342,20 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         />
       ) : null}
     </div>
+  )
+
+  return shouldRenderExternalGroupAuthor ? (
+    <div
+      className="bubble-author-layout bubble-overlay-author-layout"
+      style={getOverlayPosition(props.anchor)}
+      aria-hidden="true"
+    >
+      <div className="bubble-author-strip">
+        {renderGroupOverlayAuthor(false, props.message.displayAuthor, props.participant)}
+      </div>
+      {bubbleNode}
+    </div>
+  ) : (
+    bubbleNode
   )
 }

@@ -3,11 +3,13 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 type ComposerAttachmentPickerProps = {
   attachmentName: string
   onSelectMode: (mode: 'file' | 'photo') => void
+  premiumUnlocked?: boolean
 }
 
 export function ComposerAttachmentPicker({
   attachmentName,
   onSelectMode,
+  premiumUnlocked = false,
 }: ComposerAttachmentPickerProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -74,7 +76,22 @@ export function ComposerAttachmentPicker({
             onClick={() => handleSelect('file')}
           >
             <strong>Приложить файл</strong>
-            <span>Документы и архивы до 10 МБ.</span>
+            <span>
+              {premiumUnlocked
+                ? 'Документы, архивы и видео до 200 МБ.'
+                : (
+                  <>
+                    {'Документы, архивы и видео до 10 МБ. '}
+                    <span className="composer-attachment-inline-premium">
+                      <span>С премиумом</span>
+                      <span className="premium-crown composer-attachment-premium-crown" aria-hidden="true">
+                        <img src="/icons/crown64.png" alt="" />
+                      </span>
+                    </span>
+                    {' можно до 200 МБ.'}
+                  </>
+                )}
+            </span>
           </button>
         </div>
       ) : null}

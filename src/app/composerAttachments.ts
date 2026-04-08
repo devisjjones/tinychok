@@ -1,4 +1,5 @@
 import {
+  composerAttachmentRenameMaxLength,
   messageFileAcceptedExtensions,
   messageFileAcceptedMimeTypes,
   messageFileUploadMaxSizeBytes,
@@ -38,6 +39,25 @@ export type ComposerAttachmentDraft = {
   width?: number
 }
 
+type ComposerAttachmentFileNameParts = {
+  baseName: string
+  extension: string
+}
+
+const ATTACHMENT_EXTENSION_MIME_TYPE_MAP: Record<string, string> = {
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.m4v': 'video/x-m4v',
+  '.mov': 'video/quicktime',
+  '.mp4': 'video/mp4',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+  '.webm': 'video/webm',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.zip': 'application/zip',
+}
+
 function replaceFileExtension(fileName: string, extension: string) {
   return fileName.replace(/\.[^.]+$/u, '') + extension
 }
@@ -65,6 +85,44 @@ function getFileExtension(fileName: string) {
   return match?.[0] ?? ''
 }
 
+function getFileBaseName(fileName: string) {
+  const trimmed = fileName.trim()
+  const extension = getFileExtension(trimmed)
+  const withoutExtension =
+    extension && trimmed.toLowerCase().endsWith(extension)
+      ? trimmed.slice(0, Math.max(0, trimmed.length - extension.length))
+      : trimmed
+
+  return withoutExtension.trim() || 'Файл'
+}
+
+function sanitizeAttachmentFileBaseName(baseName: string) {
+  return baseName.replace(/\s+/g, ' ').trim().slice(0, composerAttachmentRenameMaxLength)
+}
+
+function resolveComposerAttachmentMimeType(fileName: string, mimeType: string | undefined) {
+  const normalizedMimeType = mimeType?.trim().toLowerCase() ?? ''
+
+  if (normalizedMimeType && normalizedMimeType !== 'application/octet-stream') {
+    return normalizedMimeType
+  }
+
+  return ATTACHMENT_EXTENSION_MIME_TYPE_MAP[getFileExtension(fileName)] ?? 'application/octet-stream'
+}
+
+function buildComposerAttachmentFileName(baseName: string, sourceFileName: string) {
+  const extension = getFileExtension(sourceFileName)
+  const normalizedBaseName = sanitizeAttachmentFileBaseName(baseName) || getFileBaseName(sourceFileName)
+  return `${normalizedBaseName}${extension}`
+}
+
+export function getComposerAttachmentFileNameParts(fileName: string): ComposerAttachmentFileNameParts {
+  return {
+    baseName: getFileBaseName(fileName),
+    extension: getFileExtension(fileName),
+  }
+}
+
 function isAllowedFileAttachment(file: File) {
   const extension = getFileExtension(file.name)
   const hasAllowedExtension = messageFileAcceptedExtensions.includes(
@@ -73,12 +131,12 @@ function isAllowedFileAttachment(file: File) {
 
   if (!hasAllowedExtension) return false
 
-  if (!file.type) {
-    return extension === '.txt'
+  if (!file.type || file.type === 'application/octet-stream') {
+    return true
   }
 
   return messageFileAcceptedMimeTypes.includes(
-    file.type as (typeof messageFileAcceptedMimeTypes)[number],
+    resolveComposerAttachmentMimeType(file.name, file.type) as (typeof messageFileAcceptedMimeTypes)[number],
   )
 }
 
@@ -214,7 +272,7 @@ export function createPreparingComposerAttachmentDraft(file: File): ComposerAtta
     fileName: file.name,
     kind: resolveAttachmentKind(file),
     compressionEligible: false,
-    mimeType: file.type || 'application/octet-stream',
+    mimeType: resolveComposerAttachmentMimeType(file.name, file.type),
     originalFile: file,
     originalSize: file.size,
     previewUrl: createComposerPreviewUrl(file),
@@ -235,7 +293,7 @@ export function buildComposerAttachmentDraftError(
     fileName: file.name,
     kind: resolveAttachmentKind(file),
     compressionEligible: false,
-    mimeType: file.type || 'application/octet-stream',
+    mimeType: resolveComposerAttachmentMimeType(file.name, file.type),
     originalFile: file,
     originalSize: file.size,
     previewUrl,
@@ -247,10 +305,19 @@ export function buildComposerAttachmentDraftError(
 
 export async function buildComposerAttachmentDraft(
   file: File,
-  options?: { previewUrl?: string },
+  options?: {
+    maxFileUploadCopy?: string
+    maxFileUploadSizeBytes?: number
+    previewUrl?: string
+  },
 ): Promise<ComposerAttachmentDraft> {
   const previewUrl = options?.previewUrl ?? createComposerPreviewUrl(file)
   const kind = resolveAttachmentKind(file)
+  const maxFileUploadSizeBytes =
+    options?.maxFileUploadSizeBytes ?? messageFileUploadMaxSizeBytes
+  const maxFileUploadCopy =
+    options?.maxFileUploadCopy ??
+    `Максимальный размер ${Math.round(maxFileUploadSizeBytes / (1024 * 1024))} МБ.`
 
   if (kind === 'image' && file.size > messagePhotoUploadMaxSizeBytes) {
     return buildComposerAttachmentDraftError(
@@ -269,10 +336,10 @@ export async function buildComposerAttachmentDraft(
       )
     }
 
-    if (file.size > messageFileUploadMaxSizeBytes) {
+    if (file.size > maxFileUploadSizeBytes) {
       return buildComposerAttachmentDraftError(
         file,
-        'Файл слишком большой. Максимальный размер 10 МБ.',
+        `Файл слишком большой. ${maxFileUploadCopy}`,
         previewUrl,
       )
     }
@@ -280,7 +347,7 @@ export async function buildComposerAttachmentDraft(
     if (!isAllowedFileAttachment(file)) {
       return buildComposerAttachmentDraftError(
         file,
-        'Поддерживаются только PDF, DOC, DOCX, XLS, XLSX, TXT и ZIP.',
+        'Поддерживаются PDF, DOC, DOCX, XLS, XLSX, TXT, ZIP и видео MP4, MOV, WEBM, M4V.',
         previewUrl,
       )
     }
@@ -288,12 +355,12 @@ export async function buildComposerAttachmentDraft(
     return {
       file,
       fileName: file.name,
-      kind,
-      compressionEligible: false,
-      mimeType: file.type || 'application/octet-stream',
-      originalFile: file,
-      originalSize: file.size,
-      previewUrl,
+        kind,
+        compressionEligible: false,
+        mimeType: resolveComposerAttachmentMimeType(file.name, file.type),
+        originalFile: file,
+        originalSize: file.size,
+        previewUrl,
       sendOriginal: false,
       size: file.size,
       status: 'ready',
@@ -346,11 +413,12 @@ export function setComposerAttachmentSendOriginal(
   }
 
   const nextFile = sendOriginal ? attachmentDraft.originalFile : attachmentDraft.processedFile ?? attachmentDraft.originalFile
+  const nextBaseName = getComposerAttachmentFileNameParts(attachmentDraft.fileName).baseName
 
   return {
     ...attachmentDraft,
     file: nextFile,
-    fileName: attachmentDraft.originalFile.name,
+    fileName: buildComposerAttachmentFileName(nextBaseName, nextFile.name),
     height: sendOriginal
       ? attachmentDraft.originalHeight ?? attachmentDraft.height
       : attachmentDraft.processedHeight ?? attachmentDraft.height,
@@ -360,6 +428,16 @@ export function setComposerAttachmentSendOriginal(
     width: sendOriginal
       ? attachmentDraft.originalWidth ?? attachmentDraft.width
       : attachmentDraft.processedWidth ?? attachmentDraft.width,
+  }
+}
+
+export function setComposerAttachmentFileBaseName(
+  attachmentDraft: ComposerAttachmentDraft,
+  nextBaseName: string,
+): ComposerAttachmentDraft {
+  return {
+    ...attachmentDraft,
+    fileName: buildComposerAttachmentFileName(nextBaseName, attachmentDraft.fileName),
   }
 }
 

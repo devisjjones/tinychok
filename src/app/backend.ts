@@ -8,8 +8,14 @@ import type {
   AdminDialogsResponse,
   AdminDialogDetailResponse,
   AdminDialogLookupBody,
+  AdminEntityArchiveToggleBody,
   AdminIpLogCsvExportBody,
   AdminLegalExportBody,
+  AdminStorageArchiveToggleBody,
+  AdminStorageExportBody,
+  AdminStorageExportJobResponse,
+  AdminStorageExportJobStartBody,
+  AdminUserMediaExportBody,
   AdminManagedChannelsResponse,
   AdminManagedGroupsResponse,
   AdminMediaDownloadBody,
@@ -29,24 +35,36 @@ import type {
   AdminUserPremiumBody,
   AdminUsersResponse,
   AdminThreadsResponse,
+  AdminThreadArchiveToggleBody,
+  AdminThreadCsvExportBody,
+  AdminSupportTicketDetailResponse,
+  AdminSupportTicketReplyBody,
+  AdminSupportTicketsResponse,
   AppSnapshot,
+  ChannelDiscoverySearchResponse,
   ClientRuntimeConfigResponse,
   ChangePasswordBody,
   ChangePasswordResponse,
+  ContactRequestActionResponse,
   CreateGroupBody,
   CreateGroupResponse,
   CreateManagedChannelBody,
   CreateManagedChannelResponse,
+  DeleteDialogMessageBody,
   DeleteAccountBody,
   DeleteAccountResponse,
+  DeleteStorageItemBody,
+  DeleteUserStorageItemBody,
   DebugPremiumBody,
   DiscoverySearchResponse,
   DirectDialogHistoryResponse,
   GroupHistoryResponse,
   InviteGroupMemberBody,
+  JoinGroupFromInviteResponse,
   InviteManagedChannelMembersBody,
   LoginPasswordBody,
   LoginPasswordResponse,
+  ManageGroupParticipantBody,
   ManageSubscriptionChannelSubscriberBody,
   MutationResponse,
   OpenDirectDialogBody,
@@ -60,6 +78,9 @@ import type {
   RegisterResponse,
   RequestCodeResponse,
   RealtimeEvent,
+  SendContactRequestBody,
+  StoragePrimaryItemsResponse,
+  StorageSubjectUsageResponse,
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
   SetPasswordBody,
@@ -70,7 +91,12 @@ import type {
   SendGroupMessageBody,
   SendGroupThreadCommentBody,
   SendSubscriptionChannelThreadCommentBody,
+  SendSupportTicketBody,
+  SendSupportTicketCommentBody,
+  SubscribeToChannelResponse,
   SubscriptionChannelHistoryResponse,
+  SubscriptionChannelPreviewResponse,
+  TransferManagedChannelBody,
   UpdateDialogBody,
   UpdateGroupBody,
   UpdateManagedChannelBody,
@@ -81,12 +107,20 @@ import type {
   VerifyCodeResponse,
 } from '../shared/backend'
 import type { RegisterBody, RequestCodeBody, SaveSnapshotBody, VerifyCodeBody } from '../shared/backend'
-import type { SearchResult, ThreadComment } from './types'
+import type { ChannelSearchResult, SearchResult, ThreadComment, UserStorageItem } from './types'
+import { normalizeQuietModeSettings } from './utils'
 
 function normalizeGifLibraryItemMedia<T extends { mediaUrl: string }>(gif: T): T {
   return {
     ...gif,
     mediaUrl: gif.mediaUrl ? resolveMediaUrl(gif.mediaUrl) : gif.mediaUrl,
+  }
+}
+
+function normalizeUserStorageItemMedia(item: UserStorageItem): UserStorageItem {
+  return {
+    ...item,
+    mediaUrl: item.mediaUrl ? resolveMediaUrl(item.mediaUrl) : item.mediaUrl,
   }
 }
 
@@ -97,10 +131,13 @@ function normalizeBaseUrl(value: string | undefined) {
 }
 
 function getRuntimeApiBaseUrl() {
+  // Staging frontend must be built with explicit VITE_API_BASE_URL. If it falls back
+  // to same-origin `/api`, the web host can re-open nginx basic-auth prompts in a loop.
   return normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL)
 }
 
 function getRuntimeWsBaseUrl() {
+  // Realtime on staging must always point to the dedicated api.staging host too.
   return normalizeBaseUrl(import.meta.env.VITE_WS_BASE_URL)
 }
 
@@ -118,7 +155,7 @@ function resolveMediaUrl(mediaUrl: string) {
     return mediaUrl
   }
 
-  if (mediaUrl.startsWith('/assets/')) {
+  if (mediaUrl.startsWith('/assets/') || mediaUrl.startsWith('/icons/')) {
     if (typeof window !== 'undefined') {
       return makeAbsoluteUrl(mediaUrl, window.location.origin)
     }
@@ -144,6 +181,22 @@ function normalizeSourceGroup(sourceGroup: AppSnapshot['chats'][number]['message
   return {
     ...sourceGroup,
     avatarImage: sourceGroup.avatarImage ? resolveMediaUrl(sourceGroup.avatarImage) : sourceGroup.avatarImage,
+    leadText: sourceGroup.leadText?.trim() || undefined,
+  }
+}
+
+function normalizeSourceContact(
+  sourceContact: AppSnapshot['chats'][number]['messages'][number]['sourceContact'],
+) {
+  if (!sourceContact) return sourceContact
+
+  return {
+    ...sourceContact,
+    avatarImage: sourceContact.avatarImage
+      ? resolveMediaUrl(sourceContact.avatarImage)
+      : sourceContact.avatarImage,
+    handle: sourceContact.handle?.trim() || undefined,
+    status: sourceContact.status?.trim() || undefined,
   }
 }
 
@@ -158,6 +211,7 @@ function normalizeThreadCommentMedia(comment: ThreadComment): ThreadComment {
   return {
     ...comment,
     attachment: comment.attachment ? normalizeAttachmentMedia(comment.attachment) : undefined,
+    sourceContact: normalizeSourceContact(comment.sourceContact),
   }
 }
 
@@ -165,6 +219,7 @@ function normalizeMessageMedia<T extends AppSnapshot['chats'][number]['messages'
   return {
     ...message,
     attachment: message.attachment ? normalizeAttachmentMedia(message.attachment) : undefined,
+    sourceContact: normalizeSourceContact(message.sourceContact),
     sourceGroup: normalizeSourceGroup(message.sourceGroup),
     threadComments: message.threadComments?.map((comment) => normalizeThreadCommentMedia(comment)),
   }
@@ -182,7 +237,17 @@ function normalizeChannelPosts(posts: SubscriptionChannelHistoryResponse['posts'
   return posts.map((post) => ({
     ...post,
     attachment: post.attachment ? normalizeAttachmentMedia(post.attachment) : undefined,
+    sourceContact: normalizeSourceContact(post.sourceContact),
     threadComments: post.threadComments?.map((comment) => normalizeThreadCommentMedia(comment)),
+  }))
+}
+
+function normalizeSupportTickets(tickets: AppSnapshot['supportTickets']) {
+  return (tickets ?? []).map((ticket) => ({
+    ...ticket,
+    attachment: ticket.attachment ? normalizeAttachmentMedia(ticket.attachment) : undefined,
+    comments: ticket.comments?.map((comment) => normalizeThreadCommentMedia(comment)) ?? [],
+    status: ticket.status ?? 'open',
   }))
 }
 
@@ -195,13 +260,24 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
         ? resolveMediaUrl(snapshot.session.avatarImage)
         : snapshot.session.avatarImage,
       gifLibrary: snapshot.session.gifLibrary?.map((gif) => normalizeAttachmentMedia(gif)),
+      invisibilityAutoEnabled: Boolean(snapshot.session.invisibilityAutoEnabled),
+      quietModeSettings: normalizeQuietModeSettings(snapshot.session.quietModeSettings),
     },
     channels: snapshot.channels.map((channel) => ({
       ...channel,
       avatarImage: channel.avatarImage ? resolveMediaUrl(channel.avatarImage) : channel.avatarImage,
     })),
+    contactRequests: (snapshot.contactRequests ?? []).map((request) => ({
+      ...request,
+      avatarImage: request.avatarImage ? resolveMediaUrl(request.avatarImage) : request.avatarImage,
+    })),
+    outgoingContactRequests: (snapshot.outgoingContactRequests ?? []).map((request) => ({
+      ...request,
+      avatarImage: request.avatarImage ? resolveMediaUrl(request.avatarImage) : request.avatarImage,
+    })),
     chats: (snapshot.chats ?? []).map((chat) => ({
       ...chat,
+      avatarImage: chat.avatarImage ? resolveMediaUrl(chat.avatarImage) : chat.avatarImage,
       pinnedMessage: chat.pinnedMessage ? normalizeMessageMedia(chat.pinnedMessage) : chat.pinnedMessage,
       messages: (chat.messages ?? []).map((message) => normalizeMessageMedia(message)),
     })),
@@ -215,6 +291,9 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
       avatarImage: channel.avatarImage ? resolveMediaUrl(channel.avatarImage) : channel.avatarImage,
       posts: (channel.posts ?? []).map((post) => normalizeChannelPosts([post])[0]),
     })),
+    supportTicketCooldownUntil: snapshot.supportTicketCooldownUntil ?? undefined,
+    supportTickets: normalizeSupportTickets(snapshot.supportTickets),
+    supportUnreadCount: Math.max(0, Math.floor(snapshot.supportUnreadCount ?? 0)),
     threadInbox: snapshot.threadInbox ?? [],
   }
 }
@@ -315,16 +394,17 @@ function isRetryableSessionUpdateFallbackError(error: unknown) {
 async function readMutationWithDeletePostFallback(
   pathname: string,
   sessionToken: string,
+  body?: unknown,
 ) {
   try {
-    const response = await fetch(makeHttpUrl(pathname), makeJsonRequestInit('DELETE', undefined, sessionToken))
+    const response = await fetch(makeHttpUrl(pathname), makeJsonRequestInit('DELETE', body, sessionToken))
     return await readJsonResponse<MutationResponse>(response)
   } catch (error) {
     if (!isRetryableSessionUpdateFallbackError(error)) {
       throw error
     }
 
-    const response = await fetch(makeHttpUrl(pathname), makeJsonRequestInit('POST', undefined, sessionToken))
+    const response = await fetch(makeHttpUrl(pathname), makeJsonRequestInit('POST', body, sessionToken))
     return await readJsonResponse<MutationResponse>(response)
   }
 }
@@ -417,6 +497,14 @@ export async function fetchBootstrap(sessionToken: string) {
   return normalizeSnapshot(payload)
 }
 
+export async function logoutSession(sessionToken: string) {
+  const response = await fetch(
+    makeHttpUrl('/api/logout'),
+    makeJsonRequestInit('POST', undefined, sessionToken),
+  )
+  return readJsonResponse<import('../shared/backend').LogoutResponse>(response)
+}
+
 export async function fetchDirectDialogHistory(
   sessionToken: string,
   dialogId: number,
@@ -486,6 +574,46 @@ export async function fetchSubscriptionChannelHistory(
   }
 }
 
+export async function fetchSubscriptionChannelPreview(
+  sessionToken: string,
+  handle: string,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/channel-previews/${encodeURIComponent(handle)}`),
+    {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    },
+  )
+
+  const payload = await readJsonResponse<SubscriptionChannelPreviewResponse>(response)
+
+  return {
+    channel: {
+      ...payload.channel,
+      avatarImage: payload.channel.avatarImage ? resolveMediaUrl(payload.channel.avatarImage) : payload.channel.avatarImage,
+      posts: normalizeChannelPosts(payload.channel.posts ?? []),
+    },
+  }
+}
+
+export async function subscribeToChannel(
+  sessionToken: string,
+  handle: string,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/channel-previews/${encodeURIComponent(handle)}/subscribe`),
+    makeJsonRequestInit('POST', undefined, sessionToken),
+  )
+
+  const payload = await readJsonResponse<SubscribeToChannelResponse>(response)
+  return {
+    ...payload,
+    snapshot: normalizeSnapshot(payload.snapshot),
+  }
+}
+
 export async function searchDiscoveryResults(sessionToken: string, query: string) {
   const requestUrl = new URL(makeHttpUrl('/api/discovery'), window.location.origin)
   requestUrl.searchParams.set('q', query)
@@ -498,6 +626,20 @@ export async function searchDiscoveryResults(sessionToken: string, query: string
 
   const payload = await readJsonResponse<DiscoverySearchResponse>(response)
   return payload.results as SearchResult[]
+}
+
+export async function searchChannelDiscoveryResults(sessionToken: string, query: string) {
+  const requestUrl = new URL(makeHttpUrl('/api/channel-discovery'), window.location.origin)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  const payload = await readJsonResponse<ChannelDiscoverySearchResponse>(response)
+  return payload.results as ChannelSearchResult[]
 }
 
 export async function fetchAdminBootstrap(sessionToken: string) {
@@ -551,11 +693,24 @@ export async function fetchAdminUser(sessionToken: string, identifier: string) {
   const payload = await readJsonResponse<AdminUserDetailResponse>(response)
   return {
     ipSummary: payload.ipSummary,
+    statusHistory: payload.statusHistory,
     user: {
       ...payload.user,
       avatarImage: payload.user.avatarImage ? resolveMediaUrl(payload.user.avatarImage) : payload.user.avatarImage,
     },
   }
+}
+
+export async function exportAdminUserStatusHistoryCsv(
+  sessionToken: string,
+  identifier: string,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/status-history/export`),
+    makeJsonRequestInit('POST', undefined, sessionToken),
+  )
+
+  return readJsonResponse<AdminCsvExportResponse>(response)
 }
 
 export async function blockAdminUser(
@@ -733,6 +888,45 @@ export async function fetchAdminThreads(sessionToken: string, query: string) {
   return readJsonResponse<AdminThreadsResponse>(response)
 }
 
+export async function fetchAdminSupportTickets(sessionToken: string, query: string) {
+  const requestUrl = new URL(makeHttpUrl('/api/admin/support-tickets'), window.location.origin)
+  requestUrl.searchParams.set('q', query)
+
+  const response = await fetch(requestUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+
+  return readJsonResponse<AdminSupportTicketsResponse>(response)
+}
+
+export async function fetchAdminSupportTicket(sessionToken: string, ticketId: number) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/support-tickets/${ticketId}`),
+    {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    },
+  )
+
+  return readJsonResponse<AdminSupportTicketDetailResponse>(response)
+}
+
+export async function replyAdminSupportTicket(
+  sessionToken: string,
+  ticketId: number,
+  body: AdminSupportTicketReplyBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/support-tickets/${ticketId}/reply`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminSupportTicketDetailResponse>(response)
+}
+
 export async function fetchAdminDialogs(
   sessionToken: string,
   ownerIdentifier: string,
@@ -886,6 +1080,19 @@ export async function exportAdminChannelCsv(
   return readJsonResponse<AdminCsvExportResponse>(response)
 }
 
+export async function exportAdminChannelSubscribersCsv(
+  sessionToken: string,
+  handle: string,
+  body: AdminContentCsvExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/channels/${encodeURIComponent(handle)}/subscribers/export`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminCsvExportResponse>(response)
+}
+
 export async function exportAdminGroupCsv(
   sessionToken: string,
   groupId: string,
@@ -899,17 +1106,69 @@ export async function exportAdminGroupCsv(
   return readJsonResponse<AdminCsvExportResponse>(response)
 }
 
+export async function exportAdminGroupParticipantsCsv(
+  sessionToken: string,
+  groupId: string,
+  body: AdminContentCsvExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/groups/${encodeURIComponent(groupId)}/participants/export`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminCsvExportResponse>(response)
+}
+
+export async function setAdminGroupArchived(
+  sessionToken: string,
+  groupId: string,
+  body: AdminEntityArchiveToggleBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/groups/${encodeURIComponent(groupId)}/archive-toggle`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminManagedGroupsResponse>(response)
+}
+
+export async function setAdminChannelArchived(
+  sessionToken: string,
+  handle: string,
+  body: AdminEntityArchiveToggleBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/channels/${encodeURIComponent(handle)}/archive-toggle`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminManagedChannelsResponse>(response)
+}
+
 export async function exportAdminThreadCsv(
   sessionToken: string,
   threadId: string,
   body: AdminContentCsvExportBody,
 ) {
   const response = await fetch(
-    makeHttpUrl(`/api/admin/threads/${encodeURIComponent(threadId)}/export`),
-    makeJsonRequestInit('POST', body, sessionToken),
+    makeHttpUrl('/api/admin/threads/export'),
+    makeJsonRequestInit('POST', { ...body, threadId } satisfies AdminThreadCsvExportBody, sessionToken),
   )
 
   return readJsonResponse<AdminCsvExportResponse>(response)
+}
+
+export async function setAdminThreadArchived(
+  sessionToken: string,
+  threadId: string,
+  body: AdminEntityArchiveToggleBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/threads/archive-toggle'),
+    makeJsonRequestInit('POST', { ...body, threadId } satisfies AdminThreadArchiveToggleBody, sessionToken),
+  )
+
+  return readJsonResponse<AdminThreadsResponse>(response)
 }
 
 export async function exportAdminDialogCsv(
@@ -943,6 +1202,163 @@ export async function downloadAdminLegalArchive(
     blob,
     fileName: getDownloadFileName(response, `legal-export-${body.targetIdentifier}.zip`),
   }
+}
+
+export async function downloadAdminUserMediaArchive(
+  sessionToken: string,
+  body: AdminUserMediaExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/users/media-export'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  if (!response.ok) {
+    await readJsonResponse<never>(response)
+  }
+
+  const blob = await response.blob()
+  return {
+    blob,
+    fileName: getDownloadFileName(response, `user-media-export-${body.targetIdentifier}.zip`),
+  }
+}
+
+export async function downloadAdminCurrentStorageArchive(
+  sessionToken: string,
+  body: AdminStorageExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/storage/export'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  if (!response.ok) {
+    await readJsonResponse<never>(response)
+  }
+
+  const blob = await response.blob()
+  return {
+    blob,
+    fileName: getDownloadFileName(response, `${body.subjectKind}-current-storage-export.zip`),
+  }
+}
+
+export async function downloadAdminArchiveStorageArchive(
+  sessionToken: string,
+  body: AdminStorageExportBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/storage/archive-export'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  if (!response.ok) {
+    await readJsonResponse<never>(response)
+  }
+
+  const blob = await response.blob()
+  return {
+    blob,
+    fileName: getDownloadFileName(response, `${body.subjectKind}-archive-storage-export.zip`),
+  }
+}
+
+export async function startAdminStorageExportJob(
+  sessionToken: string,
+  body: AdminStorageExportJobStartBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/storage/export-jobs'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  return readJsonResponse<AdminStorageExportJobResponse>(response)
+}
+
+export async function fetchAdminStorageExportJob(sessionToken: string, jobId: string) {
+  const response = await fetch(makeHttpUrl(`/api/admin/storage/export-jobs/${encodeURIComponent(jobId)}`), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+    method: 'GET',
+  })
+  return readJsonResponse<AdminStorageExportJobResponse>(response)
+}
+
+export async function cancelAdminStorageExportJob(sessionToken: string, jobId: string) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/storage/export-jobs/${encodeURIComponent(jobId)}/cancel`),
+    makeJsonRequestInit('POST', undefined, sessionToken),
+  )
+  return readJsonResponse<AdminStorageExportJobResponse>(response)
+}
+
+export async function downloadAdminStorageExportJob(
+  sessionToken: string,
+  jobId: string,
+  signal?: AbortSignal,
+  onProgress?: (progress: { downloadedBytes: number; totalBytes: number | null }) => void,
+) {
+  const response = await fetch(makeHttpUrl(`/api/admin/storage/export-jobs/${encodeURIComponent(jobId)}/download`), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+    method: 'POST',
+    signal,
+  })
+
+  if (!response.ok) {
+    await readJsonResponse<never>(response)
+  }
+
+  const totalBytesHeader = response.headers.get('content-length')
+  const parsedTotalBytes = totalBytesHeader ? Number(totalBytesHeader) : Number.NaN
+  const totalBytes = Number.isFinite(parsedTotalBytes) && parsedTotalBytes > 0 ? parsedTotalBytes : null
+
+  if (!response.body) {
+    const blob = await response.blob()
+    onProgress?.({ downloadedBytes: blob.size, totalBytes: totalBytes ?? blob.size })
+    return {
+      blob,
+      fileName: getDownloadFileName(response, 'storage-export.zip'),
+    }
+  }
+
+  const reader = response.body.getReader()
+  const chunks: BlobPart[] = []
+  let downloadedBytes = 0
+  onProgress?.({ downloadedBytes, totalBytes })
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value || value.byteLength <= 0) continue
+    const chunk = new Uint8Array(value.byteLength)
+    chunk.set(value)
+    chunks.push(chunk)
+    downloadedBytes += value.byteLength
+    onProgress?.({ downloadedBytes, totalBytes })
+  }
+
+  const blob = new Blob(chunks, {
+    type: response.headers.get('content-type') || 'application/zip',
+  })
+  onProgress?.({ downloadedBytes, totalBytes: totalBytes ?? downloadedBytes })
+  return {
+    blob,
+    fileName: getDownloadFileName(response, 'storage-export.zip'),
+  }
+}
+
+export async function setAdminStorageArchiveUnlimited(
+  sessionToken: string,
+  body: AdminStorageArchiveToggleBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/admin/storage/archive-toggle'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  return readJsonResponse<StorageSubjectUsageResponse>(response)
 }
 
 export async function saveSnapshot(sessionToken: string, snapshot: AppSnapshot) {
@@ -979,9 +1395,10 @@ export async function uploadMediaFile(
   sessionToken: string,
   file: File,
   kind: UploadMediaKind,
+  uploadFileName?: string,
 ) {
   const formData = new FormData()
-  formData.append('file', file)
+  formData.append('file', file, uploadFileName || file.name)
 
   const response = await fetch(makeHttpUrl(`/api/media?kind=${encodeURIComponent(kind)}`), {
     body: formData,
@@ -1040,6 +1457,50 @@ export async function deleteUserGif(sessionToken: string, gifId: string) {
   return normalizeMutationResponse(payload)
 }
 
+export async function fetchUserStorageItems(sessionToken: string) {
+  const response = await fetch(makeHttpUrl('/api/session/storage-items'), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+  const payload = await readJsonResponse<StoragePrimaryItemsResponse>(response)
+  return {
+    ...payload,
+    items: payload.items.map(normalizeUserStorageItemMedia),
+  }
+}
+
+export async function deleteUserStorageItem(sessionToken: string, storageItemId: string) {
+  const response = await fetch(
+    makeHttpUrl('/api/session/storage-items'),
+    makeJsonRequestInit('DELETE', { storageItemId } satisfies DeleteUserStorageItemBody, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function fetchChannelStorageItems(sessionToken: string, channelId: number) {
+  const response = await fetch(makeHttpUrl(`/api/channels/${channelId}/storage-items`), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  })
+  const payload = await readJsonResponse<StoragePrimaryItemsResponse>(response)
+  return {
+    ...payload,
+    items: payload.items.map(normalizeUserStorageItemMedia),
+  }
+}
+
+export async function deleteChannelStorageItem(sessionToken: string, channelId: number, storageItemId: string) {
+  const response = await fetch(
+    makeHttpUrl(`/api/channels/${channelId}/storage-items`),
+    makeJsonRequestInit('DELETE', { storageItemId } satisfies DeleteStorageItemBody, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function setDebugPremiumState(
   sessionToken: string,
   body: DebugPremiumBody,
@@ -1062,6 +1523,66 @@ export async function sendDirectMessage(
     makeJsonRequestInit('POST', body, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function sendContactRequest(
+  sessionToken: string,
+  body: SendContactRequestBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/contacts/requests'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<ContactRequestActionResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function acceptContactRequest(
+  sessionToken: string,
+  identifier: string,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/contacts/requests/${encodeURIComponent(identifier)}/accept`),
+    makeJsonRequestInit('POST', {}, sessionToken),
+  )
+  const payload = await readJsonResponse<ContactRequestActionResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function cancelContactRequest(
+  sessionToken: string,
+  identifier: string,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/contacts/requests/${encodeURIComponent(identifier)}/cancel`),
+    makeJsonRequestInit('POST', {}, sessionToken),
+  )
+  const payload = await readJsonResponse<ContactRequestActionResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function rejectContactRequest(
+  sessionToken: string,
+  identifier: string,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/contacts/requests/${encodeURIComponent(identifier)}/reject`),
+    makeJsonRequestInit('POST', {}, sessionToken),
+  )
+  const payload = await readJsonResponse<ContactRequestActionResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function blockContactRequest(
+  sessionToken: string,
+  identifier: string,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/contacts/requests/${encodeURIComponent(identifier)}/block`),
+    makeJsonRequestInit('POST', {}, sessionToken),
+  )
+  const payload = await readJsonResponse<ContactRequestActionResponse>(response)
   return normalizeMutationResponse(payload)
 }
 
@@ -1149,16 +1670,26 @@ export async function deleteDialogMessage(
   sessionToken: string,
   dialogId: number,
   messageId: number,
+  body?: DeleteDialogMessageBody,
 ) {
   const payload = await readMutationWithDeletePostFallback(
     `/api/dialogs/${dialogId}/messages/${messageId}`,
     sessionToken,
+    body,
   )
   return normalizeMutationResponse(payload)
 }
 
-export async function deleteDialogHistory(sessionToken: string, dialogId: number) {
-  const payload = await readMutationWithDeletePostFallback(`/api/dialogs/${dialogId}/history`, sessionToken)
+export async function deleteDialogHistory(
+  sessionToken: string,
+  dialogId: number,
+  body?: { scope?: 'everyone' | 'me' },
+) {
+  const payload = await readMutationWithDeletePostFallback(
+    `/api/dialogs/${dialogId}/history`,
+    sessionToken,
+    body,
+  )
   return normalizeMutationResponse(payload)
 }
 
@@ -1337,6 +1868,43 @@ export async function sendSubscriptionChannelThreadComment(
   return normalizeMutationResponse(payload)
 }
 
+export async function sendSupportTicket(
+  sessionToken: string,
+  body: SendSupportTicketBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/support/tickets'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function sendSupportTicketComment(
+  sessionToken: string,
+  ticketId: number,
+  body: SendSupportTicketCommentBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/support/tickets/${ticketId}/comments`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function markSupportTicketRead(
+  sessionToken: string,
+  ticketId: number,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/support/tickets/${ticketId}/read`),
+    makeJsonRequestInit('POST', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function deleteSubscriptionChannelThreadComment(
   sessionToken: string,
   channelId: number,
@@ -1462,6 +2030,32 @@ export async function removeSubscriptionChannelSubscriber(
   return normalizeMutationResponse(payload)
 }
 
+export async function removeGroupParticipant(
+  sessionToken: string,
+  groupId: number,
+  body: ManageGroupParticipantBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/participants/remove`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function blacklistGroupParticipant(
+  sessionToken: string,
+  groupId: number,
+  body: ManageGroupParticipantBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/participants/blacklist`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function blacklistSubscriptionChannelSubscriber(
   sessionToken: string,
   channelId: number,
@@ -1492,6 +2086,19 @@ export async function deleteManagedChannel(sessionToken: string, channelId: numb
   const response = await fetch(
     makeHttpUrl(`/api/channels/${channelId}`),
     makeJsonRequestInit('DELETE', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function transferManagedChannel(
+  sessionToken: string,
+  channelId: number,
+  body: TransferManagedChannelBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/channels/${channelId}/transfer`),
+    makeJsonRequestInit('POST', body, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
@@ -1530,6 +2137,21 @@ export async function inviteGroupMember(
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
+}
+
+export async function joinGroupFromInvite(
+  sessionToken: string,
+  sharedId: string,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/by-shared/${encodeURIComponent(sharedId)}/join`),
+    makeJsonRequestInit('POST', undefined, sessionToken),
+  )
+  const payload = await readJsonResponse<JoinGroupFromInviteResponse>(response)
+  return {
+    ...payload,
+    snapshot: normalizeSnapshot(payload.snapshot),
+  }
 }
 
 export async function leaveGroup(sessionToken: string, groupId: number) {

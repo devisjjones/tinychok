@@ -1,4 +1,14 @@
-import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  type ClipboardEvent as ReactClipboardEvent,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   accountNameMaxFontSize,
   accountNameMinFontSize,
@@ -7,6 +17,7 @@ import {
   accountsStorageKey,
   browserNotificationsBannerDismissedStorageKey,
   browserNotificationsEnabledStorageKey,
+  defaultGroupsPerUserLimit,
   defaultGroupMemberLimit,
   channelActionMenuHeight,
   channelActionMenuWidth,
@@ -24,9 +35,12 @@ import {
   groupActionMenuWidth,
   groupTitleMaxLength,
   managedChannelsPerUserLimit,
+  messageFileUploadMaxSizeBytes,
   messagePhotoSendOriginalPreferenceStorageKey,
   nicknameFieldMaxLength,
   premiumGroupMemberLimit,
+  premiumGroupsPerUserLimit,
+  premiumMessageFileUploadMaxSizeBytes,
   premiumDebugAutoCheckoutStorageKey,
   quickFilters,
   sessionStorageKey,
@@ -48,6 +62,7 @@ import {
   buildPendingAttachmentDraft,
   createPreparingComposerAttachmentDraft,
   releaseComposerAttachmentDraft,
+  setComposerAttachmentFileBaseName,
   setComposerAttachmentSendOriginal,
   type ComposerAttachmentDraft,
 } from './app/composerAttachments'
@@ -61,16 +76,22 @@ import {
   fetchClientRuntimeConfig,
   fetchDirectDialogHistory,
   fetchGroupHistory,
+  fetchSubscriptionChannelPreview,
   fetchSubscriptionChannelHistory,
+  fetchUserStorageItems as fetchUserStorageItemsRequest,
+  fetchChannelStorageItems as fetchChannelStorageItemsRequest,
   createGroup as createGroupRequest,
   createManagedChannel as createManagedChannelRequest,
   deleteUserGif as deleteUserGifRequest,
+  deleteUserStorageItem as deleteUserStorageItemRequest,
+  deleteChannelStorageItem as deleteChannelStorageItemRequest,
   deleteDialog as deleteDialogRequest,
   deleteDialogHistory as deleteDialogHistoryRequest,
   deleteDialogMessage as deleteDialogMessageRequest,
   deleteGroupMessage as deleteGroupMessageRequest,
   deleteGroupThreadComment as deleteGroupThreadCommentRequest,
   deleteAccount as deleteAccountRequest,
+  blacklistGroupParticipant as blacklistGroupParticipantRequest,
   blacklistSubscriptionChannelSubscriber as blacklistSubscriptionChannelSubscriberRequest,
   changePassword as changePasswordRequest,
   deleteManagedChannel as deleteManagedChannelRequest,
@@ -80,11 +101,13 @@ import {
   markSubscriptionChannelThreadRead as markSubscriptionChannelThreadReadRequest,
   fetchBootstrap,
   inviteGroupMember as inviteGroupMemberRequest,
+  joinGroupFromInvite as joinGroupFromInviteRequest,
   inviteManagedChannelMembers as inviteManagedChannelMembersRequest,
   inviteSubscriptionChannelMembers as inviteSubscriptionChannelMembersRequest,
   leaveGroup as leaveGroupRequest,
   leaveSubscriptionChannel as leaveSubscriptionChannelRequest,
   loginWithPassword,
+  logoutSession as logoutSessionRequest,
   markDialogRead as markDialogReadRequest,
   markGroupRead as markGroupReadRequest,
   markSubscriptionChannelRead as markSubscriptionChannelReadRequest,
@@ -94,11 +117,15 @@ import {
   reportMediaAttachment as reportMediaAttachmentRequest,
   reportSubscriptionChannel as reportSubscriptionChannelRequest,
   removeSubscriptionChannelSubscriber as removeSubscriptionChannelSubscriberRequest,
+  removeGroupParticipant as removeGroupParticipantRequest,
   registerAccount,
   setDebugPremiumState as setDebugPremiumStateRequest,
   registerUserGif,
   requestAuthCode,
   saveSnapshot,
+  sendSupportTicket as sendSupportTicketRequest,
+  sendSupportTicketComment as sendSupportTicketCommentRequest,
+  searchChannelDiscoveryResults as searchChannelDiscoveryResultsRequest,
   searchUserGifs as searchUserGifsRequest,
   setPassword,
   searchDiscoveryResults as searchDiscoveryResultsRequest,
@@ -109,6 +136,8 @@ import {
   sendManagedChannelPost as sendManagedChannelPostRequest,
   sendGroupThreadComment as sendGroupThreadCommentRequest,
   sendSubscriptionChannelThreadComment as sendSubscriptionChannelThreadCommentRequest,
+  markSupportTicketRead as markSupportTicketReadRequest,
+  subscribeToChannel as subscribeToChannelRequest,
   subscribeToGroupThread as subscribeToGroupThreadRequest,
   subscribeToSubscriptionChannelThread as subscribeToSubscriptionChannelThreadRequest,
   unsubscribeFromGroupThread as unsubscribeFromGroupThreadRequest,
@@ -144,42 +173,67 @@ import {
   mapAuthAnalyticsFlow,
   type UserAuthAnalyticsFlow,
 } from './app/authAnalytics'
+import {
+  getBottomChannelsActionIconPath,
+  getQuietToggleIconPath,
+} from './app/iconContracts'
+import { resolveSearchChannelOpenTarget } from './app/channelSearch'
+import { type ContactsTabKey } from './app/contactsContract'
 import type { ClientRuntimeConfigResponse } from './shared/backend'
 import type {
   Account,
   ActionAnchor,
   AuthStep,
   Channel,
+  ChannelSearchResult,
   ChannelPost,
   Chat,
   ChannelsView,
+  ContactRequestPreview,
   GroupPreview,
   GroupParticipant,
   Message,
   MessageAttachment,
+  QuietModeSettings,
   ReplyTarget,
   SearchResult,
   Session,
   SettingsView,
   StageView,
+  SupportTicket,
   SubscriptionChannel,
   ThreadComment,
   ThreadInboxItem,
   TopListView,
   UserGifLibraryItem,
+  UserStorageItem,
 } from './app/types'
+
 import { useCaptcha } from './app/useCaptcha'
+import {
+  buildRoomFeedSignature,
+} from './app/roomFeedScroll'
+import {
+  getActiveRoomReadKey,
+  shouldSyncActiveRoomRead,
+  type ActiveRoomReadTarget,
+} from './app/roomReadSync'
+import { useRoomFeedAutoScroll } from './app/useRoomFeedAutoScroll'
 import { scheduleActionAnchor, useAnchoredMenu } from './app/useAnchoredMenu'
+import { useContactRequestsFlow } from './app/useContactRequestsFlow'
 import {
   formatMessagePreview,
   formatChannelAvatarLabel,
   formatContactStatus,
+  formatSidebarActivityLabel,
+  extendPremiumExpiry,
   formatGroupLatestAuthor,
   formatGroupPreview,
   formatGroupTime,
-  insertComposerTextAtCursor,
   formatNowTime,
   formatSessionName,
+  formatSupportTicketCreatedAt,
+  formatSupportTicketStatus,
   formatSubscriptionChannelReaders,
   formatSubscriptionChannelSubscribers,
   formatSubscriptionChannelTime,
@@ -189,18 +243,22 @@ import {
   formatAttachmentSize,
   getChannelVisibilityDescription,
   getChannelVisibilityLabel,
+  getEffectiveQuietModeSettings,
   getNextChannelVisibility,
   getPremiumDaysLeft,
   hasActivePremium,
   isPhoneQuery,
-  makePremiumExpiry,
   makeDraftChannel,
   matchesQuery,
   moveUnreadItemsFirst,
   normalizeIdentifier,
   normalizeNickname,
+  normalizeQuietModeSettings,
+  nonPremiumQuietModeSettings,
   normalizePremiumExpiry,
+  resolveQuietModeInvisibilityState,
   isImageMimeType,
+  isVideoMimeType,
   sanitizeChannelDirectLink,
   sanitizeChannelDescription,
   sanitizeChannelTitle,
@@ -212,7 +270,8 @@ import {
   sortGroupsByRecentActivity,
   sortSubscriptionChannelsByRecentActivity,
 } from './app/utils'
-import { EmojiPicker } from './components/EmojiPicker'
+import { ContactsFilters } from './components/ContactsFilters'
+import { ContactsPane } from './components/ContactsPane'
 import { AuthScreen } from './screens/AuthScreen'
 import { ConfirmLogoutScreen } from './screens/ConfirmLogoutScreen'
 import { DirectChatRoom } from './rooms/DirectChatRoom'
@@ -221,10 +280,11 @@ import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
 import { BubbleImageOverlayMeta, BubbleMessageContent } from './components/BubbleMessageContent'
 import { AttachedReplyBubble } from './components/AttachedReplyBubble'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
-import { ComposerAttachmentPicker } from './components/ComposerAttachmentPicker'
-import { ComposerAttachmentPreview } from './components/ComposerAttachmentPreview'
+import { MediaOnlyBubbleRow } from './components/MediaOnlyBubbleRow'
 import { MediaViewerOverlay } from './components/MediaViewerOverlay'
+import { RoomComposer } from './components/RoomComposer'
 import { SelectedBubbleOverlay } from './components/SelectedBubbleOverlay'
+import { ThreadedBubble } from './components/ThreadedBubble'
 import { useCookieConsent } from './app/useCookieConsent'
 import {
   type PendingAttachmentDraft,
@@ -245,6 +305,8 @@ import type {
 } from './shared/backend'
 import './App.css'
 
+type SearchTopFilter = 'all' | 'contacts' | 'channels'
+
 const deliveryIndicatorIconPaths = [
   '/icons/hourglass-48.png',
   '/icons/warning-48.png',
@@ -257,8 +319,30 @@ const contactComplaintReasonOptions: Array<{ label: string; value: ComplaintReas
   { label: 'Очень неприятно', value: 'very_unpleasant' },
 ]
 
+const quietModeSettingsOptions: Array<{
+  key: keyof QuietModeSettings
+  label: string
+}> = [
+  { key: 'dialogs', label: 'Уведомления диалогов' },
+  { key: 'channels', label: 'Уведомления каналов' },
+  { key: 'groups', label: 'Уведомления групп' },
+  { key: 'threads', label: 'Уведомления тредов' },
+  { key: 'contactRequests', label: 'Заявки от контактов' },
+  { key: 'autoInvisibility', label: 'Авто-режим невидимки' },
+]
+
 const blockedAuthNoticeMessage =
   'На ваш аккаунт поступило много жалоб, поэтому вход временно заблокирован. Если произошла ошибка, напишите в поддержку и укажите email: devisjjones@gmail.com'
+const blockedPhoneAuthNoticeMessage = 'Аккаунт заблокирован по решению администрации.'
+const supportInfoBannerText =
+  'Отправленное сообщение создаёт задачу для поддержки Тайничка. Все ответы будут в комментариях вашего обращения. Пожалуйста, старайтесь сформулировать суть проблемы в одном сообщении.'
+const supportCooldownCopy =
+  'Новую задачу для поддержки можно открыть через время. Если у вас есть новые подробности по предыдущему обращению, пожалуйста, напишите в комментарии к нему.'
+const supportCooldownErrorMessage = 'Новую задачу для поддержки пока рано открывать.'
+// Keep this frontend constant aligned with the server-side support cooldown contract.
+// We intentionally reuse it on the client so the support scene can enter cooldown immediately
+// even when the next snapshot or the browser clock arrives out of order.
+const supportTicketCooldownMs = 10 * 60 * 1000
 
 type BrowserNotificationTarget =
   | {
@@ -292,6 +376,41 @@ type ProfileSettingsDraft = Pick<
   'displayName' | 'surname' | 'nickname' | 'status' | 'avatarImage' | 'soundsDisabled'
 >
 
+function formatSupportCooldownLabel(remainingMs: number) {
+  const totalSeconds = Math.max(1, Math.ceil(remainingMs / 1000))
+  if (totalSeconds < 60) {
+    return `${totalSeconds} сек.`
+  }
+
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+function resolveSupportCooldownUntilFromTickets(
+  supportTickets: Array<{ createdAt: string }>,
+  now = Date.now(),
+) {
+  // Support cooldown is derived from the newest root ticket only. This helper exists as a
+  // fallback guard for staging/runtime regressions where the explicit cooldown field could be
+  // missing or arrive a beat later than the updated ticket list.
+  const latestCreatedAt = supportTickets.reduce<number | null>((latest, ticket) => {
+    const createdAtMs = Date.parse(ticket.createdAt)
+    if (!Number.isFinite(createdAtMs)) {
+      return latest
+    }
+
+    return latest === null || createdAtMs > latest ? createdAtMs : latest
+  }, null)
+
+  if (latestCreatedAt === null) {
+    return undefined
+  }
+
+  const cooldownUntilMs = latestCreatedAt + supportTicketCooldownMs
+  return cooldownUntilMs > now ? new Date(cooldownUntilMs).toISOString() : undefined
+}
+
 function getSyntheticChannelId(seed: string) {
   let hash = 0
 
@@ -314,6 +433,29 @@ function buildProfileSettingsDraft(session: Session): ProfileSettingsDraft {
     status: session.status ?? '',
     surname: session.surname ?? '',
   }
+}
+
+type QuietNotificationCategory = 'dialogs' | 'channels' | 'groups' | 'threads' | 'contactRequests'
+
+function isQuietCategorySuppressed(
+  quietMode: boolean,
+  quietModeSettings: QuietModeSettings,
+  category: QuietNotificationCategory,
+) {
+  return quietMode && quietModeSettings[category]
+}
+
+function shouldSuppressBrowserNotificationTarget(
+  quietMode: boolean,
+  quietModeSettings: QuietModeSettings,
+  target: BrowserNotificationTarget,
+) {
+  if (!quietMode) return false
+
+  if (target.kind === 'chat') return quietModeSettings.dialogs
+  if (target.kind === 'channel') return quietModeSettings.channels
+  if (target.kind === 'group') return quietModeSettings.groups
+  return quietModeSettings.threads
 }
 
 function buildBrowserNotificationDigest(
@@ -411,9 +553,13 @@ function buildFallbackGroupParticipant(title: string, participantId: number): Gr
   }
 }
 
-function renderAccountAvatarContent(title: string, archivedAccount?: boolean) {
+function renderAccountAvatarContent(title: string, archivedAccount?: boolean, avatarImage?: string) {
   if (archivedAccount) {
     return <img src="/icons/ghost.png" alt="" aria-hidden="true" className="avatar-ghost-icon" />
+  }
+
+  if (avatarImage) {
+    return <img src={avatarImage} alt="" className="channel-avatar-image" />
   }
 
   return title.slice(0, 1)
@@ -521,6 +667,10 @@ function hasRoomThreadsEnabled(
 
 function getThreadsDisabledNoticeText(target: 'group' | 'channel') {
   return target === 'channel' ? 'В канале выключены комментарии.' : 'В группе выключены комментарии.'
+}
+
+function getThreadsModerationNoticeText() {
+  return 'Комментарии заблокированы модерацией.'
 }
 
 function isRoomCommentsBlacklisted(
@@ -827,7 +977,7 @@ function isPhotoMimeType(mimeType: string | undefined) {
 }
 
 function trackPhotoAttachmentSelected(
-  surface: 'channel' | 'direct' | 'group' | 'thread',
+  surface: 'channel' | 'direct' | 'group' | 'support' | 'thread',
   file: File,
   sendOriginalPreferred: boolean,
 ) {
@@ -994,6 +1144,10 @@ function App() {
   const channelAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const groupAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null)
+  const supportSceneTopRef = useRef<HTMLDivElement | null>(null)
+  const channelStorageSceneTopRef = useRef<HTMLDivElement | null>(null)
+  const supportComposerInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const supportAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const channelAvatarObjectUrlsRef = useRef(new Set<string>())
   const localMessageAttachmentObjectUrlsRef = useRef(new Set<string>())
   const profileAvatarSelectionTokenRef = useRef(0)
@@ -1003,10 +1157,12 @@ function App() {
   const groupAttachmentSelectionTokenRef = useRef(0)
   const channelAttachmentSelectionTokenRef = useRef(0)
   const threadAttachmentSelectionTokenRef = useRef(0)
+  const supportAttachmentSelectionTokenRef = useRef(0)
   const lastAnalyticsPageViewKeyRef = useRef<string | null>(null)
   const lastTrackedGifSearchKeyRef = useRef<string | null>(null)
   const nextOptimisticMessageIdRef = useRef(-1)
   const pendingRetryInFlightRef = useRef(false)
+  const sessionRecoveryTimeoutRef = useRef<number | null>(null)
   const pendingGroupThreadCommentsRef = useRef<PendingGroupThreadComment[]>([])
   const pendingChannelThreadCommentsRef = useRef<PendingChannelThreadComment[]>([])
   const backendSyncTimeoutRef = useRef<number | null>(null)
@@ -1017,15 +1173,25 @@ function App() {
   const previousSnapshotSlicesRef = useRef<{
     channels: Channel[]
     chats: typeof initialChats
+    contactRequests: ContactRequestPreview[]
+    outgoingContactRequests: ContactRequestPreview[]
     groups: typeof initialGroups
     session: Session | null
+    supportTicketCooldownUntil?: string
+    supportTickets: SupportTicket[]
+    supportUnreadCount: number
     subscriptionChannels: typeof initialSubscribedChannels
     threadInbox: ThreadInboxItem[]
   }>({
     channels: initialChannels,
     chats: initialChats,
+    contactRequests: [],
+    outgoingContactRequests: [],
     groups: initialGroups,
     session: loadSession(),
+    supportTicketCooldownUntil: undefined,
+    supportTickets: [],
+    supportUnreadCount: 0,
     subscriptionChannels: initialSubscribedChannels,
     threadInbox: [],
   })
@@ -1040,6 +1206,8 @@ function App() {
   )
   const previousStageViewRef = useRef<StageView>('main')
   const [chats, setChats] = useState(initialChats)
+  const [contactRequests, setContactRequests] = useState<ContactRequestPreview[]>([])
+  const [outgoingContactRequests, setOutgoingContactRequests] = useState<ContactRequestPreview[]>([])
   const [channels, setChannels] = useState(initialChannels)
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
@@ -1053,6 +1221,7 @@ function App() {
   const [stageView, setStageView] = useState<StageView>('main')
   const [channelsView, setChannelsView] = useState<ChannelsView>('list')
   const [settingsView, setSettingsView] = useState<SettingsView>('profile')
+  const [contactsTab, setContactsTab] = useState<ContactsTabKey>('all')
   const [query, setQuery] = useState('')
   const [clientRuntimeConfig, setClientRuntimeConfig] = useState<ClientRuntimeConfigResponse>(
     defaultClientRuntimeConfig,
@@ -1064,6 +1233,9 @@ function App() {
   const [groupAttachmentDrafts, setGroupAttachmentDrafts] = useState<Record<number, ComposerAttachmentDraft | undefined>>({})
   const [channelAttachmentDrafts, setChannelAttachmentDrafts] = useState<Record<number, ComposerAttachmentDraft | undefined>>({})
   const [threadAttachmentDraft, setThreadAttachmentDraft] = useState<ComposerAttachmentDraft | undefined>(undefined)
+  const [documentVisible, setDocumentVisible] = useState(
+    () => typeof document === 'undefined' || document.visibilityState === 'visible',
+  )
   const [mediaViewerAttachment, setMediaViewerAttachment] = useState<MessageAttachment | null>(null)
   const [mediaViewerDownloadEnabled, setMediaViewerDownloadEnabled] = useState(true)
   const [mediaViewerGifActionBusy, setMediaViewerGifActionBusy] = useState(false)
@@ -1074,6 +1246,7 @@ function App() {
   const [pendingChannelThreadComments, setPendingChannelThreadComments] = useState<PendingChannelThreadComment[]>([])
   const [activeFilter, setActiveFilter] = useState('Все')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [searchTopFilter, setSearchTopFilter] = useState<SearchTopFilter>('all')
   const [quietMode, setQuietMode] = useState(false)
   const [browserNotificationStatus, setBrowserNotificationStatus] = useState<BrowserNotificationStatus>(
     () => getBrowserNotificationStatus(),
@@ -1097,14 +1270,18 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [authExistingAccount, setAuthExistingAccount] = useState<Pick<Account, 'displayName' | 'surname'> | null>(null)
   const [authBlockedNoticeOpen, setAuthBlockedNoticeOpen] = useState(false)
+  const [authPhoneBlockedNotice, setAuthPhoneBlockedNotice] = useState(false)
   const [passwordLoginCaptchaRequired, setPasswordLoginCaptchaRequired] = useState(false)
   const [session, setSession] = useState<Session | null>(() => loadSession())
+  const [sessionRecoveryVersion, setSessionRecoveryVersion] = useState(0)
   const [profileSettingsDraft, setProfileSettingsDraft] = useState<ProfileSettingsDraft | null>(() => {
     const storedSession = loadSession()
     return storedSession ? buildProfileSettingsDraft(storedSession) : null
   })
   const [profileSettingsBusy, setProfileSettingsBusy] = useState(false)
   const [profileSettingsError, setProfileSettingsError] = useState('')
+  const [quietSettingsBusy, setQuietSettingsBusy] = useState(false)
+  const [quietSettingsError, setQuietSettingsError] = useState('')
   const [confirmProfileSettingsLeaveOpen, setConfirmProfileSettingsLeaveOpen] = useState(false)
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
   const [changePasswordBusy, setChangePasswordBusy] = useState(false)
@@ -1153,11 +1330,6 @@ function App() {
   const [confirmingLeaveGroupId, setConfirmingLeaveGroupId] = useState<number | null>(null)
   const [confirmingDeleteChannelId, setConfirmingDeleteChannelId] = useState<number | null>(null)
   const [managedChannelLimitErrorOpen, setManagedChannelLimitErrorOpen] = useState(false)
-  const [transferringChannelId, setTransferringChannelId] = useState<number | null>(null)
-  const [channelTransferTargetChatId, setChannelTransferTargetChatId] = useState<number | null>(null)
-  const [channelTransferCode, setChannelTransferCode] = useState('')
-  const [channelTransferError, setChannelTransferError] = useState('')
-  const [channelTransferSearch, setChannelTransferSearch] = useState('')
   const [channelPostBusy, setChannelPostBusy] = useState(false)
   const [channelPostError, setChannelPostError] = useState('')
   const [channelPostReplyTarget, setChannelPostReplyTarget] = useState<ReplyTarget | null>(null)
@@ -1185,6 +1357,7 @@ function App() {
   const [channelInviteError, setChannelInviteError] = useState('')
   const [groupCreateOpen, setGroupCreateOpen] = useState(false)
   const [creatingGroupTitle, setCreatingGroupTitle] = useState('')
+  const [creatingGroupDescription, setCreatingGroupDescription] = useState('')
   const [creatingGroupAccent, setCreatingGroupAccent] = useState(channelAvatarTones[0])
   const [creatingGroupAvatarDraft, setCreatingGroupAvatarDraft] = useState<ChannelAvatarDraft | null>(
     null,
@@ -1222,6 +1395,7 @@ function App() {
   const [channelSettingsError, setChannelSettingsError] = useState('')
   const [channelSettingsDirtyVersion, setChannelSettingsDirtyVersion] = useState(0)
   const [channelSettingsBaseline, setChannelSettingsBaseline] = useState<Channel | null>(null)
+  const [channelDetailView, setChannelDetailView] = useState<'main' | 'storage'>('main')
   const [confirmChannelSettingsLeaveOpen, setConfirmChannelSettingsLeaveOpen] = useState(false)
   const [pendingAvatarPostPrompt, setPendingAvatarPostPrompt] = useState<{
     attachment: MessageAttachment
@@ -1239,11 +1413,33 @@ function App() {
   const [channelManagementOpenId, setChannelManagementOpenId] = useState<number | null>(null)
   const [topListView, setTopListView] = useState<TopListView>('none')
   const [copyHintText, setCopyHintText] = useState('')
+  const [pendingExternalLinkUrl, setPendingExternalLinkUrl] = useState<string | null>(null)
   const [discoveryResults, setDiscoveryResults] = useState(initialDiscoveryResults)
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([])
+  const [supportUnreadCount, setSupportUnreadCount] = useState(0)
+  const [supportTicketCooldownUntil, setSupportTicketCooldownUntil] = useState<string | undefined>(undefined)
+  const [supportComposerCooldownUntil, setSupportComposerCooldownUntil] = useState<string | undefined>(undefined)
+  const [supportDraft, setSupportDraft] = useState('')
+  const [supportAttachmentDraft, setSupportAttachmentDraft] = useState<ComposerAttachmentDraft | undefined>(undefined)
+  const [supportBusy, setSupportBusy] = useState(false)
+  const [supportError, setSupportError] = useState('')
+  const [supportCooldownNow, setSupportCooldownNow] = useState(() => Date.now())
+  const [storageItems, setStorageItems] = useState<UserStorageItem[]>([])
+  const [storageItemsBusy, setStorageItemsBusy] = useState(false)
+  const [storageItemsError, setStorageItemsError] = useState('')
+  const [deletingStorageItemId, setDeletingStorageItemId] = useState<string | null>(null)
+  const [channelStorageItems, setChannelStorageItems] = useState<UserStorageItem[]>([])
+  const [channelStorageItemsBusy, setChannelStorageItemsBusy] = useState(false)
+  const [channelStorageItemsError, setChannelStorageItemsError] = useState('')
+  const [deletingChannelStorageItemId, setDeletingChannelStorageItemId] = useState<string | null>(null)
   const [threadInbox, setThreadInbox] = useState<ThreadInboxItem[]>([])
   const [liveSearchState, setLiveSearchState] = useState<{
     query: string
     results: SearchResult[]
+  } | null>(null)
+  const [liveChannelSearchState, setLiveChannelSearchState] = useState<{
+    query: string
+    results: ChannelSearchResult[]
   } | null>(null)
   const [subscriptionChannels, setSubscriptionChannels] = useState(initialSubscribedChannels)
   const [groups, setGroups] = useState(initialGroups)
@@ -1268,16 +1464,37 @@ function App() {
   const [channelSubscriberActionBusy, setChannelSubscriberActionBusy] = useState(false)
   const [channelSubscriberActionError, setChannelSubscriberActionError] = useState('')
   const [groupParticipantsOpen, setGroupParticipantsOpen] = useState(false)
+  const [groupParticipantsSearchQuery, setGroupParticipantsSearchQuery] = useState('')
+  const [selectedGroupParticipantIdentifier, setSelectedGroupParticipantIdentifier] = useState<string | null>(null)
+  const [confirmingRemoveGroupParticipantIdentifier, setConfirmingRemoveGroupParticipantIdentifier] = useState<string | null>(null)
+  const [confirmingBlacklistGroupParticipantIdentifier, setConfirmingBlacklistGroupParticipantIdentifier] = useState<string | null>(null)
+  const [groupParticipantActionBusy, setGroupParticipantActionBusy] = useState(false)
+  const [groupParticipantActionError, setGroupParticipantActionError] = useState('')
   const [groupActionsAnchor, setGroupActionsAnchor] = useState<ActionAnchor | null>(null)
   const [groupInviteOpen, setGroupInviteOpen] = useState(false)
   const [groupInviteBusy, setGroupInviteBusy] = useState(false)
   const [groupInviteError, setGroupInviteError] = useState('')
+  const [groupInviteInlineError, setGroupInviteInlineError] = useState<{ chatId: number; message: string } | null>(null)
   const [groupInviteLimitNoticeOpen, setGroupInviteLimitNoticeOpen] = useState(false)
   const [groupReportNoticeOpen, setGroupReportNoticeOpen] = useState(false)
-  const [threadsDisabledHintTarget, setThreadsDisabledHintTarget] = useState<'group-message' | 'channel-post' | null>(
-    null,
-  )
+  const [groupDescriptionOpen, setGroupDescriptionOpen] = useState(false)
+  const [threadCommentHintTarget, setThreadCommentHintTarget] = useState<
+    | {
+        reason: 'archived' | 'disabled'
+        target: 'group-message' | 'channel-post'
+      }
+    | null
+  >(null)
   const [messageActionAnchor, setMessageActionAnchor] = useState<ActionAnchor | null>(null)
+  const [contactShareOpen, setContactShareOpen] = useState(false)
+  const [contactShareBusy, setContactShareBusy] = useState(false)
+  const [contactShareError, setContactShareError] = useState('')
+  const [contactShareChatIds, setContactShareChatIds] = useState<number[]>([])
+  const [contactShareNote, setContactShareNote] = useState('')
+  const [contactRequestBusy, setContactRequestBusy] = useState(false)
+  const [contactRequestError, setContactRequestError] = useState('')
+  const [contactRequestActionBusy, setContactRequestActionBusy] = useState(false)
+  const [contactRequestActionError, setContactRequestActionError] = useState('')
   const { cookieConsent, updateCookieConsent } = useCookieConsent()
   const phoneStepCaptchaActive = !session && authStep === 'phone' && Boolean(clientRuntimeConfig.captcha.enabled)
   const passwordStepCaptchaActive =
@@ -1531,14 +1748,14 @@ function App() {
     if (activeGroupId !== null) return
 
     resetGroupSettingsState()
-    setGroupParticipantsOpen(false)
+    closeGroupParticipantsDialog()
     setGroupActionsAnchor(null)
     setGroupInviteOpen(false)
     setGroupInviteBusy(false)
     setGroupInviteError('')
     setGroupInviteLimitNoticeOpen(false)
     setGroupReportNoticeOpen(false)
-    setThreadsDisabledHintTarget(null)
+    setThreadCommentHintTarget(null)
     setConfirmingLeaveGroupId(null)
     if (threadTargetKind === 'group') {
       resetThreadState()
@@ -1568,7 +1785,7 @@ function App() {
     setChannelPostBusy(false)
     setChannelPostError('')
     setChannelPostReplyTarget(null)
-    setThreadsDisabledHintTarget(null)
+    setThreadCommentHintTarget(null)
     setConfirmingLeaveSubscriptionChannelId(null)
     if (threadTargetKind === 'channel') {
       resetThreadState()
@@ -1576,18 +1793,37 @@ function App() {
     }
   }, [activeSubscriptionChannelId, previewSubscriptionChannel, resetBlacklistFlow, resetThreadState, threadTargetKind])
 
+  useEffect(() => {
+    if (activeChatId !== null) return
+
+    setContactShareOpen(false)
+    setContactShareBusy(false)
+    setContactShareError('')
+    setContactShareChatIds([])
+    setContactShareNote('')
+  }, [activeChatId])
+
+  useEffect(() => {
+    setContactRequestBusy(false)
+    setContactRequestError('')
+    setContactRequestActionBusy(false)
+    setContactRequestActionError('')
+  }, [activeChatId])
+
   const blockedContactIds = session?.blockedContactIds ?? []
   const availableChats = dedupeChatsByNormalizedPhone(
     sortChatsByRecentActivity(
-      chats.filter((chat) => !blockedContactIds.includes(chat.id) && !chat.archivedAccount),
+      chats.filter((chat) => !blockedContactIds.includes(chat.id) && !chat.archivedAccount && !chat.hidden),
     ),
   )
   const creatableGroupChats = availableChats.filter(
-    (chat) => normalizeIdentifier(chat.phone) !== normalizeIdentifier(session?.identifier ?? ''),
+    (chat) =>
+      (chat.contactState ?? 'accepted') === 'accepted' &&
+      normalizeIdentifier(chat.phone) !== normalizeIdentifier(session?.identifier ?? ''),
   )
   const blockedChats = dedupeChatsByNormalizedPhone(
     sortChatsByRecentActivity(
-      chats.filter((chat) => blockedContactIds.includes(chat.id) && !chat.archivedAccount),
+      chats.filter((chat) => blockedContactIds.includes(chat.id) && !chat.archivedAccount && !chat.hidden),
     ),
   )
   const visibleRetainedAllChatId =
@@ -1618,7 +1854,9 @@ function App() {
 
   const visibleChats = availableChats.filter((chat) => {
     if (searchOpen) return true
-    if (bottomSection === 'contacts') return true
+    if (bottomSection === 'contacts') {
+      return (chat.contactState ?? 'accepted') === 'accepted'
+    }
     if (activeFilter === '★') return Boolean(chat.pinned)
 
     return true
@@ -1656,12 +1894,70 @@ function App() {
       matchesQuery(result.phone, query)
     )
     })
+  const searchShowsContacts = searchTopFilter !== 'channels'
+  const searchShowsChannels = searchTopFilter !== 'contacts'
 
   const activeChat =
-    activeChatId === null ? null : availableChats.find((chat) => chat.id === activeChatId) ?? null
+    activeChatId === null ? null : chats.find((chat) => chat.id === activeChatId) ?? null
   const activeChatAdminBlockNotice = activeChat?.blockedByAdmin
     ? 'Пользователь заблокирован по решению администрации сервиса, обратитесь в поддержку, если возникла ошибка.'
     : null
+  const activeChatContactState = activeChat?.contactState ?? 'accepted'
+  const activeChatPendingOutgoingMessageTone: 'danger' | 'friendly' = contactRequestActionError
+    ? 'danger'
+    : 'friendly'
+  const activeChatComposerGate =
+    activeChatAdminBlockNotice
+      ? {
+          kind: 'disabled' as const,
+          message: activeChatAdminBlockNotice,
+        }
+      : activeChatContactState === 'accepted'
+        ? null
+        : activeChatContactState === 'none'
+          ? {
+              actionLabel: contactRequestBusy ? 'Отправляем...' : 'Отправить запрос на контакт',
+              busy: contactRequestBusy,
+              kind: 'action' as const,
+              message: contactRequestError,
+              tone: 'primary' as const,
+            }
+          : activeChatContactState === 'pending-outgoing'
+            ? {
+                actionLabel: contactRequestActionBusy ? 'Отменяем...' : 'Отменить заявку',
+                busy: contactRequestActionBusy,
+                kind: 'action' as const,
+                message:
+                  contactRequestActionError || (
+                    <span className="composer-disabled-note-friendly-content">
+                      <span>Заявка на контакт отправлена</span>
+                      <img src="/icons/man-raising-hand.png" alt="" aria-hidden="true" />
+                    </span>
+                  ),
+                messageTone: activeChatPendingOutgoingMessageTone,
+                tone: 'neutral' as const,
+              }
+            : activeChatContactState === 'blocked-by-peer'
+              ? {
+                  kind: 'status' as const,
+                  message: 'Пользователь заблокировал контакт с вами',
+                }
+              : activeChatContactState === 'blocked-by-me'
+                ? {
+                    kind: 'status' as const,
+                    message: 'Вы заблокировали этот контакт',
+                  }
+                : {
+                    actionError: contactRequestActionError,
+                    busy: contactRequestActionBusy,
+                    kind: 'incoming-request' as const,
+                    message: 'Пользователь хочет выйти на связь. Посмотрите историю комнаты и примите решение.',
+                  }
+  const contactShareTargets = activeChat
+    ? availableChats.filter((chat) => chat.id !== activeChat.id)
+    : []
+  const selectedContactShareChats = contactShareTargets.filter((chat) => contactShareChatIds.includes(chat.id))
+  const canShareActiveContact = Boolean(activeChat) && selectedContactShareChats.length > 0
   const reportingChat =
     reportingChatId === null ? null : chats.find((chat) => chat.id === reportingChatId) ?? null
   const pinnedMessage =
@@ -1688,6 +1984,7 @@ function App() {
       ? null
       : subscriptionChannels.find((channel) => channel.id === activeSubscriptionChannelId) ?? null
   const currentSubscriptionChannel = previewSubscriptionChannel ?? activeSubscriptionChannel
+  const isPreviewSubscriptionChannel = previewSubscriptionChannel !== null
   const currentSubscriptionChannelArchived = Boolean(currentSubscriptionChannel?.archivedAt)
   const ownedCurrentManagedChannel =
     currentSubscriptionChannel === null
@@ -1699,7 +1996,15 @@ function App() {
               sanitizeChannelDirectLink(currentSubscriptionChannel.handle),
         ) ?? null
   const isCurrentSubscriptionChannelOwner = ownedCurrentManagedChannel !== null
-  const actionableSubscriptionChannel = previewSubscriptionChannel ? null : activeSubscriptionChannel
+  const actionableSubscriptionChannel = isPreviewSubscriptionChannel ? null : activeSubscriptionChannel
+  const currentSubscriptionChannelStatusText =
+    currentSubscriptionChannel?.statusText?.trim() ||
+    ownedCurrentManagedChannel?.statusText?.trim() ||
+    ''
+  const currentSubscriptionChannelDescriptionText =
+    currentSubscriptionChannel?.description?.trim() ||
+    ownedCurrentManagedChannel?.description?.trim() ||
+    ''
   const currentSubscriptionChannelSubscriberCount = isCurrentSubscriptionChannelOwner
     ? Math.max(1, currentSubscriptionChannel?.participants?.length ?? 0)
     : currentSubscriptionChannel?.readers ?? 0
@@ -1763,6 +2068,7 @@ function App() {
       : null
   ), [chats, persistedActiveGroup])
   const activeGroupArchived = Boolean(activeGroup?.archivedAt)
+  const activeGroupDescriptionText = activeGroup?.description?.trim() || ''
   const isActiveGroupCreator =
     activeGroup !== null &&
     session !== null &&
@@ -1791,17 +2097,63 @@ function App() {
     : defaultGroupMemberLimit
   const activeGroupAtMemberLimit =
     activeGroup !== null && activeGroup.participants.length >= activeGroupMemberLimit
-  const inviteableGroupChats = activeGroup
-    ? availableChats.filter((chat) => {
-        const normalizedPhone = normalizeIdentifier(chat.phone)
+  const activeGroupParticipantIdentifiers = useMemo(() => {
+    if (!activeGroup) return new Set<string>()
 
-        return !activeGroup.participants.some(
+    return new Set(
+      activeGroup.participants
+        .map((participant) => normalizeIdentifier(participant.identifier ?? ''))
+        .filter((identifier) => identifier.length > 0),
+    )
+  }, [activeGroup])
+  const filteredActiveGroupParticipants = (activeGroup?.participants ?? [])
+    .filter((participant) => {
+      const searchQuery = groupParticipantsSearchQuery.trim()
+      if (!searchQuery) return true
+
+      return (
+        matchesExactSearchCandidate(participant.title, searchQuery) ||
+        matchesExactSearchCandidate(participant.nickname ? `@${participant.nickname}` : '', searchQuery) ||
+        matchesExactSearchCandidate(participant.identifier, searchQuery)
+      )
+    })
+    .sort((left, right) => {
+      const leftIdentifier = normalizeIdentifier(left.identifier ?? '')
+      const rightIdentifier = normalizeIdentifier(right.identifier ?? '')
+
+      if (leftIdentifier === activeGroupOwnerIdentifier && rightIdentifier !== activeGroupOwnerIdentifier) {
+        return -1
+      }
+      if (rightIdentifier === activeGroupOwnerIdentifier && leftIdentifier !== activeGroupOwnerIdentifier) {
+        return 1
+      }
+      return left.title.localeCompare(right.title, 'ru')
+    })
+  const selectedActiveGroupParticipant =
+    selectedGroupParticipantIdentifier === null
+      ? null
+      : activeGroup?.participants.find(
           (participant) =>
-            normalizeIdentifier(participant.identifier ?? '') === normalizedPhone ||
-            participant.title === chat.title,
-        )
-      })
-    : []
+            normalizeIdentifier(participant.identifier ?? '') === selectedGroupParticipantIdentifier,
+        ) ?? null
+  const selectedActiveGroupParticipantBlacklisted = Boolean(
+    selectedActiveGroupParticipant &&
+      activeGroup &&
+      isRoomCommentsBlacklisted(
+        activeGroup,
+        normalizeIdentifier(selectedActiveGroupParticipant.identifier ?? ''),
+      ),
+  )
+  const inviteableGroupChats = useMemo(
+    () =>
+      activeGroup
+        ? creatableGroupChats.map((chat) => ({
+            alreadyMember: activeGroupParticipantIdentifiers.has(normalizeIdentifier(chat.phone)),
+            chat,
+          }))
+        : [],
+    [activeGroup, activeGroupParticipantIdentifiers, creatableGroupChats],
+  )
   const transferableGroupParticipants = activeGroup
     ? activeGroup.participants.filter(
           (participant) =>
@@ -1854,7 +2206,7 @@ function App() {
       )
     }
 
-    return null
+    return matchingChat ? buildGroupParticipantFromChat(matchingChat) : null
   }
 
   function handleThreadComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -1881,6 +2233,33 @@ function App() {
     event.preventDefault()
     void submitThreadComment()
   }
+
+  function handleSupportComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      supportBusy ||
+      supportCooldownActive ||
+      (!supportAttachmentDraft && !supportDraft.trim()) ||
+      (supportAttachmentDraft ? supportAttachmentDraft.status !== 'ready' : false)
+    ) {
+      return
+    }
+
+    if (
+      !shouldSubmitComposerWithEnter({
+        key: event.key,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        isComposing: event.nativeEvent.isComposing,
+      })
+    ) {
+      return
+    }
+
+    event.preventDefault()
+    void sendSupportMessage()
+  }
   const activeThreadBlockReason =
     threadTarget?.kind === 'group'
       ? activeGroup
@@ -1890,7 +2269,9 @@ function App() {
         ? currentSubscriptionChannel
           ? getRoomCommentBlockReason(currentSubscriptionChannel, session, 'канала')
           : null
-        : null
+        : threadTarget?.kind === 'support'
+          ? null
+          : null
   const subscriptionMenuFallbackHeight =
     currentSubscriptionChannel?.visibility === 'closed' ? channelBlockedMenuHeight : channelActionMenuHeight
   const resolvedChannelActionsMenuHeight =
@@ -1935,26 +2316,6 @@ function App() {
     chatActionMenuWidth,
     chatActionMenuHeight,
   )
-  const transferringChannel =
-    transferringChannelId === null
-      ? null
-      : channels.find((channel) => channel.id === transferringChannelId) ?? null
-  const channelTransferTarget =
-    channelTransferTargetChatId === null
-      ? null
-      : availableChats.find((chat) => chat.id === channelTransferTargetChatId) ?? null
-  const channelTransferResults = availableChats.filter((chat) => {
-    if (channelTransferSearch.trim() === '') return true
-
-    return (
-      matchesQuery(chat.title, channelTransferSearch) ||
-      matchesQuery(chat.handle, channelTransferSearch) ||
-      matchesQuery(chat.phone, channelTransferSearch)
-    )
-  })
-  const activeChatMessageCount = activeChat?.messages.length ?? 0
-  const activeGroupMessageCount = activeGroup?.messages.length ?? 0
-  const activeSubscriptionChannelPostCount = currentSubscriptionChannel?.posts.length ?? 0
   const isSettingsView = stageView === 'settings'
   const isPremiumView = stageView === 'premium'
   const isChannelsView = stageView === 'channels'
@@ -2017,6 +2378,7 @@ function App() {
     }
   }, [backendReady, currentSubscriptionChannel, session?.sessionToken])
   const {
+    historyMutation: directHistoryMutation,
     revealItemById: revealDirectMessageById,
     visibleItems: visibleDirectMessages,
   } = useRoomHistoryWindow({
@@ -2027,6 +2389,7 @@ function App() {
     roomKey: !threadTarget && isChatOpen && activeChat ? `direct:${activeChat.id}` : null,
   })
   const {
+    historyMutation: groupHistoryMutation,
     revealItemById: revealGroupMessageById,
     visibleItems: visibleGroupMessages,
   } = useRoomHistoryWindow({
@@ -2037,6 +2400,7 @@ function App() {
     roomKey: !threadTarget && isGroupOpen && activeGroup ? `group:${activeGroup.id}` : null,
   })
   const {
+    historyMutation: channelHistoryMutation,
     revealItemById: revealChannelPostById,
     visibleItems: visibleSubscriptionPosts,
   } = useRoomHistoryWindow({
@@ -2055,6 +2419,19 @@ function App() {
   const activeVisibleChatMessageCount = visibleDirectMessages.length
   const activeVisibleGroupMessageCount = visibleGroupMessages.length
   const activeVisibleSubscriptionChannelPostCount = visibleSubscriptionPosts.length
+  const activeRoomFeedKey = threadTarget
+    ? threadTarget.kind === 'group'
+      ? `thread:group:${threadTarget.groupId}:${threadTarget.messageId}`
+      : threadTarget.kind === 'channel'
+        ? `thread:channel:${threadTarget.channelId}:${threadTarget.postId}`
+        : `thread:support:${threadTarget.ticketId}`
+    : isChatOpen && activeChat
+      ? `direct:${activeChat.id}`
+      : isGroupOpen && activeGroup
+        ? `group:${activeGroup.id}`
+        : isSubscriptionChannelOpen && currentSubscriptionChannel
+          ? `channel:${currentSubscriptionChannel.id}`
+          : null
   const activeMessage =
     messageActionMessageId === null
       ? null
@@ -2067,6 +2444,13 @@ function App() {
       : visibleDirectMessages.find((message) => message.id === forwardingMessageId) ??
         activeChat?.messages.find((message) => message.id === forwardingMessageId) ??
         null
+  const confirmingDeleteMessage =
+    confirmingDeleteMessageId === null
+      ? null
+      : visibleDirectMessages.find((message) => message.id === confirmingDeleteMessageId) ??
+        activeChat?.messages.find((message) => message.id === confirmingDeleteMessageId) ??
+        null
+  const canDeleteConfirmedMessageForEveryone = confirmingDeleteMessage?.author === 'me'
   const activeSubscriptionPost =
     activeSubscriptionPostId === null
       ? null
@@ -2097,12 +2481,16 @@ function App() {
         currentSubscriptionChannel.posts.find((post) => post.id === threadTarget.postId) ??
         null
       : null
+  const activeSupportTicket =
+    threadTarget?.kind === 'support'
+      ? supportTickets.find((ticket) => ticket.id === threadTarget.ticketId) ?? null
+      : null
   const activeThreadComments =
     threadTarget?.kind === 'group'
       ? threadGroupMessage?.threadComments ?? []
       : threadTarget?.kind === 'channel'
         ? threadChannelPost?.threadComments ?? []
-        : []
+        : activeSupportTicket?.comments ?? []
   const activeThreadCommentCount = activeThreadComments.length
   const activeThreadCommentLabel =
     activeThreadCommentCount % 10 === 1 && activeThreadCommentCount % 100 !== 11
@@ -2112,18 +2500,38 @@ function App() {
           (activeThreadCommentCount % 100 < 12 || activeThreadCommentCount % 100 > 14)
         ? 'комментария'
         : 'комментариев'
+  const activeRoomFeedTimeline = threadTarget
+    ? activeThreadComments
+    : isChatOpen
+      ? visibleDirectMessages
+      : isGroupOpen
+        ? visibleGroupMessages
+        : isSubscriptionChannelOpen
+          ? visibleSubscriptionPosts
+          : []
+  const activeRoomFeedSignature = buildRoomFeedSignature(activeRoomFeedTimeline)
+  const activeRoomHistoryMutation = threadTarget
+    ? { kind: 'idle' as const, roomKey: null, seq: 0 }
+    : isChatOpen
+      ? directHistoryMutation
+      : isGroupOpen
+        ? groupHistoryMutation
+        : isSubscriptionChannelOpen
+          ? channelHistoryMutation
+          : { kind: 'idle' as const, roomKey: null, seq: 0 }
   const activeThreadComment =
     threadCommentActionId === null
       ? null
       : activeThreadComments.find((comment) => comment.id === threadCommentActionId) ?? null
   const activeThreadCommentParticipant = resolveThreadCommentParticipant(activeThreadComment)
+  const activeThreadCommentDialogAction = resolveParticipantDialogAction(activeThreadCommentParticipant)
   const activeThreadCommentAlreadyBlacklisted =
     activeThreadCommentParticipant?.identifier && threadTarget
       ? threadTarget.kind === 'group'
         ? activeGroup
           ? isRoomCommentsBlacklisted(activeGroup, activeThreadCommentParticipant.identifier)
           : false
-        : currentSubscriptionChannel
+        : threadTarget.kind === 'channel' && currentSubscriptionChannel
           ? isRoomCommentsBlacklisted(currentSubscriptionChannel, activeThreadCommentParticipant.identifier)
           : false
       : false
@@ -2135,20 +2543,85 @@ function App() {
     activeGroup && activeGroupMessageParticipant?.identifier
       ? isRoomCommentsBlacklisted(activeGroup, activeGroupMessageParticipant.identifier)
       : false
+  const activeGroupMessageDialogAction = resolveParticipantDialogAction(activeGroupMessageParticipant)
   const activeThreadSourceLabel =
     threadTarget?.kind === 'group'
       ? activeGroup?.title ?? 'Группа'
-      : currentSubscriptionChannel?.title ?? 'Канал'
+      : threadTarget?.kind === 'channel'
+        ? currentSubscriptionChannel?.title ?? 'Канал'
+        : activeSupportTicket
+          ? `Тикет #${activeSupportTicket.id}`
+          : 'Поддержка'
   const activeThreadId =
     threadTarget?.kind === 'group'
       ? threadGroupMessage?.threadId
       : threadTarget?.kind === 'channel'
         ? threadChannelPost?.threadId
-        : undefined
+        : activeSupportTicket?.threadId
   const activeThreadInboxItem = activeThreadId
     ? threadInbox.find((item) => item.threadId === activeThreadId) ?? null
     : null
+  const activeThreadServerUnreadCount = activeThreadInboxItem?.unreadCount ?? 0
+  const activeThreadLatestActivityAt =
+    activeThreadInboxItem?.latestActivityAt ??
+    (threadTarget?.kind === 'group'
+      ? threadGroupMessage?.threadComments?.at(-1)?.createdAt ?? threadGroupMessage?.createdAt
+      : threadTarget?.kind === 'channel'
+        ? threadChannelPost?.threadComments?.at(-1)?.createdAt ?? threadChannelPost?.createdAt
+        : activeSupportTicket?.comments.at(-1)?.createdAt ?? activeSupportTicket?.updatedAt)
   const activeThreadSubscribed = activeThreadInboxItem !== null
+  const activeVisibleThreadId =
+    threadTarget && documentVisible && activeThreadId ? activeThreadId : null
+  const visibleThreadInbox = activeVisibleThreadId
+    ? threadInbox.map((item) =>
+        item.threadId === activeVisibleThreadId
+          ? {
+              ...item,
+              unreadCount: 0,
+            }
+          : item,
+      )
+    : threadInbox
+
+  useEffect(() => {
+    if (!threadTarget) return
+
+    if (threadTarget.kind === 'group' && threadGroupMessage && !threadGroupMessage.threadId) {
+      resetThreadState()
+      return
+    }
+
+    if (threadTarget.kind === 'channel' && threadChannelPost && !threadChannelPost.threadId) {
+      resetThreadState()
+    }
+  }, [
+    resetThreadState,
+    threadChannelPost,
+    threadGroupMessage,
+    threadTarget,
+  ])
+
+  const activeRoomReadTarget: ActiveRoomReadTarget | null = threadTarget
+    ? null
+    : isChatOpen && activeChat
+      ? {
+          id: activeChat.id,
+          kind: 'chat',
+          unread: activeChat.unread,
+        }
+      : isGroupOpen && activeGroup
+        ? {
+            id: activeGroup.id,
+            kind: 'group',
+            unread: activeGroup.unread,
+          }
+        : isSubscriptionChannelOpen && !isPreviewSubscriptionChannel && currentSubscriptionChannel
+          ? {
+              id: currentSubscriptionChannel.id,
+              kind: 'channel',
+              unread: currentSubscriptionChannel.unread,
+            }
+          : null
   const threadSourceText =
     activeThreadInboxItem?.kind === 'group' && threadTarget?.kind === 'group'
       ? activeThreadInboxItem.sourceText
@@ -2156,7 +2629,9 @@ function App() {
         ? activeThreadInboxItem.sourceText
         : threadTarget?.kind === 'group'
           ? threadGroupMessage?.text ?? ''
-          : threadChannelPost?.text ?? ''
+          : threadTarget?.kind === 'channel'
+            ? threadChannelPost?.text ?? ''
+            : activeSupportTicket?.text ?? ''
   const threadSourceTime =
     activeThreadInboxItem?.kind === 'group' && threadTarget?.kind === 'group'
       ? activeThreadInboxItem.sourceTime
@@ -2164,7 +2639,9 @@ function App() {
         ? activeThreadInboxItem.sourceTime
         : threadTarget?.kind === 'group'
           ? threadGroupMessage?.time ?? ''
-          : threadChannelPost?.time ?? ''
+          : threadTarget?.kind === 'channel'
+            ? threadChannelPost?.time ?? ''
+            : activeSupportTicket?.time ?? ''
   const visibleRetainedSubscriptionChannelId =
     isChannelsTopListOpen &&
     stageView === 'main' &&
@@ -2185,32 +2662,69 @@ function App() {
     browserNotificationStatus === 'denied'
       ? 'Разрешение сейчас запрещено браузером. Откройте настройки сайта и включите уведомления.'
       : 'Включите уведомления в браузере, чтобы быть в курсе новых сообщений.'
-  const browserNotificationSettingsStatusLabel =
-    browserNotificationStatus === 'granted'
-      ? browserNotificationsEnabled
-        ? 'Включены'
-        : 'Выключены в Тайничке'
-      : browserNotificationStatus === 'denied'
-        ? 'Запрещены браузером'
-        : browserNotificationStatus === 'default'
-          ? 'Ожидают разрешения'
-          : 'Не поддерживаются в этом браузере'
-  const browserNotificationSettingsText =
-    browserNotificationStatus === 'granted'
-      ? !browserNotificationsEnabled
-        ? 'Разрешение браузера сохранено, но Tinychok не отправляет уведомления в этом браузере.'
-        : quietMode
-        ? 'Браузерные уведомления включены, но режим «Тихо» временно их отключает.'
-        : 'Новые сообщения будут приходить в браузер, пока сайт открыт и держит realtime-соединение.'
-      : browserNotificationStatus === 'denied'
-        ? 'Разрешение запрещено браузером. Включить уведомления можно через настройки сайта.'
-        : browserNotificationStatus === 'default'
-          ? 'Разрешите показ уведомлений, чтобы не пропускать новые сообщения в браузере.'
-          : 'Этот браузер не поддерживает системные уведомления через Notification API.'
+  const browserNotificationsDisabled =
+    browserNotificationStatus !== 'granted' || !browserNotificationsEnabled
+  const browserNotificationsToggleDisabled =
+    browserNotificationStatus === 'denied' || browserNotificationStatus === 'unsupported'
   const totalUnreadCount = availableChats.reduce((sum, chat) => sum + chat.unread, 0)
+  // Contacts keep two pending-request buckets, but the bottom-nav badge intentionally
+  // reflects only incoming requests. Outgoing pending items are a Contacts-local counter.
+  const incomingContactRequestCount = contactRequests.length
+  const outgoingContactRequestCount = outgoingContactRequests.length
   const totalFavoriteUnreadCount = availableChats.reduce(
     (sum, chat) => sum + (chat.pinned ? chat.unread : 0),
     0,
+  )
+  const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
+  // The support composer uses its own cooldown source first because this scene must keep showing
+  // the waiting state immediately after ticket creation. Do not collapse this back to the server
+  // snapshot field only, or the UI can briefly fall back to the form and leak the raw backend error.
+  const effectiveSupportTicketCooldownUntil =
+    supportComposerCooldownUntil ??
+    supportTicketCooldownUntil ??
+    resolveSupportCooldownUntilFromTickets(supportTickets, supportCooldownNow)
+  const supportCooldownRemainingMs = effectiveSupportTicketCooldownUntil
+    ? Math.max(0, Date.parse(effectiveSupportTicketCooldownUntil) - supportCooldownNow)
+    : 0
+  const supportCooldownActive = supportCooldownRemainingMs > 0
+  const supportCooldownLabel = supportCooldownActive
+    ? formatSupportCooldownLabel(supportCooldownRemainingMs)
+    : ''
+  const storedQuietModeSettings = useMemo(
+    () => normalizeQuietModeSettings(session?.quietModeSettings),
+    [session?.quietModeSettings],
+  )
+  // Quiet settings contract:
+  // category checkboxes only control the visual notification layer. Unread keeps accumulating,
+  // but badges/browser notifications are suppressed per-category while `Тихо` is active.
+  const effectiveQuietModeSettings = useMemo(
+    () => getEffectiveQuietModeSettings(session?.quietModeSettings, sessionHasPremium),
+    [session?.quietModeSettings, sessionHasPremium],
+  )
+  const quietDialogsSuppressed = isQuietCategorySuppressed(
+    quietMode,
+    effectiveQuietModeSettings,
+    'dialogs',
+  )
+  const quietChannelsSuppressed = isQuietCategorySuppressed(
+    quietMode,
+    effectiveQuietModeSettings,
+    'channels',
+  )
+  const quietGroupsSuppressed = isQuietCategorySuppressed(
+    quietMode,
+    effectiveQuietModeSettings,
+    'groups',
+  )
+  const quietThreadsSuppressed = isQuietCategorySuppressed(
+    quietMode,
+    effectiveQuietModeSettings,
+    'threads',
+  )
+  const quietContactRequestsSuppressed = isQuietCategorySuppressed(
+    quietMode,
+    effectiveQuietModeSettings,
+    'contactRequests',
   )
   const sortByUnreadEnabled = !quietMode
   const orderedVisibleChats =
@@ -2221,6 +2735,8 @@ function App() {
       : activeFilter === '★'
       ? moveUnreadItemsFirst(visibleChats, visibleRetainedFavoriteChatId)
       : visibleChats
+  const activeContactIdentifier =
+    bottomSection === 'contacts' ? normalizeIdentifier(activeChat?.phone ?? '') : ''
   const managedPreviewChannels = channels
     .filter(
       (managedChannel) =>
@@ -2238,12 +2754,72 @@ function App() {
   const orderedSubscriptionChannels = sortByUnreadEnabled
     ? moveUnreadItemsFirst(listedSubscriptionChannels, visibleRetainedSubscriptionChannelId)
     : listedSubscriptionChannels
+  const fallbackChannelSearchResults = orderedSubscriptionChannels
+    .filter((channel) => {
+      if (trimmedSearchQuery === '') return false
+
+      return (
+        matchesQuery(channel.title, trimmedSearchQuery) ||
+        matchesQuery(channel.handle, trimmedSearchQuery) ||
+        matchesQuery(channel.statusText ?? '', trimmedSearchQuery) ||
+        matchesQuery(channel.description ?? '', trimmedSearchQuery)
+      )
+    })
+    .map((channel) => ({
+      accent: channel.accent,
+      archivedAt: channel.archivedAt,
+      avatarImage: channel.avatarImage,
+      description: channel.description,
+      handle: channel.handle,
+      id: channel.id,
+      muted: channel.muted,
+      statusText: channel.statusText,
+      title: channel.title,
+      unread: channel.unread,
+      visibility: channel.visibility,
+    }))
+  const liveChannelSearchResults =
+    searchOpen &&
+    topListView === 'none' &&
+    trimmedSearchQuery !== '' &&
+    liveChannelSearchState?.query === trimmedSearchQuery
+      ? liveChannelSearchState.results
+      : null
+  // Search channels must not depend only on current local subscriptions:
+  // after self-unsubscribe the channel should still be discoverable through backend preview search.
+  // At the same time, backend misses or legacy-record quirks must not blank out locally known
+  // channels, otherwise freshly created/legacy channels disappear from the search surface.
+  const channelSearchResults = (() => {
+    if (!liveChannelSearchResults) {
+      return fallbackChannelSearchResults
+    }
+
+    const deduped = new Map<string, ChannelSearchResult>()
+    const makeKey = (channel: ChannelSearchResult) =>
+      sanitizeChannelDirectLink(channel.handle) || `channel:${channel.id}`
+
+    for (const channel of liveChannelSearchResults) {
+      deduped.set(makeKey(channel), channel)
+    }
+
+    for (const channel of fallbackChannelSearchResults) {
+      const key = makeKey(channel)
+      if (!deduped.has(key)) {
+        deduped.set(key, channel)
+      }
+    }
+
+    return Array.from(deduped.values())
+  })()
+  const hasVisibleSearchResults =
+    (searchShowsContacts && (myContactsResults.length > 0 || searchResults.length > 0)) ||
+    (searchShowsChannels && channelSearchResults.length > 0)
   const sortedGroups = sortGroupsByRecentActivity(groups)
   const orderedGroups = sortByUnreadEnabled
     ? moveUnreadItemsFirst(sortedGroups, visibleRetainedGroupId)
     : sortedGroups
-  const orderedThreadInbox = [...threadInbox].sort((left, right) => {
-    if (!sortByUnreadEnabled) {
+  const orderedThreadInbox = [...visibleThreadInbox].sort((left, right) => {
+    if (!sortByUnreadEnabled || activeVisibleThreadId) {
       const rightDate = Date.parse(right.latestActivityAt ?? '') || 0
       const leftDate = Date.parse(left.latestActivityAt ?? '') || 0
       return rightDate - leftDate
@@ -2267,10 +2843,74 @@ function App() {
 
     return `${count} ${noun}`
   }
+  const formatThreadInboxTitle = (item: ThreadInboxItem) => {
+    const sourceText = item.sourceText.trim()
+    if (sourceText) {
+      return sourceText
+    }
+
+    return item.kind === 'group' ? item.groupTitle : item.channelTitle
+  }
+  const formatThreadInboxContextLabel = (item: ThreadInboxItem) => {
+    const roomLabel = item.kind === 'group' ? `Группа: ${item.groupTitle}` : `Канал: ${item.channelTitle}`
+    const activityLabel =
+      item.commentCount > 0 ? formatThreadCommentCountLabel(item.commentCount) : 'Подписка на тред'
+
+    return `${roomLabel} · ${activityLabel}`
+  }
+  const formatThreadInboxPreview = (item: ThreadInboxItem) => {
+    const latestCommentText = item.latestCommentText.trim()
+    if (!latestCommentText) {
+      return item.commentCount > 0 ? 'Пока без комментариев' : 'Подписка на тред'
+    }
+
+    return item.latestCommentAuthor
+      ? `${item.latestCommentAuthor}: ${latestCommentText}`
+      : latestCommentText
+  }
   const totalChannelNotifications = subscriptionChannels.reduce((sum, channel) => sum + channel.unread, 0)
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
-  const totalThreadNotifications = threadInbox.reduce((sum, item) => sum + item.unreadCount, 0)
-  const sessionHasPremium = hasActivePremium(session?.premium, session?.premiumExpiresAt)
+  const totalThreadNotifications = visibleThreadInbox.reduce((sum, item) => sum + item.unreadCount, 0)
+  const quietSettingsToggleValues = sessionHasPremium
+    ? storedQuietModeSettings
+    : nonPremiumQuietModeSettings
+  const invisibilityPreferenceEnabled = Boolean(session?.invisibilityEnabled ?? session?.quietModeEnabled)
+  const invisibilityAutoEnabled = Boolean(session?.invisibilityAutoEnabled)
+  const invisibilityModeActive = sessionHasPremium && invisibilityPreferenceEnabled
+  const invisibilityToggleChecked = sessionHasPremium && invisibilityPreferenceEnabled
+  const invisibilitySettingsDescription = !sessionHasPremium
+    ? 'Доступно только с премиумом.'
+    : invisibilityModeActive
+      ? 'Скрывает онлайн и прочтение сообщений для других пользователей.'
+      : 'Можно включить отдельно или автоматически через кнопку «Тихо».'
+  // Self-presence invariant:
+  // own headers always show presence, but active invisible mode flips it into a visible-to-self ring.
+  // Do not mirror this condition into chat/contact presence lists; those must stay server-authoritative.
+  const selfPresenceIndicatorMode =
+    session
+      ? invisibilityModeActive
+        ? 'invisible'
+        : 'online'
+      : null
+  const activeRoomReadSyncRoomKeyRef = useRef<string | null>(null)
+  const activeThreadReadSyncKeyRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    const syncDocumentVisibility = () => {
+      setDocumentVisible(document.visibilityState === 'visible')
+    }
+
+    syncDocumentVisibility()
+    document.addEventListener('visibilitychange', syncDocumentVisibility)
+
+    return () => {
+      document.removeEventListener('visibilitychange', syncDocumentVisibility)
+    }
+  }, [])
 
   useEffect(() => {
     const previousStageView = previousStageViewRef.current
@@ -2290,6 +2930,29 @@ function App() {
     setStageView('premium')
   }, [])
 
+  function requestOpenExternalLink(url: string) {
+    const normalizedUrl = url.trim()
+    if (!/^https?:\/\//iu.test(normalizedUrl)) return
+    setPendingExternalLinkUrl(normalizedUrl)
+  }
+
+  function closeExternalLinkWarning() {
+    setPendingExternalLinkUrl(null)
+  }
+
+  function confirmOpenExternalLink() {
+    if (!pendingExternalLinkUrl) return
+    const url = pendingExternalLinkUrl
+    setPendingExternalLinkUrl(null)
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  function getGroupCreationLimitError(limit: number) {
+    return limit === premiumGroupsPerUserLimit
+      ? `Даже с премиумом можно создать не больше ${premiumGroupsPerUserLimit} активных групп.`
+      : `На бесплатном аккаунте можно создать только ${defaultGroupsPerUserLimit} групп. Чтобы создать больше, активируйте премиум.`
+  }
+
   async function applyPremiumDebugState(enabled: boolean, durationDays = 30) {
     if (!session) return
 
@@ -2305,7 +2968,7 @@ function App() {
     syncSession({
       ...session,
       premium: enabled,
-      premiumExpiresAt: enabled ? makePremiumExpiry(durationDays) : '',
+      premiumExpiresAt: enabled ? extendPremiumExpiry(durationDays, session.premiumExpiresAt) : '',
     })
   }
   const profilePreviewSession =
@@ -2331,6 +2994,89 @@ function App() {
   const storageUsagePercent = storageUsage?.percentUsed ?? 0
   const storageUsageTone =
     storageUsagePercent >= 100 ? 'danger' : storageUsagePercent >= 85 ? 'warning' : 'normal'
+  const activeChannelStorageUsage = activeChannel?.storageUsage
+  const activeChannelStoragePercent = activeChannelStorageUsage?.percentUsed ?? 0
+  const activeChannelStorageTone =
+    activeChannelStoragePercent >= 100 ? 'danger' : activeChannelStoragePercent >= 85 ? 'warning' : 'normal'
+  const storageManagedItemsCount = storageItems.length
+  const storageManagedItemsLabel =
+    storageManagedItemsCount === 1
+      ? '1 объект'
+      : storageManagedItemsCount >= 2 && storageManagedItemsCount <= 4
+        ? `${storageManagedItemsCount} объекта`
+        : `${storageManagedItemsCount} объектов`
+  function formatManagedStorageItemsLabel(count: number) {
+    return count === 1 ? '1 объект' : count >= 2 && count <= 4 ? `${count} объекта` : `${count} объектов`
+  }
+  const channelStorageManagedItemsLabel = formatManagedStorageItemsLabel(channelStorageItems.length)
+  function getStorageCleanupWarning(attachmentDraft?: ComposerAttachmentDraft) {
+    // Keep this warning aligned with server-side auto-cleanup:
+    // if the next upload would overflow quota, older sent attachments may be reclaimed.
+    if (!storageUsage || !attachmentDraft || attachmentDraft.status !== 'ready') {
+      return null
+    }
+
+    const willNeedCleanup = storageUsage.usedBytes + attachmentDraft.size > storageUsage.quotaBytes
+    if (!willNeedCleanup) {
+      return null
+    }
+
+    return sessionHasPremium
+      ? 'У вас закончилось место в хранилище. Старые отправленные фото и файлы будут удалены автоматически, чтобы освободить хранилище.'
+      : (
+        <>
+          {'У вас закончилось место в хранилище. Старые отправленные фото и файлы будут удалены автоматически. '}
+          <span className="composer-attachment-premium-upsell-copy">
+            <span className="composer-attachment-inline-premium">
+              <span>Премиум</span>
+              <span
+                className="premium-crown composer-attachment-premium-crown composer-attachment-premium-crown-brown"
+                aria-hidden="true"
+              >
+                <img src="/icons/crown64.png" alt="" />
+              </span>
+            </span>
+            <span>{' расширяет хранилище и помогает этого избежать.'}</span>
+          </span>
+        </>
+      )
+  }
+  const loadUserStorageItems = useCallback(async () => {
+    if (!backendReady || !session?.sessionToken) {
+      setStorageItems([])
+      return
+    }
+
+    setStorageItemsBusy(true)
+    setStorageItemsError('')
+    try {
+      const response = await fetchUserStorageItemsRequest(session.sessionToken)
+      setStorageItems(response.items)
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Не удалось загрузить хранилище.'
+      setStorageItemsError(message)
+    } finally {
+      setStorageItemsBusy(false)
+    }
+  }, [backendReady, session?.sessionToken])
+  const loadChannelStorageItems = useCallback(async () => {
+    if (!backendReady || !session?.sessionToken || !activeChannel) {
+      setChannelStorageItems([])
+      return
+    }
+
+    setChannelStorageItemsBusy(true)
+    setChannelStorageItemsError('')
+    try {
+      const response = await fetchChannelStorageItemsRequest(session.sessionToken, activeChannel.id)
+      setChannelStorageItems(response.items)
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Не удалось загрузить хранилище канала.'
+      setChannelStorageItemsError(message)
+    } finally {
+      setChannelStorageItemsBusy(false)
+    }
+  }, [activeChannel, backendReady, session?.sessionToken])
   const profileSettingsDirty =
     session !== null &&
     profileSettingsDraft !== null &&
@@ -2348,6 +3094,44 @@ function App() {
     changePasswordConfirmValue.trim().length > 0
   const deleteAccountDirty = deleteAccountPasswordValue.trim().length > 0
   const creatingGroupMemberLimit = sessionHasPremium ? premiumGroupMemberLimit : defaultGroupMemberLimit
+  const creatingGroupsPerUserLimit = sessionHasPremium ? premiumGroupsPerUserLimit : defaultGroupsPerUserLimit
+  const currentSessionIdentifier = normalizeIdentifier(session?.identifier ?? '')
+  const ownedManagedChannelHandles = new Set(
+    channels
+      .map((channel) => sanitizeChannelDirectLink(channel.directLink))
+      .filter((handle): handle is string => Boolean(handle)),
+  )
+  function isOwnedGroupPreview(
+    group: Pick<GroupPreview, 'creatorIdentifier' | 'groupOwnerIdentifier' | 'viewerIsOwner'>,
+  ) {
+    if (group.viewerIsOwner !== undefined) {
+      return group.viewerIsOwner
+    }
+    const ownerIdentifier = normalizeIdentifier(
+      group.groupOwnerIdentifier ?? group.creatorIdentifier ?? '',
+    )
+    return Boolean(ownerIdentifier) && ownerIdentifier === currentSessionIdentifier
+  }
+  function isOwnedSubscriptionChannelPreview(
+    channel: Pick<SubscriptionChannel, 'creatorIdentifier' | 'handle'>,
+  ) {
+    const creatorIdentifier = normalizeIdentifier(channel.creatorIdentifier ?? '')
+    const normalizedHandle = sanitizeChannelDirectLink(channel.handle)
+    return (
+      (Boolean(creatorIdentifier) && creatorIdentifier === currentSessionIdentifier) ||
+      (Boolean(normalizedHandle) && ownedManagedChannelHandles.has(normalizedHandle))
+    )
+  }
+  const activeOwnedGroupCount = groups.filter((group) => {
+    const hiddenArchivedGroup = Boolean(
+      group.archivedAt &&
+        (group.archiveReason === 'admin-archived' ||
+          group.archiveReason === 'owner-deleted' ||
+          group.archiveReason === 'self-service-data-hidden'),
+    )
+    return isOwnedGroupPreview(group) && !hiddenArchivedGroup
+  }).length
+  const creatingGroupLimitReached = activeOwnedGroupCount >= creatingGroupsPerUserLimit
   const selectedGroupCreateChats = creatableGroupChats.filter((chat) =>
     creatingGroupMemberChatIds.includes(chat.id),
   )
@@ -2548,33 +3332,12 @@ function App() {
   const cookieConsentBanner = (
     <CookieConsentBanner consent={cookieConsent} onChoice={updateCookieConsent} />
   )
-
-  useEffect(() => {
-    if ((!isChatOpen && !isSubscriptionChannelOpen && !isGroupOpen) || !messageFeedRef.current) return
-
-    messageFeedRef.current.scrollTop = messageFeedRef.current.scrollHeight
-  }, [
-    activeChatId,
-    activeChatMessageCount,
-    activeGroupId,
-    activeGroupMessageCount,
-    activeSubscriptionChannelId,
-    activeSubscriptionChannelPostCount,
-    activeThreadCommentCount,
-    isChatOpen,
-    isGroupOpen,
-    isSubscriptionChannelOpen,
-    threadTarget,
-  ])
-
-  useLayoutEffect(() => {
-    if (!threadTarget || !messageFeedRef.current) return
-
-    window.requestAnimationFrame(() => {
-      if (!messageFeedRef.current) return
-      messageFeedRef.current.scrollTop = messageFeedRef.current.scrollHeight
-    })
-  }, [activeThreadCommentCount, threadTarget])
+  const { requestRoomFeedScrollToBottom } = useRoomFeedAutoScroll({
+    activeRoomFeedKey,
+    activeRoomFeedSignature,
+    activeRoomHistoryMutation,
+    feedRef: messageFeedRef,
+  })
 
   const scrollCurrentFeedToSelector = useCallback((selector: string) => {
     return scrollFeedChildIntoView(messageFeedRef.current, selector)
@@ -2666,6 +3429,14 @@ function App() {
       threadComposerInputRef.current?.focus()
     })
   }, [threadTarget])
+
+  useEffect(() => {
+    if (!isSettingsView || settingsView !== 'support' || supportCooldownActive) return
+
+    window.requestAnimationFrame(() => {
+      supportComposerInputRef.current?.focus()
+    })
+  }, [isSettingsView, settingsView, supportCooldownActive, threadTarget])
 
   useEffect(() => {
     if (!isChannelsView || !channelsPanelRef.current) return
@@ -2782,6 +3553,24 @@ function App() {
     return () => window.cancelAnimationFrame(animationFrameId)
   }, [adjustSettingsProfileNameFontSize, isSettingsView, settingsView])
 
+  useEffect(() => {
+    if (!isSettingsView || settingsView !== 'storage') {
+      return
+    }
+
+    void loadUserStorageItems()
+  }, [isSettingsView, loadUserStorageItems, settingsView])
+
+  useEffect(() => {
+    if (!isChannelDetailView || !activeChannel) {
+      setChannelStorageItems([])
+      setChannelStorageItemsError('')
+      return
+    }
+
+    void loadChannelStorageItems()
+  }, [activeChannel, isChannelDetailView, loadChannelStorageItems])
+
   useLayoutEffect(() => {
     if (!isRailVisible) return
     adjustAccountStatusFontSize()
@@ -2815,6 +3604,10 @@ function App() {
     setProfileSettingsBusy(false)
     setProfileSettingsError('')
   }, [session])
+
+  useEffect(() => {
+    setQuietMode(Boolean(session?.quietModeEnabled))
+  }, [session?.quietModeEnabled])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -2902,6 +3695,28 @@ function App() {
     }
   }, [])
 
+  const clearQueuedSessionRecovery = useCallback(() => {
+    if (typeof window === 'undefined') return
+    if (sessionRecoveryTimeoutRef.current === null) return
+    window.clearTimeout(sessionRecoveryTimeoutRef.current)
+    sessionRecoveryTimeoutRef.current = null
+  }, [])
+
+  const queueSessionRecovery = useCallback((message?: string) => {
+    setBackendReady(false)
+    if (message) {
+      setAuthError(message)
+    }
+
+    if (typeof window === 'undefined') return
+    if (sessionRecoveryTimeoutRef.current !== null) return
+
+    sessionRecoveryTimeoutRef.current = window.setTimeout(() => {
+      sessionRecoveryTimeoutRef.current = null
+      setSessionRecoveryVersion((current) => current + 1)
+    }, 2500)
+  }, [])
+
   const syncSession = useCallback((nextSession: Session) => {
     persistSession(nextSession)
 
@@ -2918,6 +3733,10 @@ function App() {
                 displayName: nextSession.displayName,
                 surname: nextSession.surname ?? '',
                 nickname: nextSession.nickname ?? '',
+                quietModeEnabled: Boolean(nextSession.quietModeEnabled),
+                quietModeSettings: normalizeQuietModeSettings(nextSession.quietModeSettings),
+                invisibilityAutoEnabled: Boolean(nextSession.invisibilityAutoEnabled),
+                invisibilityEnabled: Boolean(nextSession.invisibilityEnabled ?? nextSession.quietModeEnabled),
                 soundsDisabled: Boolean(nextSession.soundsDisabled),
                 status: nextSession.status ?? '',
                 premium: nextSession.premium ?? true,
@@ -2937,7 +3756,11 @@ function App() {
             createdAt: new Date().toISOString(),
             displayName: nextSession.displayName,
             identifier: nextSession.identifier,
+            invisibilityAutoEnabled: Boolean(nextSession.invisibilityAutoEnabled),
+            invisibilityEnabled: Boolean(nextSession.invisibilityEnabled ?? nextSession.quietModeEnabled),
             nickname: nextSession.nickname ?? '',
+            quietModeEnabled: Boolean(nextSession.quietModeEnabled),
+            quietModeSettings: normalizeQuietModeSettings(nextSession.quietModeSettings),
             soundsDisabled: Boolean(nextSession.soundsDisabled),
             premium: nextSession.premium ?? true,
             premiumExpiresAt: normalizePremiumExpiry(
@@ -3004,11 +3827,23 @@ function App() {
     })
   }, [persistBrowserNotificationsEnabled])
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const activeSessionToken = session?.sessionToken
+    if (activeSessionToken) {
+      // Presence/logout invariant:
+      // local storage cleanup alone must never be the only logout step, otherwise other users can
+      // keep seeing a stale "в сети" badge until long-running session retention prunes the token.
+      await logoutSessionRequest(activeSessionToken).catch((error) => {
+        console.error('Failed to invalidate Tinychok session during logout', error)
+      })
+    }
+
+    clearQueuedSessionRecovery()
     Object.values(chatAttachmentDrafts).forEach((draft) => releaseComposerAttachmentDraft(draft))
     Object.values(groupAttachmentDrafts).forEach((draft) => releaseComposerAttachmentDraft(draft))
     Object.values(channelAttachmentDrafts).forEach((draft) => releaseComposerAttachmentDraft(draft))
     releaseComposerAttachmentDraft(threadAttachmentDraft)
+    releaseComposerAttachmentDraft(supportAttachmentDraft)
     persistSession(null)
     setBackendReady(false)
     setIdentifier('')
@@ -3026,6 +3861,7 @@ function App() {
     setGroupAttachmentDrafts({})
     setChannelAttachmentDrafts({})
     setThreadAttachmentDraft(undefined)
+    setSupportAttachmentDraft(undefined)
     setChannelPostBusy(false)
     setChannelPostError('')
     setChannelPostReplyTarget(null)
@@ -3042,10 +3878,6 @@ function App() {
     setConfirmingDeleteContactChatId(null)
     setConfirmingDeleteMessageId(null)
     setConfirmingDeleteChannelId(null)
-    setTransferringChannelId(null)
-    setChannelTransferTargetChatId(null)
-    setChannelTransferCode('')
-    setChannelTransferError('')
     setTopListView('none')
     setStageView('main')
     setSettingsView('profile')
@@ -3065,12 +3897,21 @@ function App() {
   }, [
     channelAttachmentDrafts,
     chatAttachmentDrafts,
+    clearQueuedSessionRecovery,
     clearPendingMessages,
     groupAttachmentDrafts,
     persistSession,
     resetRoomMessageActions,
+    session?.sessionToken,
+    supportAttachmentDraft,
     threadAttachmentDraft,
   ])
+
+  useEffect(() => {
+    return () => {
+      clearQueuedSessionRecovery()
+    }
+  }, [clearQueuedSessionRecovery])
 
   const playAudioCue = useCallback((path: string) => {
     if (typeof window === 'undefined' || quietMode || session?.soundsDisabled) return
@@ -3343,8 +4184,18 @@ function App() {
     skipNextBackendSyncRef.current = true
     setChats(mergedChats)
     setChannels(snapshot.channels)
+    setContactRequests(snapshot.contactRequests)
+    setOutgoingContactRequests(snapshot.outgoingContactRequests)
     setDiscoveryResults(snapshot.discoveryResults)
     setGroups(mergedGroups)
+    setSupportTicketCooldownUntil(snapshot.supportTicketCooldownUntil)
+    setSupportComposerCooldownUntil((currentCooldownUntil) =>
+      snapshot.supportTicketCooldownUntil ??
+      currentCooldownUntil ??
+      resolveSupportCooldownUntilFromTickets(snapshot.supportTickets)
+    )
+    setSupportTickets(snapshot.supportTickets)
+    setSupportUnreadCount(snapshot.supportUnreadCount)
     setSubscriptionChannels(mergedSubscriptionChannels)
     setThreadInbox(snapshot.threadInbox)
     setActiveChatId((currentChatId) =>
@@ -3379,6 +4230,178 @@ function App() {
     syncSession,
   ])
 
+  const removeStorageItem = useCallback(async (storageItem: UserStorageItem) => {
+    if (!backendReady || !session?.sessionToken) {
+      return
+    }
+
+    setDeletingStorageItemId(storageItem.id)
+    setStorageItemsError('')
+    try {
+      const response = await deleteUserStorageItemRequest(session.sessionToken, storageItem.id)
+      applySnapshot(response.snapshot)
+      const nextItems = await fetchUserStorageItemsRequest(session.sessionToken)
+      setStorageItems(nextItems.items)
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Не удалось удалить объект из хранилища.'
+      setStorageItemsError(message)
+    } finally {
+      setDeletingStorageItemId(null)
+    }
+  }, [applySnapshot, backendReady, session?.sessionToken])
+  const removeChannelStorageItem = useCallback(async (storageItem: UserStorageItem) => {
+    if (!backendReady || !session?.sessionToken || !activeChannel) {
+      return
+    }
+
+    setDeletingChannelStorageItemId(storageItem.id)
+    setChannelStorageItemsError('')
+    try {
+      const response = await deleteChannelStorageItemRequest(session.sessionToken, activeChannel.id, storageItem.id)
+      applySnapshot(response.snapshot)
+      const nextItems = await fetchChannelStorageItemsRequest(session.sessionToken, activeChannel.id)
+      setChannelStorageItems(nextItems.items)
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Не удалось удалить объект из хранилища канала.'
+      setChannelStorageItemsError(message)
+    } finally {
+      setDeletingChannelStorageItemId(null)
+    }
+  }, [activeChannel, applySnapshot, backendReady, session?.sessionToken])
+  function renderStorageItemsGrid(args: {
+    busy: boolean
+    compact?: boolean
+    deletingId: string | null
+    emptyCopy: string
+    error: string
+    items: UserStorageItem[]
+    onDelete: (item: UserStorageItem) => void
+  }) {
+    const { busy, compact = false, deletingId, emptyCopy, error, items, onDelete } = args
+
+    return (
+      <>
+        {busy ? (
+          <article className="settings-item settings-storage-empty-state">
+            <p className="settings-text">Загружаем объекты хранилища...</p>
+          </article>
+        ) : null}
+        {!busy && items.length > 0 ? (
+          <div
+            className={`settings-storage-grid${compact ? ' compact' : ''}`}
+            role="list"
+            aria-label="Объекты хранилища"
+          >
+            {items.map((item) => {
+              const deleting = deletingId === item.id
+              const isImage = item.mimeType.startsWith('image/')
+              return (
+                <article
+                  key={item.id}
+                  className={`settings-storage-card${compact ? ' compact' : ''}${deleting ? ' deleting' : ''}`}
+                  role="listitem"
+                >
+                  <button
+                    type="button"
+                    className="settings-storage-delete"
+                    aria-label={`Удалить ${item.fileName} из хранилища`}
+                    disabled={Boolean(deletingId)}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      onDelete(item)
+                    }}
+                  >
+                    ×
+                  </button>
+                  {isImage ? (
+                    <div className="settings-storage-thumb-wrap">
+                      <img src={item.mediaUrl} alt={item.fileName} className="settings-storage-thumb" />
+                    </div>
+                  ) : (
+                    <div className="settings-storage-file-card">
+                      <span className="settings-storage-file-badge">{item.kind === 'gif' ? 'GIF' : 'Файл'}</span>
+                      <strong>{item.fileName}</strong>
+                      {!compact ? <span>{formatAttachmentSize(item.size)}</span> : null}
+                    </div>
+                  )}
+                  {!compact ? (
+                    <div className="settings-storage-card-copy">
+                      <strong title={item.fileName}>{item.fileName}</strong>
+                      <span>{item.primaryLabel}</span>
+                      <span>{formatAttachmentSize(item.size)}</span>
+                      <span>{formatSupportTicketCreatedAt(item.createdAt)}</span>
+                    </div>
+                  ) : null}
+                </article>
+              )
+            })}
+          </div>
+        ) : null}
+        {!busy && items.length === 0 ? (
+          <article className="settings-item settings-storage-empty-state">
+            <p className="settings-text">{emptyCopy}</p>
+          </article>
+        ) : null}
+        {error ? <p className="auth-error">{error}</p> : null}
+      </>
+    )
+  }
+  function renderManagedStorageSummaryButton(args: {
+    managedItemsLabel: string
+    onOpen: () => void
+    openCopy: string
+    subjectLabel?: string
+    title: string
+    tone: 'danger' | 'normal' | 'warning'
+    usage?: Session['storageUsage']
+  }) {
+    const { managedItemsLabel, onOpen, openCopy, subjectLabel, title, tone, usage } = args
+    const percentUsed = Math.max(0, Math.min(100, usage?.percentUsed ?? 0))
+    return (
+      <button
+        type="button"
+        className={`settings-item settings-storage-section storage-usage-card storage-usage-card-button ${tone}`}
+        onClick={onOpen}
+      >
+        <div className="storage-usage-header">
+          <div className="storage-usage-title-stack">
+            <span className="settings-label">{title}</span>
+            {subjectLabel ? <span className="storage-usage-subject-label">{subjectLabel}</span> : null}
+          </div>
+          <strong>
+            {usage
+              ? `${formatAttachmentSize(usage.usedBytes)} из ${formatAttachmentSize(usage.quotaBytes)}`
+              : 'Нет данных'}
+          </strong>
+        </div>
+        {usage ? (
+          <>
+            <div
+              className="storage-usage-bar"
+              role="progressbar"
+              aria-label={`Использование хранилища: ${title}`}
+              aria-valuemin={0}
+              aria-valuemax={usage.quotaBytes}
+              aria-valuenow={usage.usedBytes}
+            >
+              <span className="storage-usage-bar-fill" style={{ width: `${Math.max(4, percentUsed)}%` }} />
+            </div>
+            <div className="settings-storage-meta">
+              <p className="settings-text">{`Осталось ${formatAttachmentSize(usage.remainingBytes)}`}</p>
+              <p className="settings-text">{managedItemsLabel}</p>
+            </div>
+            <p className="settings-text storage-usage-open-copy">
+              <span className="storage-usage-open-pill">{openCopy}</span>
+            </p>
+          </>
+        ) : (
+          <p className="settings-text">Использование хранилища пока не посчитано.</p>
+        )}
+      </button>
+    )
+  }
+
   useEffect(() => {
     if (!session) {
       latestSnapshotRef.current = null
@@ -3388,13 +4411,62 @@ function App() {
     latestSnapshotRef.current = {
       channels,
       chats,
+      contactRequests,
+      outgoingContactRequests,
       discoveryResults,
       groups,
       session,
+      supportTicketCooldownUntil,
+      supportTickets,
+      supportUnreadCount,
       subscriptionChannels,
       threadInbox,
     }
-  }, [channels, chats, discoveryResults, groups, session, subscriptionChannels, threadInbox])
+  }, [
+    channels,
+    chats,
+    contactRequests,
+    discoveryResults,
+    groups,
+    outgoingContactRequests,
+    session,
+    supportTicketCooldownUntil,
+    supportTickets,
+    supportUnreadCount,
+    subscriptionChannels,
+    threadInbox,
+  ])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (!effectiveSupportTicketCooldownUntil) {
+      setSupportCooldownNow(Date.now())
+      return
+    }
+
+    setSupportCooldownNow(Date.now())
+    const intervalId = window.setInterval(() => {
+      setSupportCooldownNow(Date.now())
+    }, 250)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [effectiveSupportTicketCooldownUntil])
+
+  useEffect(() => {
+    if (effectiveSupportTicketCooldownUntil) {
+      return
+    }
+
+    const fallbackCooldownUntil = resolveSupportCooldownUntilFromTickets(supportTickets, supportCooldownNow)
+    if (fallbackCooldownUntil) {
+      setSupportComposerCooldownUntil(fallbackCooldownUntil)
+    }
+  }, [effectiveSupportTicketCooldownUntil, supportCooldownNow, supportTickets])
 
   const fallbackSaveCurrentSnapshot = useCallback(async (reason: string) => {
     if (
@@ -3464,24 +4536,24 @@ function App() {
       try {
         const snapshot = await fetchBootstrap(session.sessionToken!)
         if (cancelled) return
+        clearQueuedSessionRecovery()
         applySnapshot(snapshot)
         setBackendReady(true)
       } catch (error) {
         if (cancelled) return
         console.error('Failed to bootstrap Tinychok backend', error)
         if (isExpiredSessionError(error)) {
-          logout()
-          setAuthError('Сессия устарела. Войдите снова.')
+          queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
           return
         }
-        setBackendReady(false)
+        queueSessionRecovery()
       }
     })()
 
     return () => {
       cancelled = true
     }
-  }, [applySnapshot, logout, session?.sessionToken])
+  }, [applySnapshot, clearQueuedSessionRecovery, queueSessionRecovery, session?.sessionToken, sessionRecoveryVersion])
 
   useEffect(() => {
     if (!searchOpen || topListView !== 'none') {
@@ -3495,19 +4567,33 @@ function App() {
 
     let cancelled = false
     const timeoutId = window.setTimeout(() => {
-      void searchDiscoveryResultsRequest(session.sessionToken!, trimmedQuery)
-        .then((results) => {
+      // Search keeps people and channels on the same debounced request cadence,
+      // but channel results must come from backend discovery so self-unsubscribed
+      // channels remain searchable without silently resubscribing the user.
+      Promise.all([
+        searchDiscoveryResultsRequest(session.sessionToken!, trimmedQuery),
+        searchChannelDiscoveryResultsRequest(session.sessionToken!, trimmedQuery),
+      ])
+        .then(([results, channelResults]) => {
           if (!cancelled) {
             setLiveSearchState({
               query: trimmedQuery,
               results,
             })
+            setLiveChannelSearchState({
+              query: trimmedQuery,
+              results: channelResults,
+            })
           }
         })
         .catch((error) => {
           if (cancelled) return
-          console.error('Failed to search discovery accounts', error)
+          console.error('Failed to search discovery results', error)
           setLiveSearchState({
+            query: trimmedQuery,
+            results: [],
+          })
+          setLiveChannelSearchState({
             query: trimmedQuery,
             results: [],
           })
@@ -3523,35 +4609,117 @@ function App() {
   useEffect(() => {
     if (!backendReady || !session?.sessionToken) return
 
-    const socket = openRealtimeConnection(session.sessionToken, (event) => {
-      if (event.type === 'connection.ready') {
+    const sessionToken = session.sessionToken
+    let cancelled = false
+    let socket: WebSocket | null = null
+    let reconnectAttempt = 0
+    let reconnectTimeoutId: number | null = null
+    let fallbackRefreshIntervalId: number | null = null
+
+    const clearFallbackRefresh = () => {
+      if (fallbackRefreshIntervalId === null) return
+      window.clearInterval(fallbackRefreshIntervalId)
+      fallbackRefreshIntervalId = null
+    }
+
+    const clearReconnectTimeout = () => {
+      if (reconnectTimeoutId === null) return
+      window.clearTimeout(reconnectTimeoutId)
+      reconnectTimeoutId = null
+    }
+
+    const refreshSnapshot = async () => {
+      try {
+        const snapshot = await fetchBootstrap(sessionToken)
+        if (cancelled) return
+        clearQueuedSessionRecovery()
         suppressNextBrowserNotificationDiffRef.current = true
+        applySnapshot(snapshot)
+        setBackendReady(true)
+      } catch (error) {
+        if (cancelled) return
+        console.error('Failed to refresh Tinychok snapshot while realtime is offline', error)
+        if (isExpiredSessionError(error)) {
+          queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
+          return
+        }
+        queueSessionRecovery()
       }
-      applySnapshot(event.snapshot)
-    })
+    }
 
-    socket.addEventListener('open', () => {
-      trackAnalyticsEvent('realtime_connected', {})
-    })
+    const ensureFallbackRefresh = () => {
+      if (fallbackRefreshIntervalId !== null) return
+      void refreshSnapshot()
+      fallbackRefreshIntervalId = window.setInterval(() => {
+        void refreshSnapshot()
+      }, 3000)
+    }
 
-    socket.addEventListener('error', () => {
-      trackAnalyticsEvent('realtime_error', {})
-    })
+    const scheduleReconnect = () => {
+      if (cancelled || reconnectTimeoutId !== null) return
+      const delay = Math.min(5000, 500 * 2 ** reconnectAttempt)
+      reconnectAttempt += 1
+      reconnectTimeoutId = window.setTimeout(() => {
+        reconnectTimeoutId = null
+        connectRealtime()
+      }, delay)
+    }
 
-    socket.addEventListener('close', () => {
-      trackAnalyticsEvent('realtime_disconnected', {})
-    })
+    const handleRealtimeDisconnect = () => {
+      ensureFallbackRefresh()
+      scheduleReconnect()
+    }
+
+    const connectRealtime = () => {
+      if (cancelled || socket) return
+
+      socket = openRealtimeConnection(sessionToken, (event) => {
+        if (cancelled) return
+        if (event.type === 'connection.ready') {
+          reconnectAttempt = 0
+          clearFallbackRefresh()
+          suppressNextBrowserNotificationDiffRef.current = true
+          trackAnalyticsEvent('realtime_connected', {})
+        }
+        applySnapshot(event.snapshot)
+      })
+
+      socket.addEventListener('error', () => {
+        if (cancelled) return
+        trackAnalyticsEvent('realtime_error', {})
+        socket?.close()
+      })
+
+      socket.addEventListener('close', () => {
+        if (cancelled) return
+        socket = null
+        trackAnalyticsEvent('realtime_disconnected', {})
+        handleRealtimeDisconnect()
+      })
+    }
+
+    connectRealtime()
 
     return () => {
-      socket.close()
+      cancelled = true
+      clearFallbackRefresh()
+      clearReconnectTimeout()
+      socket?.close()
     }
-  }, [applySnapshot, backendReady, session?.sessionToken])
+  }, [applySnapshot, backendReady, clearQueuedSessionRecovery, queueSessionRecovery, session?.sessionToken])
 
   useEffect(() => {
     const previousSlices = previousSnapshotSlicesRef.current
     const chatsChanged = previousSlices.chats !== chats
+    const contactRequestsChanged = previousSlices.contactRequests !== contactRequests
+    const outgoingContactRequestsChanged =
+      previousSlices.outgoingContactRequests !== outgoingContactRequests
     const groupsChanged = previousSlices.groups !== groups
     const sessionChanged = previousSlices.session !== session
+    const supportTicketCooldownChanged =
+      previousSlices.supportTicketCooldownUntil !== supportTicketCooldownUntil
+    const supportTicketsChanged = previousSlices.supportTickets !== supportTickets
+    const supportUnreadCountChanged = previousSlices.supportUnreadCount !== supportUnreadCount
     const channelsChanged = previousSlices.channels !== channels
     const subscriptionChannelsChanged =
       previousSlices.subscriptionChannels !== subscriptionChannels
@@ -3560,8 +4728,13 @@ function App() {
     previousSnapshotSlicesRef.current = {
       channels,
       chats,
+      contactRequests,
+      outgoingContactRequests,
       groups,
       session,
+      supportTicketCooldownUntil,
+      supportTickets,
+      supportUnreadCount,
       subscriptionChannels,
       threadInbox,
     }
@@ -3574,7 +4747,37 @@ function App() {
     }
 
     if (
+      contactRequestsChanged &&
+      !outgoingContactRequestsChanged &&
+      !chatsChanged &&
+      !groupsChanged &&
+      !sessionChanged &&
+      !supportTicketCooldownChanged &&
+      !supportTicketsChanged &&
+      !supportUnreadCountChanged &&
+      !channelsChanged &&
+      !subscriptionChannelsChanged &&
+      !threadInboxChanged
+    ) {
+      return
+    }
+
+    if (
+      outgoingContactRequestsChanged &&
+      !contactRequestsChanged &&
+      !chatsChanged &&
+      !groupsChanged &&
+      !sessionChanged &&
+      !channelsChanged &&
+      !subscriptionChannelsChanged &&
+      !threadInboxChanged
+    ) {
+      return
+    }
+
+    if (
       threadInboxChanged &&
+      !outgoingContactRequestsChanged &&
       !chatsChanged &&
       !groupsChanged &&
       !sessionChanged &&
@@ -3617,9 +4820,14 @@ function App() {
     const snapshot: AppSnapshot = {
       channels,
       chats,
+      contactRequests,
+      outgoingContactRequests,
       discoveryResults,
       groups,
       session,
+      supportTicketCooldownUntil,
+      supportTickets,
+      supportUnreadCount,
       subscriptionChannels,
       threadInbox,
     }
@@ -3640,10 +4848,12 @@ function App() {
     backendReady,
     channels,
     chats,
+    contactRequests,
     discoveryResults,
     groups,
     hasLocalOutboxMessages,
     hasPendingOutgoingMessages,
+    outgoingContactRequests,
     session,
     subscriptionChannels,
     threadInbox,
@@ -3710,12 +4920,29 @@ function App() {
 
       if (response.status === 'needs-password-login') {
         setAuthError('')
+        setAuthPhoneBlockedNotice(false)
         setAuthPassword('')
         setAuthPasswordConfirm('')
         setAuthStep('password')
         trackAnalyticsEvent('auth_password_prompt_shown', {
           existingAccount: true,
           hasPassword: true,
+        })
+        return
+      }
+
+      if (response.status === 'blocked') {
+        setAuthError('')
+        setAuthPhoneBlockedNotice(true)
+        setAuthPassword('')
+        setAuthPasswordConfirm('')
+        setSmsCode('')
+        setAuthStep('phone')
+        trackAnalyticsEvent('auth_code_request_failed', {
+          blocked: true,
+          captchaRequired,
+          flow: requestFlow === 'password-reset' ? 'password-reset' : 'registration',
+          reason: blockedPhoneAuthNoticeMessage,
         })
         return
       }
@@ -3728,6 +4955,7 @@ function App() {
             : 'registration'
       setAuthCodeFlow(nextFlow)
       setAuthError('')
+      setAuthPhoneBlockedNotice(false)
       setSmsCode('')
       setAuthStep('code')
       if (nextFlow === 'password-reset') {
@@ -3750,6 +4978,7 @@ function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Не удалось запросить код.'
       setAuthError(message)
+      setAuthPhoneBlockedNotice(false)
       trackAnalyticsEvent('auth_code_request_failed', {
         captchaRequired,
         flow: requestFlow === 'password-reset' ? 'password-reset' : 'registration',
@@ -3776,6 +5005,7 @@ function App() {
       setIdentifier(normalized)
       setAuthExistingAccount(authExistingAccount)
       setAuthCodeFlow('password-reset')
+      setAuthPhoneBlockedNotice(false)
       setPasswordLoginCaptchaRequired(false)
       setAuthPassword('')
       setAuthPasswordConfirm('')
@@ -4092,6 +5322,14 @@ function App() {
     })
   }
 
+  function clearSupportAttachmentDraft() {
+    supportAttachmentSelectionTokenRef.current += 1
+    setSupportAttachmentDraft((currentDraft) => {
+      releaseComposerAttachmentDraft(currentDraft)
+      return undefined
+    })
+  }
+
   function openMediaViewer(
     attachment: MessageAttachment,
     options?: { allowDownload?: boolean; allowGifAdd?: boolean },
@@ -4116,7 +5354,12 @@ function App() {
   }
 
   function openAttachmentDraftPreview(attachmentDraft?: ComposerAttachmentDraft) {
-    if (!attachmentDraft || attachmentDraft.kind !== 'image') return
+    if (
+      !attachmentDraft ||
+      (!isImageMimeType(attachmentDraft.mimeType) && !isVideoMimeType(attachmentDraft.mimeType))
+    ) {
+      return
+    }
 
     openMediaViewer({
       fileName: attachmentDraft.fileName,
@@ -4389,6 +5632,7 @@ function App() {
       markAsRead?: boolean
       replyTo?: Message['replyTo']
       sourceChannel?: Message['sourceChannel']
+      sourceContact?: Message['sourceContact']
       sourceGroup?: Message['sourceGroup']
       time?: string
     },
@@ -4415,6 +5659,7 @@ function App() {
               id: options?.localId ?? Date.now(),
               replyTo: options?.replyTo,
               sourceChannel: options?.sourceChannel,
+              sourceContact: options?.sourceContact,
               sourceGroup: options?.sourceGroup,
               text,
               createdAt,
@@ -4452,6 +5697,7 @@ function App() {
       localId?: number
       replyTo?: Message['replyTo']
       sourceChannel?: Message['sourceChannel']
+      sourceContact?: Message['sourceContact']
       time?: string
     },
   ) {
@@ -4480,6 +5726,7 @@ function App() {
                   forwardedAuthorName: options?.forwardedAuthorName,
                   replyTo: options?.replyTo,
                   sourceChannel: options?.sourceChannel,
+                  sourceContact: options?.sourceContact,
                   text,
                   threadComments: [],
                   threadId: `local-group:${group.id}:${createdAt}:${options?.localId ?? Date.now()}`,
@@ -4516,6 +5763,7 @@ function App() {
       deliveryId?: string
       displayAuthor?: string
       localId?: number
+      sourceContact?: Message['sourceContact']
       time?: string
     },
   ) {
@@ -4544,6 +5792,7 @@ function App() {
                           displayAuthor: options?.displayAuthor ?? sessionName,
                           id: options?.localId ?? (message.threadComments ?? []).length + 1,
                           replyTo,
+                          sourceContact: options?.sourceContact,
                           text,
                           time,
                         } satisfies ThreadComment,
@@ -4567,6 +5816,7 @@ function App() {
       deliveryId?: string
       displayAuthor?: string
       localId?: number
+      sourceContact?: Message['sourceContact']
       time?: string
     },
   ) {
@@ -4595,6 +5845,7 @@ function App() {
                           displayAuthor: options?.displayAuthor ?? sessionName,
                           id: options?.localId ?? (post.threadComments ?? []).length + 1,
                           replyTo,
+                          sourceContact: options?.sourceContact,
                           text,
                           time,
                         } satisfies ThreadComment,
@@ -4653,6 +5904,7 @@ function App() {
       attachment?: Message['attachment']
       createdAt?: string
       replyTo?: Message['replyTo']
+      sourceContact?: Message['sourceContact']
       system?: boolean
       time?: string
     },
@@ -4672,6 +5924,7 @@ function App() {
               text: channelPostReplyTarget.text,
             }
           : undefined),
+      sourceContact: options?.sourceContact,
       system: Boolean(options?.system),
       text,
       threadComments: [],
@@ -4868,7 +6121,7 @@ function App() {
   async function resolvePendingAttachmentForSend(
     sessionToken: string,
     attachmentDraft?: PendingAttachmentDraft,
-    options?: { surface: 'channel' | 'direct' | 'group' | 'thread' },
+    options?: { surface: 'channel' | 'direct' | 'group' | 'support' | 'thread' },
   ) {
     if (!attachmentDraft) {
       return {
@@ -4898,7 +6151,12 @@ function App() {
     let uploadedMedia
 
     try {
-      uploadedMedia = await uploadMediaFile(sessionToken, attachmentDraft.file, 'attachment')
+      uploadedMedia = await uploadMediaFile(
+        sessionToken,
+        attachmentDraft.file,
+        'attachment',
+        attachmentDraft.fileName,
+      )
     } catch (error) {
       if (isPhotoMimeType(attachmentDraft.mimeType)) {
         trackAnalyticsEvent('photo_upload_failed', {
@@ -4914,7 +6172,10 @@ function App() {
 
     return {
       attachment: {
-        fileName: attachmentDraft.fileName,
+        // The server validates attachments against the registered pending upload metadata.
+        // After image compression/re-encode the stored upload can have a different file name,
+        // so sends must use the uploaded descriptor rather than the stale local draft name.
+        fileName: uploadedMedia.fileName,
         height: attachmentDraft.height,
         mediaUrl: uploadedMedia.mediaUrl,
         mimeType: uploadedMedia.mimeType,
@@ -4922,7 +6183,7 @@ function App() {
         width: attachmentDraft.width,
       } satisfies NonNullable<Message['attachment']>,
       attachmentDraft: {
-        fileName: attachmentDraft.fileName,
+        fileName: uploadedMedia.fileName,
         height: attachmentDraft.height,
         mediaUrl: uploadedMedia.mediaUrl,
         mimeType: uploadedMedia.mimeType,
@@ -4946,7 +6207,64 @@ function App() {
   }
 
   async function createComposerDraft(file: File, options?: { previewUrl?: string }) {
-    return await buildComposerAttachmentDraft(file, options)
+    return await buildComposerAttachmentDraft(file, {
+      ...options,
+      // Keep file-size validation aligned with the server: free users can attach
+      // files up to 10 MB, premium users up to 200 MB.
+      maxFileUploadCopy: sessionHasPremium
+        ? 'Максимальный размер 200 МБ.'
+        : 'Максимальный размер 10 МБ. С премиумом доступно до 200 МБ.',
+      maxFileUploadSizeBytes: sessionHasPremium
+        ? premiumMessageFileUploadMaxSizeBytes
+        : messageFileUploadMaxSizeBytes,
+    })
+  }
+
+  function getClipboardImageFile(event: ReactClipboardEvent<HTMLElement>) {
+    const clipboardItems = event.clipboardData?.items
+    if (!clipboardItems || clipboardItems.length === 0) {
+      return null
+    }
+
+    for (const item of Array.from(clipboardItems)) {
+      if (!item.type.startsWith('image/')) continue
+      return item.getAsFile()
+    }
+
+    return null
+  }
+
+  async function handlePastedComposerImage(
+    event: ReactClipboardEvent<HTMLElement>,
+    options: {
+      getSelectionToken: () => number
+      replaceDraft: (draft: ComposerAttachmentDraft) => void
+      restorePreparedDraft: (selectionToken: number, draft: ComposerAttachmentDraft) => void
+      surface: 'channel' | 'direct' | 'group' | 'support' | 'thread'
+    },
+  ) {
+    // Clipboard images must go through the exact same composer draft pipeline as picker uploads.
+    // If there is no image in the clipboard, we must not block the regular text paste behavior.
+    const file = getClipboardImageFile(event)
+    if (!file) {
+      return
+    }
+
+    event.preventDefault()
+
+    const selectionToken = options.getSelectionToken()
+    const preparingDraft = createPreparingComposerAttachmentDraft(file)
+    options.replaceDraft(preparingDraft)
+
+    const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
+      await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
+    )
+    trackPhotoAttachmentSelected(
+      options.surface,
+      file,
+      sessionHasPremium && photoSendOriginalPreference,
+    )
+    options.restorePreparedDraft(selectionToken, nextAttachmentDraft)
   }
 
   function applyPhotoSendOriginalPreferenceToDraft(attachmentDraft: ComposerAttachmentDraft) {
@@ -5081,6 +6399,11 @@ function App() {
     attachThreadGif(gif)
   }
 
+  async function uploadAndAttachSupportGif(file: File) {
+    const gif = await uploadUserGifToLibrary(file)
+    attachSupportGif(gif)
+  }
+
   async function searchAvailableGifs(query: string) {
     const normalizedQuery = query.trim()
 
@@ -5210,6 +6533,14 @@ function App() {
     })
   }
 
+  function attachSupportGif(gif: UserGifLibraryItem) {
+    supportAttachmentSelectionTokenRef.current += 1
+    setSupportAttachmentDraft((currentDraft) => {
+      releaseComposerAttachmentDraft(currentDraft)
+      return buildGifLibraryAttachmentDraft(gif)
+    })
+  }
+
   function toggleChatAttachmentSendOriginal(chatId: number) {
     setChatAttachmentDrafts((currentAttachments) => {
       const currentDraft = currentAttachments[chatId]
@@ -5271,6 +6602,56 @@ function App() {
       setPhotoSendOriginalPreference(nextSendOriginal)
 
       return setComposerAttachmentSendOriginal(currentDraft, nextSendOriginal)
+    })
+  }
+
+  function renameChatAttachmentFileBaseName(chatId: number, nextBaseName: string) {
+    setChatAttachmentDrafts((currentAttachments) => {
+      const currentDraft = currentAttachments[chatId]
+      if (!currentDraft) return currentAttachments
+
+      return {
+        ...currentAttachments,
+        [chatId]: setComposerAttachmentFileBaseName(currentDraft, nextBaseName),
+      }
+    })
+  }
+
+  function renameGroupAttachmentFileBaseName(groupId: number, nextBaseName: string) {
+    setGroupAttachmentDrafts((currentAttachments) => {
+      const currentDraft = currentAttachments[groupId]
+      if (!currentDraft) return currentAttachments
+
+      return {
+        ...currentAttachments,
+        [groupId]: setComposerAttachmentFileBaseName(currentDraft, nextBaseName),
+      }
+    })
+  }
+
+  function renameChannelAttachmentFileBaseName(channelId: number, nextBaseName: string) {
+    setChannelAttachmentDrafts((currentAttachments) => {
+      const currentDraft = currentAttachments[channelId]
+      if (!currentDraft) return currentAttachments
+
+      return {
+        ...currentAttachments,
+        [channelId]: setComposerAttachmentFileBaseName(currentDraft, nextBaseName),
+      }
+    })
+  }
+
+  function renameThreadAttachmentFileBaseName(nextBaseName: string) {
+    setThreadAttachmentDraft((currentDraft) => {
+      if (!currentDraft) return currentDraft
+      return setComposerAttachmentFileBaseName(currentDraft, nextBaseName)
+    })
+  }
+
+  function renameSupportAttachmentFileBaseName(nextBaseName: string) {
+    setSupportAttachmentDraft((currentDraft) => {
+      if (!currentDraft) return currentDraft
+      return setComposerAttachmentFileBaseName(currentDraft, nextBaseName)
     })
   }
 
@@ -5445,6 +6826,7 @@ function App() {
     releaseChannelAvatarDraft(creatingGroupAvatarDraft)
     setGroupCreateOpen(true)
     setCreatingGroupTitle('')
+    setCreatingGroupDescription('')
     setCreatingGroupAccent(channelAvatarTones[0])
     setCreatingGroupAvatarDraft(null)
     setCreatingGroupCommentsForAll(false)
@@ -5478,6 +6860,7 @@ function App() {
 
     setGroupCreateOpen(false)
     setCreatingGroupTitle('')
+    setCreatingGroupDescription('')
     setCreatingGroupAccent(channelAvatarTones[0])
     setCreatingGroupAvatarDraft(null)
     setCreatingGroupCommentsForAll(false)
@@ -5666,6 +7049,183 @@ function App() {
     })
   }
 
+  async function toggleQuietMode() {
+    const nextQuietModeEnabled = !quietMode
+    setQuietMode(nextQuietModeEnabled)
+
+    if (!session) return
+
+    // Product invariant:
+    // quiet-mode may temporarily auto-enable invisibility, but only an auto-enabled invisibility
+    // is allowed to auto-disable again when `Тихо` is turned off.
+    const nextInvisibilityState = resolveQuietModeInvisibilityState({
+      autoInvisibility: effectiveQuietModeSettings.autoInvisibility,
+      currentInvisibilityAutoEnabled: invisibilityAutoEnabled,
+      currentInvisibilityEnabled: invisibilityPreferenceEnabled,
+      currentQuietModeEnabled: quietMode,
+      nextQuietModeEnabled,
+    })
+
+    if (backendReady && session.sessionToken) {
+      try {
+        const response = await updateSessionRequest(session.sessionToken, {
+          quietModeEnabled: nextQuietModeEnabled,
+        })
+        applySnapshot(response.snapshot)
+        return
+      } catch (error) {
+        console.error('Failed to update quiet mode', error)
+      }
+    }
+
+    syncSession({
+      ...session,
+      invisibilityAutoEnabled: nextInvisibilityState.invisibilityAutoEnabled,
+      invisibilityEnabled: nextInvisibilityState.invisibilityEnabled,
+      quietModeEnabled: nextQuietModeEnabled,
+    })
+  }
+
+  async function updateQuietModeSettingsPreference(
+    patch: Partial<QuietModeSettings>,
+  ) {
+    if (!session) return
+
+    const nextQuietModeSettings = normalizeQuietModeSettings({
+      ...storedQuietModeSettings,
+      ...patch,
+    })
+
+    setQuietSettingsBusy(true)
+    setQuietSettingsError('')
+
+    if (backendReady && session.sessionToken) {
+      try {
+        const response = await updateSessionRequest(session.sessionToken, {
+          quietModeSettings: nextQuietModeSettings,
+        })
+        applySnapshot(response.snapshot)
+        return
+      } catch (error) {
+        console.error('Failed to update quiet mode settings', error)
+        setQuietSettingsError(
+          error instanceof Error ? error.message : 'Не удалось сохранить настройки режима «Тихо».',
+        )
+      } finally {
+        setQuietSettingsBusy(false)
+      }
+
+      return
+    }
+
+    syncSession({
+      ...session,
+      quietModeSettings: nextQuietModeSettings,
+    })
+    setQuietSettingsBusy(false)
+  }
+
+  async function setInvisibilityPreference(nextInvisibilityEnabled: boolean) {
+    if (!session) return
+
+    // Premium gate invariant:
+    // the settings checkbox must never locally fake-enable invisible mode for free users.
+    // The only allowed non-premium action here is redirecting into the premium purchase flow.
+    if (!sessionHasPremium) {
+      openPremiumUpsell()
+      return
+    }
+
+    if (backendReady && session.sessionToken) {
+      try {
+        const response = await updateSessionRequest(session.sessionToken, {
+          invisibilityEnabled: nextInvisibilityEnabled,
+        })
+        applySnapshot(response.snapshot)
+        return
+      } catch (error) {
+        console.error('Failed to update invisibility mode', error)
+      }
+    }
+
+    syncSession({
+      ...session,
+      invisibilityAutoEnabled: false,
+      invisibilityEnabled: nextInvisibilityEnabled,
+    })
+  }
+
+  async function sendSupportMessage() {
+    const text = supportDraft.trim()
+    const attachmentDraft = supportAttachmentDraft
+    if (supportBusy) return
+    if (attachmentDraft && attachmentDraft.status !== 'ready') return
+    const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
+    if (!text && !attachment) return
+    if (supportCooldownActive) {
+      setSupportError('')
+      return
+    }
+
+    if (!backendReady || !session?.sessionToken) {
+      setSupportError('Поддержка временно недоступна без подключения к серверу.')
+      return
+    }
+
+    setSupportBusy(true)
+    setSupportError('')
+
+    try {
+      const resolvedAttachment = await resolvePendingAttachmentForSend(
+        session.sessionToken,
+        attachmentDraft,
+        { surface: 'support' },
+      )
+      const response = await sendSupportTicketRequest(session.sessionToken, {
+        attachment: resolvedAttachment.attachment,
+        clientDeliveryId: getClientDeliveryId(),
+        text,
+      })
+      // Enter cooldown locally right away. This protects the support scene from transient ordering
+      // issues between the mutation response, background snapshot sync, and the browser clock.
+      const localCooldownUntil = new Date(Date.now() + supportTicketCooldownMs).toISOString()
+      const nextCooldownUntil =
+        localCooldownUntil ??
+        response.snapshot.supportTicketCooldownUntil ??
+        resolveSupportCooldownUntilFromTickets(response.snapshot.supportTickets)
+      applySnapshot(response.snapshot)
+      setSupportComposerCooldownUntil(nextCooldownUntil)
+      setSupportTicketCooldownUntil(nextCooldownUntil)
+      setSupportError('')
+      setSupportDraft('')
+      clearSupportAttachmentDraft()
+    } catch (error) {
+      console.error('Failed to create support ticket', error)
+      const errorMessage = error instanceof Error ? error.message : 'Не удалось отправить обращение.'
+      if (errorMessage === supportCooldownErrorMessage) {
+        const fallbackCooldownUntil =
+          resolveSupportCooldownUntilFromTickets(supportTickets) ??
+          new Date(Date.now() + supportTicketCooldownMs).toISOString()
+        if (fallbackCooldownUntil) {
+          setSupportComposerCooldownUntil(fallbackCooldownUntil)
+          setSupportTicketCooldownUntil(fallbackCooldownUntil)
+          setSupportError('')
+          return
+        }
+      }
+      setSupportError(errorMessage)
+    } finally {
+      setSupportBusy(false)
+    }
+  }
+
+  function openSupportTicketThread(ticketId: number) {
+    // Support invariant:
+    // opening a support ticket must only open its thread. Root tickets are created separately,
+    // and replies live exclusively in comments so support never behaves like a normal direct chat.
+    openThread({ kind: 'support', ticketId })
+  }
+
   async function syncDialogRead(dialogId: number) {
     if (!backendReady || !session?.sessionToken) {
       applyLocalDialogRead(dialogId)
@@ -5711,6 +7271,45 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    const syncInFlightRoomKey = activeRoomReadSyncRoomKeyRef.current
+
+    if (!shouldSyncActiveRoomRead({
+      documentVisible,
+      syncInFlightRoomKey,
+      target: activeRoomReadTarget,
+    })) {
+      return
+    }
+
+    const roomKey = getActiveRoomReadKey(activeRoomReadTarget)
+    if (!roomKey || !activeRoomReadTarget) {
+      return
+    }
+
+    // Read-state invariant:
+    // if a room is open and visible, incoming direct/group/channel items that the
+    // user already sees must be acknowledged immediately and must never come back
+    // as stale unread badges after leaving the room.
+    activeRoomReadSyncRoomKeyRef.current = roomKey
+
+    const syncPromise =
+      activeRoomReadTarget.kind === 'chat'
+        ? syncDialogRead(activeRoomReadTarget.id)
+        : activeRoomReadTarget.kind === 'group'
+          ? syncGroupRead(activeRoomReadTarget.id)
+          : syncSubscriptionChannelRead(activeRoomReadTarget.id)
+
+    void syncPromise.finally(() => {
+      if (activeRoomReadSyncRoomKeyRef.current === roomKey) {
+        activeRoomReadSyncRoomKeyRef.current = null
+      }
+    })
+  }, [
+    activeRoomReadTarget,
+    documentVisible,
+  ])
+
   const syncActiveThreadRead = useCallback(async (
     target: {
       kind: 'group'
@@ -5722,9 +7321,15 @@ function App() {
       channelId: number
       postId: number
       threadId: string
+    } | {
+      kind: 'support'
+      ticketId: number
+      threadId: string
     },
   ) => {
-    applyLocalThreadRead(target.threadId)
+    if (target.kind !== 'support') {
+      applyLocalThreadRead(target.threadId)
+    }
 
     if (!backendReady || !session?.sessionToken) {
       return
@@ -5734,11 +7339,13 @@ function App() {
       const response =
         target.kind === 'group'
           ? await markGroupThreadReadRequest(session.sessionToken, target.groupId, target.messageId)
-          : await markSubscriptionChannelThreadReadRequest(
+          : target.kind === 'channel'
+            ? await markSubscriptionChannelThreadReadRequest(
               session.sessionToken,
               target.channelId,
               target.postId,
             )
+            : await markSupportTicketReadRequest(session.sessionToken, target.ticketId)
       applySnapshot(response.snapshot)
     } catch (error) {
       console.error('Failed to mark thread as read', error)
@@ -5746,7 +7353,14 @@ function App() {
   }, [applySnapshot, backendReady, session?.sessionToken])
 
   useEffect(() => {
-    if (!threadTarget || !activeThreadId) return
+    if (!threadTarget || !activeThreadId || !documentVisible || activeThreadServerUnreadCount <= 0) {
+      activeThreadReadSyncKeyRef.current = null
+      return
+    }
+
+    const syncKey = `${activeThreadId}:${activeThreadLatestActivityAt ?? ''}:${activeThreadServerUnreadCount}`
+    if (activeThreadReadSyncKeyRef.current === syncKey) return
+    activeThreadReadSyncKeyRef.current = syncKey
 
     void syncActiveThreadRead(
       threadTarget.kind === 'group'
@@ -5756,17 +7370,36 @@ function App() {
             messageId: threadTarget.messageId,
             threadId: activeThreadId,
           }
-        : {
+        : threadTarget.kind === 'channel'
+          ? {
             channelId: threadTarget.channelId,
             kind: 'channel',
             postId: threadTarget.postId,
             threadId: activeThreadId,
+          }
+          : {
+            kind: 'support',
+            ticketId: threadTarget.ticketId,
+            threadId: activeThreadId,
           },
     )
-  }, [activeThreadId, syncActiveThreadRead, threadTarget])
+  }, [
+    activeThreadId,
+    activeThreadLatestActivityAt,
+    activeThreadServerUnreadCount,
+    documentVisible,
+    syncActiveThreadRead,
+    threadTarget,
+  ])
+
+  useEffect(() => {
+    if (threadTarget && activeThreadId && documentVisible && activeThreadServerUnreadCount > 0) return
+    activeThreadReadSyncKeyRef.current = null
+  }, [activeThreadId, activeThreadServerUnreadCount, documentVisible, threadTarget])
 
   async function toggleThreadSubscription(subscribe: boolean) {
     if (!threadTarget || !activeThreadId) return
+    if (threadTarget.kind === 'support') return
 
     const fallbackTarget =
       threadTarget.kind === 'group'
@@ -5824,6 +7457,7 @@ function App() {
   async function sendMessage() {
     if (!activeChat) return
     if (activeChat.blockedByAdmin) return
+    if ((activeChat.contactState ?? 'accepted') !== 'accepted') return
 
     const chatId = activeChat.id
     const text = (chatMessageDrafts[chatId] ?? '').trim()
@@ -5837,10 +7471,12 @@ function App() {
         }
       : undefined
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
+    const sourceContact = resolveEmbeddedContactFromText(text)
 
     if (!text && !attachment) return
 
     playSendSound()
+    requestRoomFeedScrollToBottom('local-send')
 
     const localId = getNextOptimisticMessageId()
     const deliveryId = getClientDeliveryId()
@@ -5861,7 +7497,15 @@ function App() {
       time,
     }
 
-    applyLocalDirectMessage(chatId, text, { attachment, createdAt, deliveryId, localId, replyTo, time })
+    applyLocalDirectMessage(chatId, text, {
+      attachment,
+      createdAt,
+      deliveryId,
+      localId,
+      replyTo,
+      sourceContact: sourceContact ?? undefined,
+      time,
+    })
     queuePendingDirectMessage(pendingMessage)
     clearChatComposer(chatId)
     setReplyTarget(null)
@@ -5890,6 +7534,7 @@ function App() {
           clientDeliveryId: deliveryId,
           markAsRead: true,
           replyTo,
+          sourceContact: sourceContact ?? undefined,
           text,
         })
         removePendingDirectMessage(localId)
@@ -5902,8 +7547,8 @@ function App() {
       } catch (error) {
         console.error('Failed to send direct message', error)
         if (isExpiredSessionError(error)) {
-          logout()
-          setAuthError('Сессия устарела. Войдите снова.')
+          markPendingDirectMessageAttemptFailed(localId)
+          queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
           return
         }
         markPendingDirectMessageAttemptFailed(localId)
@@ -5954,9 +7599,11 @@ function App() {
         }
       : undefined
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
+    const sourceContact = resolveEmbeddedContactFromText(text)
     if (!text && !attachment) return
 
     playSendSound()
+    requestRoomFeedScrollToBottom('local-send')
 
     const localId = getNextOptimisticMessageId()
     const deliveryId = getClientDeliveryId()
@@ -5977,7 +7624,15 @@ function App() {
       time,
     }
 
-    applyLocalGroupMessage(groupId, text, { attachment, createdAt, deliveryId, localId, replyTo, time })
+    applyLocalGroupMessage(groupId, text, {
+      attachment,
+      createdAt,
+      deliveryId,
+      localId,
+      replyTo,
+      sourceContact: sourceContact ?? undefined,
+      time,
+    })
     queuePendingGroupMessage(pendingMessage)
     clearGroupComposer(groupId)
     setReplyTarget(null)
@@ -6019,8 +7674,8 @@ function App() {
       } catch (error) {
         console.error('Failed to send group message', error)
         if (isExpiredSessionError(error)) {
-          logout()
-          setAuthError('Сессия устарела. Войдите снова.')
+          markPendingGroupMessageAttemptFailed(localId)
+          queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
           return
         }
         markPendingGroupMessageAttemptFailed(localId)
@@ -6051,6 +7706,7 @@ function App() {
       : undefined
 
     playSendSound()
+    requestRoomFeedScrollToBottom('local-send')
 
     setChannelPostBusy(true)
     setChannelPostError('')
@@ -6101,8 +7757,9 @@ function App() {
       } catch (error) {
         console.error('Failed to send managed channel post', error)
         if (isExpiredSessionError(error)) {
-          logout()
-          setAuthError('Сессия устарела. Войдите снова.')
+          setChannelPostError('Подключение к каналу временно прервано. Пытаемся восстановить доступ.')
+          setChannelPostBusy(false)
+          queueSessionRecovery()
           return
         }
         setChannelPostError(error instanceof Error ? error.message : 'Не удалось отправить сообщение.')
@@ -6279,6 +7936,13 @@ function App() {
     threadAttachmentInputRef.current.click()
   }
 
+  function openSupportAttachmentPicker(mode: 'file' | 'photo') {
+    if (!supportAttachmentInputRef.current) return
+
+    supportAttachmentInputRef.current.accept = mode === 'photo' ? 'image/*' : ''
+    supportAttachmentInputRef.current.click()
+  }
+
   async function handleThreadAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
 
@@ -6312,6 +7976,183 @@ function App() {
     event.target.accept = ''
   }
 
+  async function handleSupportAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      event.target.value = ''
+      event.target.accept = ''
+      return
+    }
+
+    const selectionToken = ++supportAttachmentSelectionTokenRef.current
+    const preparingDraft = createPreparingComposerAttachmentDraft(file)
+    setSupportAttachmentDraft((currentDraft) => {
+      releaseComposerAttachmentDraft(currentDraft)
+      return preparingDraft
+    })
+
+    const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
+      await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
+    )
+    trackPhotoAttachmentSelected('support', file, sessionHasPremium && photoSendOriginalPreference)
+    setSupportAttachmentDraft((currentDraft) => {
+      if (selectionToken !== supportAttachmentSelectionTokenRef.current) {
+        releaseComposerAttachmentDraft(nextAttachmentDraft)
+        return currentDraft
+      }
+
+      return nextAttachmentDraft
+    })
+
+    event.target.value = ''
+    event.target.accept = ''
+  }
+
+  async function handleChatComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    if (!activeChat) return
+
+    const chatId = activeChat.id
+    await handlePastedComposerImage(event, {
+      getSelectionToken: () => ++chatAttachmentSelectionTokenRef.current,
+      replaceDraft: (draft) => {
+        setChatAttachmentDrafts((currentAttachments) => {
+          releaseComposerAttachmentDraft(currentAttachments[chatId])
+          return {
+            ...currentAttachments,
+            [chatId]: draft,
+          }
+        })
+      },
+      restorePreparedDraft: (selectionToken, draft) => {
+        setChatAttachmentDrafts((currentAttachments) => {
+          if (selectionToken !== chatAttachmentSelectionTokenRef.current) {
+            releaseComposerAttachmentDraft(draft)
+            return currentAttachments
+          }
+
+          return {
+            ...currentAttachments,
+            [chatId]: draft,
+          }
+        })
+      },
+      surface: 'direct',
+    })
+  }
+
+  async function handleGroupComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    if (!activeGroup) return
+
+    const groupId = activeGroup.id
+    await handlePastedComposerImage(event, {
+      getSelectionToken: () => ++groupAttachmentSelectionTokenRef.current,
+      replaceDraft: (draft) => {
+        setGroupAttachmentDrafts((currentAttachments) => {
+          releaseComposerAttachmentDraft(currentAttachments[groupId])
+          return {
+            ...currentAttachments,
+            [groupId]: draft,
+          }
+        })
+      },
+      restorePreparedDraft: (selectionToken, draft) => {
+        setGroupAttachmentDrafts((currentAttachments) => {
+          if (selectionToken !== groupAttachmentSelectionTokenRef.current) {
+            releaseComposerAttachmentDraft(draft)
+            return currentAttachments
+          }
+
+          return {
+            ...currentAttachments,
+            [groupId]: draft,
+          }
+        })
+      },
+      surface: 'group',
+    })
+  }
+
+  async function handleChannelComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    if (!currentSubscriptionChannel) return
+
+    const channelId = currentSubscriptionChannel.id
+    await handlePastedComposerImage(event, {
+      getSelectionToken: () => ++channelAttachmentSelectionTokenRef.current,
+      replaceDraft: (draft) => {
+        setChannelAttachmentDrafts((currentAttachments) => {
+          releaseComposerAttachmentDraft(currentAttachments[channelId])
+          return {
+            ...currentAttachments,
+            [channelId]: draft,
+          }
+        })
+      },
+      restorePreparedDraft: (selectionToken, draft) => {
+        setChannelAttachmentDrafts((currentAttachments) => {
+          if (selectionToken !== channelAttachmentSelectionTokenRef.current) {
+            releaseComposerAttachmentDraft(draft)
+            return currentAttachments
+          }
+
+          return {
+            ...currentAttachments,
+            [channelId]: draft,
+          }
+        })
+      },
+      surface: 'channel',
+    })
+  }
+
+  async function handleThreadComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    if (!threadTarget) return
+
+    await handlePastedComposerImage(event, {
+      getSelectionToken: () => ++threadAttachmentSelectionTokenRef.current,
+      replaceDraft: (draft) => {
+        setThreadAttachmentDraft((currentDraft) => {
+          releaseComposerAttachmentDraft(currentDraft)
+          return draft
+        })
+      },
+      restorePreparedDraft: (selectionToken, draft) => {
+        setThreadAttachmentDraft((currentDraft) => {
+          if (selectionToken !== threadAttachmentSelectionTokenRef.current) {
+            releaseComposerAttachmentDraft(draft)
+            return currentDraft
+          }
+
+          return draft
+        })
+      },
+      surface: 'thread',
+    })
+  }
+
+  async function handleSupportComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    await handlePastedComposerImage(event, {
+      getSelectionToken: () => ++supportAttachmentSelectionTokenRef.current,
+      replaceDraft: (draft) => {
+        setSupportAttachmentDraft((currentDraft) => {
+          releaseComposerAttachmentDraft(currentDraft)
+          return draft
+        })
+      },
+      restorePreparedDraft: (selectionToken, draft) => {
+        setSupportAttachmentDraft((currentDraft) => {
+          if (selectionToken !== supportAttachmentSelectionTokenRef.current) {
+            releaseComposerAttachmentDraft(draft)
+            return currentDraft
+          }
+
+          return draft
+        })
+      },
+      surface: 'support',
+    })
+  }
+
   function closeActiveRoom() {
     setActiveChatId(null)
     setActiveSubscriptionChannelId(null)
@@ -6329,14 +8170,14 @@ function App() {
     setConfirmingLeaveSubscriptionChannelId(null)
     setActiveGroupId(null)
     resetGroupSettingsState()
-    setGroupParticipantsOpen(false)
+    closeGroupParticipantsDialog()
     setGroupActionsAnchor(null)
     setGroupInviteOpen(false)
     setGroupInviteBusy(false)
     setGroupInviteError('')
     setGroupInviteLimitNoticeOpen(false)
     setGroupReportNoticeOpen(false)
-    setThreadsDisabledHintTarget(null)
+    setThreadCommentHintTarget(null)
     setConfirmingLeaveGroupId(null)
     setMessageActionMessageId(null)
     setForwardingMessageId(null)
@@ -6352,7 +8193,7 @@ function App() {
     resetRoomMessageActions()
     resetThreadState()
     resetBlacklistFlow()
-    setThreadsDisabledHintTarget(null)
+    setThreadCommentHintTarget(null)
     setBlacklistManagerTarget(null)
     setBlacklistAddMode(false)
     setBlacklistSearchQuery('')
@@ -6456,8 +8297,13 @@ function App() {
     } catch (error) {
       console.error('Failed to retry pending outgoing message', error)
       if (isExpiredSessionError(error)) {
-        logout()
-        setAuthError('Сессия устарела. Войдите снова.')
+        if (attemptedDirectMessage) {
+          markPendingDirectMessageAttemptFailed(attemptedDirectMessage.localId)
+        }
+        if (attemptedGroupMessage) {
+          markPendingGroupMessageAttemptFailed(attemptedGroupMessage.localId)
+        }
+        queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
         return
       }
       if (attemptedDirectMessage) {
@@ -6578,6 +8424,10 @@ function App() {
           (channel.unread > 0 || channel.id === retainedSubscriptionChannelId),
       )
 
+    // Switching rooms from the left rail must always drop the previously open thread.
+    // Otherwise the new room can inherit a stale threadTarget and render an empty
+    // comments scene for the wrong entity instead of opening the room itself.
+    resetThreadState()
     setStageView('main')
     setRetainedAllChatId(null)
     setRetainedFavoriteChatId(null)
@@ -6649,8 +8499,9 @@ function App() {
       id: sourceChannel.id ?? getSyntheticChannelId(sourceChannel.title),
       latestActivityAt: previewPost?.createdAt,
       posts: previewPost ? [previewPost] : [],
-      preview: previewPost?.text ?? '',
+      preview: previewPost?.text ?? sourceChannel.statusText ?? '',
       readers: 0,
+      statusText: sourceChannel.statusText,
       time: previewPost?.time ?? '',
       title: sourceChannel.title,
       unread: 0,
@@ -6658,14 +8509,80 @@ function App() {
     } satisfies SubscriptionChannel
   }
 
-  function openSourceChannel(sourceChannel: NonNullable<Message['sourceChannel']>, previewPost?: ChannelPost) {
-    const normalizedHandle = sourceChannel.handle ? sanitizeChannelDirectLink(sourceChannel.handle) : ''
+  function showPreviewSubscriptionChannel(channel: SubscriptionChannel) {
+    resetThreadState()
+    setStageView('main')
+    setRetainedAllChatId(null)
+    setRetainedFavoriteChatId(null)
+    setRetainedGroupId(null)
+    setRetainedSubscriptionChannelId(null)
+    setActiveChatId(null)
+    setActiveGroupId(null)
+    setMessageActionMessageId(null)
+    setForwardingMessageId(null)
+    resetGroupMessageActions()
+    setChannelPostBusy(false)
+    setChannelPostError('')
+    setPreviewSubscriptionChannel(channel)
+    setActiveSubscriptionChannelId(null)
+    setChannelPostReplyTarget(null)
+    resetSubscriptionPostActions()
+    setTopListView('channels')
+    setSearchOpen(false)
+  }
+
+  function openSourceChannel(
+    sourceChannel: NonNullable<Message['sourceChannel']>,
+    previewPost?: ChannelPost,
+  ) {
+    void openSourceChannelAsync(sourceChannel, previewPost)
+  }
+
+  async function openSourceChannelAsync(
+    sourceChannel: NonNullable<Message['sourceChannel']>,
+    previewPost?: ChannelPost,
+  ) {
     if (!sourceChannel) return
+    const normalizedHandle = sourceChannel.handle ? sanitizeChannelDirectLink(sourceChannel.handle) : ''
 
     if (sourceChannel.id !== undefined) {
       const existingChannel = subscriptionChannels.find((channel) => channel.id === sourceChannel.id)
       if (existingChannel) {
         openSubscriptionChannel(existingChannel.id)
+        return
+      }
+    }
+
+    if (normalizedHandle) {
+      const existingByHandle = subscriptionChannels.find(
+        (channel) => sanitizeChannelDirectLink(channel.handle) === normalizedHandle,
+      )
+      if (existingByHandle) {
+        openSubscriptionChannel(existingByHandle.id)
+        return
+      }
+
+      if (backendReady && session?.sessionToken) {
+        try {
+          const response = await fetchSubscriptionChannelPreview(session.sessionToken, normalizedHandle)
+          showPreviewSubscriptionChannel(response.channel)
+          return
+        } catch (error) {
+          if (!(error instanceof ApiError) || (error.status !== 403 && error.status !== 404)) {
+            console.error('Failed to fetch channel preview', error)
+            setChannelPostError(
+              error instanceof Error ? error.message : 'Не удалось открыть канал.',
+            )
+          }
+          return
+        }
+      }
+
+      const managedChannel = channels.find(
+        (channel) => sanitizeChannelDirectLink(channel.directLink) === normalizedHandle,
+      )
+      if (managedChannel) {
+        showPreviewSubscriptionChannel(buildPreviewSubscriptionChannelFromManagedChannel(managedChannel))
         return
       }
     }
@@ -6678,55 +8595,63 @@ function App() {
       return
     }
 
-    if (normalizedHandle) {
-      const existingByHandle = subscriptionChannels.find(
-        (channel) => sanitizeChannelDirectLink(channel.handle) === normalizedHandle,
-      )
-      if (existingByHandle) {
-        openSubscriptionChannel(existingByHandle.id)
-        return
-      }
+    showPreviewSubscriptionChannel(buildPreviewSubscriptionChannel(sourceChannel, previewPost))
+  }
 
-      const managedChannel = channels.find(
-        (channel) => sanitizeChannelDirectLink(channel.directLink) === normalizedHandle,
-      )
-      if (managedChannel) {
-        setStageView('main')
-        setRetainedAllChatId(null)
-        setRetainedFavoriteChatId(null)
-        setRetainedGroupId(null)
-        setRetainedSubscriptionChannelId(null)
-        setActiveChatId(null)
-        setActiveGroupId(null)
-        setMessageActionMessageId(null)
-        setForwardingMessageId(null)
-        resetGroupMessageActions()
-        setPreviewSubscriptionChannel(buildPreviewSubscriptionChannelFromManagedChannel(managedChannel))
-        setActiveSubscriptionChannelId(null)
-        setChannelPostReplyTarget(null)
-        resetSubscriptionPostActions()
-        setTopListView('channels')
-        setSearchOpen(false)
+  async function openSourceGroupAsync(
+    sourceGroup: NonNullable<Message['sourceGroup']>,
+  ) {
+    if (!sourceGroup) return
+    if (sourceGroup.archivedAt) return
+    const normalizedSharedId = sourceGroup.sharedId?.trim() || ''
+    if (!normalizedSharedId) return
+
+    const existingGroup = groups.find((group) => group.sharedId === normalizedSharedId)
+    if (existingGroup) {
+      openGroup(existingGroup.id)
+      return
+    }
+
+    if (backendReady && session?.sessionToken) {
+      try {
+        const response = await joinGroupFromInviteRequest(session.sessionToken, normalizedSharedId)
+        applySnapshot(response.snapshot)
+        openGroup(response.groupId)
+        return
+      } catch (error) {
+        console.error('Failed to join group from invite', error)
+        // In backend mode we trust the server as the authority for invite access and
+        // never materialize a fake local group after a denied or broken join attempt.
         return
       }
     }
 
-    setStageView('main')
-    setRetainedAllChatId(null)
-    setRetainedFavoriteChatId(null)
-    setRetainedGroupId(null)
-    setRetainedSubscriptionChannelId(null)
-    setActiveChatId(null)
-    setActiveGroupId(null)
-    setMessageActionMessageId(null)
-    setForwardingMessageId(null)
-    resetGroupMessageActions()
-    setPreviewSubscriptionChannel(buildPreviewSubscriptionChannel(sourceChannel, previewPost))
-    setActiveSubscriptionChannelId(null)
-    setChannelPostReplyTarget(null)
-    resetSubscriptionPostActions()
-    setTopListView('channels')
-    setSearchOpen(false)
+    const nextGroupId = groups.reduce((maxId, group) => Math.max(maxId, group.id), 0) + 1
+    const nextGroup: GroupPreview = {
+      accent: sourceGroup.accent ?? '#8c5738',
+      avatarImage: sourceGroup.avatarImage,
+      creatorIdentifier: sourceGroup.creatorIdentifier,
+      description: '',
+      groupOwnerIdentifier: sourceGroup.groupOwnerIdentifier,
+      handle: sourceGroup.handle ?? `@group_${nextGroupId}`,
+      id: nextGroupId,
+      members: 1,
+      messages: [],
+      participants: [],
+      preview: '',
+      sharedId: normalizedSharedId,
+      time: '',
+      title: sourceGroup.title,
+      unread: 0,
+      viewerIsOwner: false,
+    }
+
+    setGroups((currentGroups) => [nextGroup, ...currentGroups])
+    openGroup(nextGroupId)
+  }
+
+  function openSourceGroup(sourceGroup: NonNullable<Message['sourceGroup']>) {
+    void openSourceGroupAsync(sourceGroup)
   }
 
   function openSourceChannelFromMessage(message: Message) {
@@ -6744,8 +8669,9 @@ function App() {
     openSourceChannel(sourceChannel, previewPost)
   }
 
-  function subscribeToPreviewSubscriptionChannel() {
+  async function subscribeToPreviewSubscriptionChannel() {
     if (!previewSubscriptionChannel) return
+    setChannelPostError('')
 
     const existingChannel = subscriptionChannels.find(
       (channel) =>
@@ -6758,6 +8684,32 @@ function App() {
       return
     }
 
+    const previewHandle = sanitizeChannelDirectLink(previewSubscriptionChannel.handle)
+
+    if (backendReady && session?.sessionToken && previewHandle) {
+      setChannelPostBusy(true)
+      try {
+        const response = await subscribeToChannelRequest(session.sessionToken, previewHandle)
+        applySnapshot(response.snapshot)
+        openSubscriptionChannel(response.channelId)
+        return
+      } catch (error) {
+        console.error('Failed to subscribe to preview channel', error)
+        if (isExpiredSessionError(error)) {
+          setChannelPostError('Подключение к каналу временно прервано. Пытаемся восстановить доступ.')
+          queueSessionRecovery()
+          return
+        }
+
+        setChannelPostError(
+          error instanceof Error ? error.message : 'Не удалось подписаться на канал.',
+        )
+        return
+      } finally {
+        setChannelPostBusy(false)
+      }
+    }
+
     setSubscriptionChannels((currentChannels) => [previewSubscriptionChannel, ...currentChannels])
     openSubscriptionChannel(previewSubscriptionChannel.id)
   }
@@ -6767,6 +8719,7 @@ function App() {
       topListView === 'groups' &&
       groups.some((group) => group.id === groupId && (group.unread > 0 || group.id === retainedGroupId))
 
+    resetThreadState()
     setStageView('main')
     setRetainedAllChatId(null)
     setRetainedFavoriteChatId(null)
@@ -6777,6 +8730,7 @@ function App() {
     resetSubscriptionPostActions()
     setTopListView('groups')
     setSearchOpen(false)
+    closeGroupParticipantsDialog()
     setRetainedGroupId(shouldRetainGroupInList ? groupId : null)
     setActiveGroupId(groupId)
     setGroupInviteOpen(false)
@@ -6784,6 +8738,7 @@ function App() {
     setGroupInviteError('')
     setGroupInviteLimitNoticeOpen(false)
     setGroupReportNoticeOpen(false)
+    setGroupDescriptionOpen(false)
     setConfirmingLeaveGroupId(null)
     resetGroupMessageActions()
     setGroupActionsAnchor(null)
@@ -6798,6 +8753,7 @@ function App() {
     setGroupInviteOpen(false)
     setGroupInviteBusy(false)
     setGroupInviteError('')
+    setGroupInviteInlineError(null)
   }
 
   function openGroupInviteLimitNotice() {
@@ -6838,6 +8794,7 @@ function App() {
 
     closeGroupActions()
     setGroupInviteError('')
+    setGroupInviteInlineError(null)
     setGroupInviteOpen(true)
   }
 
@@ -6849,8 +8806,25 @@ function App() {
       return
     }
 
+    const invitedChat = availableChats.find((chat) => chat.id === chatId)
+    if (!invitedChat) {
+      setGroupInviteError('Контакт не найден.')
+      setGroupInviteInlineError(null)
+      return
+    }
+
+    if (activeGroupParticipantIdentifiers.has(normalizeIdentifier(invitedChat.phone))) {
+      setGroupInviteError('')
+      setGroupInviteInlineError({
+        chatId,
+        message: 'Этот контакт уже состоит в группе.',
+      })
+      return
+    }
+
     setGroupInviteBusy(true)
     setGroupInviteError('')
+    setGroupInviteInlineError(null)
 
     if (backendReady && session?.sessionToken) {
       try {
@@ -6875,38 +8849,29 @@ function App() {
           return
         }
 
+        if (nextMessage.includes('Этот контакт уже состоит в группе')) {
+          setGroupInviteInlineError({
+            chatId,
+            message: 'Этот контакт уже состоит в группе.',
+          })
+          setGroupInviteError('')
+          setGroupInviteBusy(false)
+          return
+        }
+
         setGroupInviteError(nextMessage)
         setGroupInviteBusy(false)
         return
       }
     }
 
-    const invitedChat = availableChats.find((chat) => chat.id === chatId)
-    if (!invitedChat) {
-      setGroupInviteError('Контакт не найден.')
-      setGroupInviteBusy(false)
-      return
-    }
-
-    setGroups((currentGroups) =>
-      currentGroups.map((group) =>
-        group.id === activeGroup.id
-          ? {
-              ...group,
-              members: group.members + 1,
-              participants: [
-                ...group.participants,
-                buildGroupParticipantFromChat(invitedChat, invitedChat.id),
-              ],
-            }
-          : group,
-      ),
-    )
     applyLocalDirectMessage(invitedChat.id, '', {
       markAsRead: invitedChat.id === activeChatId,
       sourceGroup: {
         accent: activeGroup.accent,
+        avatarImage: activeGroup.avatarImage,
         creatorIdentifier: activeGroup.creatorIdentifier,
+        leadText: 'Пользователь приглашает вас в группу',
         groupOwnerIdentifier: activeGroup.groupOwnerIdentifier,
         handle: activeGroup.handle,
         sharedId: activeGroup.sharedId,
@@ -6963,6 +8928,12 @@ function App() {
     options?: { strict?: boolean },
   ) {
     const optimisticGroupPatch: Partial<GroupPreview> = {
+      ...(patch.description !== undefined
+        ? { description: patch.description }
+        : {}),
+      ...(patch.showHistoryToNewMembers !== undefined
+        ? { showHistoryToNewMembers: patch.showHistoryToNewMembers }
+        : {}),
       ...(patch.commentsEnabledForAll !== undefined
         ? { commentsEnabledForAll: patch.commentsEnabledForAll }
         : {}),
@@ -7067,17 +9038,38 @@ function App() {
   }
 
   function openChannelThread(postId: number) {
-    if (!currentSubscriptionChannel) return
+    if (!currentSubscriptionChannel || isPreviewSubscriptionChannel) return
     clearThreadAttachmentDraft()
     openThread({ channelId: currentSubscriptionChannel.id, kind: 'channel', postId })
     resetSubscriptionPostActions()
   }
 
   const closeThreadView = useCallback(() => {
+    const previousThreadTarget = threadTarget
+
     clearThreadAttachmentDraft()
     closeThreadFlowView()
     resetBlacklistFlow()
-  }, [closeThreadFlowView, resetBlacklistFlow])
+
+    // Thread back should restore the source room surface too. Leaving the stage on
+    // the thread inbox is a known regression because the sidebar still looks like
+    // the thread is active even after the room has returned to the source channel/group.
+    if (previousThreadTarget?.kind === 'group') {
+      openGroup(previousThreadTarget.groupId)
+      return
+    }
+
+    if (previousThreadTarget?.kind === 'channel') {
+      openSubscriptionChannel(previousThreadTarget.channelId)
+    }
+  }, [
+    clearThreadAttachmentDraft,
+    closeThreadFlowView,
+    openGroup,
+    openSubscriptionChannel,
+    resetBlacklistFlow,
+    threadTarget,
+  ])
 
   async function submitThreadComment() {
     const text = threadDraft.trim()
@@ -7095,7 +9087,44 @@ function App() {
 
     if (!text && !attachment) return
 
+    if (threadTarget.kind === 'support') {
+      if (!backendReady || !session?.sessionToken) {
+        setThreadError('Поддержка временно недоступна без подключения к серверу.')
+        return
+      }
+
+      playSendSound()
+      requestRoomFeedScrollToBottom('local-send')
+      setThreadBusy(true)
+      setThreadError('')
+
+      try {
+        const resolvedAttachment = await resolvePendingAttachmentForSend(
+          session.sessionToken,
+          attachmentDraft,
+          { surface: 'thread' },
+        )
+
+        const response = await sendSupportTicketCommentRequest(session.sessionToken, threadTarget.ticketId, {
+          attachment: resolvedAttachment.attachment,
+          clientDeliveryId: getClientDeliveryId(),
+          replyTo,
+          text,
+        })
+        applySnapshot(response.snapshot)
+        resetThreadComposer()
+        clearThreadAttachmentDraft()
+        setThreadBusy(false)
+      } catch (error) {
+        console.error('Failed to send support ticket comment', error)
+        setThreadBusy(false)
+        setThreadError(error instanceof Error ? error.message : 'Не удалось отправить комментарий.')
+      }
+      return
+    }
+
     playSendSound()
+    requestRoomFeedScrollToBottom('local-send')
 
     const localId = getNextOptimisticMessageId()
     const deliveryId = getClientDeliveryId()
@@ -7146,6 +9175,7 @@ function App() {
         deliveryId,
         displayAuthor: sessionName,
         localId,
+        sourceContact: resolveEmbeddedContactFromText(text) ?? undefined,
         time,
       })
       applyLocalThreadSubscription({
@@ -7164,6 +9194,7 @@ function App() {
         deliveryId,
         displayAuthor: sessionName,
         localId,
+        sourceContact: resolveEmbeddedContactFromText(text) ?? undefined,
         time,
       })
       applyLocalThreadSubscription({
@@ -7244,8 +9275,15 @@ function App() {
     } catch (error) {
       console.error('Failed to send thread comment', error)
       if (isExpiredSessionError(error)) {
-        logout()
-        setAuthError('Сессия устарела. Войдите снова.')
+        if (threadTarget.kind === 'group') {
+          removePendingGroupThreadComment(localId)
+          applyLocalDeleteGroupThreadComment(threadTarget.groupId, threadTarget.messageId, localId)
+        } else {
+          removePendingChannelThreadComment(localId)
+          applyLocalDeleteSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, localId)
+        }
+        setThreadBusy(false)
+        queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
         return
       }
       if (threadTarget.kind === 'group') {
@@ -7316,7 +9354,8 @@ function App() {
     })
   }
 
-  function openChat(chatId: number) {
+  function openChat(chatId: number, options?: { bottomSection?: 'chats' | 'contacts' }) {
+    const nextBottomSection = options?.bottomSection ?? 'chats'
     const shouldRetainChatInAllFilter =
       activeFilter === 'Все' &&
       availableChats.some((chat) => chat.id === chatId && (chat.unread > 0 || chat.id === retainedAllChatId))
@@ -7327,6 +9366,7 @@ function App() {
           chat.id === chatId && Boolean(chat.pinned) && (chat.unread > 0 || chat.id === retainedFavoriteChatId),
       )
 
+    resetThreadState()
     setStageView('main')
     setSettingsView('profile')
     setConfirmingLogout(false)
@@ -7340,10 +9380,6 @@ function App() {
     setConfirmingDeleteContactChatId(null)
     setConfirmingDeleteMessageId(null)
     setConfirmingDeleteChannelId(null)
-    setTransferringChannelId(null)
-    setChannelTransferTargetChatId(null)
-    setChannelTransferCode('')
-    setChannelTransferError('')
     setTopListView('none')
     setRetainedAllChatId(shouldRetainChatInAllFilter ? chatId : null)
     setRetainedFavoriteChatId(shouldRetainChatInFavoritesFilter ? chatId : null)
@@ -7354,7 +9390,7 @@ function App() {
     setActiveGroupId(null)
     resetRoomMessageActions()
     setMessageActionAnchor(null)
-    setBottomSection('chats')
+    setBottomSection(nextBottomSection)
     setActiveChatId(chatId)
     void syncDialogRead(chatId)
   }
@@ -7405,7 +9441,7 @@ function App() {
       return
     }
 
-    if (browserNotificationStatus !== 'granted' || !browserNotificationsEnabled || quietMode) {
+    if (browserNotificationStatus !== 'granted' || !browserNotificationsEnabled) {
       return
     }
 
@@ -7415,9 +9451,13 @@ function App() {
         return
       }
 
+      if (shouldSuppressBrowserNotificationTarget(quietMode, effectiveQuietModeSettings, entry.target)) {
+        return
+      }
+
       showBrowserNotification(entry.title, {
         body: entry.body,
-        icon: '/icons/logo_ok_96.png',
+        icon: '/logo/round/512round.png',
         onClick: () => browserNotificationOpenTargetRef.current(entry.target),
         tag: `tinychok:${key}`,
       })
@@ -7427,6 +9467,7 @@ function App() {
     backendReady,
     browserNotificationsEnabled,
     browserNotificationStatus,
+    effectiveQuietModeSettings,
     groups,
     quietMode,
     session?.sessionToken,
@@ -7446,6 +9487,7 @@ function App() {
       ...currentChats,
       {
         accent: result.accent,
+        contactState: 'none',
         handle: result.handle,
         id: nextChatId,
         messages: [],
@@ -7453,6 +9495,48 @@ function App() {
         phone: normalizedPhone || result.phone,
         status: result.subtitle,
         title: result.title,
+        unread: 0,
+      },
+    ])
+
+    return nextChatId
+  }
+
+  function createLocalDialogFromSourceContact(
+    sourceContact: NonNullable<Message['sourceContact']>,
+  ) {
+    const normalizedIdentifier = normalizeIdentifier(sourceContact.identifier ?? '')
+    const normalizedHandle = normalizeNickname(sourceContact.handle?.replace(/^@+/u, '') ?? '')
+    const existingChat = chats.find((chat) => {
+      const chatIdentifier = normalizeIdentifier(chat.phone)
+      const chatHandle = normalizeNickname(chat.handle.replace(/^@+/u, ''))
+      return (
+        (normalizedIdentifier && chatIdentifier === normalizedIdentifier) ||
+        (normalizedHandle && chatHandle === normalizedHandle)
+      )
+    })
+    if (existingChat) {
+      return existingChat.id
+    }
+
+    const nextChatId = chats.reduce((maxId, chat) => Math.max(maxId, chat.id), 0) + 1
+    setChats((currentChats) => [
+      ...currentChats,
+      {
+        accent: sourceContact.accent ?? '#8c5738',
+        avatarImage: sourceContact.avatarImage,
+        contactState: 'none',
+        handle: sourceContact.handle ?? '',
+        id: nextChatId,
+        messages: [],
+        mood: sourceContact.status ?? 'На связи',
+        phone:
+          normalizedIdentifier ||
+          sourceContact.identifier ||
+          sourceContact.handle ||
+          `contact:${nextChatId}`,
+        status: sourceContact.status ?? 'На связи',
+        title: sourceContact.title,
         unread: 0,
       },
     ])
@@ -7482,6 +9566,221 @@ function App() {
     }
 
     openChat(createLocalDialogFromSearchResult(result))
+  }
+
+  function openSearchChannelResult(channel: ChannelSearchResult) {
+    void openSearchChannelResultAsync(channel)
+  }
+
+  async function openSearchChannelResultAsync(channel: ChannelSearchResult) {
+    // Search results must reuse the same preview contract as channel invites:
+    // tap opens preview/history first, and explicit subscribe is the only join point.
+    // Search channel taps must resolve the exact clicked result first:
+    // never fall back by title, otherwise one visible result can open another.
+    const target = resolveSearchChannelOpenTarget(channel, subscriptionChannels, channels)
+
+    if (target.kind === 'subscribed') {
+      openSubscriptionChannel(target.channelId)
+      return
+    }
+
+    if (target.kind === 'managed-preview') {
+      const managedChannel = channels.find((candidate) => candidate.id === target.managedChannelId)
+      if (managedChannel) {
+        showPreviewSubscriptionChannel(buildPreviewSubscriptionChannelFromManagedChannel(managedChannel))
+        return
+      }
+    }
+
+    const previewHandle = target.kind === 'preview-by-handle' ? target.handle : channel.handle
+    const normalizedHandle = sanitizeChannelDirectLink(previewHandle)
+    if (backendReady && session?.sessionToken && normalizedHandle) {
+      try {
+        const response = await fetchSubscriptionChannelPreview(session.sessionToken, normalizedHandle)
+        if (sanitizeChannelDirectLink(response.channel.handle) === normalizedHandle) {
+          showPreviewSubscriptionChannel(response.channel)
+          return
+        }
+      } catch (error) {
+        if (!(error instanceof ApiError) || (error.status !== 403 && error.status !== 404)) {
+          console.error('Failed to fetch channel preview from search result', error)
+        }
+      }
+    }
+
+    const managedByHandle = normalizedHandle
+      ? channels.find(
+          (candidate) => sanitizeChannelDirectLink(candidate.directLink) === normalizedHandle,
+        )
+      : null
+    if (managedByHandle) {
+      showPreviewSubscriptionChannel(buildPreviewSubscriptionChannelFromManagedChannel(managedByHandle))
+      return
+    }
+
+    showPreviewSubscriptionChannel({
+      accent: channel.accent,
+      archivedAt: channel.archivedAt,
+      avatarImage: channel.avatarImage,
+      description: channel.description,
+      draft: false,
+      handle: channel.handle,
+      id: channel.id,
+      latestActivityAt: undefined,
+      muted: channel.muted,
+      posts: [],
+      preview: channel.statusText ?? channel.description ?? '',
+      readers: 0,
+      statusText: channel.statusText,
+      time: '',
+      title: channel.title,
+      unread: 0,
+      visibility: channel.visibility,
+    })
+  }
+
+  async function openSourceContactAsync(
+    sourceContact: NonNullable<Message['sourceContact']>,
+  ) {
+    const normalizedIdentifier = normalizeIdentifier(sourceContact.identifier ?? '')
+    const normalizedHandle = normalizeNickname(sourceContact.handle?.replace(/^@+/u, '') ?? '')
+
+    if (normalizedIdentifier && normalizedIdentifier === normalizeIdentifier(session?.identifier ?? '')) {
+      return
+    }
+
+    const existingChat = chats.find((chat) => {
+      const chatIdentifier = normalizeIdentifier(chat.phone)
+      const chatHandle = normalizeNickname(chat.handle.replace(/^@+/u, ''))
+      return (
+        (normalizedIdentifier && chatIdentifier === normalizedIdentifier) ||
+        (normalizedHandle && chatHandle === normalizedHandle)
+      )
+    })
+    if (existingChat) {
+      openChat(existingChat.id)
+      return
+    }
+
+    if (backendReady && session?.sessionToken && normalizedIdentifier) {
+      try {
+        const response = await openDirectDialogRequest(session.sessionToken, {
+          identifier: normalizedIdentifier,
+        })
+        applySnapshot(response.snapshot)
+        openChat(response.dialogId)
+        return
+      } catch (error) {
+        console.error('Failed to open direct dialog from contact link', error)
+      }
+    }
+
+    openChat(createLocalDialogFromSourceContact(sourceContact))
+  }
+
+  function openSourceContact(sourceContact: NonNullable<Message['sourceContact']>) {
+    void openSourceContactAsync(sourceContact)
+  }
+
+  const openChatInContacts = useCallback((chatId: number) => {
+    openChat(chatId, { bottomSection: 'contacts' })
+  }, [openChat])
+
+  const {
+    actOnContactRequest,
+    openIncomingContactRequest,
+    openContactRequestRoom,
+    openOutgoingContactRequest,
+    sendContactRequestForIdentifier,
+  } = useContactRequestsFlow({
+    applySnapshot,
+    backendReady,
+    chats,
+    openChatInContacts,
+    sessionToken: session?.sessionToken,
+    setContactRequestActionBusy,
+    setContactRequestActionError,
+    setContactRequestBusy,
+    setContactRequestError,
+  })
+
+  const openGroupParticipantContact = useCallback((participant: GroupParticipant) => {
+    const participantIdentifier = normalizeIdentifier(participant.identifier ?? '')
+    const ownIdentifier = normalizeIdentifier(session?.identifier ?? '')
+    if (!participantIdentifier || participantIdentifier === ownIdentifier || participant.archivedAccount) {
+      return
+    }
+
+    const acceptedChat = chats.find(
+      (chat) =>
+        normalizeIdentifier(chat.phone) === participantIdentifier && chat.contactState === 'accepted',
+    )
+
+    closeGroupParticipantsDialog()
+
+    if (acceptedChat) {
+      openChat(acceptedChat.id)
+      return
+    }
+
+    void openContactRequestRoom(participantIdentifier)
+  }, [chats, openChat, openContactRequestRoom, session?.identifier])
+
+  function resolveParticipantDialogAction(participant: GroupParticipant | null) {
+    const participantIdentifier = normalizeIdentifier(participant?.identifier ?? '')
+    const ownIdentifier = normalizeIdentifier(session?.identifier ?? '')
+    if (
+      !participant ||
+      !participantIdentifier ||
+      participantIdentifier === ownIdentifier ||
+      participant.archivedAccount
+    ) {
+      return null
+    }
+
+    const acceptedChat = chats.find(
+      (chat) =>
+        !chat.hidden &&
+        normalizeIdentifier(chat.phone) === participantIdentifier &&
+        chat.contactState === 'accepted',
+    )
+
+    if (acceptedChat) {
+      return {
+        chatId: acceptedChat.id,
+        kind: 'chat' as const,
+      }
+    }
+
+    return {
+      identifier: participantIdentifier,
+      kind: 'request' as const,
+    }
+  }
+
+  const openParticipantDialogAction = useCallback((
+    participant: GroupParticipant | null,
+    onBeforeOpen?: () => void,
+  ) => {
+    const action = resolveParticipantDialogAction(participant)
+    if (!action) {
+      return
+    }
+
+    onBeforeOpen?.()
+
+    if (action.kind === 'chat') {
+      openChat(action.chatId)
+      return
+    }
+
+    void openContactRequestRoom(action.identifier)
+  }, [chats, openChat, openContactRequestRoom, session?.identifier])
+
+  async function sendContactRequestForActiveChat() {
+    if (!activeChat) return
+
+    await sendContactRequestForIdentifier(activeChat.phone)
   }
 
   async function togglePinnedChat(chatId: number) {
@@ -7812,6 +10111,23 @@ function App() {
     setChannelActionsAnchor(null)
   }
 
+  function closeContactShareDialog() {
+    setContactShareOpen(false)
+    setContactShareBusy(false)
+    setContactShareError('')
+    setContactShareChatIds([])
+    setContactShareNote('')
+  }
+
+  function toggleContactShareChat(chatId: number) {
+    setContactShareChatIds((currentChatIds) =>
+      currentChatIds.includes(chatId)
+        ? currentChatIds.filter((currentId) => currentId !== chatId)
+        : [...currentChatIds, chatId],
+    )
+    setContactShareError('')
+  }
+
   function closeChannelShareDialog() {
     setChannelShareOpen(false)
     setChannelShareBusy(false)
@@ -7827,6 +10143,16 @@ function App() {
     setConfirmingBlacklistChannelSubscriberIdentifier(null)
     setChannelSubscriberActionBusy(false)
     setChannelSubscriberActionError('')
+  }
+
+  function closeGroupParticipantsDialog() {
+    setGroupParticipantsOpen(false)
+    setGroupParticipantsSearchQuery('')
+    setSelectedGroupParticipantIdentifier(null)
+    setConfirmingRemoveGroupParticipantIdentifier(null)
+    setConfirmingBlacklistGroupParticipantIdentifier(null)
+    setGroupParticipantActionBusy(false)
+    setGroupParticipantActionError('')
   }
 
   function closeChannelReportDialog() {
@@ -7883,15 +10209,61 @@ function App() {
   }
 
   function buildChannelInvitationSource(
-    channel: Pick<SubscriptionChannel, 'accent' | 'draft' | 'handle' | 'title' | 'visibility'>,
+    channel: Pick<SubscriptionChannel, 'accent' | 'draft' | 'handle' | 'statusText' | 'title' | 'visibility'>,
   ): NonNullable<Message['sourceChannel']> {
     return {
       accent: channel.accent,
       draft: channel.draft,
       handle: channel.handle,
       leadText: 'Пользователь приглашает вас подписаться на канал:',
+      statusText: channel.statusText,
       title: channel.title,
       visibility: channel.visibility,
+    }
+  }
+
+  async function shareCurrentContactToSelectedChats() {
+    if (!activeChat) return
+    if (!canShareActiveContact) return
+
+    const sourceContact = buildSourceContactFromChat(activeChat)
+    const note = contactShareNote.trim()
+
+    setContactShareBusy(true)
+    setContactShareError('')
+
+    try {
+      if (backendReady && session?.sessionToken) {
+        let latestSnapshot: AppSnapshot | null = null
+
+        for (const chat of selectedContactShareChats) {
+          const response = await sendDirectMessageRequest(session.sessionToken, chat.id, {
+            sourceContact,
+            text: note,
+          })
+          latestSnapshot = response.snapshot
+        }
+
+        if (latestSnapshot) {
+          applySnapshot(latestSnapshot)
+        }
+      } else {
+        for (const chat of selectedContactShareChats) {
+          applyLocalDirectMessage(chat.id, note, {
+            markAsRead: chat.id === activeChatId,
+            sourceContact,
+          })
+        }
+      }
+
+      closeContactShareDialog()
+      setChatActionsOpen(false)
+    } catch (error) {
+      console.error('Failed to share contact', error)
+      setContactShareError(
+        error instanceof Error ? error.message : 'Не удалось поделиться контактом.',
+      )
+      setContactShareBusy(false)
     }
   }
 
@@ -7980,6 +10352,46 @@ function App() {
     }
   }
 
+  async function removeCurrentGroupParticipant(identifier: string) {
+    if (!activeGroup || !backendReady || !session?.sessionToken) return
+
+    setGroupParticipantActionBusy(true)
+    setGroupParticipantActionError('')
+
+    try {
+      const response = await removeGroupParticipantRequest(session.sessionToken, activeGroup.id, { identifier })
+      applySnapshot(response.snapshot)
+      closeGroupParticipantsDialog()
+      closeGroupActions()
+    } catch (error) {
+      console.error('Failed to remove group participant', error)
+      setGroupParticipantActionError(
+        error instanceof Error ? error.message : 'Не удалось удалить участника из группы.',
+      )
+      setGroupParticipantActionBusy(false)
+    }
+  }
+
+  async function blacklistCurrentGroupParticipant(identifier: string) {
+    if (!activeGroup || !backendReady || !session?.sessionToken) return
+
+    setGroupParticipantActionBusy(true)
+    setGroupParticipantActionError('')
+
+    try {
+      const response = await blacklistGroupParticipantRequest(session.sessionToken, activeGroup.id, { identifier })
+      applySnapshot(response.snapshot)
+      closeGroupParticipantsDialog()
+      closeGroupActions()
+    } catch (error) {
+      console.error('Failed to blacklist group participant', error)
+      setGroupParticipantActionError(
+        error instanceof Error ? error.message : 'Не удалось добавить участника в чёрный список.',
+      )
+      setGroupParticipantActionBusy(false)
+    }
+  }
+
   async function leaveCurrentSubscriptionChannel(channelId: number) {
     if (backendReady && session?.sessionToken) {
       try {
@@ -8035,17 +10447,28 @@ function App() {
     setChannelReportSuccessOpen(true)
   }
 
-  async function deleteChatHistory(chatId: number) {
+  async function deleteChatHistory(chatId: number, scope: 'everyone' | 'me' = 'me') {
     if (backendReady && session?.sessionToken) {
       try {
-        const response = await deleteDialogHistoryRequest(session.sessionToken, chatId)
+        const response = await deleteDialogHistoryRequest(session.sessionToken, chatId, { scope })
         applySnapshot(response.snapshot)
       } catch (error) {
         console.error('Failed to delete chat history', error)
-        applyLocalDeleteChatHistory(chatId)
+        // `Удалить у всех` is a server-authoritative destructive action.
+        // If the backend call fails, the initiator must not locally fake success,
+        // otherwise the two direct copies diverge again.
+        if (scope === 'everyone') {
+          window.alert('Не удалось удалить переписку у всех. Попробуйте ещё раз.')
+        } else {
+          applyLocalDeleteChatHistory(chatId)
+        }
       }
     } else {
-      applyLocalDeleteChatHistory(chatId)
+      if (scope === 'everyone') {
+        window.alert('Удаление переписки у всех сейчас недоступно без подключения к серверу.')
+      } else {
+        applyLocalDeleteChatHistory(chatId)
+      }
     }
 
     setChatActionsOpen(false)
@@ -8195,6 +10618,7 @@ function App() {
     },
   ) {
     const trimmedText = text.trim()
+    const sourceContact = resolveEmbeddedContactFromText(trimmedText)
     if (!trimmedText) return
 
     if (backendReady && session?.sessionToken) {
@@ -8218,6 +10642,7 @@ function App() {
       forwardedAuthorName: options?.forwardedAuthorName,
       markAsRead: targetChatId === activeChatId,
       sourceChannel: options?.sourceChannel,
+      sourceContact: sourceContact ?? undefined,
     })
   }
 
@@ -8231,6 +10656,7 @@ function App() {
     },
   ) {
     const trimmedText = text.trim()
+    const sourceContact = resolveEmbeddedContactFromText(trimmedText)
     if (!trimmedText) return
 
     if (backendReady && session?.sessionToken) {
@@ -8252,6 +10678,7 @@ function App() {
       forwarded: options?.forwarded ?? true,
       forwardedAuthorName: options?.forwardedAuthorName,
       sourceChannel: options?.sourceChannel,
+      sourceContact: sourceContact ?? undefined,
     })
   }
 
@@ -8347,17 +10774,29 @@ function App() {
     resetSubscriptionPostActions()
   }
 
-  async function deleteMessage(chatId: number, messageId: number) {
+  async function deleteMessage(chatId: number, messageId: number, scope: 'everyone' | 'me' = 'me') {
     if (backendReady && session?.sessionToken) {
       try {
-        const response = await deleteDialogMessageRequest(session.sessionToken, chatId, messageId)
+        const response = await deleteDialogMessageRequest(session.sessionToken, chatId, messageId, { scope })
         applySnapshot(response.snapshot)
       } catch (error) {
         console.error('Failed to delete message', error)
-        applyLocalDeleteMessage(chatId, messageId)
+        if (scope === 'everyone') {
+          if (error instanceof Error && error.message.trim()) {
+            window.alert(error.message)
+          } else {
+            window.alert('Не удалось удалить сообщение у всех. Попробуйте ещё раз.')
+          }
+        } else {
+          applyLocalDeleteMessage(chatId, messageId)
+        }
       }
     } else {
-      applyLocalDeleteMessage(chatId, messageId)
+      if (scope === 'everyone') {
+        window.alert('Удаление сообщения у всех сейчас недоступно без подключения к серверу.')
+      } else {
+        applyLocalDeleteMessage(chatId, messageId)
+      }
     }
 
     if (replyTarget?.id === messageId) {
@@ -8390,7 +10829,7 @@ function App() {
       } else {
         applyLocalDeleteGroupThreadComment(threadTarget.groupId, threadTarget.messageId, commentId)
       }
-    } else {
+    } else if (threadTarget.kind === 'channel') {
       if (backendReady && session?.sessionToken) {
         try {
           const response = await deleteSubscriptionChannelThreadCommentRequest(
@@ -8407,6 +10846,8 @@ function App() {
       } else {
         applyLocalDeleteSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, commentId)
       }
+    } else {
+      setThreadError('Комментарии поддержки нельзя удалять из пользовательского интерфейса.')
     }
 
     clearThreadDeleteConfirmation()
@@ -8447,7 +10888,7 @@ function App() {
     setActiveSubscriptionChannelId(null)
     setPreviewSubscriptionChannel(null)
     setActiveGroupId(null)
-    setGroupParticipantsOpen(false)
+    closeGroupParticipantsDialog()
     resetRoomMessageActions()
     setConfirmingLogout(false)
     setPremiumGiftChatId(null)
@@ -8460,10 +10901,6 @@ function App() {
     setConfirmingDeleteContactChatId(null)
     setConfirmingDeleteMessageId(null)
     setConfirmingDeleteChannelId(null)
-    setTransferringChannelId(null)
-    setChannelTransferTargetChatId(null)
-    setChannelTransferCode('')
-    setChannelTransferError('')
     setMessageActionAnchor(null)
     if (nextView !== 'invite') {
       resetChannelInviteState()
@@ -8472,6 +10909,7 @@ function App() {
 
   function openChannelsListView() {
     setActiveChannelId(null)
+    setChannelDetailView('main')
     openChannelsView('list')
   }
 
@@ -8700,6 +11138,7 @@ function App() {
   function openChannelDetailView(channelId: number) {
     setChannelManagementOpenId(null)
     setChannelSettingsError('')
+    setChannelDetailView('main')
     setConfirmChannelSettingsLeaveOpen(false)
     setPendingAvatarPostPrompt(null)
     setPendingAvatarPostCaption('')
@@ -8794,6 +11233,12 @@ function App() {
   }
 
   async function handleActiveChannelDetailBack() {
+    if (channelDetailView === 'storage') {
+      setChannelStorageItemsError('')
+      setChannelDetailView('main')
+      return
+    }
+
     if (!activeChannel || channelSettingsBusy) {
       if (!activeChannel) {
         openChannelsListView()
@@ -8974,10 +11419,62 @@ function App() {
     return null
   }
 
+  function buildSourceContactFromChat(chat: Chat): NonNullable<Message['sourceContact']> {
+    return {
+      accent: chat.accent,
+      avatarImage: chat.avatarImage,
+      handle: chat.handle,
+      identifier: normalizeIdentifier(chat.phone) || chat.phone,
+      status: chat.status.trim() || 'На связи',
+      title: chat.title,
+    }
+  }
+
+  function buildSourceContactFromSession(): NonNullable<Message['sourceContact']> | null {
+    if (!session?.identifier) {
+      return null
+    }
+
+    const normalizedNickname = normalizeNickname(session.nickname ?? '')
+    const handle = normalizedNickname ? `@${normalizedNickname}` : ''
+
+    return {
+      accent: '#8c5738',
+      avatarImage: session.avatarImage,
+      handle,
+      identifier: session.identifier,
+      status: session.status?.trim() || 'На связи',
+      title: formatSessionName(session) || session.identifier,
+    }
+  }
+
+  function resolveEmbeddedContactFromText(text: string): NonNullable<Message['sourceContact']> | null {
+    const trimmedText = text.trim()
+    if (!/^@\S+$/u.test(trimmedText)) return null
+
+    const normalizedHandle = normalizeNickname(trimmedText.replace(/^@+/u, ''))
+    if (!normalizedHandle) return null
+
+    const sessionContact = buildSourceContactFromSession()
+    if (
+      sessionContact?.handle &&
+      normalizeNickname(sessionContact.handle.replace(/^@+/u, '')) === normalizedHandle
+    ) {
+      return sessionContact
+    }
+
+    const matchedChat = chats.find((chat) => {
+      if (chat.archivedAccount) return false
+      return normalizeNickname(chat.handle.replace(/^@+/u, '')) === normalizedHandle
+    })
+
+    return matchedChat ? buildSourceContactFromChat(matchedChat) : null
+  }
+
   function resolveEmbeddedChannelFromMessage(
-    message: Pick<Message, 'sourceChannel' | 'text'>,
+    message: Pick<Message, 'sourceChannel' | 'sourceContact' | 'text'>,
   ): NonNullable<Message['sourceChannel']> | null {
-    if (message.sourceChannel) return null
+    if (message.sourceChannel || message.sourceContact) return null
 
     const trimmedText = message.text.trim()
     if (!/^@\S+$/u.test(trimmedText)) return null
@@ -9434,6 +11931,14 @@ function App() {
   async function createGroup() {
     if (!session) return
 
+    // UX-only early guard. The backend createGroup check remains authoritative
+    // and must keep rejecting overflow creation even if this client is stale.
+    if (creatingGroupLimitReached) {
+      setCreatingGroupError(getGroupCreationLimitError(creatingGroupsPerUserLimit))
+      setCreatingGroupSelectionHint('')
+      return
+    }
+
     if (!canCreateGroup) {
       setCreatingGroupSelectionHint('Добавьте хотя бы одного пользователя в группу с вами.')
       return
@@ -9482,7 +11987,9 @@ function App() {
           commentBlacklistIdentifiers: creatingGroupBlacklistIdentifiers,
           commentsEnabledForAll: creatingGroupCommentsForAll,
           commentsEnabledForPremium: creatingGroupCommentsForPremium,
+          description: sanitizeChannelDescription(creatingGroupDescription),
           memberDialogIds: selectedGroupCreateChats.map((chat) => chat.id),
+          showHistoryToNewMembers: true,
           title: nextTitle,
         } satisfies CreateGroupBody)
         applySnapshot(response.snapshot)
@@ -9521,8 +12028,10 @@ function App() {
         commentsEnabledForAll: creatingGroupCommentsForAll,
         commentsEnabledForPremium: creatingGroupCommentsForPremium,
         creatorIdentifier: session.identifier,
+        description: sanitizeChannelDescription(creatingGroupDescription),
         groupOwnerIdentifier: session.identifier,
         handle: buildLocalGroupHandle(nextGroupId),
+        showHistoryToNewMembers: true,
         id: nextGroupId,
         members: participants.length,
         messages: [],
@@ -9533,6 +12042,7 @@ function App() {
         time: formatNowTime(),
         title: nextTitle,
         unread: 0,
+        viewerIsOwner: true,
       }
 
       setGroups((currentGroups) => [nextGroup, ...currentGroups])
@@ -9553,6 +12063,7 @@ function App() {
             accent: nextGroup.accent,
             avatarImage: nextGroup.avatarImage,
             creatorIdentifier: nextGroup.creatorIdentifier,
+            leadText: 'Пользователь приглашает вас в группу',
             groupOwnerIdentifier: nextGroup.groupOwnerIdentifier,
             handle: nextGroup.handle,
             sharedId: nextGroup.sharedId,
@@ -9735,23 +12246,15 @@ function App() {
     openChannelsView('list')
   }
 
-  function closeChannelTransfer() {
-    setTransferringChannelId(null)
-    setChannelTransferTargetChatId(null)
-    setChannelTransferCode('')
-    setChannelTransferError('')
-    setChannelTransferSearch('')
-  }
-
   function closeSubscriptionPostActions() {
     closeRoomSubscriptionPostActions()
-    setThreadsDisabledHintTarget(null)
+    setThreadCommentHintTarget(null)
   }
 
   function closeGroupMessageActions() {
     closeRoomGroupMessageActions()
     clearBlacklistHint()
-    setThreadsDisabledHintTarget(null)
+    setThreadCommentHintTarget(null)
   }
 
   async function deleteChannel(channelId: number) {
@@ -9769,19 +12272,6 @@ function App() {
 
     setConfirmingDeleteChannelId(null)
     setChannelsView('list')
-    if (transferringChannelId === channelId) {
-      closeChannelTransfer()
-    }
-  }
-
-  function startChannelTransfer(channelId: number) {
-    setChannelManagementOpenId(null)
-    setConfirmingDeleteChannelId(null)
-    setTransferringChannelId(channelId)
-    setChannelTransferTargetChatId(null)
-    setChannelTransferCode('')
-    setChannelTransferError('')
-    setChannelTransferSearch('')
   }
 
   function openChannelTitleEditor(channel: Channel) {
@@ -9800,23 +12290,6 @@ function App() {
     setEditingChannelTitleValue('')
   }
 
-  function selectChannelTransferTarget(chatId: number) {
-    setChannelTransferTargetChatId(chatId)
-    setChannelTransferCode('')
-    setChannelTransferError('')
-  }
-
-  function submitChannelTransfer() {
-    if (transferringChannelId === null || channelTransferTarget === null) return
-
-    if (channelTransferCode.trim().length < 4) {
-      setChannelTransferError('Введи код из SMS для подтверждения передачи канала.')
-      return
-    }
-
-    void deleteChannel(transferringChannelId)
-  }
-
   if (!session) {
     return (
       <>
@@ -9824,6 +12297,7 @@ function App() {
           authCodeFlow={authCodeFlow}
           authError={authError}
           authExistingAccount={authExistingAccount}
+          authPhoneBlockedNotice={authPhoneBlockedNotice}
           authStep={authStep}
           captchaBusy={captchaBusy}
           captchaContainerRef={captchaContainerRef}
@@ -9848,6 +12322,7 @@ function App() {
             setIdentifier(value)
             setAuthExistingAccount(null)
             setAuthBlockedNoticeOpen(false)
+            setAuthPhoneBlockedNotice(false)
             setAuthCodeFlow('registration')
             setAuthPassword('')
             setAuthPasswordConfirm('')
@@ -9855,10 +12330,12 @@ function App() {
           onPasswordChange={(value) => {
             setAuthPassword(value)
             setAuthBlockedNoticeOpen(false)
+            setAuthPhoneBlockedNotice(false)
           }}
           onPasswordConfirmChange={(value) => {
             setAuthPasswordConfirm(value)
             setAuthBlockedNoticeOpen(false)
+            setAuthPhoneBlockedNotice(false)
           }}
           onSupportEmailClick={() => {
             trackAnalyticsEvent('auth_support_email_clicked', {
@@ -9868,6 +12345,7 @@ function App() {
           onSmsCodeChange={(value) => {
             setSmsCode(value.replace(/[^\d]/g, ''))
             setAuthBlockedNoticeOpen(false)
+            setAuthPhoneBlockedNotice(false)
           }}
           onSubmit={() => {
             if (authStep === 'phone') {
@@ -9941,6 +12419,14 @@ function App() {
     )
   }
 
+  // Support UI invariant:
+  // opening ticket comments inside settings must replace the support scene itself,
+  // not stack the thread under the existing support/settings panel. In the same flow
+  // the support thread must behave like a fixed-height room with inner scrolling,
+  // not stretch the whole settings page vertically.
+  const isSupportSettingsThreadOpen =
+    isSettingsView && settingsView === 'support' && threadTarget?.kind === 'support'
+
   const shellClassName = [
     'shell',
     isPremiumView
@@ -9948,6 +12434,7 @@ function App() {
       : isSettingsView || isChannelsView
         ? 'shell-settings'
         : '',
+    isSupportSettingsThreadOpen ? 'shell-support-thread-open' : '',
     !isSettingsView && !isPremiumView && !isChannelsView && !isAnyRoomOpen ? 'shell-main-list' : '',
     !isSettingsView && !isPremiumView && !isChannelsView && isAnyRoomOpen ? 'shell-main-room' : '',
   ]
@@ -9968,6 +12455,7 @@ function App() {
           channelTitle={currentSubscriptionChannel?.title ?? ''}
           kind="channel"
           onOpenAttachment={openMediaViewer}
+          onOpenExternalLink={requestOpenExternalLink}
           post={activeSubscriptionPost}
           draft={Boolean(currentSubscriptionChannel?.draft)}
         />
@@ -9995,27 +12483,44 @@ function App() {
                 Ответить
               </button>
             ) : null}
-            <button
-              type="button"
-              className={`message-menu-item${
-                hasRoomThreadsEnabled(currentSubscriptionChannel) ? '' : ' disabled'
-              }`}
-              aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
-              onClick={() => {
-                if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
-                  setThreadsDisabledHintTarget('channel-post')
-                  return
-                }
+            {!isPreviewSubscriptionChannel ? (
+              <>
+                <button
+                  type="button"
+                  className={`message-menu-item${
+                    hasRoomThreadsEnabled(currentSubscriptionChannel) ? '' : ' disabled'
+                  }`}
+                  aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
+                  onClick={() => {
+                    if (activeSubscriptionPost.threadArchivedAt) {
+                      setThreadCommentHintTarget({
+                        reason: 'archived',
+                        target: 'channel-post',
+                      })
+                      return
+                    }
 
-                openChannelThread(activeSubscriptionPost.id)
-              }}
-            >
-              Прокомментировать
-            </button>
-            {threadsDisabledHintTarget === 'channel-post' ? (
-              <p className="settings-text message-menu-note">
-                {getThreadsDisabledNoticeText('channel')}
-              </p>
+                    if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
+                      setThreadCommentHintTarget({
+                        reason: 'disabled',
+                        target: 'channel-post',
+                      })
+                      return
+                    }
+
+                    openChannelThread(activeSubscriptionPost.id)
+                  }}
+                >
+                  Прокомментировать
+                </button>
+                {threadCommentHintTarget?.target === 'channel-post' ? (
+                  <p className="settings-text message-menu-note">
+                    {threadCommentHintTarget.reason === 'archived'
+                      ? getThreadsModerationNoticeText()
+                      : getThreadsDisabledNoticeText('channel')}
+                  </p>
+                ) : null}
+              </>
             ) : null}
             {isCurrentSubscriptionChannelOwner ? (
               <button
@@ -10060,7 +12565,7 @@ function App() {
                     }}
                   >
                     <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
+                      {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                     </span>
                     <span>{chat.title}</span>
                   </button>
@@ -10142,25 +12647,38 @@ function App() {
           >
             Переслать
           </button>
-          <button
-            type="button"
-            className="message-menu-item"
-            onClick={() => {
-              copyToClipboard(formatMessagePreview(activeSubscriptionPost), 'Сообщение скопировано')
-              closeSubscriptionPostActions()
-            }}
-          >
-            Скопировать
-          </button>
-          {currentSubscriptionChannel ? (
-            <>
-              <button
-                type="button"
-                className={`message-menu-item${hasRoomThreadsEnabled(currentSubscriptionChannel) ? '' : ' disabled'}`}
+          {!activeSubscriptionPost.attachment ? (
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => {
+                copyToClipboard(formatMessagePreview(activeSubscriptionPost), 'Сообщение скопировано')
+                closeSubscriptionPostActions()
+              }}
+            >
+              Скопировать
+            </button>
+          ) : null}
+            {currentSubscriptionChannel && !isPreviewSubscriptionChannel ? (
+              <>
+                <button
+                  type="button"
+                  className={`message-menu-item${hasRoomThreadsEnabled(currentSubscriptionChannel) ? '' : ' disabled'}`}
                 aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
                 onClick={() => {
+                  if (activeSubscriptionPost.threadArchivedAt) {
+                    setThreadCommentHintTarget({
+                      reason: 'archived',
+                      target: 'channel-post',
+                    })
+                    return
+                  }
+
                   if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
-                    setThreadsDisabledHintTarget('channel-post')
+                    setThreadCommentHintTarget({
+                      reason: 'disabled',
+                      target: 'channel-post',
+                    })
                     return
                   }
 
@@ -10169,9 +12687,11 @@ function App() {
               >
                 Прокомментировать
               </button>
-              {threadsDisabledHintTarget === 'channel-post' ? (
+              {threadCommentHintTarget?.target === 'channel-post' ? (
                 <p className="settings-text message-menu-note">
-                  {getThreadsDisabledNoticeText('channel')}
+                  {threadCommentHintTarget.reason === 'archived'
+                    ? getThreadsModerationNoticeText()
+                    : getThreadsDisabledNoticeText('channel')}
                 </p>
               ) : null}
             </>
@@ -10194,7 +12714,7 @@ function App() {
 
   const threadRoom = threadTarget ? (
     <>
-      <section className="chat-room room-thread">
+      <section className={`chat-room room-thread${isSupportSettingsThreadOpen ? ' room-thread-settings' : ''}`}>
         <header className="room-header room-thread-header">
           <button
             type="button"
@@ -10210,12 +12730,21 @@ function App() {
               <div className="room-title">
                 <div className="room-title-name">
                   <h3>{`Комментарии: ${activeThreadSourceLabel}`}</h3>
+                  {threadTarget.kind === 'support' && activeSupportTicket ? (
+                    <span
+                      className={`support-ticket-status-badge support-ticket-status-badge-${activeSupportTicket.status}`}
+                    >
+                      {formatSupportTicketStatus(activeSupportTicket.status)}
+                    </span>
+                  ) : null}
                   <span className="chat-star room-thread-entity-icon" aria-hidden="true">
                     <img
                       src={
                         threadTarget.kind === 'group'
                           ? '/icons/group100.png'
-                          : '/icons/news100.svg'
+                          : threadTarget.kind === 'channel'
+                            ? '/icons/news100.svg'
+                            : '/icons/man-raising-hand.png'
                       }
                       alt=""
                     />
@@ -10227,7 +12756,7 @@ function App() {
               </p>
             </div>
           </div>
-          {activeThreadId ? (
+          {activeThreadId && threadTarget.kind !== 'support' ? (
             <button
               type="button"
               className="soft-button room-thread-subscribe"
@@ -10253,6 +12782,33 @@ function App() {
                 !threadGroupMessage.sourceChannel &&
                 !threadGroupMessage.sourceGroup &&
                 threadSourceText.trim().length === 0
+              const useMediaOnlyBubble = isImageOnlyBubble && !hasImageAttachment
+              const usesInlineTimeLayout =
+                !hasImageAttachment &&
+                threadSourceText.trim().length > 0 &&
+                !resolveEmbeddedChannelFromMessage(threadGroupMessage) &&
+                !threadGroupMessage.sourceChannel &&
+                !threadGroupMessage.sourceGroup &&
+                !threadGroupMessage.sourceContact &&
+                !threadGroupMessage.attachmentRemovedNotice
+              const usesCaptionedImageCardLayout =
+                hasImageAttachment &&
+                threadSourceText.trim().length > 0 &&
+                !resolveEmbeddedChannelFromMessage(threadGroupMessage) &&
+                !threadGroupMessage.sourceChannel &&
+                !threadGroupMessage.sourceGroup &&
+                !threadGroupMessage.sourceContact &&
+                !threadGroupMessage.attachmentRemovedNotice
+              const usesImageOnlyCardLayout =
+                hasImageAttachment &&
+                threadSourceText.trim().length === 0 &&
+                !resolveEmbeddedChannelFromMessage(threadGroupMessage) &&
+                !threadGroupMessage.sourceChannel &&
+                !threadGroupMessage.sourceGroup &&
+                !threadGroupMessage.sourceContact &&
+                !threadGroupMessage.attachmentRemovedNotice
+              const usesThumbnailImageLayout =
+                hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout
 
               return (
             <AttachedReplyBubble
@@ -10260,11 +12816,20 @@ function App() {
               replyTo={threadGroupMessage.replyTo}
               bubble={
                 <article
-                  className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+                  className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
                 >
                   <BubbleMessageContent
+                    attachmentLayout={
+                      usesCaptionedImageCardLayout || usesImageOnlyCardLayout
+                        ? 'thread-source-card'
+                        : usesThumbnailImageLayout
+                          ? 'thread-source-thumbnail'
+                          : undefined
+                    }
                     imageOverlay={
-                      hasImageAttachment ? <BubbleImageOverlayMeta time={threadSourceTime} /> : undefined
+                      hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout ? (
+                        <BubbleImageOverlayMeta time={threadSourceTime} />
+                      ) : undefined
                     }
                     linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
                     message={{
@@ -10272,9 +12837,20 @@ function App() {
                       text: threadSourceText,
                     }}
                     onOpenAttachment={openMediaViewer}
+                    onOpenExternalLink={requestOpenExternalLink}
+                    onOpenSourceContact={
+                      threadGroupMessage.sourceContact
+                        ? () =>
+                            openSourceContact(
+                              threadGroupMessage.sourceContact as NonNullable<Message['sourceContact']>,
+                            )
+                        : undefined
+                    }
                     showReplyInline={false}
                   />
-                  {!hasImageAttachment ? <time>{threadSourceTime}</time> : null}
+                  {!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout ? (
+                    <time>{threadSourceTime}</time>
+                  ) : null}
                 </article>
               }
             />
@@ -10282,11 +12858,32 @@ function App() {
             })()
           ) : threadTarget.kind === 'channel' && threadChannelPost ? (
             (() => {
+              // Important: channel-thread source is not the same surface as support-thread source.
+              // The root channel post inside an opened thread must stay a compact preview surface,
+              // but it should now stretch full-width like a proper reference card instead of a tiny bubble.
               const hasImageAttachment = Boolean(
                 threadChannelPost.attachment && isImageMimeType(threadChannelPost.attachment.mimeType),
               )
               const isImageOnlyBubble =
                 hasImageAttachment && threadSourceText.trim().length === 0
+              const useMediaOnlyBubble = isImageOnlyBubble && !hasImageAttachment
+              const usesInlineTimeLayout =
+                !hasImageAttachment &&
+                threadSourceText.trim().length > 0 &&
+                !threadChannelPost.sourceContact &&
+                !threadChannelPost.attachmentRemovedNotice
+              const usesCaptionedImageCardLayout =
+                hasImageAttachment &&
+                threadSourceText.trim().length > 0 &&
+                !threadChannelPost.sourceContact &&
+                !threadChannelPost.attachmentRemovedNotice
+              const usesImageOnlyCardLayout =
+                hasImageAttachment &&
+                threadSourceText.trim().length === 0 &&
+                !threadChannelPost.sourceContact &&
+                !threadChannelPost.attachmentRemovedNotice
+              const usesThumbnailImageLayout =
+                hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout
 
               return (
             <AttachedReplyBubble
@@ -10311,25 +12908,69 @@ function App() {
               replyTo={threadChannelPost.replyTo}
               bubble={
                 <article
-                  className={`bubble channel-post room-thread-source-bubble${threadChannelPost.replyTo ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+                  className={`bubble channel-post room-thread-source-bubble${threadChannelPost.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
                 >
                   <BubbleMessageContent
+                    attachmentLayout={
+                      usesCaptionedImageCardLayout || usesImageOnlyCardLayout
+                        ? 'thread-source-card'
+                        : usesThumbnailImageLayout
+                          ? 'thread-source-thumbnail'
+                          : undefined
+                    }
                     imageOverlay={
-                      hasImageAttachment ? <BubbleImageOverlayMeta time={threadSourceTime} /> : undefined
+                      hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout ? (
+                        <BubbleImageOverlayMeta time={threadSourceTime} />
+                      ) : undefined
                     }
                     message={{
                       ...threadChannelPost,
                       text: threadSourceText,
                     }}
                     onOpenAttachment={openMediaViewer}
+                    onOpenExternalLink={requestOpenExternalLink}
+                    onOpenSourceContact={
+                      threadChannelPost.sourceContact
+                        ? () =>
+                            openSourceContact(
+                              threadChannelPost.sourceContact as NonNullable<Message['sourceContact']>,
+                            )
+                        : undefined
+                    }
                     showReplyInline={false}
                   />
-                  {!hasImageAttachment ? <time>{threadSourceTime}</time> : null}
+                  {!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout ? (
+                    <time>{threadSourceTime}</time>
+                  ) : null}
                 </article>
               }
             />
               )
             })()
+          ) : threadTarget.kind === 'support' && activeSupportTicket ? (
+            <article className="bubble room-thread-source-bubble mine">
+              <div className="settings-support-ticket-topline">
+                <span className="bubble-meta">{`Тикет #${activeSupportTicket.id}`}</span>
+                <span
+                  className={`support-ticket-status-badge support-ticket-status-badge-${activeSupportTicket.status}`}
+                >
+                  {formatSupportTicketStatus(activeSupportTicket.status)}
+                </span>
+              </div>
+              <BubbleMessageContent
+                message={{
+                  attachment: activeSupportTicket.attachment,
+                  replyTo: activeSupportTicket.replyTo,
+                  sourceContact: undefined,
+                  sourceGroup: undefined,
+                  text: threadSourceText,
+                }}
+                onOpenAttachment={openMediaViewer}
+                onOpenExternalLink={requestOpenExternalLink}
+                showReplyInline={false}
+              />
+              <time>{threadSourceTime}</time>
+            </article>
           ) : null}
         </div>
 
@@ -10355,58 +12996,133 @@ function App() {
                   }
                   replyTo={replyReference}
                   bubble={
-                    <button
-                      type="button"
-                      data-thread-comment-id={comment.id}
-                      className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
-                      onClick={(event) => {
-                        scheduleActionAnchor(
-                          event.currentTarget,
-                          mine ? 'end' : 'start',
-                          (anchor) => openThreadFlowCommentActions(comment.id, anchor),
-                        )
-                      }}
-                    >
-                      {mine ? (
-                        <span className="bubble-meta">Вы</span>
-                      ) : participant ? (
-                        <div className="bubble-sender">
-                          <span className="bubble-sender-avatar-stack">
-                            <span
-                              className="avatar bubble-sender-avatar"
-                              style={{ backgroundColor: participant.accent }}
-                            >
-                              {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
-                            </span>
-                            {participant.online ? (
-                              <span className="bubble-sender-presence-dot" aria-label="В сети" />
-                            ) : null}
-                          </span>
-                          <span className="bubble-sender-name">{participant.title}</span>
-                          {participant.premium ? (
-                            <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
-                              <img src="/icons/crown64.png" alt="" />
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
-                      )}
-                      <BubbleMessageContent
-                        imageOverlay={
-                          hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
-                        }
-                        message={{
-                          attachment: comment.attachment,
-                          replyTo: comment.replyTo,
-                          sourceGroup: undefined,
-                          text: comment.text,
+                    isImageOnlyBubble ? (
+                      <MediaOnlyBubbleRow
+                        actionLabel="Открыть действия комментария"
+                        bubbleAttributes={{ 'data-thread-comment-id': comment.id }}
+                        bubbleClassName={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+                        mine={mine}
+                        onOpenActions={(anchorElement) => {
+                          scheduleActionAnchor(
+                            anchorElement,
+                            mine ? 'end' : 'start',
+                            (anchor) => openThreadFlowCommentActions(comment.id, anchor),
+                          )
                         }}
-                        onOpenAttachment={openMediaViewer}
-                        showReplyInline={false}
-                      />
-                      {!hasImageAttachment ? <time>{comment.time}</time> : null}
-                    </button>
+                      >
+                        {mine ? (
+                          <span className="bubble-meta">Вы</span>
+                        ) : participant ? (
+                          <div className="bubble-sender">
+                            <span className="bubble-sender-avatar-stack">
+                              <span
+                                className="avatar bubble-sender-avatar"
+                                style={{ backgroundColor: participant.accent }}
+                              >
+                                {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
+                              </span>
+                              {participant.online ? (
+                                <span className="bubble-sender-presence-dot" aria-label="В сети" />
+                              ) : null}
+                            </span>
+                            <span className="bubble-sender-name">{participant.title}</span>
+                            {participant.premium ? (
+                              <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+                                <img src="/icons/crown64.png" alt="" />
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
+                        )}
+                        <BubbleMessageContent
+                          imageOverlay={
+                            hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
+                          }
+                          message={{
+                            attachment: comment.attachment,
+                            replyTo: comment.replyTo,
+                            sourceContact: comment.sourceContact,
+                            sourceGroup: undefined,
+                            text: comment.text,
+                          }}
+                          onOpenAttachment={openMediaViewer}
+                          onOpenExternalLink={requestOpenExternalLink}
+                          onOpenSourceContact={
+                            comment.sourceContact
+                              ? () =>
+                                  openSourceContact(
+                                    comment.sourceContact as NonNullable<Message['sourceContact']>,
+                                  )
+                              : undefined
+                          }
+                          showReplyInline={false}
+                        />
+                      </MediaOnlyBubbleRow>
+                    ) : (
+                      <button
+                        type="button"
+                        data-thread-comment-id={comment.id}
+                        className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+                        onClick={(event) => {
+                          scheduleActionAnchor(
+                            event.currentTarget,
+                            mine ? 'end' : 'start',
+                            (anchor) => openThreadFlowCommentActions(comment.id, anchor),
+                          )
+                        }}
+                      >
+                        {mine ? (
+                          <span className="bubble-meta">Вы</span>
+                        ) : participant ? (
+                          <div className="bubble-sender">
+                            <span className="bubble-sender-avatar-stack">
+                              <span
+                                className="avatar bubble-sender-avatar"
+                                style={{ backgroundColor: participant.accent }}
+                              >
+                                {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
+                              </span>
+                              {participant.online ? (
+                                <span className="bubble-sender-presence-dot" aria-label="В сети" />
+                              ) : null}
+                            </span>
+                            <span className="bubble-sender-name">{participant.title}</span>
+                            {participant.premium ? (
+                              <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+                                <img src="/icons/crown64.png" alt="" />
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
+                        )}
+                        <BubbleMessageContent
+                          imageOverlay={
+                            hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
+                          }
+                          message={{
+                            attachment: comment.attachment,
+                            replyTo: comment.replyTo,
+                            sourceContact: comment.sourceContact,
+                            sourceGroup: undefined,
+                            text: comment.text,
+                          }}
+                          onOpenAttachment={openMediaViewer}
+                          onOpenExternalLink={requestOpenExternalLink}
+                          onOpenSourceContact={
+                            comment.sourceContact
+                              ? () =>
+                                  openSourceContact(
+                                    comment.sourceContact as NonNullable<Message['sourceContact']>,
+                                  )
+                              : undefined
+                          }
+                          showReplyInline={false}
+                        />
+                        {!hasImageAttachment ? <time>{comment.time}</time> : null}
+                      </button>
+                    )
                   }
                 />
               )
@@ -10419,112 +13135,57 @@ function App() {
             <p className="composer-disabled-note">{activeThreadBlockReason}</p>
           </div>
         ) : (
-          <form
-            className="composer"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void submitThreadComment()
-            }}
-          >
-            {activeThreadComments.length === 0 ? (
-              <p className="room-thread-empty-copy">Будьте первым, кто оставит комментарий</p>
-            ) : null}
-            <div className="composer-input">
-              {threadReplyTarget ? (
-                <div className="composer-reply">
-                  <div>
-                    <span className="settings-label">Ответ</span>
-                    <p>{threadReplyTarget.text}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="soft-button composer-reply-cancel"
-                    onClick={clearThreadReplyTarget}
-                    aria-label="Отменить ответ"
-                    title="Отменить ответ"
-                  >
-                    <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
-                  </button>
-                </div>
-              ) : null}
-              <div className="composer-entry">
-                <div className="composer-field">
-                  {threadAttachmentDraft ? (
-                    <ComposerAttachmentPreview
-                      attachmentDraft={threadAttachmentDraft}
-                      onClear={clearThreadAttachmentDraft}
-                      onOpenPreview={() => openAttachmentDraftPreview(threadAttachmentDraft)}
-                      onOpenPremiumUpsell={openPremiumUpsell}
-                      onToggleSendOriginal={toggleThreadAttachmentSendOriginal}
-                      premiumUnlocked={sessionHasPremium}
-                    />
-                  ) : null}
-                  <input
-                    ref={threadAttachmentInputRef}
-                    type="file"
-                    className="composer-attachment-input"
-                    onChange={handleThreadAttachmentChange}
-                  />
-                  <textarea
-                    ref={threadComposerInputRef}
-                    rows={1}
-                    placeholder={
-                      threadAttachmentDraft
-                        ? threadAttachmentDraft.mimeType.startsWith('image/')
-                          ? 'Добавьте подпись к фотографии...'
-                          : 'Добавьте подпись к файлу...'
-                        : 'Напишите комментарий...'
-                    }
-                    value={threadDraft}
-                    onChange={(event) => setThreadDraft(event.target.value)}
-                    onKeyDown={handleThreadComposerKeyDown}
-                  />
-                  <div className="composer-tools">
-                    <EmojiPicker
-                      canSelectGif={!getGifSelectionBlockedReason(threadAttachmentDraft)}
-                      gifLibrary={session?.gifLibrary ?? []}
-                      gifSelectionBlockedReason={getGifSelectionBlockedReason(threadAttachmentDraft)}
-                      onDeleteGif={deleteGifFromLibrary}
-                      onOpenPremiumUpsell={openPremiumUpsell}
-                      onSearchGifs={searchAvailableGifs}
-                      onSelect={(emoji) =>
-                        insertComposerTextAtCursor(
-                          threadComposerInputRef.current,
-                          threadDraft,
-                          emoji,
-                          setThreadDraft,
-                        )
-                      }
-                      onSelectGif={attachThreadGif}
-                      onUploadGif={uploadAndAttachThreadGif}
-                      premiumUnlocked={sessionHasPremium}
-                    />
-                    <ComposerAttachmentPicker
-                      attachmentName={threadAttachmentDraft?.fileName ?? ''}
-                      onSelectMode={openThreadAttachmentPicker}
-                    />
-                    {threadDraft.trim() || threadAttachmentDraft ? (
-                      <button
-                        type="submit"
-                        className="send-button composer-send"
-                        disabled={
-                          threadBusy ||
-                          (threadAttachmentDraft
-                            ? threadAttachmentDraft.status !== 'ready'
-                            : !threadDraft.trim())
-                        }
-                      >
-                        <span className="composer-send-icon" aria-hidden="true">
-                          <img src="/icons/sent.png" alt="" />
-                        </span>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-            {threadError ? <p className="auth-error">{threadError}</p> : null}
-          </form>
+          <RoomComposer
+            attachmentDraft={threadAttachmentDraft}
+            attachmentInputRef={threadAttachmentInputRef}
+            attachmentName={threadAttachmentDraft?.fileName ?? ''}
+            draft={threadDraft}
+            draftInputRef={threadComposerInputRef}
+            gifLibrary={session?.gifLibrary ?? []}
+            gifSelectionBlockedReason={getGifSelectionBlockedReason(threadAttachmentDraft)}
+            onAttachmentChange={handleThreadAttachmentChange}
+            onAttachmentClear={clearThreadAttachmentDraft}
+            onAttachmentPreviewOpen={
+              threadAttachmentDraft ? () => openAttachmentDraftPreview(threadAttachmentDraft) : undefined
+            }
+            onRenameAttachmentFileBaseName={renameThreadAttachmentFileBaseName}
+            onComposerPaste={handleThreadComposerPaste}
+            onDeleteGif={deleteGifFromLibrary}
+            onDraftChange={setThreadDraft}
+            onKeyDown={handleThreadComposerKeyDown}
+            onOpenAttachmentPicker={openThreadAttachmentPicker}
+            onOpenPremiumUpsell={openPremiumUpsell}
+            onReplyCancel={clearThreadReplyTarget}
+            onSearchGifs={searchAvailableGifs}
+            onSelectGif={attachThreadGif}
+            onSubmit={submitThreadComment}
+            onToggleSendOriginal={toggleThreadAttachmentSendOriginal}
+            onUploadGif={uploadAndAttachThreadGif}
+            placeholder={
+              threadAttachmentDraft
+                ? threadAttachmentDraft.mimeType.startsWith('image/')
+                  ? 'Добавьте подпись к фотографии...'
+                  : isVideoMimeType(threadAttachmentDraft.mimeType)
+                    ? 'Добавьте подпись к видео...'
+                    : 'Добавьте подпись к файлу...'
+                : 'Напишите комментарий...'
+            }
+            premiumUnlocked={sessionHasPremium}
+            replyTarget={threadReplyTarget}
+            storageCleanupWarning={getStorageCleanupWarning(threadAttachmentDraft)}
+            submitAriaLabel="Отправить комментарий"
+            submitDisabled={
+              threadBusy ||
+              (threadAttachmentDraft ? threadAttachmentDraft.status !== 'ready' : !threadDraft.trim())
+            }
+            submitTitle="Отправить комментарий"
+            topContent={
+              activeThreadComments.length === 0 ? (
+                <p className="room-thread-empty-copy">Будьте первым, кто оставит комментарий</p>
+              ) : null
+            }
+            bottomContent={threadError ? <p className="auth-error">{threadError}</p> : null}
+          />
         )}
       </section>
       {activeThreadComment ? (
@@ -10545,6 +13206,7 @@ function App() {
               comment={activeThreadComment}
               mine={activeThreadComment.author === 'me'}
               onOpenAttachment={openMediaViewer}
+              onOpenExternalLink={requestOpenExternalLink}
               participant={activeThreadCommentParticipant}
             />
           ) : null}
@@ -10570,7 +13232,7 @@ function App() {
                     }}
                   >
                     <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
+                      {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                     </span>
                     <span>{chat.title}</span>
                   </button>
@@ -10590,6 +13252,26 @@ function App() {
               className="message-menu"
               style={threadCommentMenuStyle}
             >
+              {activeThreadCommentDialogAction ? (
+                <button
+                  type="button"
+                  className="message-menu-item message-menu-item-with-icon"
+                  onClick={() =>
+                    openParticipantDialogAction(activeThreadCommentParticipant, closeThreadCommentActions)
+                  }
+                >
+                  <img
+                    src={
+                      activeThreadCommentDialogAction.kind === 'chat'
+                        ? '/icons/chat100.png'
+                        : '/icons/man-raising-hand.png'
+                    }
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <span>{activeThreadCommentDialogAction.kind === 'chat' ? 'В личку' : 'Добавить'}</span>
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="message-menu-item"
@@ -10597,16 +13279,20 @@ function App() {
               >
                 Ответить
               </button>
-              <button
-                type="button"
-                className="message-menu-item"
-                onClick={() => {
-                  copyToClipboard(activeThreadComment.text, 'Сообщение скопировано')
-                  closeThreadCommentActions()
-                }}
-              >
-                Скопировать
-              </button>
+              {!activeThreadComment.attachment ? (
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => {
+                    // Media bubbles do not support binary clipboard export, so the
+                    // copy action stays text-only and must be hidden for attachments.
+                    copyToClipboard(activeThreadComment.text, 'Сообщение скопировано')
+                    closeThreadCommentActions()
+                  }}
+                >
+                  Скопировать
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="message-menu-item"
@@ -10816,7 +13502,7 @@ function App() {
                     >
                       <span className="chat-avatar-stack">
                         <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                          {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
+                          {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                         </span>
                         {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                       </span>
@@ -10893,14 +13579,24 @@ function App() {
               </span>
               <div className="channel-description-dialog-copy">
                 <h3>{currentSubscriptionChannel.title}</h3>
-                {currentSubscriptionChannel.description ? (
-                  <p className="channel-description-dialog-text">{currentSubscriptionChannel.description}</p>
+                {currentSubscriptionChannelStatusText ? (
+                  <p className="channel-description-dialog-status">{currentSubscriptionChannelStatusText}</p>
                 ) : (
-                  <p className="channel-description-dialog-text channel-description-dialog-empty">
-                    Описание канала пока не заполнено.
+                  <p className="channel-description-dialog-status channel-description-dialog-empty">
+                    Статус канала пока не заполнен.
                   </p>
                 )}
               </div>
+            </div>
+            <div className="channel-description-dialog-body">
+              <p className="channel-description-dialog-label">Описание</p>
+              {currentSubscriptionChannelDescriptionText ? (
+                <p className="channel-description-dialog-text">{currentSubscriptionChannelDescriptionText}</p>
+              ) : (
+                <p className="channel-description-dialog-text channel-description-dialog-empty">
+                  Описание канала пока не заполнено.
+                </p>
+              )}
             </div>
             <div className="room-forward-list">
               <div className="room-forward-item channel-description-contact-card">
@@ -10917,6 +13613,8 @@ function App() {
                           (currentSubscriptionChannelCreatorIdentifier === session?.identifier
                             ? formatSessionName(session)
                             : 'Создатель канала'),
+                        currentSubscriptionChannelCreatorChat?.archivedAccount,
+                        currentSubscriptionChannelCreatorChat?.avatarImage,
                       )
                     )}
                   </span>
@@ -11281,6 +13979,7 @@ function App() {
           message={activeGroupMessage}
           mine={activeGroupMessage.author === 'me'}
           onOpenAttachment={openMediaViewer}
+          onOpenExternalLink={requestOpenExternalLink}
           participant={activeGroupMessageParticipant}
         />
       ) : null}
@@ -11307,7 +14006,7 @@ function App() {
                 }}
               >
                 <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                  {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
+                  {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                 </span>
                 <span>{chat.title}</span>
               </button>
@@ -11346,6 +14045,26 @@ function App() {
             </>
           ) : (
             <>
+              {activeGroupMessageDialogAction ? (
+                <button
+                  type="button"
+                  className="message-menu-item message-menu-item-with-icon"
+                  onClick={() =>
+                    openParticipantDialogAction(activeGroupMessageParticipant, closeGroupMessageActions)
+                  }
+                >
+                  <img
+                    src={
+                      activeGroupMessageDialogAction.kind === 'chat'
+                        ? '/icons/chat100.png'
+                        : '/icons/man-raising-hand.png'
+                    }
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <span>{activeGroupMessageDialogAction.kind === 'chat' ? 'В личку' : 'Добавить'}</span>
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="message-menu-item"
@@ -11363,16 +14082,18 @@ function App() {
               >
                 Переслать
               </button>
-              <button
-                type="button"
-                className="message-menu-item"
-                onClick={() => {
-                  copyToClipboard(formatMessagePreview(activeGroupMessage), 'Сообщение скопировано')
-                  closeGroupMessageActions()
-                }}
-              >
-                Скопировать
-              </button>
+              {!activeGroupMessage.attachment ? (
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => {
+                    copyToClipboard(formatMessagePreview(activeGroupMessage), 'Сообщение скопировано')
+                    closeGroupMessageActions()
+                  }}
+                >
+                  Скопировать
+                </button>
+              ) : null}
               {activeGroup ? (
                 <>
                   <button
@@ -11380,8 +14101,19 @@ function App() {
                     className={`message-menu-item${hasRoomThreadsEnabled(activeGroup) ? '' : ' disabled'}`}
                     aria-disabled={!hasRoomThreadsEnabled(activeGroup)}
                     onClick={() => {
+                      if (activeGroupMessage.threadArchivedAt) {
+                        setThreadCommentHintTarget({
+                          reason: 'archived',
+                          target: 'group-message',
+                        })
+                        return
+                      }
+
                       if (!hasRoomThreadsEnabled(activeGroup)) {
-                        setThreadsDisabledHintTarget('group-message')
+                        setThreadCommentHintTarget({
+                          reason: 'disabled',
+                          target: 'group-message',
+                        })
                         return
                       }
 
@@ -11390,9 +14122,11 @@ function App() {
                   >
                     Прокомментировать
                   </button>
-                  {threadsDisabledHintTarget === 'group-message' ? (
+                  {threadCommentHintTarget?.target === 'group-message' ? (
                     <p className="settings-text message-menu-note">
-                      {getThreadsDisabledNoticeText('group')}
+                      {threadCommentHintTarget.reason === 'archived'
+                        ? getThreadsModerationNoticeText()
+                        : getThreadsDisabledNoticeText('group')}
                     </p>
                   ) : null}
                 </>
@@ -11463,15 +14197,16 @@ function App() {
                 Настройки группы
               </button>
             ) : null}
-            {!isActiveGroupCreator && !activeGroupArchived ? (
-              <button
-                type="button"
-                className="message-menu-item danger"
-                onClick={() => setConfirmingLeaveGroupId(activeGroup.id)}
-              >
-                Покинуть группу
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => {
+                closeGroupActions()
+                setGroupDescriptionOpen(true)
+              }}
+            >
+              Идеалогия группы
+            </button>
             {!isActiveGroupCreator ? (
               <button type="button" className="message-menu-item" onClick={reportCurrentGroup}>
                 Пожаловаться
@@ -11495,6 +14230,15 @@ function App() {
                 Пригласить в группу
               </button>
             ) : null}
+            {!isActiveGroupCreator ? (
+              <button
+                type="button"
+                className="message-menu-item danger"
+                onClick={() => setConfirmingLeaveGroupId(activeGroup.id)}
+              >
+                Покинуть группу
+              </button>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -11511,21 +14255,40 @@ function App() {
             <p className="room-confirm-copy">{`Кого пригласить в группу ${activeGroup.title}?`}</p>
             <div className="room-forward-list">
               {inviteableGroupChats.length > 0 ? (
-                inviteableGroupChats.map((chat) => (
-                  <button
-                    key={`group-invite-${chat.id}`}
-                    type="button"
-                    className="room-forward-item"
-                    onClick={() => {
-                      void inviteChatToActiveGroup(chat.id)
-                    }}
-                    disabled={groupInviteBusy}
-                  >
-                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
-                    </span>
-                    <span>{chat.title}</span>
-                  </button>
+                inviteableGroupChats.map(({ chat, alreadyMember }) => (
+                  <div key={`group-invite-${chat.id}`} className="room-forward-item-slot">
+                    <button
+                      type="button"
+                      className={`room-forward-item${alreadyMember ? ' room-forward-item-disabled room-forward-item-existing-member' : ''}`}
+                      onClick={() => {
+                        if (alreadyMember) {
+                          setGroupInviteError('')
+                          setGroupInviteInlineError({
+                            chatId: chat.id,
+                            message: 'Этот контакт уже состоит в группе.',
+                          })
+                          return
+                        }
+
+                        void inviteChatToActiveGroup(chat.id)
+                      }}
+                      disabled={groupInviteBusy}
+                      aria-disabled={alreadyMember || groupInviteBusy}
+                    >
+                      <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                        {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
+                      </span>
+                      <span className="room-forward-item-copy">
+                        <span>{chat.title}</span>
+                        {alreadyMember ? (
+                          <span className="room-forward-item-status">Уже в группе</span>
+                        ) : null}
+                      </span>
+                    </button>
+                    {groupInviteInlineError?.chatId === chat.id ? (
+                      <p className="room-forward-item-inline-error">{groupInviteInlineError.message}</p>
+                    ) : null}
+                  </div>
                 ))
               ) : (
                 <article className="settings-item room-transfer-empty">
@@ -11655,49 +14418,278 @@ function App() {
           type="button"
           className="room-confirm-scrim"
           aria-label="Закрыть список участников"
-          onClick={() => setGroupParticipantsOpen(false)}
+          onClick={closeGroupParticipantsDialog}
         />
-        <div className="room-confirm room-participants">
+        <div className="room-confirm room-transfer-list room-participants">
           <p className="room-confirm-copy">{`Участники группы ${activeGroup.title}`}</p>
+          <label className="search room-transfer-search">
+            <span className="search-label">Поиск участника</span>
+            <input
+              type="search"
+              placeholder="Имя, фамилия или @никнейм"
+              value={groupParticipantsSearchQuery}
+              onChange={(event) => setGroupParticipantsSearchQuery(event.target.value)}
+            />
+          </label>
           <div className="room-forward-list room-participants-list">
-            {activeGroup.participants.map((participant) => (
-              <div key={participant.id} className="room-forward-item room-participant-item">
-                <span className="chat-avatar-stack room-participant-avatar-stack">
-                  <span className="avatar" style={{ backgroundColor: participant.accent }}>
-                    {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
-                  </span>
-                  {participant.online ? <span className="presence-dot" aria-label="В сети" /> : null}
-                </span>
-                <span className="room-participant-copy">
-                  <span className="room-participant-name-row">
-                    <strong>{participant.title}</strong>
-                    {participant.archivedAccount ? (
-                      <span className="room-participant-role room-participant-role-archived">Архив</span>
-                    ) : null}
-                    {normalizeIdentifier(participant.identifier ?? '') === activeGroupOwnerIdentifier ? (
-                      <span className="room-participant-role">Владелец</span>
-                    ) : null}
-                    {participant.premium ? (
-                      <span className="premium-crown chat-crown" aria-label="Премиум">
-                        <img src="/icons/crown64.png" alt="" />
+            {filteredActiveGroupParticipants.length > 0 ? (
+              filteredActiveGroupParticipants.map((participant) => {
+                const participantIdentifier = normalizeIdentifier(participant.identifier ?? '')
+                const isOwner = participantIdentifier === activeGroupOwnerIdentifier
+                const isSelf = participantIdentifier === normalizeIdentifier(session?.identifier ?? '')
+                const isBlacklisted =
+                  participantIdentifier.length > 0 &&
+                  isRoomCommentsBlacklisted(activeGroup, participantIdentifier)
+                const acceptedChat = participantIdentifier
+                  ? chats.find(
+                      (chat) =>
+                        !chat.hidden &&
+                        normalizeIdentifier(chat.phone) === participantIdentifier &&
+                        chat.contactState === 'accepted',
+                    ) ?? null
+                  : null
+                const actionKind =
+                  !participant.archivedAccount && !isSelf && participantIdentifier
+                    ? acceptedChat
+                      ? 'chat'
+                      : 'request'
+                    : null
+                const canManageParticipant =
+                  isActiveGroupCreator &&
+                  !participant.archivedAccount &&
+                  !isOwner &&
+                  !isSelf &&
+                  participantIdentifier.length > 0
+
+                const participantCard = (
+                  <>
+                    <span className="chat-avatar-stack room-participant-avatar-stack">
+                      <span className="avatar" style={{ backgroundColor: participant.accent }}>
+                        {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
                       </span>
+                      {participant.online ? <span className="presence-dot" aria-label="В сети" /> : null}
+                    </span>
+                    <span className="room-participant-copy">
+                      <span className="room-participant-name-row">
+                        <strong>{participant.title}</strong>
+                        {participant.archivedAccount ? (
+                          <span className="room-participant-role room-participant-role-archived">Архив</span>
+                        ) : null}
+                        {isOwner ? (
+                          <span className="room-participant-role">Владелец</span>
+                        ) : null}
+                        {isBlacklisted ? (
+                          <span className="room-participant-role room-participant-role-blacklisted">
+                            Чёрный список
+                          </span>
+                        ) : null}
+                        {participant.premium ? (
+                          <span className="premium-crown chat-crown" aria-label="Премиум">
+                            <img src="/icons/crown64.png" alt="" />
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="room-participant-status">
+                        {participant.nickname ? `@${participant.nickname}` : participant.status}
+                      </span>
+                    </span>
+                    {actionKind ? (
+                      <button
+                        type="button"
+                        className="room-participant-action"
+                        aria-label={
+                          actionKind === 'chat'
+                            ? `Открыть диалог с ${participant.title}`
+                            : `Начать диалог с ${participant.title}`
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openGroupParticipantContact(participant)
+                        }}
+                      >
+                        <img
+                          src={actionKind === 'chat' ? '/icons/chat100.png' : '/icons/man-raising-hand.png'}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                      </button>
                     ) : null}
-                  </span>
-                  <span className="room-participant-status">{participant.status}</span>
-                </span>
-              </div>
-            ))}
+                  </>
+                )
+
+                return canManageParticipant ? (
+                  <div
+                    key={participant.id}
+                    className="room-forward-item room-participant-item room-participant-item-button"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      setSelectedGroupParticipantIdentifier(participantIdentifier)
+                      setGroupParticipantActionError('')
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return
+                      event.preventDefault()
+                      setSelectedGroupParticipantIdentifier(participantIdentifier)
+                      setGroupParticipantActionError('')
+                    }}
+                  >
+                    {participantCard}
+                  </div>
+                ) : (
+                  <div key={participant.id} className="room-forward-item room-participant-item">
+                    {participantCard}
+                  </div>
+                )
+              })
+            ) : (
+              <article className="settings-item room-transfer-empty">
+                <p className="settings-text">Подходящие участники не найдены.</p>
+              </article>
+            )}
           </div>
+          {groupParticipantActionError ? <p className="auth-error">{groupParticipantActionError}</p> : null}
           <button
             type="button"
             className="room-confirm-button"
-            onClick={() => setGroupParticipantsOpen(false)}
+            onClick={closeGroupParticipantsDialog}
+            disabled={groupParticipantActionBusy}
           >
             Закрыть
           </button>
         </div>
       </>
-  ) : null
+    ) : null
+
+  const selectedActiveGroupParticipantDialog =
+    selectedActiveGroupParticipant && activeGroup && isActiveGroupCreator ? (
+      <>
+        <button
+          type="button"
+          className="room-confirm-scrim"
+          aria-label="Закрыть действия участника группы"
+          onClick={() => {
+            setSelectedGroupParticipantIdentifier(null)
+            setGroupParticipantActionError('')
+          }}
+        />
+        <div className="room-confirm room-confirm-compact">
+          <p className="room-confirm-copy">{selectedActiveGroupParticipant.title}</p>
+          <div className="room-forward-list room-report-reason-list">
+            <button
+              type="button"
+              className="room-forward-item room-report-reason-item room-report-danger"
+              onClick={() => {
+                setConfirmingRemoveGroupParticipantIdentifier(
+                  normalizeIdentifier(selectedActiveGroupParticipant.identifier ?? ''),
+                )
+              }}
+            >
+              <span>Удалить участника</span>
+            </button>
+            {selectedActiveGroupParticipantBlacklisted ? (
+              <div className="room-forward-item room-report-reason-item room-forward-item-static">
+                <span>Уже в чёрном списке</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="room-forward-item room-report-reason-item room-report-danger"
+                onClick={() => {
+                  setConfirmingBlacklistGroupParticipantIdentifier(
+                    normalizeIdentifier(selectedActiveGroupParticipant.identifier ?? ''),
+                  )
+                }}
+              >
+                <span>В чёрный список</span>
+              </button>
+            )}
+          </div>
+          <div className="room-confirm-actions room-confirm-actions-single">
+            <button
+              type="button"
+              className="room-confirm-button"
+              onClick={() => {
+                setSelectedGroupParticipantIdentifier(null)
+                setGroupParticipantActionError('')
+              }}
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      </>
+    ) : null
+
+  const confirmingRemoveGroupParticipantDialog =
+    confirmingRemoveGroupParticipantIdentifier && selectedActiveGroupParticipant ? (
+      <>
+        <button
+          type="button"
+          className="room-confirm-scrim"
+          aria-label="Закрыть подтверждение удаления участника группы"
+          onClick={() => setConfirmingRemoveGroupParticipantIdentifier(null)}
+        />
+        <div className="room-confirm room-confirm-compact">
+          <p className="room-confirm-copy">{`Удалить ${selectedActiveGroupParticipant.title} из группы?`}</p>
+          <div className="room-confirm-actions room-confirm-actions-dual">
+            <button
+              type="button"
+              className="room-confirm-button room-confirm-danger"
+              onClick={() => {
+                void removeCurrentGroupParticipant(confirmingRemoveGroupParticipantIdentifier)
+              }}
+              disabled={groupParticipantActionBusy}
+            >
+              Удалить
+            </button>
+            <button
+              type="button"
+              className="room-confirm-button"
+              onClick={() => setConfirmingRemoveGroupParticipantIdentifier(null)}
+              disabled={groupParticipantActionBusy}
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      </>
+    ) : null
+
+  const confirmingBlacklistGroupParticipantDialog =
+    confirmingBlacklistGroupParticipantIdentifier && selectedActiveGroupParticipant ? (
+      <>
+        <button
+          type="button"
+          className="room-confirm-scrim"
+          aria-label="Закрыть подтверждение чёрного списка участника группы"
+          onClick={() => setConfirmingBlacklistGroupParticipantIdentifier(null)}
+        />
+        <div className="room-confirm room-confirm-compact">
+          <p className="room-confirm-copy">{`Добавить ${selectedActiveGroupParticipant.title} в чёрный список группы?`}</p>
+          <div className="room-confirm-actions room-confirm-actions-dual">
+            <button
+              type="button"
+              className="room-confirm-button room-confirm-danger"
+              onClick={() => {
+                void blacklistCurrentGroupParticipant(confirmingBlacklistGroupParticipantIdentifier)
+              }}
+              disabled={groupParticipantActionBusy}
+            >
+              В чёрный список
+            </button>
+            <button
+              type="button"
+              className="room-confirm-button"
+              onClick={() => setConfirmingBlacklistGroupParticipantIdentifier(null)}
+              disabled={groupParticipantActionBusy}
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      </>
+    ) : null
 
   const confirmingDeleteGroupMessageDialog =
     activeGroup && confirmingDeleteGroupMessageId !== null ? (
@@ -11732,6 +14724,39 @@ function App() {
       </>
     ) : null
 
+  const externalLinkWarningDialog = pendingExternalLinkUrl ? (
+    <>
+      <button
+        type="button"
+        className="room-confirm-scrim"
+        aria-label="Закрыть предупреждение о внешней ссылке"
+        onClick={closeExternalLinkWarning}
+      />
+      <div className="room-confirm room-confirm-compact external-link-warning-dialog">
+        <p className="room-confirm-copy external-link-warning-title">Внешняя ссылка</p>
+        <p className="settings-text room-confirm-note external-link-warning-copy">
+          Вы переходите во внешний источник под свою ответственность.
+        </p>
+        <p className="settings-text room-confirm-note external-link-warning-copy">
+          Не переходите по ссылкам от малоизвестных аккаунтов, если не уверены в источнике.
+        </p>
+        <p className="external-link-warning-url">{pendingExternalLinkUrl}</p>
+        <div className="room-confirm-actions room-confirm-actions-dual">
+          <button type="button" className="room-confirm-button" onClick={closeExternalLinkWarning}>
+            Отмена
+          </button>
+          <button
+            type="button"
+            className="room-confirm-button room-confirm-danger"
+            onClick={confirmOpenExternalLink}
+          >
+            Перейти
+          </button>
+        </div>
+      </div>
+    </>
+  ) : null
+
   return (
     <>
       <main className={shellClassName}>
@@ -11740,12 +14765,24 @@ function App() {
         <div className="account-header">
             <div className="account-headline">
               <div className="account-name">
-                <span className="channel-avatar channel-avatar-large account-avatar" style={{ backgroundColor: '#8c5738' }}>
-                  {session?.avatarImage ? (
-                    <img src={session.avatarImage} alt="" className="channel-avatar-image" />
-                  ) : (
-                    sessionAvatarLabel
-                  )}
+                <span className="self-presence-avatar-stack account-avatar">
+                  <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: '#8c5738' }}>
+                    {session?.avatarImage ? (
+                      <img src={session.avatarImage} alt="" className="channel-avatar-image" />
+                    ) : (
+                      sessionAvatarLabel
+                    )}
+                  </span>
+                  {selfPresenceIndicatorMode ? (
+                    <span
+                      className={
+                        selfPresenceIndicatorMode === 'invisible'
+                          ? 'self-presence-indicator invisible'
+                          : 'self-presence-indicator'
+                      }
+                      aria-label={selfPresenceIndicatorMode === 'invisible' ? 'Режим невидимки' : 'В сети'}
+                    />
+                  ) : null}
                 </span>
               <h2 ref={accountNameRef}>{sessionName}</h2>
             </div>
@@ -11758,11 +14795,11 @@ function App() {
               <button
                 className={quietMode ? 'ghost-button quiet-toggle active' : 'ghost-button quiet-toggle'}
                 type="button"
-                onClick={() => setQuietMode((current) => !current)}
+                onClick={toggleQuietMode}
                 aria-label="Тихо"
                 title="Тихо"
               >
-                <img src={quietMode ? '/icons/quiet.png' : '/icons/quiet100.png'} alt="" />
+                <img src={getQuietToggleIconPath(quietMode)} alt="" />
               </button>
             </div>
           </div>
@@ -11773,154 +14810,283 @@ function App() {
           ) : null}
         </div>
 
-        <div className="filters" aria-label="Фильтры чатов">
-          {quickFilters.map((filter) => (
-            <button
-              key={filter}
-              type="button"
-              className={
-                topListView === 'none' &&
-                (filter === 'Все' ? activeFilter === 'Все' : filter === activeFilter)
-                  ? 'filter active'
-                  : 'filter'
-              }
-              onClick={() => {
-                if (filter === 'Все') {
-                  setRetainedAllChatId(null)
-                  setRetainedFavoriteChatId(null)
-                  setRetainedSubscriptionChannelId(null)
-                  setRetainedGroupId(null)
-                  setActiveFilter('Все')
-                  setSearchOpen(false)
-                  setTopListView('none')
-                  setActiveSubscriptionChannelId(null)
-                  setActiveGroupId(null)
-                  resetGroupMessageActions()
-                  return
-                }
-
-                setRetainedAllChatId(null)
-                setRetainedFavoriteChatId(null)
-                setRetainedSubscriptionChannelId(null)
-                setRetainedGroupId(null)
-                setActiveFilter(filter)
+        <div
+          className={
+            searchOpen
+              ? 'filters search-filters'
+              : bottomSection === 'contacts'
+                ? 'filters contacts-filters'
+                : 'filters'
+          }
+          aria-label={
+            searchOpen
+              ? 'Фильтры поиска'
+              : bottomSection === 'contacts'
+                ? 'Фильтры контактов'
+                : 'Фильтры чатов'
+          }
+        >
+          {searchOpen ? (
+            <>
+              <button
+                type="button"
+                className={searchTopFilter === 'all' ? 'filter active' : 'filter'}
+                onClick={() => setSearchTopFilter('all')}
+              >
+                <span className="filter-inline-content">
+                  <span>Все</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={searchTopFilter === 'contacts' ? 'filter active search-filter' : 'filter search-filter'}
+                onClick={() => setSearchTopFilter('contacts')}
+                aria-label="Контакты"
+                title="Контакты"
+              >
+                <span className="filter-inline-content">
+                  <img className="filter-icon" src="/icons/contacts100.svg" alt="" />
+                  <span>Контакты</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={searchTopFilter === 'channels' ? 'filter active search-filter' : 'filter search-filter'}
+                onClick={() => setSearchTopFilter('channels')}
+                aria-label="Каналы"
+                title="Каналы"
+              >
+                <span className="filter-inline-content">
+                  <img className="filter-icon" src="/icons/news100.svg" alt="" />
+                  <span>Каналы</span>
+                </span>
+              </button>
+            </>
+          ) : bottomSection === 'contacts' ? (
+            <ContactsFilters
+              contactsTab={contactsTab}
+              formatUnreadBadgeCount={formatUnreadBadgeCount}
+              incomingContactRequestCount={incomingContactRequestCount}
+              outgoingContactRequestCount={outgoingContactRequestCount}
+              suppressContactRequestBadges={quietContactRequestsSuppressed}
+              onSelectTab={(tab) => {
+                setContactsTab(tab)
                 setSearchOpen(false)
                 setTopListView('none')
                 setActiveSubscriptionChannelId(null)
                 setActiveGroupId(null)
                 resetGroupMessageActions()
               }}
-            >
-              {filter === '★' ? (
-                <>
-                  <img className="filter-icon" src="/icons/star100.png" alt="Избранное" />
-                  {!quietMode && totalFavoriteUnreadCount > 0 ? (
+            />
+          ) : (
+            <>
+              {quickFilters.map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  className={
+                    topListView === 'none' &&
+                    (filter === 'Все' ? activeFilter === 'Все' : filter === activeFilter)
+                      ? 'filter active'
+                      : 'filter'
+                  }
+                  onClick={() => {
+                    if (filter === 'Все') {
+                      setRetainedAllChatId(null)
+                      setRetainedFavoriteChatId(null)
+                      setRetainedSubscriptionChannelId(null)
+                      setRetainedGroupId(null)
+                      setActiveFilter('Все')
+                      setSearchOpen(false)
+                      setTopListView('none')
+                      setActiveSubscriptionChannelId(null)
+                      setActiveGroupId(null)
+                      resetGroupMessageActions()
+                      return
+                    }
+
+                    setRetainedAllChatId(null)
+                    setRetainedFavoriteChatId(null)
+                    setRetainedSubscriptionChannelId(null)
+                    setRetainedGroupId(null)
+                    setActiveFilter(filter)
+                    setSearchOpen(false)
+                    setTopListView('none')
+                    setActiveSubscriptionChannelId(null)
+                    setActiveGroupId(null)
+                    resetGroupMessageActions()
+                  }}
+                >
+                  {filter === '★' ? (
                     <span
                       className={
-                        totalFavoriteUnreadCount > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'
+                        !quietDialogsSuppressed && totalFavoriteUnreadCount > 0
+                          ? 'filter-inline-content filter-inline-content-compact'
+                          : 'filter-inline-content'
                       }
                     >
-                      {formatUnreadBadgeCount(totalFavoriteUnreadCount)}
+                      <img className="filter-icon" src="/icons/star100.png" alt="Избранное" />
+                      {!quietDialogsSuppressed && totalFavoriteUnreadCount > 0 ? (
+                        <span
+                          className={
+                            totalFavoriteUnreadCount > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'
+                          }
+                        >
+                          {formatUnreadBadgeCount(totalFavoriteUnreadCount)}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <span className="filter-inline-content">
+                      <span>Все</span>
+                      {!quietDialogsSuppressed && totalUnreadCount > 0 ? (
+                        <span
+                          className={totalUnreadCount > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'}
+                        >
+                          {formatUnreadBadgeCount(totalUnreadCount)}
+                        </span>
+                      ) : null}
+                    </span>
+                  )}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={
+                  isChannelsTopListOpen
+                    ? !quietChannelsSuppressed && totalChannelNotifications > 0
+                      ? 'filter active filter-with-inline-badge filter-with-inline-badge-compact'
+                      : 'filter active'
+                    : !quietChannelsSuppressed && totalChannelNotifications > 0
+                      ? 'filter filter-with-inline-badge filter-with-inline-badge-compact'
+                      : 'filter'
+                }
+                onClick={() => {
+                  setRetainedAllChatId(null)
+                  setRetainedFavoriteChatId(null)
+                  setRetainedSubscriptionChannelId(null)
+                  setRetainedGroupId(null)
+                  setTopListView('channels')
+                  setActiveChatId(null)
+                  setActiveSubscriptionChannelId(null)
+                  setActiveGroupId(null)
+                  resetRoomMessageActions()
+                  setSearchOpen(false)
+                  setQuery('')
+                }}
+                aria-label="Каналы"
+                title="Каналы"
+              >
+                <span
+                  className={
+                    !quietChannelsSuppressed && totalChannelNotifications > 0
+                      ? 'filter-inline-content filter-inline-content-compact'
+                      : 'filter-inline-content'
+                  }
+                >
+                  <img className="filter-icon" src="/icons/news100.svg" alt="Каналы" />
+                  {!quietChannelsSuppressed && totalChannelNotifications > 0 ? (
+                    <span
+                      className={
+                        totalChannelNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'
+                      }
+                    >
+                      {formatUnreadBadgeCount(totalChannelNotifications)}
                     </span>
                   ) : null}
-                </>
-              ) : (
-                <span>Все</span>
-              )}
-              {filter === 'Все' && !quietMode && totalUnreadCount > 0 ? (
-                <span className={totalUnreadCount > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'}>
-                  {formatUnreadBadgeCount(totalUnreadCount)}
                 </span>
-              ) : null}
-            </button>
-          ))}
-          <button
-            type="button"
-            className={isChannelsTopListOpen ? 'filter active' : 'filter'}
-            onClick={() => {
-              setRetainedAllChatId(null)
-              setRetainedFavoriteChatId(null)
-              setRetainedSubscriptionChannelId(null)
-              setRetainedGroupId(null)
-              setTopListView('channels')
-              setActiveChatId(null)
-              setActiveSubscriptionChannelId(null)
-              setActiveGroupId(null)
-              resetRoomMessageActions()
-              setSearchOpen(false)
-              setQuery('')
-            }}
-            aria-label="Каналы"
-            title="Каналы"
-          >
-            <img className="filter-icon" src="/icons/news100.svg" alt="Каналы" />
-            {!quietMode && totalChannelNotifications > 0 ? (
-              <span
+              </button>
+              <button
+                type="button"
                 className={
-                  totalChannelNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'
+                  isGroupsTopListOpen
+                    ? !quietGroupsSuppressed && totalGroupNotifications > 0
+                      ? 'filter active filter-with-inline-badge filter-with-inline-badge-compact'
+                      : 'filter active'
+                    : !quietGroupsSuppressed && totalGroupNotifications > 0
+                      ? 'filter filter-with-inline-badge filter-with-inline-badge-compact'
+                      : 'filter'
                 }
+                onClick={() => {
+                  setRetainedAllChatId(null)
+                  setRetainedFavoriteChatId(null)
+                  setRetainedSubscriptionChannelId(null)
+                  setRetainedGroupId(null)
+                  setTopListView('groups')
+                  setActiveChatId(null)
+                  setActiveSubscriptionChannelId(null)
+                  setActiveGroupId(null)
+                  resetRoomMessageActions()
+                  setSearchOpen(false)
+                  setQuery('')
+                }}
+                aria-label="Группы"
+                title="Группы"
               >
-                {formatUnreadBadgeCount(totalChannelNotifications)}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className={isGroupsTopListOpen ? 'filter active' : 'filter'}
-            onClick={() => {
-              setRetainedAllChatId(null)
-              setRetainedFavoriteChatId(null)
-              setRetainedSubscriptionChannelId(null)
-              setRetainedGroupId(null)
-              setTopListView('groups')
-              setActiveChatId(null)
-              setActiveSubscriptionChannelId(null)
-              setActiveGroupId(null)
-              resetRoomMessageActions()
-              setSearchOpen(false)
-              setQuery('')
-            }}
-            aria-label="Группы"
-            title="Группы"
-          >
-            <img className="filter-icon" src="/icons/group100.png" alt="Группы" />
-            {!quietMode && totalGroupNotifications > 0 ? (
-              <span className={totalGroupNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'}>
-                {formatUnreadBadgeCount(totalGroupNotifications)}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className={isThreadsTopListOpen ? 'filter active filter-icon-only' : 'filter filter-icon-only'}
-            onClick={() => {
-              setRetainedAllChatId(null)
-              setRetainedFavoriteChatId(null)
-              setRetainedSubscriptionChannelId(null)
-              setRetainedGroupId(null)
-              setTopListView('threads')
-              setActiveChatId(null)
-              setActiveSubscriptionChannelId(null)
-              setActiveGroupId(null)
-              resetRoomMessageActions()
-              resetThreadState()
-              setSearchOpen(false)
-              setQuery('')
-            }}
-            aria-label="Треды"
-            title="Треды"
-          >
-            <img className="filter-icon" src="/icons/root-50.png" alt="" />
-            {!quietMode && totalThreadNotifications > 0 ? (
-              <span
+                <span
+                  className={
+                    !quietGroupsSuppressed && totalGroupNotifications > 0
+                      ? 'filter-inline-content filter-inline-content-compact'
+                      : 'filter-inline-content'
+                  }
+                >
+                  <img className="filter-icon" src="/icons/group100.png" alt="Группы" />
+                  {!quietGroupsSuppressed && totalGroupNotifications > 0 ? (
+                    <span className={totalGroupNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'}>
+                      {formatUnreadBadgeCount(totalGroupNotifications)}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+              <button
+                type="button"
                 className={
-                  totalThreadNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'
+                  isThreadsTopListOpen
+                    ? !quietThreadsSuppressed && totalThreadNotifications > 0
+                      ? 'filter active filter-icon-only filter-with-inline-badge filter-with-inline-badge-compact'
+                      : 'filter active filter-icon-only'
+                    : !quietThreadsSuppressed && totalThreadNotifications > 0
+                      ? 'filter filter-icon-only filter-with-inline-badge filter-with-inline-badge-compact'
+                      : 'filter filter-icon-only'
                 }
+                onClick={() => {
+                  setRetainedAllChatId(null)
+                  setRetainedFavoriteChatId(null)
+                  setRetainedSubscriptionChannelId(null)
+                  setRetainedGroupId(null)
+                  setTopListView('threads')
+                  setActiveChatId(null)
+                  setActiveSubscriptionChannelId(null)
+                  setActiveGroupId(null)
+                  resetRoomMessageActions()
+                  resetThreadState()
+                  setSearchOpen(false)
+                  setQuery('')
+                }}
+                aria-label="Треды"
+                title="Треды"
               >
-                {formatUnreadBadgeCount(totalThreadNotifications)}
-              </span>
-            ) : null}
-          </button>
+                <span
+                  className={
+                    !quietThreadsSuppressed && totalThreadNotifications > 0
+                      ? 'filter-inline-content filter-inline-content-compact'
+                      : 'filter-inline-content'
+                  }
+                >
+                  <img className="filter-icon" src="/icons/root-50.png" alt="" />
+                  {!quietThreadsSuppressed && totalThreadNotifications > 0 ? (
+                    <span
+                      className={
+                        totalThreadNotifications > 9 ? 'filter-badge filter-badge-wide' : 'filter-badge'
+                      }
+                    >
+                      {formatUnreadBadgeCount(totalThreadNotifications)}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            </>
+          )}
         </div>
 
         {searchOpen && topListView === 'none' ? (
@@ -11928,7 +15094,7 @@ function App() {
             <span className="search-label">Поиск</span>
             <input
               type="search"
-              placeholder="Имя или @handle"
+              placeholder="Имя, канал или @handle"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -11937,7 +15103,7 @@ function App() {
 
         {searchOpen && topListView === 'none' ? (
           <div className="chat-list search-results">
-            {myContactsResults.length > 0 ? (
+            {searchShowsContacts && myContactsResults.length > 0 ? (
               <section className="search-group">
                 <p className="search-group-title">Мои контакты</p>
                 {myContactsResults.map((chat) => (
@@ -11949,7 +15115,7 @@ function App() {
                   >
                     <span className="chat-avatar-stack">
                       <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                        {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
+                        {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                       </span>
                       {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                     </span>
@@ -11974,13 +15140,13 @@ function App() {
                           </span>
                         ) : null}
                       </span>
-                      <span>{chat.messages.at(-1)?.time}</span>
+                      <span>{formatSidebarActivityLabel(chat.messages.at(-1)?.createdAt, chat.messages.at(-1)?.time ?? '')}</span>
                     </span>
                     <span className="chat-handle">
                       {searchShowsPhone ? chat.phone : chat.handle}
                     </span>
                   </span>
-                  {!quietMode && chat.unread > 0 ? (
+                  {!quietDialogsSuppressed && chat.unread > 0 ? (
                     <span className={chat.unread > 9 ? 'badge badge-wide' : 'badge'}>
                       {formatUnreadBadgeCount(chat.unread)}
                     </span>
@@ -11990,39 +15156,110 @@ function App() {
               </section>
             ) : null}
 
-            <section className="search-group">
-              <p className="search-group-title">Результаты поиска</p>
-              {searchResults.map((result) => (
-                <button
-                  key={`${result.phone}:${result.handle}`}
-                  type="button"
-                  className="chat-card search-card"
-                  onClick={() => void openSearchResult(result)}
-                >
-                  <span className="avatar" style={{ backgroundColor: result.accent }}>
-                    {result.title.slice(0, 1)}
-                  </span>
-                  <span className="chat-copy">
-                    <span className="chat-topline">
-                      <span className="chat-name-row">
-                        <strong>{result.title}</strong>
+            {searchShowsChannels && channelSearchResults.length > 0 ? (
+              <section className="search-group">
+                <p className="search-group-title">Каналы</p>
+                {channelSearchResults.map((channel) => (
+                  <button
+                    key={`channel:${channel.id}:${channel.handle}`}
+                    type="button"
+                    className={[
+                      'chat-card',
+                      'chat-card-compact',
+                      'channel-list-card',
+                      'search-card',
+                      channel.id === activeSubscriptionChannelId ||
+                      sanitizeChannelDirectLink(channel.handle) ===
+                        sanitizeChannelDirectLink(currentSubscriptionChannel?.handle ?? '')
+                        ? 'active'
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={() => openSearchChannelResult(channel)}
+                  >
+                    <span className="avatar" style={{ backgroundColor: channel.accent }}>
+                      {channel.avatarImage ? (
+                        <img src={channel.avatarImage} alt="" className="channel-avatar-image" />
+                      ) : (
+                        formatChannelAvatarLabel(channel.title)
+                      )}
+                    </span>
+                    <span className="chat-copy">
+                      <span className="chat-topline">
+                        <span className="chat-name-row">
+                          <strong className="chat-name-text">{channel.title}</strong>
+                          <span className="chat-star">
+                            <img src="/icons/news100.svg" alt="Канал" />
+                          </span>
+                          {isOwnedSubscriptionChannelPreview(channel) ? (
+                            <span className="chat-owner-edit-badge" aria-label="Вы владелец канала" title="Вы владелец канала">
+                              <img src="/icons/edit100.png" alt="" aria-hidden="true" />
+                            </span>
+                          ) : null}
+                          {channel.archivedAt ? <span className="chat-archive-badge">Архив</span> : null}
+                          {channel.muted ? (
+                            <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                              <img src="/icons/bell-100.png" alt="" />
+                            </span>
+                          ) : null}
+                        </span>
+                        {!quietChannelsSuppressed && channel.unread > 0 ? (
+                          <span
+                            className={
+                              channel.unread > 9
+                                ? 'chat-topline-badge chat-topline-badge-wide'
+                                : 'chat-topline-badge'
+                            }
+                          >
+                            {formatUnreadBadgeCount(channel.unread)}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="chat-handle">{channel.handle || channel.statusText || 'Канал Тайничка'}</span>
+                    </span>
+                  </button>
+                ))}
+              </section>
+            ) : null}
+
+            {searchShowsContacts ? (
+              <section className="search-group">
+                <p className="search-group-title">Результаты поиска</p>
+                {searchResults.map((result) => (
+                  <button
+                    key={`${result.phone}:${result.handle}`}
+                    type="button"
+                    className="chat-card search-card"
+                    onClick={() => void openSearchResult(result)}
+                  >
+                    <span className="avatar" style={{ backgroundColor: result.accent }}>
+                      {result.title.slice(0, 1)}
+                    </span>
+                    <span className="chat-copy">
+                      <span className="chat-topline">
+                        <span className="chat-name-row">
+                          <strong>{result.title}</strong>
+                        </span>
+                      </span>
+                      <span className="chat-handle">
+                        {searchShowsPhone ? result.phone : result.handle}
                       </span>
                     </span>
-                    <span className="chat-handle">
-                      {searchShowsPhone ? result.phone : result.handle}
-                    </span>
-                  </span>
-                </button>
-              ))}
-              {query.trim() !== '' && myContactsResults.length === 0 && searchResults.length === 0 ? (
+                  </button>
+                ))}
+              </section>
+            ) : null}
+            {query.trim() !== '' && !hasVisibleSearchResults ? (
+              <section className="search-group">
                 <article className="chat-card search-card">
                   <span className="chat-copy">
                     <strong>Ничего не найдено</strong>
-                    <span className="chat-handle">Попробуйте номер или @handle зарегистрированного аккаунта</span>
+                    <span className="chat-handle">Попробуйте имя, номер, канал или @handle</span>
                   </span>
                 </article>
-              ) : null}
-            </section>
+              </section>
+            ) : null}
           </div>
         ) : isChannelsTopListOpen ? (
           <div className="chat-list">
@@ -12051,21 +15288,26 @@ function App() {
                     formatChannelAvatarLabel(channel.title)
                   )}
                 </span>
-                <span className="chat-copy">
-                  <span className="chat-topline">
-                    <span className="chat-name-row">
-                      <strong className="chat-name-text">{channel.title}</strong>
-                      {channel.archivedAt ? <span className="chat-archive-badge">Архив</span> : null}
-                      {channel.muted ? (
-                        <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                    <span className="chat-copy">
+                      <span className="chat-topline">
+                        <span className="chat-name-row">
+                          <strong className="chat-name-text">{channel.title}</strong>
+                          <span className="chat-star">
+                            <img src="/icons/news100.svg" alt="Канал" />
+                          </span>
+                          {isOwnedSubscriptionChannelPreview(channel) ? (
+                            <span className="chat-owner-edit-badge" aria-label="Вы владелец канала" title="Вы владелец канала">
+                              <img src="/icons/edit100.png" alt="" aria-hidden="true" />
+                            </span>
+                          ) : null}
+                          {channel.archivedAt ? <span className="chat-archive-badge">Архив</span> : null}
+                          {channel.muted ? (
+                            <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                           <img src="/icons/bell-100.png" alt="" />
                         </span>
                       ) : null}
-                      <span className="chat-star">
-                        <img src="/icons/news100.svg" alt="Канал" />
-                      </span>
                     </span>
-                    {!quietMode && channel.unread > 0 ? (
+                    {!quietChannelsSuppressed && channel.unread > 0 ? (
                       <span
                         className={
                           channel.unread > 9
@@ -12130,17 +15372,22 @@ function App() {
                       <span className="chat-topline">
                         <span className="chat-name-row">
                           <strong className="chat-name-text">{group.title}</strong>
+                          <span className="chat-star">
+                            <img src="/icons/group100.png" alt="Группа" />
+                          </span>
+                          {isOwnedGroupPreview(group) ? (
+                            <span className="chat-owner-edit-badge" aria-label="Вы владелец группы" title="Вы владелец группы">
+                              <img src="/icons/edit100.png" alt="" aria-hidden="true" />
+                            </span>
+                          ) : null}
                           {group.archivedAt ? <span className="chat-archive-badge">Архив</span> : null}
                           {group.muted ? (
                             <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                               <img src="/icons/bell-100.png" alt="" />
                             </span>
                           ) : null}
-                          <span className="chat-star">
-                            <img src="/icons/group100.png" alt="Группа" />
-                          </span>
                         </span>
-                        {!quietMode && group.unread > 0 ? (
+                        {!quietGroupsSuppressed && group.unread > 0 ? (
                           <span
                             className={
                               group.unread > 9
@@ -12184,22 +15431,22 @@ function App() {
                       backgroundColor: item.kind === 'group' ? item.groupAccent : item.channelAccent,
                     }}
                   >
-                    {item.kind === 'group' ? item.groupTitle.slice(0, 1) : item.channelTitle.slice(0, 1)}
+                    {item.kind === 'group'
+                      ? formatChannelAvatarLabel(item.groupTitle)
+                      : formatChannelAvatarLabel(item.channelTitle)}
                   </span>
-                  <span className="chat-copy">
-                    <span className="chat-topline">
-                      <span className="chat-name-row">
-                        <strong className="chat-name-text">
-                          {item.kind === 'group' ? item.groupTitle : item.channelTitle}
-                        </strong>
-                        <span className="chat-star">
-                          <img
-                            src={item.kind === 'group' ? '/icons/group100.png' : '/icons/news100.svg'}
-                            alt=""
-                          />
+                    <span className="chat-copy">
+                      <span className="chat-topline">
+                        <span className="chat-name-row">
+                          <strong className="chat-name-text">{formatThreadInboxTitle(item)}</strong>
+                          <span className="chat-star">
+                            <img
+                              src={item.kind === 'group' ? '/icons/group100.png' : '/icons/news100.svg'}
+                              alt=""
+                            />
                         </span>
                       </span>
-                      {!quietMode && item.unreadCount > 0 ? (
+                      {!quietThreadsSuppressed && item.unreadCount > 0 ? (
                         <span
                           className={
                             item.unreadCount > 9
@@ -12210,18 +15457,16 @@ function App() {
                           {formatUnreadBadgeCount(item.unreadCount)}
                         </span>
                       ) : (
-                        <span className="chat-topline-meta">{item.latestCommentTime}</span>
+                          <span className="chat-topline-meta">
+                            {formatSidebarActivityLabel(item.latestActivityAt, item.latestCommentTime)}
+                          </span>
                       )}
+                      </span>
+                      <span className="chat-handle">{formatThreadInboxContextLabel(item)}</span>
+                      <span className="chat-preview thread-inbox-preview">
+                        {formatThreadInboxPreview(item)}
+                      </span>
                     </span>
-                    <span className="chat-handle">
-                      {item.commentCount > 0
-                        ? formatThreadCommentCountLabel(item.commentCount)
-                        : 'Подписка на тред'}
-                    </span>
-                    <span className="chat-preview thread-inbox-preview">
-                      {item.sourceText || item.latestCommentText}
-                    </span>
-                  </span>
                 </button>
               ))
             ) : (
@@ -12275,73 +15520,92 @@ function App() {
               </section>
             ) : null}
             <div className="chat-list">
-              {orderedVisibleChats.map((chat) => (
-                <button
-                  key={chat.id}
-                  type="button"
-                  className={[
-                    'chat-card',
-                    bottomSection === 'contacts' ? '' : 'chat-card-compact',
-                    chat.id === activeChat?.id ? 'active' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  onClick={() => openChat(chat.id)}
-                >
-                  <span className="chat-avatar-stack">
-                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                      {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
-                    </span>
-                    {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
-                  </span>
-                  <span className="chat-copy">
-                    <span className="chat-topline">
-                      <span className="chat-name-row">
-                        <strong className="chat-name-text">{chat.title}</strong>
-                        {chat.archivedAccount ? <span className="chat-archive-badge">Удалён</span> : null}
-                        {renderAdminBlockedChatBadge(chat)}
-                        {chat.muted ? (
-                          <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
-                            <img src="/icons/bell-100.png" alt="" />
-                          </span>
-                        ) : null}
-                        {chat.premium ? (
-                          <span className="premium-crown chat-crown" aria-label="Премиум">
-                            <img src="/icons/crown64.png" alt="" />
-                          </span>
-                        ) : null}
-                        {chat.pinned ? (
-                          <span className="chat-star">
-                            <img src="/icons/star100.png" alt="Избранный контакт" />
-                          </span>
-                        ) : null}
+              {bottomSection === 'contacts' ? (
+                <ContactsPane
+                  activeChatId={activeChat?.id ?? null}
+                  activeContactIdentifier={activeContactIdentifier}
+                  contactRequestActionBusy={contactRequestActionBusy}
+                  contactRequests={contactRequests}
+                  contactsTab={contactsTab}
+                  onAcceptIncomingRequest={(identifier) => {
+                    void actOnContactRequest(identifier, 'accept')
+                  }}
+                  onOpenAcceptedContact={(chatId) => openChat(chatId)}
+                  onOpenIncomingRequest={openIncomingContactRequest}
+                  onOpenOutgoingRequest={openOutgoingContactRequest}
+                  orderedVisibleChats={orderedVisibleChats}
+                  outgoingContactRequests={outgoingContactRequests}
+                  renderAdminBlockedChatBadge={renderAdminBlockedChatBadge}
+                  renderAvatarContent={renderAccountAvatarContent}
+                />
+              ) : (
+                orderedVisibleChats.map((chat) => (
+                  <button
+                    key={chat.id}
+                    type="button"
+                    className={[
+                      'chat-card',
+                      'chat-card-compact',
+                      chat.id === activeChat?.id ? 'active' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={() => openChat(chat.id)}
+                  >
+                    <span className="chat-avatar-stack">
+                      <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                        {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                       </span>
-                      {bottomSection === 'contacts' ? null : chat.typing && !quietMode ? (
-                        <span className="chat-topline-typing" aria-label={`${chat.title} печатает`}>
-                          <span className="typing-dot" />
-                          <span className="typing-dot" />
-                          <span className="typing-dot" />
-                        </span>
-                      ) : !quietMode && chat.unread > 0 ? (
-                        <span
-                          className={
-                            chat.unread > 9
-                              ? 'chat-topline-badge chat-topline-badge-wide'
-                              : 'chat-topline-badge'
-                          }
-                        >
-                          {formatUnreadBadgeCount(chat.unread)}
-                        </span>
-                      ) : (
-                        <span className="chat-topline-meta">{chat.messages.at(-1)?.time}</span>
-                      )}
+                      {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                     </span>
-                    {bottomSection === 'contacts' ? (
-                      <span className="chat-preview chat-status-preview">{formatContactStatus(chat)}</span>
-                    ) : null}
-                  </span>
-                </button>
-              ))}
+                    <span className="chat-copy">
+                      <span className="chat-topline">
+                        <span className="chat-name-row">
+                          <strong className="chat-name-text">{chat.title}</strong>
+                          {chat.archivedAccount ? <span className="chat-archive-badge">Удалён</span> : null}
+                          {renderAdminBlockedChatBadge(chat)}
+                          {chat.muted ? (
+                            <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                              <img src="/icons/bell-100.png" alt="" />
+                            </span>
+                          ) : null}
+                          {chat.premium ? (
+                            <span className="premium-crown chat-crown" aria-label="Премиум">
+                              <img src="/icons/crown64.png" alt="" />
+                            </span>
+                          ) : null}
+                          {chat.pinned ? (
+                            <span className="chat-star">
+                              <img src="/icons/star100.png" alt="Избранный контакт" />
+                            </span>
+                          ) : null}
+                        </span>
+                        {chat.typing && !quietMode ? (
+                          <span className="chat-topline-typing" aria-label={`${chat.title} печатает`}>
+                            <span className="typing-dot" />
+                            <span className="typing-dot" />
+                            <span className="typing-dot" />
+                          </span>
+                        ) : !quietDialogsSuppressed && chat.unread > 0 ? (
+                          <span
+                            className={
+                              chat.unread > 9
+                                ? 'chat-topline-badge chat-topline-badge-wide'
+                                : 'chat-topline-badge'
+                            }
+                          >
+                            {formatUnreadBadgeCount(chat.unread)}
+                          </span>
+                        ) : (
+                          <span className="chat-topline-meta">
+                            {formatSidebarActivityLabel(chat.messages.at(-1)?.createdAt, chat.messages.at(-1)?.time ?? '')}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                ))
+              )}
             </div>
           </>
         )}
@@ -12358,6 +15622,7 @@ function App() {
               setPreviewSubscriptionChannel(null)
               setActiveSubscriptionChannelId(null)
               setBottomSection('chats')
+              setContactsTab('all')
               setSearchOpen(false)
               setQuery('')
               setRetainedAllChatId(null)
@@ -12383,6 +15648,7 @@ function App() {
               setPreviewSubscriptionChannel(null)
               setActiveSubscriptionChannelId(null)
               setBottomSection('contacts')
+              setContactsTab('all')
               setSearchOpen(false)
               setQuery('')
               setRetainedAllChatId(null)
@@ -12396,6 +15662,14 @@ function App() {
             aria-label="Контакты"
           >
             <img src="/icons/contacts100.svg" alt="" />
+            {/* Contacts badge contract:
+                only the contact-request quiet setting may hide this badge. The incoming count
+                itself must stay intact so request rooms and counters survive quiet-mode toggles. */}
+            {!quietContactRequestsSuppressed && incomingContactRequestCount > 0 ? (
+              <span className="icon-button-badge">
+                {formatUnreadBadgeCount(incomingContactRequestCount)}
+              </span>
+            ) : null}
           </button>
           <button
             type="button"
@@ -12407,6 +15681,8 @@ function App() {
               setTopListView('none')
               setActiveSubscriptionChannelId(null)
               setSearchOpen(true)
+              setSearchTopFilter('all')
+              setContactsTab('all')
               setRetainedAllChatId(null)
               setRetainedFavoriteChatId(null)
               setRetainedSubscriptionChannelId(null)
@@ -12426,7 +15702,7 @@ function App() {
               onClick={() => openChannelsListView()}
               aria-label="Каналы"
             >
-              <img src="/icons/news_settings.png" alt="" />
+              <img src={getBottomChannelsActionIconPath(true)} alt="" />
             </button>
           ) : (
             <button
@@ -12445,7 +15721,7 @@ function App() {
               }}
               aria-label="Премиум"
             >
-              <img src="/icons/crown100.png" alt="" />
+              <img src={getBottomChannelsActionIconPath(false)} alt="" />
             </button>
           )}
           <button
@@ -12465,6 +15741,13 @@ function App() {
             aria-label="Настройки"
           >
             <img src="/icons/settings50.svg" alt="" />
+            {/* Keep support unread mirrored on the settings launcher. Support lives inside Settings,
+                so users must be able to notice fresh staff replies before opening the scene. */}
+            {supportUnreadCount > 0 ? (
+              <span className="icon-button-badge">
+                {formatUnreadBadgeCount(supportUnreadCount)}
+              </span>
+            ) : null}
           </button>
         </div>
         </aside>
@@ -12474,6 +15757,8 @@ function App() {
         className={
           isPremiumView
             ? 'stage settings-open premium-open'
+            : isSupportSettingsThreadOpen
+              ? 'stage settings-thread-open'
             : isSettingsView
               ? 'stage settings-open'
             : isChannelsView
@@ -12497,21 +15782,33 @@ function App() {
           </div>
         ) : null}
 
-        {isSettingsView ? (
+        {isSettingsView && !isSupportSettingsThreadOpen ? (
           <section className="settings-view">
-            <div className="settings-panel">
+            <div className={`settings-panel${settingsView === 'storage' ? ' settings-panel-storage' : ''}`}>
               <div className={`settings-heading${settingsView === 'profile' ? ' settings-heading-profile' : ''}`}>
                 {settingsView === 'profile' ? (
                   <>
                     <p className="eyebrow">Настройки</p>
                     <div className="settings-profile-header">
                       <div className="settings-profile-avatar-stack">
-                        <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: '#8c5738' }}>
-                          {profilePreviewSession?.avatarImage ? (
-                            <img src={profilePreviewSession.avatarImage} alt="" className="channel-avatar-image" />
-                          ) : (
-                            profileSettingsAvatarLabel
-                          )}
+                        <span className="self-presence-avatar-stack">
+                          <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: '#8c5738' }}>
+                            {profilePreviewSession?.avatarImage ? (
+                              <img src={profilePreviewSession.avatarImage} alt="" className="channel-avatar-image" />
+                            ) : (
+                              profileSettingsAvatarLabel
+                            )}
+                          </span>
+                          {selfPresenceIndicatorMode ? (
+                            <span
+                              className={
+                                selfPresenceIndicatorMode === 'invisible'
+                                  ? 'self-presence-indicator invisible'
+                                  : 'self-presence-indicator'
+                              }
+                              aria-label={selfPresenceIndicatorMode === 'invisible' ? 'Режим невидимки' : 'В сети'}
+                            />
+                          ) : null}
                         </span>
                         <button
                           type="button"
@@ -12530,15 +15827,40 @@ function App() {
                 ) : (
                   <>
                     <p className="eyebrow">Настройки</p>
-                    <h2>{formatSessionName(session)}</h2>
-                    <p className="settings-identity">{session.identifier}</p>
+                    <h2>
+                      {settingsView === 'quiet'
+                        ? 'Настройки режима "Тихо"'
+                        : settingsView === 'support'
+                          ? 'Чат с поддержкой'
+                          : settingsView === 'storage'
+                            ? 'Хранилище'
+                          : formatSessionName(session)}
+                    </h2>
+                    {settingsView === 'quiet' || settingsView === 'support' || settingsView === 'storage' ? null : (
+                      <p className="settings-identity">{session.identifier}</p>
+                    )}
                   </>
                 )}
               </div>
 
+              {settingsView === 'quiet' ? (
+                <p className="settings-copy settings-quiet-scene-copy">
+                  Мы заботимся о том, чтобы вас не побеспокоила реклама или ненужные контакты.
+                  Пожалуйста, настройте режим "Тихо", как вам более удобно.
+                </p>
+              ) : settingsView === 'support' ? (
+                <p className="settings-copy settings-support-scene-copy">
+                  {supportInfoBannerText}
+                </p>
+              ) : settingsView === 'storage' ? (
+                <p className="settings-copy settings-storage-scene-copy">
+                  Здесь собраны только ваши удаляемые файлы и GIF. Аватарки живут отдельно во внешнем хранилище Тайничка и сюда не попадают.
+                </p>
+              ) : null}
+
               {settingsView === 'profile' ? (
-                <div className="settings-stack">
-                  <article className="settings-item">
+                <div className="settings-stack settings-stack-profile">
+                  <article className="settings-item settings-item-profile-field">
                     <span className="settings-label">Имя</span>
                     <input
                     type="text"
@@ -12550,7 +15872,7 @@ function App() {
                     }
                     />
                   </article>
-                  <article className="settings-item">
+                  <article className="settings-item settings-item-profile-field">
                     <span className="settings-label">Фамилия</span>
                     <input
                     type="text"
@@ -12562,7 +15884,7 @@ function App() {
                     }
                     />
                   </article>
-                  <article className="settings-item">
+                  <article className="settings-item settings-item-profile-field">
                     <span className="settings-label">Статус</span>
                     <input
                       type="text"
@@ -12575,13 +15897,13 @@ function App() {
                       }
                     />
                   </article>
-                  <article className="settings-item">
+                  <article className="settings-item settings-item-profile-field">
                     <span className="settings-label">Никнейм</span>
-                    <label className="settings-handle">
+                    <label className="settings-handle settings-handle-copyable">
                       <span>@</span>
                       <input
                         type="text"
-                        className="settings-input handle-input"
+                        className="settings-input handle-input handle-input-with-inline-icon"
                         value={profileSettingsDraft?.nickname ?? ''}
                         placeholder="nickname"
                         maxLength={nicknameFieldMaxLength}
@@ -12591,9 +15913,23 @@ function App() {
                           })
                         }
                       />
+                      <button
+                        type="button"
+                        className="settings-inline-copy-button"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          copyToClipboard(`@${profileSettingsDraft?.nickname ?? ''}`, 'Никнейм скопирован')
+                        }}
+                        aria-label="Копировать никнейм"
+                        title="Копировать никнейм"
+                        disabled={!profileSettingsDraft?.nickname?.trim()}
+                      >
+                        <img src="/icons/copy100.png" alt="" />
+                      </button>
                     </label>
                   </article>
-                  <article className="settings-item">
+                  <article className="settings-item settings-item-profile-section-start">
                     <label className="settings-checkbox">
                       <input
                         type="checkbox"
@@ -12606,8 +15942,86 @@ function App() {
                       <span>Выключить звуки</span>
                     </label>
                   </article>
+                  <article className="settings-item">
+                    <label className="settings-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={browserNotificationsDisabled}
+                        disabled={browserNotificationsToggleDisabled}
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            disableBrowserNotifications()
+                            return
+                          }
+
+                          void enableBrowserNotifications()
+                        }}
+                      />
+                      <span>Выключить браузерные уведомления</span>
+                    </label>
+                  </article>
+                  <article className="settings-item settings-item-invisibility">
+                    {/* Settings invariant:
+                        invisibility is a premium setting of its own. Quiet may auto-enable it,
+                        but this checkbox remains the manual override that can turn stealth off again. */}
+                    {!sessionHasPremium ? (
+                      <button
+                        type="button"
+                        className="settings-invisibility-button"
+                        onClick={openPremiumUpsell}
+                        aria-label="Режим невидимки доступен в премиуме"
+                      >
+                        <span className="settings-checkbox settings-checkbox-disabled">
+                          <input
+                            type="checkbox"
+                            checked={false}
+                            readOnly
+                            disabled
+                          />
+                          <span className="settings-invisibility-copy">
+                            <span className="settings-invisibility-title">
+                              <span>Режим невидимки</span>
+                              <span className="premium-crown settings-invisibility-crown" aria-hidden="true">
+                                <img src="/icons/crown64.png" alt="" />
+                              </span>
+                            </span>
+                            <span className="settings-text">{invisibilitySettingsDescription}</span>
+                          </span>
+                        </span>
+                      </button>
+                    ) : (
+                      <label className="settings-checkbox settings-checkbox-expanded">
+                        <input
+                          type="checkbox"
+                          checked={invisibilityToggleChecked}
+                          onChange={(event) => {
+                            void setInvisibilityPreference(event.target.checked)
+                          }}
+                        />
+                        <span className="settings-invisibility-copy">
+                          <span className="settings-invisibility-title">
+                            <span>Режим невидимки</span>
+                            <span className="premium-crown settings-invisibility-crown" aria-hidden="true">
+                              <img src="/icons/crown64.png" alt="" />
+                            </span>
+                          </span>
+                          <span className="settings-text">{invisibilitySettingsDescription}</span>
+                        </span>
+                      </label>
+                    )}
+                  </article>
                   {storageUsage ? (
-                    <article className={`settings-item storage-usage-card ${storageUsageTone}`}>
+                    <button
+                      type="button"
+                      className={`settings-item storage-usage-card storage-usage-card-button settings-item-profile-section-start ${storageUsageTone}`}
+                      onClick={() => {
+                        // Storage scene is the single self-service surface for reclaimable media.
+                        // Avatars intentionally stay out of this flow so users cannot wipe them by accident.
+                        setStorageItemsError('')
+                        setSettingsView('storage')
+                        setConfirmingLogout(false)
+                      }}
+                    >
                       <div className="storage-usage-header">
                         <span className="settings-label">Хранилище</span>
                         <strong>{storageUsageLabel}</strong>
@@ -12626,26 +16040,316 @@ function App() {
                         />
                       </div>
                       <p className="settings-text">{storageRemainingLabel}</p>
+                      <p className="settings-text storage-usage-open-copy">Открыть хранилище и освободить место</p>
                       {!sessionHasPremium ? (
-                        <button
-                          type="button"
-                          className="soft-button storage-usage-upsell"
-                          onClick={() => setStageView('premium')}
-                        >
-                          Больше места с премиумом
-                        </button>
+                        <span className="soft-button storage-usage-upsell" aria-hidden="true">
+                          <span className="storage-usage-upsell-icon" aria-hidden="true">
+                            <img src="/icons/crown64.png" alt="" />
+                          </span>
+                          <span>Больше места с премиумом</span>
+                        </span>
                       ) : null}
+                    </button>
+                  ) : null}
+                </div>
+              ) : settingsView === 'quiet' ? (
+                <div className="settings-stack settings-stack-quiet">
+                  {/* Quiet settings invariant:
+                      this scene controls only badge/browser-notification suppression categories.
+                      It must not replace the separate manual invisibility toggle in the profile scene. */}
+                  <p className="room-forward-section-title settings-quiet-section-title">Режим заглушает:</p>
+                  {quietModeSettingsOptions.map((option) => (
+                    <article
+                      key={option.key}
+                      className="settings-item settings-item-quiet-option"
+                    >
+                      <label className="settings-checkbox settings-checkbox-expanded">
+                        <input
+                          type="checkbox"
+                          checked={quietSettingsToggleValues[option.key]}
+                          disabled={!sessionHasPremium || quietSettingsBusy}
+                          onChange={(event) => {
+                            const nextValue = event.target.checked
+                            void updateQuietModeSettingsPreference({
+                              [option.key]: nextValue,
+                            } as Partial<QuietModeSettings>)
+                          }}
+                        />
+                        <span className="settings-quiet-copy">
+                          <span>{option.label}</span>
+                          {option.key === 'autoInvisibility' ? (
+                            <span className="settings-text">
+                              Автоматически включает невидимку при нажатии кнопки "Тихо".
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    </article>
+                  ))}
+                  {!sessionHasPremium ? (
+                    <article className="settings-item settings-quiet-upsell">
+                      <p className="settings-text">
+                        Оформите подписку, чтобы открыть возможности детальной настройки режима.
+                      </p>
+                      <button
+                        type="button"
+                        className="soft-button settings-quiet-upsell-button"
+                        onClick={openPremiumUpsell}
+                      >
+                        <span className="premium-crown settings-invisibility-crown" aria-hidden="true">
+                          <img src="/icons/crown64.png" alt="" />
+                        </span>
+                        <span>Приобрести подписку</span>
+                      </button>
                     </article>
                   ) : null}
+                  {quietSettingsError ? <p className="auth-error">{quietSettingsError}</p> : null}
+                </div>
+              ) : settingsView === 'storage' ? (
+                <div className="settings-stack settings-stack-storage">
+                  {storageUsage ? (
+                    <article className={`settings-item storage-usage-card storage-usage-card-scene ${storageUsageTone}`}>
+                      <div className="storage-usage-header">
+                        <span className="settings-label">Занято</span>
+                        <strong>{storageUsageLabel}</strong>
+                      </div>
+                      <div
+                        className="storage-usage-bar"
+                        role="progressbar"
+                        aria-label="Использование хранилища"
+                        aria-valuemin={0}
+                        aria-valuemax={storageUsage.quotaBytes}
+                        aria-valuenow={storageUsage.usedBytes}
+                      >
+                        <span
+                          className="storage-usage-bar-fill"
+                          style={{ width: `${Math.max(4, Math.min(100, storageUsagePercent))}%` }}
+                        />
+                      </div>
+                      <div className="settings-storage-meta">
+                        <p className="settings-text">{storageRemainingLabel}</p>
+                        <p className="settings-text">{storageManagedItemsLabel}</p>
+                      </div>
+                    </article>
+                  ) : null}
+                  {renderStorageItemsGrid({
+                    busy: storageItemsBusy,
+                    deletingId: deletingStorageItemId,
+                    emptyCopy: 'Хранилище пока свободно. Здесь будут появляться только ваши вложения и GIF.',
+                    error: storageItemsError,
+                    items: storageItems,
+                    onDelete: (item) => {
+                      void removeStorageItem(item)
+                    },
+                  })}
+                  {!sessionHasPremium ? (
+                    <button
+                      type="button"
+                      className="soft-button storage-usage-upsell-button"
+                      onClick={() => setStageView('premium')}
+                    >
+                      <span className="storage-usage-upsell-icon" aria-hidden="true">
+                        <img src="/icons/crown64.png" alt="" />
+                      </span>
+                      <span>Больше места с премиумом</span>
+                    </button>
+                  ) : null}
+                </div>
+              ) : settingsView === 'support' ? (
+                <div className="settings-stack settings-stack-support">
+                  <div ref={supportSceneTopRef} />
+                  {supportCooldownActive ? (
+                    <article className="settings-item settings-support-cooldown-card">
+                      <strong className="settings-support-cooldown-timer">{supportCooldownLabel}</strong>
+                      <p className="settings-text">{supportCooldownCopy}</p>
+                    </article>
+                  ) : (
+                    <RoomComposer
+                      attachmentDraft={supportAttachmentDraft}
+                      attachmentInputRef={supportAttachmentInputRef}
+                      attachmentName={supportAttachmentDraft?.fileName ?? ''}
+                      className="settings-item settings-support-composer"
+                      draft={supportDraft}
+                      draftInputRef={supportComposerInputRef}
+                      gifLibrary={session?.gifLibrary ?? []}
+                      gifSelectionBlockedReason={getGifSelectionBlockedReason(supportAttachmentDraft)}
+                      onAttachmentChange={handleSupportAttachmentChange}
+                      onAttachmentClear={clearSupportAttachmentDraft}
+                      onAttachmentPreviewOpen={
+                        supportAttachmentDraft ? () => openAttachmentDraftPreview(supportAttachmentDraft) : undefined
+                      }
+                      onRenameAttachmentFileBaseName={renameSupportAttachmentFileBaseName}
+                      onComposerPaste={handleSupportComposerPaste}
+                      onDeleteGif={deleteGifFromLibrary}
+                      onDraftChange={setSupportDraft}
+                      onKeyDown={handleSupportComposerKeyDown}
+                      onOpenAttachmentPicker={openSupportAttachmentPicker}
+                      onOpenPremiumUpsell={openPremiumUpsell}
+                      onSearchGifs={searchAvailableGifs}
+                      onSelectGif={attachSupportGif}
+                      onSubmit={sendSupportMessage}
+                      onToggleSendOriginal={
+                        supportAttachmentDraft?.compressionEligible
+                          ? () =>
+                              setSupportAttachmentDraft((currentDraft) => {
+                                if (!currentDraft) return currentDraft
+                                const nextSendOriginal = !currentDraft.sendOriginal
+                                return setComposerAttachmentSendOriginal(currentDraft, nextSendOriginal)
+                              })
+                          : undefined
+                      }
+                      onUploadGif={uploadAndAttachSupportGif}
+                      placeholder="Опишите проблему одним сообщением..."
+                      premiumUnlocked={sessionHasPremium}
+                      storageCleanupWarning={getStorageCleanupWarning(supportAttachmentDraft)}
+                      submitAriaLabel="Отправить в поддержку"
+                      submitDisabled={
+                        supportBusy ||
+                        (supportAttachmentDraft
+                          ? supportAttachmentDraft.status !== 'ready'
+                          : !supportDraft.trim())
+                      }
+                      submitTitle="Отправить в поддержку"
+                      bottomContent={
+                        supportError && supportError !== supportCooldownErrorMessage ? (
+                          <p className="auth-error">{supportError}</p>
+                        ) : null
+                      }
+                    />
+                  )}
+                  <div className="settings-actions settings-actions-support-scene">
+                    <button
+                      type="button"
+                      className="soft-button"
+                      onClick={() => {
+                        setSupportError('')
+                        closeThreadView()
+                        setSettingsView('profile')
+                        setConfirmingLogout(false)
+                      }}
+                    >
+                      Назад
+                    </button>
+                    <button
+                      type="button"
+                      className="soft-button"
+                      onClick={() => {
+                        closeThreadView()
+                        setSettingsView('management')
+                        setConfirmingLogout(false)
+                        setBlockedActionChatId(null)
+                      }}
+                    >
+                      Управление
+                    </button>
+                    <button
+                      type="button"
+                      className="soft-button icon-button"
+                      onClick={() => {
+                        setStageView('premium')
+                        setPremiumGiftChatId(null)
+                        setConfirmingLogout(false)
+                      }}
+                      aria-label="Премиум"
+                    >
+                      <img src="/icons/crown64.png" alt="" />
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => setConfirmingLogout(true)}
+                    >
+                      Выйти
+                    </button>
+                  </div>
+                  <div className="settings-support-ticket-section">
+                    <h3 className="settings-section-title settings-support-ticket-section-title">Ваши тикеты</h3>
+                    <div className="settings-support-ticket-list">
+                      {supportTickets.map((ticket) => (
+                        <article
+                          key={`support-ticket-${ticket.id}`}
+                          className="settings-item settings-support-ticket-item"
+                        >
+                          <ThreadedBubble
+                            isMine
+                            onOpenThread={() => openSupportTicketThread(ticket.id)}
+                            threadCount={ticket.comments.length}
+                            showOpenWhenEmpty
+                            emptyLabel="Открыть комментарии"
+                            bubble={(
+                              <article
+                                className="bubble room-thread-source-bubble mine settings-support-ticket-bubble"
+                                role="button"
+                                tabIndex={0}
+                                // The whole ticket card opens the thread on purpose. Reverting this
+                                // back to the lower thread-pill only is a known UX regression.
+                                onClick={() => openSupportTicketThread(ticket.id)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault()
+                                    openSupportTicketThread(ticket.id)
+                                  }
+                                }}
+                              >
+                                <div className="settings-support-ticket-topline">
+                                  <span className="bubble-meta">{`Тикет #${ticket.id}`}</span>
+                                  <span
+                                    className={`support-ticket-status-badge support-ticket-status-badge-${ticket.status}`}
+                                  >
+                                    {formatSupportTicketStatus(ticket.status)}
+                                  </span>
+                                </div>
+                                <BubbleMessageContent
+                                  message={{
+                                    attachment: ticket.attachment,
+                                    replyTo: ticket.replyTo,
+                                    sourceContact: undefined,
+                                    sourceGroup: undefined,
+                                    text: ticket.text,
+                                  }}
+                                  onOpenAttachment={openMediaViewer}
+                                  onOpenExternalLink={requestOpenExternalLink}
+                                  showReplyInline={false}
+                                />
+                                <div className="settings-support-ticket-footer">
+                                  <div className="settings-support-ticket-created-at" aria-label="Дата и время создания">
+                                    <span className="settings-support-ticket-created-at-label">Дата и время создания</span>
+                                    <time dateTime={ticket.createdAt}>
+                                      {formatSupportTicketCreatedAt(ticket.createdAt)}
+                                    </time>
+                                  </div>
+                                  {ticket.unreadCount > 0 ? (
+                                    <span className="badge">{formatUnreadBadgeCount(ticket.unreadCount)}</span>
+                                  ) : null}
+                                </div>
+                              </article>
+                            )}
+                          />
+                        </article>
+                      ))}
+                      {supportTickets.length === 0 ? (
+                        <article className="settings-item settings-support-empty-state">
+                          <p className="settings-text">
+                            У вас пока нет обращений в поддержку. Опишите проблему одним сообщением, и Тайничок создаст новую задачу.
+                          </p>
+                        </article>
+                      ) : null}
+                      {supportTickets.length > 0 ? (
+                        <button
+                          type="button"
+                          className="soft-button settings-support-scroll-top-button"
+                          onClick={() => {
+                            supportSceneTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                          }}
+                        >
+                          Наверх
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               ) : settingsView === 'management' ? (
                 <div className="settings-stack">
-                  <article className="settings-item">
-                    <span className="settings-label">Аккаунт</span>
-                    <p className="settings-text">
-                      Управление номером, учётной записью и запросами на удаление данных.
-                    </p>
-                  </article>
                   <button
                     type="button"
                     className="settings-action-card"
@@ -12778,45 +16482,6 @@ function App() {
                       </div>
                     </article>
                   ) : null}
-                  <article className="settings-item settings-browser-notifications-card">
-                    <span className="settings-label">Браузерные уведомления</span>
-                    <strong className="settings-consent-status">
-                      {browserNotificationSettingsStatusLabel}
-                    </strong>
-                    <p className="settings-text">{browserNotificationSettingsText}</p>
-                    {browserNotificationStatus === 'default' ? (
-                      <button
-                        type="button"
-                        className="soft-button settings-consent-toggle"
-                        onClick={() => {
-                          void enableBrowserNotifications()
-                        }}
-                      >
-                        Включить уведомления
-                      </button>
-                    ) : browserNotificationStatus === 'granted' && browserNotificationsEnabled ? (
-                      <button
-                        type="button"
-                        className="soft-button settings-consent-toggle"
-                        onClick={disableBrowserNotifications}
-                      >
-                        Выключить уведомления
-                      </button>
-                    ) : browserNotificationStatus === 'granted' ? (
-                      <button
-                        type="button"
-                        className="soft-button settings-consent-toggle"
-                        onClick={() => {
-                          void enableBrowserNotifications()
-                        }}
-                      >
-                        Включить уведомления
-                      </button>
-                    ) : null}
-                  </article>
-                  <button type="button" className="settings-action-card">
-                    Сменить номер телефона
-                  </button>
                   <a
                     className="settings-action-card settings-action-link"
                     href="/user-agreement.html"
@@ -12991,11 +16656,59 @@ function App() {
               {settingsView === 'profile' && profileSettingsError ? (
                 <p className="auth-error">{profileSettingsError}</p>
               ) : null}
+              {settingsView === 'profile' ? (
+                <button
+                  type="button"
+                  className="settings-action-card settings-action-card-with-icon settings-action-card-subtle settings-support-chat-button"
+                  onClick={() => {
+                    // Support room lives only inside settings and must not leak into the regular dialog list.
+                    setSupportError('')
+                    setSettingsView('support')
+                    setConfirmingLogout(false)
+                  }}
+                >
+                  <span className="settings-action-card-icon" aria-hidden="true">
+                    <img src="/icons/man-raising-hand.png" alt="" />
+                  </span>
+                    <span className="settings-support-chat-button-copy">
+                      <span>Написать в поддержку</span>
+                      {supportUnreadCount > 0 ? (
+                        <span className="badge settings-support-chat-badge">
+                          {formatUnreadBadgeCount(supportUnreadCount)}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+              ) : null}
+              {settingsView === 'profile' ? (
+                <button
+                  type="button"
+                  className="settings-action-card settings-action-card-with-icon settings-action-card-subtle settings-quiet-settings-button"
+                  onClick={() => {
+                    setQuietSettingsError('')
+                    setSettingsView('quiet')
+                    setConfirmingLogout(false)
+                  }}
+                >
+                  <span className="settings-action-card-icon" aria-hidden="true">
+                    <img src="/icons/quiet.png" alt="" />
+                  </span>
+                  <span>Настройки режима "Тихо"</span>
+                </button>
+              ) : null}
+              {settingsView !== 'support' ? (
               <div className="settings-actions">
                 <button
                   type="button"
                   className="soft-button"
                   onClick={() => {
+                    if (settingsView === 'quiet') {
+                      setQuietSettingsError('')
+                      setSettingsView('profile')
+                      setConfirmingLogout(false)
+                      return
+                    }
+
                     if (settingsView === 'profile' && profileSettingsDirty) {
                       setConfirmProfileSettingsLeaveOpen(true)
                       return
@@ -13006,14 +16719,26 @@ function App() {
                 >
                   Назад
                 </button>
-                {settingsView === 'profile' ? (
-                  <button
-                    type="button"
-                    className="soft-button"
-                    onClick={() => {
-                      setSettingsView('management')
-                      setConfirmingLogout(false)
-                      setBlockedActionChatId(null)
+	                {settingsView === 'profile' ? (
+	                  <button
+	                    type="button"
+	                    className="soft-button"
+		                    onClick={() => {
+		                      setSettingsView('management')
+		                      setConfirmingLogout(false)
+		                      setBlockedActionChatId(null)
+	                    }}
+                  >
+                    Управление
+                  </button>
+	                ) : settingsView === 'quiet' ? (
+	                  <button
+	                    type="button"
+	                    className="soft-button"
+	                    onClick={() => {
+	                      setSettingsView('management')
+	                      setConfirmingLogout(false)
+	                      setBlockedActionChatId(null)
                     }}
                   >
                     Управление
@@ -13041,7 +16766,7 @@ function App() {
                   }}
                   aria-label="Премиум"
                 >
-                  <img src="/icons/crown100.png" alt="" />
+                  <img src="/icons/crown64.png" alt="" />
                 </button>
                 <button
                   type="button"
@@ -13051,6 +16776,7 @@ function App() {
                   Выйти
                 </button>
               </div>
+              ) : null}
             </div>
           </section>
         ) : null}
@@ -13103,14 +16829,30 @@ function App() {
                   {premiumGiftChat ? (
                     <div className="premium-gift-title">
                       <h2>Подарить Премиум</h2>
-                      <img src="/icons/crown100.png" alt="" />
+                      <img src="/icons/crown64.png" alt="" />
                     </div>
                   ) : (
                     <h2>{sessionHasPremium ? 'Продли премиум Тайничок' : 'Премиум Тайничок'}</h2>
                   )}
-                  {sessionHasPremium ? (
-                    <div className="premium-debug-block">
+                  <div className="premium-debug-block">
+                    <div className="premium-debug-toggle-row">
                       <span className="premium-debug-label">Дебаг</span>
+                      <button
+                        type="button"
+                        className={
+                          premiumDebugAutoCheckout
+                            ? 'premium-debug-toggle active'
+                            : 'premium-debug-toggle'
+                        }
+                        aria-pressed={premiumDebugAutoCheckout}
+                        onClick={() => {
+                          setPremiumDebugAutoCheckout((current) => !current)
+                        }}
+                      >
+                        <span className="premium-debug-toggle-thumb" aria-hidden="true" />
+                      </button>
+                    </div>
+                    {sessionHasPremium ? (
                       <button
                         type="button"
                         className="soft-button premium-debug-disable-button"
@@ -13118,8 +16860,8 @@ function App() {
                       >
                         Выключить премиум
                       </button>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
                 </div>
                 {premiumGiftChat ? (
                   <p className="premium-gift-contact">{`Контакту ${premiumGiftChat.title}`}</p>
@@ -13139,12 +16881,12 @@ function App() {
               </div>
 
               <div className="premium-stack">
-                <article className="premium-card">
+                <article className="premium-card premium-card-monthly">
                   <div className="premium-price">
                     <strong>199р</strong>
                     <span>/ месяц</span>
                   </div>
-                  <p className="premium-note">Для спокойного доступа ко всем премиум-возможностям.</p>
+                  <p className="premium-note">Для доступа ко всем премиум-возможностям.</p>
                   <ul className="premium-features">
                     <li>
                       <span className="premium-feature-crown">
@@ -13152,9 +16894,12 @@ function App() {
                         <img src="/icons/crown64.png" alt="" aria-hidden="true" />
                       </span>
                     </li>
+                    <li>Тонкая настройка режима "Тихо"</li>
+                    <li>Режим невидимки!</li>
                     <li>Загрузка и использование GIF animation</li>
                     <li>Отправка фотографий в оригинальном размере</li>
-                    <li>Хранилище файлов до 500 МБ</li>
+                    <li>Хранилище файлов до 1000 МБ</li>
+                    <li>До 20 групп вместо 5 на бесплатном аккаунте</li>
                     <li>Создание тематических каналов</li>
                     <li>Группы до 200 человек</li>
                   </ul>
@@ -13166,7 +16911,11 @@ function App() {
                     }}
                     disabled={premiumPurchaseBusy}
                   >
-                    {premiumPurchaseBusy ? 'Обрабатываем...' : 'Выбрать месяц'}
+                    {premiumPurchaseBusy
+                      ? 'Обрабатываем...'
+                      : sessionHasPremium
+                        ? 'Продлить на месяц'
+                        : 'Купить на месяц'}
                   </button>
                 </article>
 
@@ -13186,9 +16935,12 @@ function App() {
                         <img src="/icons/crown64.png" alt="" aria-hidden="true" />
                       </span>
                     </li>
+                    <li>Тонкая настройка режима "Тихо"</li>
+                    <li>Режим невидимки!</li>
                     <li>Загрузка и использование GIF animation</li>
                     <li>Отправка фотографий в оригинальном размере</li>
-                    <li>Хранилище файлов до 500 МБ</li>
+                    <li>Хранилище файлов до 1000 МБ</li>
+                    <li>До 20 групп вместо 5 на бесплатном аккаунте</li>
                     <li>Создание тематических каналов</li>
                     <li>Группы до 200 человек</li>
                   </ul>
@@ -13200,7 +16952,11 @@ function App() {
                     }}
                     disabled={premiumPurchaseBusy}
                   >
-                    {premiumPurchaseBusy ? 'Обрабатываем...' : 'Выбрать год'}
+                    {premiumPurchaseBusy
+                      ? 'Обрабатываем...'
+                      : sessionHasPremium
+                        ? 'Продлить на год'
+                        : 'Купить на год'}
                   </button>
                 </article>
               </div>
@@ -13216,27 +16972,19 @@ function App() {
                 >
                   Назад
                 </button>
-                <div className="premium-debug-inline">
-                  <span className="premium-debug-label">Дебаг</span>
-                  <button
-                    type="button"
-                    className={
-                      premiumDebugAutoCheckout
-                        ? 'premium-debug-toggle active'
-                        : 'premium-debug-toggle'
-                    }
-                    aria-pressed={premiumDebugAutoCheckout}
-                    onClick={() => {
-                      setPremiumDebugAutoCheckout((current) => !current)
-                    }}
-                  >
-                    <span className="premium-debug-toggle-thumb" aria-hidden="true" />
-                  </button>
-                  <span className="premium-debug-inline-copy">
-                    Автопокупка для тестов. При включении покупка проходит сразу, без реального платежа.
-                  </span>
-                </div>
               </div>
+            </div>
+            <div className="premium-legal-links premium-legal-links-outside" aria-label="Условия Premium перед оплатой">
+              {/* Premium checkout keeps one primary legal surface here: explicit purchase
+                  must reference Premium terms directly, while other public legal pages stay
+                  available elsewhere on the site and inside the linked documents. */}
+              <p className="premium-consent-copy">
+                Нажимая «Купить», вы подтверждаете, что ознакомились и соглашаетесь с{' '}
+                <a className="settings-inline-link" href="/premium-terms.html">
+                  Условиями Premium
+                </a>
+                .
+              </p>
             </div>
           </section>
         ) : null}
@@ -13245,9 +16993,12 @@ function App() {
           <section className="channels-view">
             <div ref={channelsPanelRef} className="settings-panel channels-manager-panel">
               <div className="channels-screen-header">
-                <p className="eyebrow">Каналы</p>
                 <h2>Управление каналами</h2>
-                <p className="settings-copy">Каналы, которыми вы управляете сейчас.</p>
+                <p className="settings-copy">
+                  {channels.length > 0
+                    ? 'Каналы, которыми вы управляете сейчас.'
+                    : 'Пока нет каналов. Создайте свой первый канал.'}
+                </p>
               </div>
 
               <div className="channels-manager-content">
@@ -13297,11 +17048,7 @@ function App() {
                       </span>
                     </button>
                   </div>
-                ) : (
-                  <article className="settings-item">
-                    <p className="settings-text">Пока нет каналов. Создайте первый канал из этой сцены.</p>
-                  </article>
-                )}
+                ) : null}
                 {channels.length === 0 ? (
                   <button
                     type="button"
@@ -13411,9 +17158,10 @@ function App() {
                 <article className="settings-item channel-description-card">
                   <span className="settings-label">Статус канала</span>
                   <textarea
-                    className="channel-description-input"
+                    className="channel-status-input"
                     maxLength={statusFieldMaxLength}
                     placeholder="Введите статус канала"
+                    rows={2}
                     value={creatingChannelStatusText}
                     onChange={(event) =>
                       setCreatingChannelStatusText(
@@ -13429,6 +17177,7 @@ function App() {
                     className="channel-description-input"
                     maxLength={channelDescriptionMaxLength}
                     placeholder="Добавьте описание канала"
+                    rows={6}
                     value={creatingChannelDescription}
                     onChange={(event) =>
                       setCreatingChannelDescription(
@@ -13528,7 +17277,7 @@ function App() {
                               >
                                 <span className="chat-avatar-stack">
                                   <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                                    {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
+                                    {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                                   </span>
                                   {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                                 </span>
@@ -13656,154 +17405,254 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="channels-fields">
-                    <article className="settings-item">
-                      <span className="settings-label">Прямая ссылка</span>
-                      <div className="channel-link-field">
-                        <input
-                          type="text"
-                          className="settings-input channel-link-input"
-                          maxLength={channelDirectLinkMaxLength + 1}
-                          value={
-                            activeChannel.visibility === 'closed'
-                              ? 'Недоступно для закрытого канала'
-                              : activeChannel.directLink || '@'
+                  {channelDetailView === 'storage' ? (
+                    <div className="settings-stack settings-stack-storage settings-stack-channel-storage">
+                      <div ref={channelStorageSceneTopRef} />
+                      <div className="settings-actions channels-detail-actions channels-detail-actions-top">
+                        <button
+                          type="button"
+                          className="soft-button"
+                          onClick={() => {
+                            setChannelStorageItemsError('')
+                            setChannelDetailView('main')
+                          }}
+                          disabled={channelSettingsBusy}
+                        >
+                          Назад
+                        </button>
+                        <button
+                          type="button"
+                          className="soft-button"
+                          onClick={() =>
+                            setChannelManagementOpenId((current) =>
+                              current === activeChannel.id ? null : activeChannel.id,
+                            )
                           }
-                          readOnly={activeChannel.visibility === 'closed'}
-                          placeholder="@kanal"
+                          disabled={channelSettingsBusy}
+                        >
+                          Управление
+                        </button>
+                      </div>
+                      {activeChannelStorageUsage ? (
+                        <article className={`settings-item storage-usage-card storage-usage-card-scene ${activeChannelStorageTone}`}>
+                          <div className="storage-usage-header">
+                            <span className="settings-label">Хранилище канала</span>
+                            <strong>{`${formatAttachmentSize(activeChannelStorageUsage.usedBytes)} из ${formatAttachmentSize(activeChannelStorageUsage.quotaBytes)}`}</strong>
+                          </div>
+                          <div
+                            className="storage-usage-bar"
+                            role="progressbar"
+                            aria-label="Использование хранилища канала"
+                            aria-valuemin={0}
+                            aria-valuemax={activeChannelStorageUsage.quotaBytes}
+                            aria-valuenow={activeChannelStorageUsage.usedBytes}
+                          >
+                            <span
+                              className="storage-usage-bar-fill"
+                              style={{ width: `${Math.max(4, Math.min(100, activeChannelStoragePercent))}%` }}
+                            />
+                          </div>
+                          <div className="settings-storage-meta">
+                            <p className="settings-text">{`Осталось ${formatAttachmentSize(activeChannelStorageUsage.remainingBytes)}`}</p>
+                            <p className="settings-text">{channelStorageManagedItemsLabel}</p>
+                          </div>
+                        </article>
+                      ) : null}
+                      <article className="settings-item settings-storage-items-panel">
+                        <div className="storage-usage-header">
+                          <span className="settings-label">Файлы хранилища</span>
+                          <strong>{channelStorageManagedItemsLabel}</strong>
+                        </div>
+                        {renderStorageItemsGrid({
+                          busy: channelStorageItemsBusy,
+                          compact: true,
+                          deletingId: deletingChannelStorageItemId,
+                          emptyCopy:
+                            'Хранилище канала пока свободно. Здесь будут появляться только вложения постов этого канала. Комментарии в тредах считаются в хранилище автора.',
+                          error: channelStorageItemsError,
+                          items: channelStorageItems,
+                          onDelete: (item) => {
+                            void removeChannelStorageItem(item)
+                          },
+                        })}
+                        {channelStorageItems.length > 0 ? (
+                          <button
+                            type="button"
+                            className="soft-button settings-storage-scroll-top-button"
+                            onClick={() => {
+                              channelStorageSceneTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                            }}
+                          >
+                            Наверх
+                          </button>
+                        ) : null}
+                      </article>
+                    </div>
+                  ) : (
+                    <div className="channels-fields">
+                      <article className="settings-item">
+                        <span className="settings-label">Прямая ссылка</span>
+                        <div className="channel-link-field">
+                          <input
+                            type="text"
+                            className="settings-input channel-link-input settings-input-with-inline-icon"
+                            maxLength={channelDirectLinkMaxLength + 1}
+                            value={
+                              activeChannel.visibility === 'closed'
+                                ? 'Недоступно для закрытого канала'
+                                : activeChannel.directLink || '@'
+                            }
+                            readOnly={activeChannel.visibility === 'closed'}
+                            placeholder="@kanal"
+                            onChange={(event) =>
+                              updateChannel(activeChannel.id, {
+                                directLink: buildEditableChannelDirectLink(event.target.value, activeChannel.title),
+                              })
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="settings-inline-copy-button"
+                            onClick={() => copyToClipboard(activeChannel.directLink)}
+                            aria-label="Копировать ссылку"
+                            title="Копировать ссылку"
+                            disabled={activeChannel.visibility === 'closed'}
+                          >
+                            <img src="/icons/copy100.png" alt="" />
+                          </button>
+                        </div>
+                      </article>
+
+                      <article className="settings-item channel-description-card">
+                        <span className="settings-label">Статус канала</span>
+                        <textarea
+                          className="channel-status-input"
+                          maxLength={statusFieldMaxLength}
+                          placeholder="Введите статус канала"
+                          rows={2}
+                          value={activeChannel.statusText ?? ''}
                           onChange={(event) =>
                             updateChannel(activeChannel.id, {
-                              directLink: buildEditableChannelDirectLink(event.target.value, activeChannel.title),
+                              statusText: sanitizeStatusField(event.target.value),
                             })
                           }
                         />
-                        <button
-                          type="button"
-                          className="soft-button channel-link-copy"
-                          onClick={() => copyToClipboard(activeChannel.directLink)}
-                          aria-label="Копировать ссылку"
-                          title="Копировать ссылку"
-                          disabled={activeChannel.visibility === 'closed'}
-                        >
-                          <img src="/icons/copy100.png" alt="" />
-                        </button>
-                      </div>
-                    </article>
+                      </article>
 
-                    <article className="settings-item channel-description-card">
-                      <span className="settings-label">Статус канала</span>
-                      <textarea
-                        className="channel-description-input"
-                        maxLength={statusFieldMaxLength}
-                        placeholder="Введите статус канала"
-                        value={activeChannel.statusText ?? ''}
-                        onChange={(event) =>
-                          updateChannel(activeChannel.id, {
-                            statusText: sanitizeStatusField(event.target.value),
-                          })
-                        }
-                      />
-                    </article>
+                      <article className="settings-item channel-description-card">
+                        <span className="settings-label">Описание канала</span>
+                        <textarea
+                          className="channel-description-input"
+                          maxLength={channelDescriptionMaxLength}
+                          placeholder="Добавьте описание канала"
+                          rows={6}
+                          value={activeChannel.description}
+                          onChange={(event) =>
+                            updateChannel(activeChannel.id, {
+                              description: sanitizeChannelDescription(event.target.value),
+                            })
+                          }
+                        />
+                      </article>
 
-                    <article className="settings-item channel-description-card">
-                      <span className="settings-label">Описание канала</span>
-                      <textarea
-                        className="channel-description-input"
-                        maxLength={channelDescriptionMaxLength}
-                        placeholder="Добавьте описание канала"
-                        value={activeChannel.description}
-                        onChange={(event) =>
-                          updateChannel(activeChannel.id, {
-                            description: sanitizeChannelDescription(event.target.value),
-                          })
-                        }
-                      />
-                    </article>
-
-                    <article className="settings-item channel-privacy-card">
-                      <span className="settings-label">Приватность канала</span>
-                      <div className="channel-privacy-row">
-                        <div className="channel-privacy-content">
-                          <strong>{getChannelVisibilityLabel(activeChannel.visibility)}</strong>
-                          <p className="settings-text">
-                            {getChannelVisibilityDescription(activeChannel.visibility)}
-                          </p>
+                      <article className="settings-item channel-privacy-card">
+                        <span className="settings-label">Приватность канала</span>
+                        <div className="channel-privacy-row">
+                          <div className="channel-privacy-content">
+                            <strong>{getChannelVisibilityLabel(activeChannel.visibility)}</strong>
+                            <p className="settings-text">
+                              {getChannelVisibilityDescription(activeChannel.visibility)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="soft-button channel-privacy-toggle"
+                            onClick={() =>
+                              updateChannel(activeChannel.id, {
+                                visibility: getNextChannelVisibility(activeChannel.visibility),
+                              })
+                            }
+                            aria-label="Изменить приватность канала"
+                            title="Изменить приватность канала"
+                          >
+                            <img src="/icons/reset100.png" alt="" />
+                          </button>
                         </div>
+                      </article>
+
+                      <article className="settings-item">
+                        <span className="settings-label">Комментарии</span>
+                        <label className="settings-checkbox">
+                          <input
+                            type="radio"
+                            name={`channel-comments-${activeChannel.id}`}
+                            checked={!activeChannel.commentsEnabledForAll && !activeChannel.commentsEnabledForPremium}
+                            onChange={() =>
+                              updateChannel(activeChannel.id, {
+                                commentsEnabledForAll: false,
+                                commentsEnabledForPremium: false,
+                              })
+                            }
+                          />
+                          <span>Комментарии выключены</span>
+                        </label>
+                        <label className="settings-checkbox">
+                          <input
+                            type="radio"
+                            name={`channel-comments-${activeChannel.id}`}
+                            checked={Boolean(activeChannel.commentsEnabledForAll)}
+                            onChange={() =>
+                              updateChannel(activeChannel.id, {
+                                commentsEnabledForAll: true,
+                                commentsEnabledForPremium: false,
+                              })
+                            }
+                          />
+                          <span>Включить комментарии для всех юзеров</span>
+                        </label>
+                        <label className="settings-checkbox">
+                          <input
+                            type="radio"
+                            name={`channel-comments-${activeChannel.id}`}
+                            checked={Boolean(activeChannel.commentsEnabledForPremium)}
+                            onChange={() =>
+                              updateChannel(activeChannel.id, {
+                                commentsEnabledForAll: false,
+                                commentsEnabledForPremium: true,
+                              })
+                            }
+                          />
+                          <span>Включить комментарии только для премиум юзеров</span>
+                        </label>
                         <button
                           type="button"
-                          className="soft-button channel-privacy-toggle"
+                          className="soft-button channel-blacklist-button"
                           onClick={() =>
-                            updateChannel(activeChannel.id, {
-                              visibility: getNextChannelVisibility(activeChannel.visibility),
+                            openBlacklistManager({
+                              channelId: activeChannel.id,
+                              kind: 'channel',
+                              scope: 'existing',
                             })
                           }
-                          aria-label="Изменить приватность канала"
-                          title="Изменить приватность канала"
                         >
-                          <img src="/icons/reset100.png" alt="" />
+                          Чёрный список
                         </button>
-                      </div>
-                    </article>
+                      </article>
 
-                    <article className="settings-item">
-                      <span className="settings-label">Комментарии</span>
-                      <label className="settings-checkbox">
-                        <input
-                          type="radio"
-                          name={`channel-comments-${activeChannel.id}`}
-                          checked={!activeChannel.commentsEnabledForAll && !activeChannel.commentsEnabledForPremium}
-                          onChange={() =>
-                            updateChannel(activeChannel.id, {
-                              commentsEnabledForAll: false,
-                              commentsEnabledForPremium: false,
-                            })
-                          }
-                        />
-                        <span>Комментарии выключены</span>
-                      </label>
-                      <label className="settings-checkbox">
-                        <input
-                          type="radio"
-                          name={`channel-comments-${activeChannel.id}`}
-                          checked={Boolean(activeChannel.commentsEnabledForAll)}
-                          onChange={() =>
-                            updateChannel(activeChannel.id, {
-                              commentsEnabledForAll: true,
-                              commentsEnabledForPremium: false,
-                            })
-                          }
-                        />
-                        <span>Включить комментарии для всех юзеров</span>
-                      </label>
-                      <label className="settings-checkbox">
-                        <input
-                          type="radio"
-                          name={`channel-comments-${activeChannel.id}`}
-                          checked={Boolean(activeChannel.commentsEnabledForPremium)}
-                          onChange={() =>
-                            updateChannel(activeChannel.id, {
-                              commentsEnabledForAll: false,
-                              commentsEnabledForPremium: true,
-                            })
-                          }
-                        />
-                        <span>Включить комментарии только для премиум юзеров</span>
-                      </label>
-                      <button
-                        type="button"
-                        className="soft-button channel-blacklist-button"
-                        onClick={() =>
-                          openBlacklistManager({
-                            channelId: activeChannel.id,
-                            kind: 'channel',
-                            scope: 'existing',
-                          })
-                        }
-                      >
-                        Чёрный список
-                      </button>
-                    </article>
-                  </div>
+                      {renderManagedStorageSummaryButton({
+                        managedItemsLabel: channelStorageManagedItemsLabel,
+                        onOpen: () => {
+                          setChannelStorageItemsError('')
+                          setChannelDetailView('storage')
+                        },
+                        openCopy: 'Открыть хранилище канала',
+                        subjectLabel: 'Канала',
+                        title: 'Хранилище',
+                        tone: activeChannelStorageTone,
+                        usage: activeChannelStorageUsage,
+                      })}
+                    </div>
+                  )}
 
                   {channelSettingsError ? <p className="auth-error">{channelSettingsError}</p> : null}
 
@@ -13816,18 +17665,11 @@ function App() {
                         onClick={() => setChannelManagementOpenId(null)}
                       />
                       <div className="room-confirm room-confirm-compact">
-                        <p className="room-confirm-copy">Управление каналом</p>
-                        <div className="room-forward-list">
+                        <p className="room-confirm-copy room-confirm-copy-centered">Управление каналом</p>
+                        <div className="room-confirm-actions room-confirm-actions-single">
                           <button
                             type="button"
-                            className="room-forward-item"
-                            onClick={() => startChannelTransfer(activeChannel.id)}
-                          >
-                            Передать
-                          </button>
-                          <button
-                            type="button"
-                            className="room-forward-item room-confirm-danger"
+                            className="room-confirm-button room-confirm-danger"
                             onClick={() => {
                               setChannelManagementOpenId(null)
                               setConfirmingDeleteChannelId(activeChannel.id)
@@ -13859,44 +17701,46 @@ function App() {
                 </div>
               )}
 
-              <div className="settings-actions channels-detail-actions">
-                <button
-                  type="button"
-                  className="soft-button"
-                  onClick={() => {
-                    void handleActiveChannelDetailBack()
-                  }}
-                  disabled={channelSettingsBusy}
-                >
-                  Назад
-                </button>
-                {activeChannel && activeChannelSettingsDirty ? (
-                  <button
-                    type="button"
-                    className="send-button"
-                    onClick={() => {
-                      void handleActiveChannelDetailSave()
-                    }}
-                    disabled={channelSettingsBusy}
-                  >
-                    {channelSettingsBusy ? 'Сохраняем...' : 'Сохранить'}
-                  </button>
-                ) : null}
-                {activeChannel ? (
+              {channelDetailView === 'main' ? (
+                <div className="settings-actions channels-detail-actions">
                   <button
                     type="button"
                     className="soft-button"
-                    onClick={() =>
-                      setChannelManagementOpenId((current) =>
-                        current === activeChannel.id ? null : activeChannel.id,
-                      )
-                    }
+                    onClick={() => {
+                      void handleActiveChannelDetailBack()
+                    }}
                     disabled={channelSettingsBusy}
                   >
-                    Управление
+                    Назад
                   </button>
-                ) : null}
-              </div>
+                  {activeChannel && activeChannelSettingsDirty ? (
+                    <button
+                      type="button"
+                      className="send-button"
+                      onClick={() => {
+                        void handleActiveChannelDetailSave()
+                      }}
+                      disabled={channelSettingsBusy}
+                    >
+                      {channelSettingsBusy ? 'Сохраняем...' : 'Сохранить'}
+                    </button>
+                  ) : null}
+                  {activeChannel ? (
+                    <button
+                      type="button"
+                      className="soft-button"
+                      onClick={() =>
+                        setChannelManagementOpenId((current) =>
+                          current === activeChannel.id ? null : activeChannel.id,
+                        )
+                      }
+                      disabled={channelSettingsBusy}
+                    >
+                      Управление
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </section>
         ) : null}
@@ -13982,9 +17826,9 @@ function App() {
           </>
         ) : null}
 
-        {threadTarget ? (
-          threadRoom
-        ) : isSubscriptionChannelOpen ? (
+	        {threadTarget && (threadTarget.kind !== 'support' || isSupportSettingsThreadOpen) ? (
+	          threadRoom
+	        ) : isSubscriptionChannelOpen ? (
           <SubscriptionChannelRoom
             actions={
               <>
@@ -13996,7 +17840,7 @@ function App() {
             channel={currentSubscriptionChannel!}
             messageFeedRef={messageFeedRef}
             onBack={closeActiveRoom}
-            onOpenThread={openChannelThread}
+            onOpenThread={isPreviewSubscriptionChannel ? undefined : openChannelThread}
             onOpenChannelActions={
               actionableSubscriptionChannel
                 ? (event) => {
@@ -14031,8 +17875,8 @@ function App() {
                   }
                 : undefined
             }
-            onPostSelect={(event, postId) => {
-              scheduleActionAnchor(event.currentTarget, 'start', (anchor) =>
+            onPostSelect={(anchorElement, postId) => {
+              scheduleActionAnchor(anchorElement, 'start', (anchor) =>
                 openSubscriptionPostActions(postId, anchor),
               )
             }}
@@ -14051,7 +17895,10 @@ function App() {
                     onAttachmentClear: () => clearChannelAttachmentDraft(currentSubscriptionChannel!.id),
                     onAttachmentPreviewOpen: () =>
                       openAttachmentDraftPreview(channelAttachmentDrafts[currentSubscriptionChannel!.id]),
+                    onRenameAttachmentFileBaseName: (nextBaseName: string) =>
+                      renameChannelAttachmentFileBaseName(currentSubscriptionChannel!.id, nextBaseName),
                     onDraftChange: (value) => updateChannelPostDraft(currentSubscriptionChannel!.id, value),
+                    onComposerPaste: handleChannelComposerPaste,
                     onOpenAttachmentPicker: openChannelAttachmentPicker,
                     onOpenPremiumUpsell: openPremiumUpsell,
                     onReplyCancel: () => setChannelPostReplyTarget(null),
@@ -14067,6 +17914,9 @@ function App() {
                     onDeleteGif: deleteGifFromLibrary,
                     onSearchGifs: searchAvailableGifs,
                     replyTarget: channelPostReplyTarget,
+                    storageCleanupWarning: getStorageCleanupWarning(
+                      channelAttachmentDrafts[currentSubscriptionChannel!.id],
+                    ),
                     onSubmit: () => {
                       void sendManagedChannelPost()
                     },
@@ -14074,15 +17924,22 @@ function App() {
                 : undefined
             }
             subscriptionAction={
-              previewSubscriptionChannel
+              previewSubscriptionChannel && previewSubscriptionChannel.archiveReason !== 'owner-deleted'
                 ? {
-                    label: 'Подписаться',
-                    onClick: subscribeToPreviewSubscriptionChannel,
+                    busy: channelPostBusy,
+                    error: channelPostError,
+                    label: 'Подписаться на канал',
+                    onClick: () => {
+                      void subscribeToPreviewSubscriptionChannel()
+                    },
                   }
                 : undefined
             }
             subscriberCountLabel={currentSubscriptionChannelSubscriberLabel}
             onOpenAttachment={openMediaViewer}
+            onOpenExternalLink={requestOpenExternalLink}
+            onOpenSourceContact={openSourceContact}
+            showOwnerEditIcon={isCurrentSubscriptionChannelOwner}
           />
         ) : null}
 
@@ -14105,6 +17962,9 @@ function App() {
             onAttachmentChange={handleGroupAttachmentChange}
             onAttachmentClear={() => clearGroupAttachmentDraft(activeGroup.id)}
             onAttachmentPreviewOpen={() => openAttachmentDraftPreview(groupAttachmentDrafts[activeGroup.id])}
+            onRenameAttachmentFileBaseName={(nextBaseName) =>
+              renameGroupAttachmentFileBaseName(activeGroup.id, nextBaseName)
+            }
             onOpenGroupActions={(event) => {
               scheduleActionAnchor(event.currentTarget, 'end', setGroupActionsAnchor)
               resetGroupMessageActions()
@@ -14121,16 +17981,27 @@ function App() {
             }}
             composerDisabledNotice={activeGroupWriteBlockReason}
             onDraftChange={(value) => updateGroupDraft(activeGroup.id, value)}
-            onMessageSelect={(event, message) => {
+            onComposerPaste={handleGroupComposerPaste}
+            onMessageSelect={(anchorElement, message) => {
               scheduleActionAnchor(
-                event.currentTarget,
+                anchorElement,
                 message.author === 'me' ? 'end' : 'start',
                 (anchor) => openGroupMessageActions(message.id, anchor),
               )
             }}
             onOpenAttachment={openMediaViewer}
+            onOpenExternalLink={requestOpenExternalLink}
             onOpenLinkedChannel={openSourceChannel}
-            onOpenParticipants={() => setGroupParticipantsOpen(true)}
+            onOpenSourceContact={openSourceContact}
+            onOpenParticipants={() => {
+              setGroupParticipantsSearchQuery('')
+              setSelectedGroupParticipantIdentifier(null)
+              setConfirmingRemoveGroupParticipantIdentifier(null)
+              setConfirmingBlacklistGroupParticipantIdentifier(null)
+              setGroupParticipantActionBusy(false)
+              setGroupParticipantActionError('')
+              setGroupParticipantsOpen(true)
+            }}
             onReplyCancel={() => setReplyTarget(null)}
             onReplyReferenceJump={scrollToGroupMessage}
             onOpenPremiumUpsell={openPremiumUpsell}
@@ -14140,6 +18011,7 @@ function App() {
             onSelectGif={(gif) => attachGroupGif(activeGroup.id, gif)}
             onToggleSendOriginal={() => toggleGroupAttachmentSendOriginal(activeGroup.id)}
             onUploadGif={(file) => uploadAndAttachGroupGif(activeGroup.id, file)}
+            showOwnerEditIcon={isOwnedGroupPreview(activeGroup)}
             gifLibrary={session?.gifLibrary ?? []}
             gifSelectionBlockedReason={getGifSelectionBlockedReason(groupAttachmentDrafts[activeGroup.id])}
             onDeleteGif={deleteGifFromLibrary}
@@ -14147,11 +18019,15 @@ function App() {
             onSearchGifs={searchAvailableGifs}
             replyTarget={replyTarget}
             resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
+            storageCleanupWarning={getStorageCleanupWarning(groupAttachmentDrafts[activeGroup.id])}
             visibleMessages={visibleGroupMessages}
             onSubmit={sendGroupMessage}
           />
         ) : null}
         {groupParticipantsDialog}
+        {selectedActiveGroupParticipantDialog}
+        {confirmingRemoveGroupParticipantDialog}
+        {confirmingBlacklistGroupParticipantDialog}
         {confirmingDeleteGroupMessageDialog}
         {isChatOpen ? (
           <>
@@ -14167,11 +18043,15 @@ function App() {
               messageFeedRef={messageFeedRef}
               onAttachmentClear={() => clearChatAttachmentDraft(activeChat.id)}
               onAttachmentPreviewOpen={() => openAttachmentDraftPreview(chatAttachmentDrafts[activeChat.id])}
+              onRenameAttachmentFileBaseName={(nextBaseName) =>
+                renameChatAttachmentFileBaseName(activeChat.id, nextBaseName)
+              }
               pinnedMessage={pinnedMessage}
               quietMode={quietMode}
               replyTarget={replyTarget}
               visibleMessages={visibleDirectMessages}
               composerDisabledNotice={activeChatAdminBlockNotice}
+              composerGate={activeChatComposerGate}
               onAttachmentChange={handleChatAttachmentChange}
               onBack={closeActiveRoom}
               onBlockChat={() => blockChat(activeChat.id)}
@@ -14180,17 +18060,29 @@ function App() {
                 setChatActionsOpen(false)
                 openGroupCreateDialog([activeChat.id])
               }}
+              onShareContact={() => {
+                setContactShareOpen(true)
+                setContactShareBusy(false)
+                setContactShareError('')
+                setContactShareChatIds([])
+                setContactShareNote('')
+                setChatActionsOpen(false)
+              }}
               onDraftChange={(value) => updateChatDraft(activeChat.id, value)}
-              onMessageSelect={(event, message) => {
+              onComposerPaste={handleChatComposerPaste}
+              onMessageSelect={(anchorElement, message) => {
                 setMessageActionMessageId(message.id)
                 scheduleActionAnchor(
-                  event.currentTarget,
+                  anchorElement,
                   message.author === 'me' ? 'end' : 'start',
                   setMessageActionAnchor,
                 )
               }}
               onOpenAttachment={openMediaViewer}
+              onOpenExternalLink={requestOpenExternalLink}
               onOpenLinkedChannel={openSourceChannel}
+              onOpenSourceContact={openSourceContact}
+              onOpenSourceGroup={openSourceGroup}
               onOpenSourceChannel={openSourceChannelFromMessage}
               onOpenAttachmentPicker={openAttachmentPicker}
               onOpenPremiumUpsell={openPremiumUpsell}
@@ -14198,6 +18090,23 @@ function App() {
                 setPremiumGiftChatId(activeChat.id)
                 setStageView('premium')
                 setChatActionsOpen(false)
+              }}
+              onComposerGateAction={() => {
+                if ((activeChat.contactState ?? 'accepted') === 'pending-outgoing') {
+                  void actOnContactRequest(activeChat.phone, 'cancel')
+                  return
+                }
+
+                void sendContactRequestForActiveChat()
+              }}
+              onComposerGateAccept={() => {
+                void actOnContactRequest(activeChat.phone, 'accept')
+              }}
+              onComposerGateReject={() => {
+                void actOnContactRequest(activeChat.phone, 'reject')
+              }}
+              onComposerGateBlock={() => {
+                void actOnContactRequest(activeChat.phone, 'block')
               }}
               onReplyCancel={() => setReplyTarget(null)}
               onSelectGif={(gif) => attachChatGif(activeChat.id, gif)}
@@ -14235,6 +18144,7 @@ function App() {
               onUnpinMessage={() => {
                 void unpinMessage(activeChat.id)
               }}
+              storageCleanupWarning={getStorageCleanupWarning(chatAttachmentDrafts[activeChat.id])}
             />
 
             {activeMessage ? (
@@ -14257,6 +18167,7 @@ function App() {
                     message={activeMessage}
                     mine={activeMessage.author === 'me'}
                     onOpenAttachment={openMediaViewer}
+                    onOpenExternalLink={requestOpenExternalLink}
                     replyChatTitle={activeChat.title}
                   />
                 ) : null}
@@ -14288,13 +18199,15 @@ function App() {
                         <button type="button" className="message-menu-item" onClick={() => replyToMessage(activeMessage)}>
                           Ответить
                         </button>
-                        <button
-                          type="button"
-                          className="message-menu-item"
-                          onClick={() => copyMessageText(activeMessage)}
-                        >
-                          Скопировать
-                        </button>
+                        {!activeMessage.attachment ? (
+                          <button
+                            type="button"
+                            className="message-menu-item"
+                            onClick={() => copyMessageText(activeMessage)}
+                          >
+                            Скопировать
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="message-menu-item"
@@ -14351,11 +18264,103 @@ function App() {
                         onClick={() => forwardMessageToChat(chat.id, forwardingMessage)}
                       >
                         <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                          {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
+                          {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                         </span>
                         <span>{chat.title}</span>
                       </button>
                     ))}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {contactShareOpen && activeChat ? (
+              <>
+                <button
+                  type="button"
+                  className="room-confirm-scrim"
+                  aria-label="Закрыть отправку контакта"
+                  onClick={closeContactShareDialog}
+                />
+                <div className="room-confirm room-forward room-transfer-list">
+                  <p className="room-confirm-copy">{`Кому отправить контакт ${activeChat.title}?`}</p>
+                  <label className="room-forward-note">
+                    <span className="settings-label">Подпись</span>
+                    <textarea
+                      className="settings-input room-forward-note-input"
+                      rows={3}
+                      value={contactShareNote}
+                      onChange={(event) => setContactShareNote(event.target.value)}
+                      placeholder="Напишите, почему делитесь этим контактом"
+                      disabled={contactShareBusy}
+                    />
+                  </label>
+                  <div className="room-forward-list">
+                    {contactShareTargets.length > 0 ? (
+                      contactShareTargets.map((chat) => {
+                        const isSelected = contactShareChatIds.includes(chat.id)
+
+                        return (
+                          <button
+                            key={`contact-share-${chat.id}`}
+                            type="button"
+                            className={`room-forward-item group-create-member-item${isSelected ? ' active' : ''}`}
+                            onClick={() => {
+                              if (contactShareBusy) return
+                              toggleContactShareChat(chat.id)
+                            }}
+                            disabled={contactShareBusy}
+                          >
+                            <span className="chat-avatar-stack">
+                              <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                                {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
+                              </span>
+                              {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
+                            </span>
+                            <span className="group-create-member-copy">
+                              <strong className="group-create-member-name-row">
+                                <span>{chat.title}</span>
+                              </strong>
+                              <span>{chat.handle || chat.phone}</span>
+                            </span>
+                            <input
+                              type="checkbox"
+                              className="group-create-member-checkbox"
+                              checked={isSelected}
+                              readOnly
+                              tabIndex={-1}
+                            />
+                          </button>
+                        )
+                      })
+                    ) : (
+                      <article className="settings-item room-transfer-empty">
+                        <p className="settings-text">Контакты не найдены.</p>
+                      </article>
+                    )}
+                  </div>
+                  {contactShareError ? <p className="auth-error">{contactShareError}</p> : null}
+                  <div className="room-confirm-actions room-confirm-actions-dual">
+                    <button
+                      type="button"
+                      className="room-confirm-button"
+                      onClick={closeContactShareDialog}
+                      disabled={contactShareBusy}
+                    >
+                      Отмена
+                    </button>
+                    <button
+                      type="button"
+                      className={`room-confirm-button room-confirm-button-primary${canShareActiveContact ? '' : ' disabled'}`}
+                      aria-disabled={!canShareActiveContact}
+                      onClick={() => {
+                        if (contactShareBusy || !canShareActiveContact) return
+                        void shareCurrentContactToSelectedChats()
+                      }}
+                      disabled={contactShareBusy}
+                    >
+                      {contactShareBusy ? 'Отправляем...' : 'Поделиться'}
+                    </button>
                   </div>
                 </div>
               </>
@@ -14435,16 +18440,20 @@ function App() {
                   aria-label="Закрыть подтверждение"
                   onClick={() => setConfirmingDeleteHistoryChatId(null)}
                 />
-                <div className="room-confirm">
+                <div className="room-confirm room-confirm-compact">
                   <p className="room-confirm-copy">
                     Вы точно хотите удалить всю переписку с этим контактом?
                   </p>
-                  <div className="room-confirm-actions">
+                  <div
+                    className={`room-confirm-actions${
+                      canDeleteConfirmedMessageForEveryone ? '' : ' room-confirm-actions-dual'
+                    }`}
+                  >
                     <button
                       type="button"
                       className="room-confirm-button room-confirm-danger"
                       onClick={() => {
-                        void deleteChatHistory(confirmingDeleteHistoryChatId)
+                        void deleteChatHistory(confirmingDeleteHistoryChatId, 'me')
                       }}
                     >
                       Удалить у меня
@@ -14453,7 +18462,7 @@ function App() {
                       type="button"
                       className="room-confirm-button room-confirm-danger"
                       onClick={() => {
-                        void deleteChatHistory(confirmingDeleteHistoryChatId)
+                        void deleteChatHistory(confirmingDeleteHistoryChatId, 'everyone')
                       }}
                     >
                       Удалить у всех
@@ -14478,27 +18487,33 @@ function App() {
                   aria-label="Закрыть подтверждение удаления сообщения"
                   onClick={() => setConfirmingDeleteMessageId(null)}
                 />
-                <div className="room-confirm">
+                <div className="room-confirm room-confirm-compact">
                   <p className="room-confirm-copy">Удалить это сообщение?</p>
-                  <div className="room-confirm-actions">
+                  <div
+                    className={`room-confirm-actions${
+                      canDeleteConfirmedMessageForEveryone ? '' : ' room-confirm-actions-dual'
+                    }`}
+                  >
                     <button
                       type="button"
                       className="room-confirm-button room-confirm-danger"
                       onClick={() => {
-                        void deleteMessage(activeChat.id, confirmingDeleteMessageId)
+                        void deleteMessage(activeChat.id, confirmingDeleteMessageId, 'me')
                       }}
                     >
                       Удалить у меня
                     </button>
-                    <button
-                      type="button"
-                      className="room-confirm-button room-confirm-danger"
-                      onClick={() => {
-                        void deleteMessage(activeChat.id, confirmingDeleteMessageId)
-                      }}
-                    >
-                      Удалить у всех
-                    </button>
+                    {canDeleteConfirmedMessageForEveryone ? (
+                      <button
+                        type="button"
+                        className="room-confirm-button room-confirm-danger"
+                        onClick={() => {
+                          void deleteMessage(activeChat.id, confirmingDeleteMessageId, 'everyone')
+                        }}
+                      >
+                        Удалить у всех
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="room-confirm-button"
@@ -14647,102 +18662,6 @@ function App() {
                 </button>
               </div>
             </div>
-          </>
-        ) : null}
-
-        {transferringChannel ? (
-          <>
-            <button
-              type="button"
-              className="room-confirm-scrim"
-              aria-label="Закрыть передачу канала"
-              onClick={closeChannelTransfer}
-            />
-            {channelTransferTarget ? (
-              <div className="room-confirm room-transfer-confirm">
-                <p className="room-confirm-copy">
-                  {`Подтвердите передачу канала ${transferringChannel.title} контакту ${channelTransferTarget.title}.`}
-                </p>
-                <div className="auth-code-note room-transfer-note">
-                  <span className="settings-label">SMS отправлена на номер</span>
-                  <strong>{channelTransferTarget.phone}</strong>
-                </div>
-                <label className="auth-field">
-                  <span>Код из SMS</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="Например, 4821"
-                    value={channelTransferCode}
-                    onChange={(event) =>
-                      setChannelTransferCode(event.target.value.replace(/[^\d]/g, ''))
-                    }
-                  />
-                </label>
-                {channelTransferError ? <p className="auth-error">{channelTransferError}</p> : null}
-                <div className="room-confirm-actions room-confirm-actions-dual">
-                  <button
-                    type="button"
-                    className="room-confirm-button room-confirm-danger"
-                    onClick={submitChannelTransfer}
-                  >
-                    Подтвердить передачу
-                  </button>
-                  <button
-                    type="button"
-                    className="room-confirm-button"
-                    onClick={() => {
-                      setChannelTransferTargetChatId(null)
-                      setChannelTransferCode('')
-                      setChannelTransferError('')
-                    }}
-                  >
-                    Назад к списку
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="room-confirm room-forward room-transfer-list">
-                <p className="room-confirm-copy">Кому передать этот канал?</p>
-                <label className="search room-transfer-search">
-                  <span className="search-label">Поиск контакта</span>
-                  <input
-                    type="search"
-                    placeholder="Имя, @handle или номер"
-                    value={channelTransferSearch}
-                    onChange={(event) => setChannelTransferSearch(event.target.value)}
-                  />
-                </label>
-                <div className="room-forward-list">
-                  {channelTransferResults.length > 0 ? (
-                    channelTransferResults.map((chat) => (
-                      <button
-                        key={chat.id}
-                        type="button"
-                        className="room-forward-item"
-                        onClick={() => selectChannelTransferTarget(chat.id)}
-                      >
-                        <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                          {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
-                        </span>
-                        <span>{chat.title}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <article className="settings-item room-transfer-empty">
-                      <p className="settings-text">Контакт не найден. Попробуйте другой ник или номер.</p>
-                    </article>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="room-confirm-button"
-                  onClick={closeChannelTransfer}
-                >
-                  Назад
-                </button>
-              </div>
-            )}
           </>
         ) : null}
 
@@ -15011,6 +18930,21 @@ function App() {
                 </div>
               </article>
 
+              <article className="settings-item channel-description-card">
+                <span className="settings-label">Идеалогия группы</span>
+                <textarea
+                  className="channel-description-input"
+                  maxLength={channelDescriptionMaxLength}
+                  rows={5}
+                  value={creatingGroupDescription}
+                  placeholder="Опишите, ради чего создана группа."
+                  onChange={(event) => {
+                    setCreatingGroupDescription(sanitizeChannelDescription(event.target.value))
+                    setCreatingGroupError('')
+                  }}
+                />
+              </article>
+
               <article className="settings-item">
                 <span className="settings-label">Добавить участников</span>
                 <div className="group-create-members-list">
@@ -15028,7 +18962,7 @@ function App() {
                         >
                           <span className="chat-avatar-stack">
                             <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                              {renderAccountAvatarContent(chat.title, chat.archivedAccount)}
+                              {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                             </span>
                             {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                           </span>
@@ -15107,6 +19041,35 @@ function App() {
                   <span>Включить комментарии только для премиум юзеров</span>
                 </label>
               </article>
+              <article className="settings-item group-create-limit-card">
+                <span className="settings-label">Ограничения</span>
+                <p className="settings-text group-create-limit-copy">
+                  {sessionHasPremium
+                    ? `С премиумом можно создать до ${premiumGroupsPerUserLimit} активных групп.`
+                    : `На бесплатном аккаунте можно создать до ${defaultGroupsPerUserLimit} активных групп.`}
+                </p>
+                <p className="settings-text group-create-limit-copy">
+                  {`Сейчас у вас ${activeOwnedGroupCount} из ${creatingGroupsPerUserLimit}.`}
+                </p>
+                {!sessionHasPremium ? (
+                  <button
+                    type="button"
+                    className="soft-button group-create-limit-upsell"
+                    onClick={() => {
+                      closeGroupCreateDialog()
+                      openPremiumUpsell()
+                    }}
+                  >
+                    <span className="premium-crown settings-invisibility-crown" aria-hidden="true">
+                      <img src="/icons/crown64.png" alt="" />
+                    </span>
+                    <span>Открыть премиум</span>
+                  </button>
+                ) : null}
+                {creatingGroupLimitReached ? (
+                  <p className="auth-error">{getGroupCreationLimitError(creatingGroupsPerUserLimit)}</p>
+                ) : null}
+              </article>
             </div>
             {creatingGroupSelectionHint ? (
               <p className="auth-error">{creatingGroupSelectionHint}</p>
@@ -15123,10 +19086,10 @@ function App() {
               </button>
               <button
                 type="button"
-                className={`room-confirm-button room-confirm-button-primary${canCreateGroup ? '' : ' disabled'}`}
-                aria-disabled={!canCreateGroup}
+                className={`room-confirm-button room-confirm-button-primary${canCreateGroup && !creatingGroupLimitReached ? '' : ' disabled'}`}
+                aria-disabled={!canCreateGroup || creatingGroupLimitReached}
                 onClick={() => {
-                  if (creatingGroupBusy) return
+                  if (creatingGroupBusy || !canCreateGroup || creatingGroupLimitReached) return
                   void createGroup()
                 }}
               >
@@ -15216,6 +19179,89 @@ function App() {
           </div>
         </>
       ) : null}
+      {groupDescriptionOpen && activeGroup ? (
+        <>
+          <button
+            type="button"
+            className="room-confirm-scrim"
+            aria-label="Закрыть идеалогию группы"
+            onClick={() => setGroupDescriptionOpen(false)}
+          />
+          <div className="room-confirm channel-description-dialog">
+            <div className="channel-description-dialog-header">
+              <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: activeGroup.accent }}>
+                {activeGroup.avatarImage ? (
+                  <img src={activeGroup.avatarImage} alt="" className="channel-avatar-image" />
+                ) : (
+                  formatChannelAvatarLabel(activeGroup.title)
+                )}
+              </span>
+              <div className="channel-description-dialog-copy">
+                <h3>{activeGroup.title}</h3>
+              </div>
+            </div>
+            <div className="channel-description-dialog-body">
+              <p className="channel-description-dialog-label">Идеалогия группы</p>
+              {activeGroupDescriptionText ? (
+                <p className="channel-description-dialog-text">{activeGroupDescriptionText}</p>
+              ) : (
+                <p className="channel-description-dialog-text channel-description-dialog-empty">
+                  Идеалогия группы пока не заполнена.
+                </p>
+              )}
+            </div>
+            <div className="room-forward-list">
+              <div className="room-forward-item channel-description-contact-card">
+                <span className="chat-avatar-stack">
+                  <span
+                    className="avatar"
+                    style={{ backgroundColor: activeGroupCreatorChat?.accent ?? activeGroup.accent ?? '#8c5738' }}
+                  >
+                    {session?.avatarImage && activeGroupOwnerIdentifier === session?.identifier ? (
+                      <img src={session.avatarImage} alt="" className="channel-avatar-image" />
+                    ) : (
+                      renderAccountAvatarContent(
+                        activeGroupCreatorChat?.title ??
+                          (activeGroupOwnerIdentifier === session?.identifier
+                            ? formatSessionName(session)
+                            : 'Создатель группы'),
+                        activeGroupCreatorChat?.archivedAccount,
+                        activeGroupCreatorChat?.avatarImage,
+                      )
+                    )}
+                  </span>
+                </span>
+                <span className="group-create-member-copy">
+                  <strong className="group-create-member-name-row">
+                    <span>
+                      {activeGroupCreatorChat?.title ??
+                        (activeGroupOwnerIdentifier === session?.identifier
+                          ? formatSessionName(session)
+                          : 'Создатель группы')}
+                    </span>
+                  </strong>
+                  <span>
+                    {activeGroupCreatorChat
+                      ? activeGroupCreatorChat.handle || activeGroupCreatorChat.phone
+                      : activeGroupOwnerIdentifier === session?.identifier
+                        ? (session?.nickname ? `@${session.nickname}` : session?.identifier)
+                        : 'Контакт создателя'}
+                  </span>
+                </span>
+              </div>
+            </div>
+            <div className="room-confirm-actions room-confirm-actions-single">
+              <button
+                type="button"
+                className="room-confirm-button"
+                onClick={() => setGroupDescriptionOpen(false)}
+              >
+                Назад
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
       {groupSettingsOpen && activeGroup ? (
         <>
           <button
@@ -15240,6 +19286,35 @@ function App() {
                     })
                   }
                 />
+              </article>
+              <article className="settings-item channel-description-card">
+                <span className="settings-label">Идеалогия группы</span>
+                <textarea
+                  className="channel-description-input"
+                  maxLength={channelDescriptionMaxLength}
+                  rows={5}
+                  value={groupSettingsDraft?.description ?? ''}
+                  onChange={(event) =>
+                    updateGroupSettingsDraft({
+                      description: sanitizeChannelDescription(event.target.value),
+                    })
+                  }
+                />
+              </article>
+              <article className="settings-item">
+                <span className="settings-label">История группы</span>
+                <label className="settings-checkbox settings-checkbox-expanded">
+                  <input
+                    type="checkbox"
+                    checked={groupSettingsDraft?.showHistoryToNewMembers !== false}
+                    onChange={(event) =>
+                      updateGroupSettingsDraft({
+                        showHistoryToNewMembers: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>Отображать историю группы новым пользователям</span>
+                </label>
               </article>
               <article className="settings-item">
                 <span className="settings-label">Комментарии</span>
@@ -15379,7 +19454,7 @@ function App() {
             }}
           />
           <div className="room-confirm room-transfer-list room-participants">
-            <p className="room-confirm-copy">Управление группой</p>
+            <p className="room-confirm-copy room-confirm-copy-centered">Управление группой</p>
             {groupTransferOwnerOpen ? (
               <>
                 <div className="room-forward-list room-participants-list">
@@ -15431,17 +19506,17 @@ function App() {
               </>
             ) : (
               <>
-                <div className="room-forward-list">
+                <div className="room-forward-list room-management-actions">
                   <button
                     type="button"
-                    className="room-forward-item"
+                    className="room-forward-item room-management-item"
                     onClick={() => setGroupTransferOwnerOpen(true)}
                   >
                     Передать владельца
                   </button>
                   <button
                     type="button"
-                    className="room-forward-item room-confirm-danger"
+                    className="room-forward-item room-management-item room-confirm-danger"
                     onClick={() => {
                       setGroupManagementOpen(false)
                       closeGroupSettingsDialog()
@@ -15468,6 +19543,7 @@ function App() {
           </div>
         </>
       ) : null}
+      {externalLinkWarningDialog}
       {confirmingBlacklistTarget ? (
         <>
           <button

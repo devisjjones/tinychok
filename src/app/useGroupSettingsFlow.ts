@@ -5,7 +5,11 @@ import { sanitizeChannelTitle } from './utils'
 
 export type GroupSettingsDraft = Pick<
   GroupPreview,
-  'title' | 'commentsEnabledForAll' | 'commentsEnabledForPremium'
+  | 'title'
+  | 'description'
+  | 'showHistoryToNewMembers'
+  | 'commentsEnabledForAll'
+  | 'commentsEnabledForPremium'
 >
 
 export type GroupSettingsLeaveAction = 'close' | 'management'
@@ -14,6 +18,8 @@ function buildGroupSettingsDraft(group: GroupPreview): GroupSettingsDraft {
   return {
     commentsEnabledForAll: Boolean(group.commentsEnabledForAll),
     commentsEnabledForPremium: Boolean(group.commentsEnabledForPremium),
+    description: group.description ?? '',
+    showHistoryToNewMembers: group.showHistoryToNewMembers !== false,
     title: group.title,
   }
 }
@@ -68,6 +74,9 @@ export function useGroupSettingsFlow({
       groupSettingsDraft !== null &&
       (
         sanitizeChannelTitle(groupSettingsDraft.title) !== activeGroup.title ||
+        (groupSettingsDraft.description ?? '') !== (activeGroup.description ?? '') ||
+        Boolean(groupSettingsDraft.showHistoryToNewMembers !== false) !==
+          Boolean(activeGroup.showHistoryToNewMembers !== false) ||
         Boolean(groupSettingsDraft.commentsEnabledForAll) !== Boolean(activeGroup.commentsEnabledForAll) ||
         Boolean(groupSettingsDraft.commentsEnabledForPremium) !== Boolean(activeGroup.commentsEnabledForPremium)
       ),
@@ -170,6 +179,8 @@ export function useGroupSettingsFlow({
         {
           commentsEnabledForAll: groupSettingsDraft.commentsEnabledForAll,
           commentsEnabledForPremium: groupSettingsDraft.commentsEnabledForPremium,
+          description: groupSettingsDraft.description ?? '',
+          showHistoryToNewMembers: groupSettingsDraft.showHistoryToNewMembers !== false,
           title: nextTitle,
         },
         { strict: true },

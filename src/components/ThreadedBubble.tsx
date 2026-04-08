@@ -3,8 +3,10 @@ import { useLayoutEffect, useRef, useState } from 'react'
 
 type ThreadedBubbleProps = {
   bubble: ReactNode
+  emptyLabel?: string
   isMine?: boolean
   onOpenThread?: () => void
+  showOpenWhenEmpty?: boolean
   threadCount?: number
   variant?: 'message' | 'channel'
 }
@@ -26,8 +28,10 @@ function formatThreadCount(threadCount: number) {
 
 export function ThreadedBubble({
   bubble,
+  emptyLabel = 'Открыть комментарии',
   isMine = false,
   onOpenThread,
+  showOpenWhenEmpty = false,
   threadCount = 0,
   variant = 'message',
 }: ThreadedBubbleProps) {
@@ -39,7 +43,9 @@ export function ThreadedBubble({
     if (!node) return
 
     const updateThreadPillWidth = () => {
-      const nextWidth = Math.ceil(node.getBoundingClientRect().width)
+      const measuredNode =
+        (node.querySelector('[data-bubble-measure="true"]') as HTMLElement | null) ?? node
+      const nextWidth = Math.ceil(measuredNode.getBoundingClientRect().width)
       setThreadPillMaxWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
     }
 
@@ -59,7 +65,7 @@ export function ThreadedBubble({
   const rootClassName = [
     'threaded-bubble',
     isMine ? 'mine' : null,
-    threadCount > 0 ? 'has-thread' : null,
+    threadCount > 0 || showOpenWhenEmpty ? 'has-thread' : null,
     variant === 'channel' ? 'channel' : null,
   ]
     .filter(Boolean)
@@ -75,14 +81,14 @@ export function ThreadedBubble({
       <div ref={bubbleRef} className="threaded-bubble-main">
         {bubble}
       </div>
-      {threadCount > 0 && onOpenThread ? (
+      {(threadCount > 0 || showOpenWhenEmpty) && onOpenThread ? (
         <button
           type="button"
           className={`thread-pill${isMine ? ' mine' : ''}`}
           onClick={onOpenThread}
         >
           <img src="/icons/root-50.png" alt="" aria-hidden="true" className="thread-pill-icon" />
-          <span>{formatThreadCount(threadCount)}</span>
+          <span>{threadCount > 0 ? formatThreadCount(threadCount) : emptyLabel}</span>
         </button>
       ) : null}
     </div>

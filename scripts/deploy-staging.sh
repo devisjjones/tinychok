@@ -24,6 +24,44 @@ Examples:
 EOF
 }
 
+ensure_clean_worktree() {
+  local dirty_status
+  dirty_status="$(git status --porcelain)"
+
+  if [[ -n "$dirty_status" ]]; then
+    echo "Staging deploy requires a clean commit-backed worktree." >&2
+    echo "Dirty paths:" >&2
+    echo "$dirty_status" >&2
+    exit 1
+  fi
+}
+
+verify_staging_runtime_release() {
+  node scripts/verify-release-runtime.mjs \
+    --client-config-url https://api.staging.tinychok.ru/api/client-config \
+    --health-url https://api.staging.tinychok.ru/healthz \
+    --ready-url https://api.staging.tinychok.ru/readyz \
+    --require-analytics \
+    --expected-metrica-counter-id 108249405
+}
+
+wait_for_staging_runtime_release() {
+  local attempt=1
+  local max_attempts=12
+  local retry_delay_seconds=2
+
+  until verify_staging_runtime_release; do
+    if (( attempt >= max_attempts )); then
+      echo "Staging runtime contracts did not recover after ${max_attempts} attempts." >&2
+      return 1
+    fi
+
+    echo "Runtime not ready yet; retrying release verification in ${retry_delay_seconds}s (attempt ${attempt}/${max_attempts})."
+    sleep "$retry_delay_seconds"
+    attempt=$((attempt + 1))
+  done
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-pull)
@@ -88,20 +126,37 @@ else
   echo "==> Skipping git fetch/pull"
 fi
 
+ensure_clean_worktree
+
 CURRENT_HEAD="$(git rev-parse --short HEAD)"
 echo "==> Deploying commit $CURRENT_HEAD"
 
 echo "==> Installing dependencies"
 npm ci
 
-echo "==> Building project"
-npm run build
+echo "==> Verifying release audit gate"
+npm run audit:release
+
+echo "==> Building project for staging"
+# Staging must never be deployed from plain `npm run build` output.
+# If the frontend falls back to same-origin `/api`, Chrome re-opens nginx basic auth
+# in a loop because the web host challenges those requests. `build:staging` now
+# verifies that dist embeds `api.staging.tinychok.ru` and `wss://api.staging.tinychok.ru`.
+npm run build:staging
 
 echo "==> Restarting service $SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"
 
+echo "==> Verifying staging runtime release contracts"
+# Release must fail if live runtime contracts drift even when the app still boots.
+# Staging analytics must stay explicitly enabled with the expected counter id 108249405,
+# otherwise Yandex Metrica silently stops receiving new events. After restart,
+# nginx can briefly return 502 before the backend has rebound the socket, so the
+# release gate must wait for live healthz/readyz to recover before failing.
+wait_for_staging_runtime_release
+
 echo "==> Syncing dist/ to $FRONTEND_DIR"
-sudo rsync -av --delete dist/ "$FRONTEND_DIR/"
+sudo rsync -av --delete --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r dist/ "$FRONTEND_DIR/"
 
 echo "==> Done"
 echo "Commit: $CURRENT_HEAD"

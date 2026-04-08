@@ -1,6 +1,6 @@
 import { accountsStorageKey, cookieConsentStorageKey, sessionStorageKey } from './constants'
 import type { Account, CookieConsentChoice, Session } from './types'
-import { normalizePremiumExpiry } from './utils'
+import { normalizePremiumExpiry, normalizeQuietModeSettings } from './utils'
 
 export function loadAccounts() {
   if (typeof window === 'undefined') return [] as Account[]
@@ -11,6 +11,10 @@ export function loadAccounts() {
   try {
     return (JSON.parse(raw) as Account[]).map((account) => ({
       ...account,
+      quietModeEnabled: Boolean(account.quietModeEnabled),
+      quietModeSettings: normalizeQuietModeSettings(account.quietModeSettings),
+      invisibilityAutoEnabled: Boolean(account.invisibilityAutoEnabled),
+      invisibilityEnabled: Boolean(account.invisibilityEnabled ?? account.quietModeEnabled),
       soundsDisabled: Boolean(account.soundsDisabled),
       premium: account.premium ?? true,
       premiumExpiresAt: normalizePremiumExpiry(account.premium ?? true, account.premiumExpiresAt),
@@ -31,6 +35,10 @@ export function loadSession() {
     const parsed = JSON.parse(raw) as Session
     return {
       ...parsed,
+      quietModeEnabled: Boolean(parsed.quietModeEnabled),
+      quietModeSettings: normalizeQuietModeSettings(parsed.quietModeSettings),
+      invisibilityAutoEnabled: Boolean(parsed.invisibilityAutoEnabled),
+      invisibilityEnabled: Boolean(parsed.invisibilityEnabled ?? parsed.quietModeEnabled),
       soundsDisabled: Boolean(parsed.soundsDisabled),
       premium: parsed.premium ?? true,
       premiumExpiresAt: normalizePremiumExpiry(parsed.premium ?? true, parsed.premiumExpiresAt),

@@ -3,6 +3,7 @@ import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import websocket from '@fastify/websocket'
+import { randomUUID } from 'node:crypto'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type WebSocket from 'ws'
 import type {
@@ -11,16 +12,23 @@ import type {
   CreateGroupBody,
   CreateManagedChannelBody,
   ChangePasswordBody,
+  ChannelDiscoverySearchResponse,
   DeleteAccountBody,
+  DeleteDialogMessageBody,
+  DeleteStorageItemBody,
   DebugPremiumBody,
+  DeleteDialogHistoryBody,
   DiscoverySearchResponse,
   DirectDialogHistoryResponse,
   GroupHistoryResponse,
+  JoinGroupFromInviteResponse,
   InviteGroupMemberBody,
   InviteManagedChannelMembersBody,
   LoginPasswordBody,
+  ManageGroupParticipantBody,
   ManageSubscriptionChannelSubscriberBody,
   OpenDirectDialogBody,
+  ContactRequestActionResponse,
   OpenDirectDialogResponse,
   ResetPasswordBody,
   RegisterUserGifBody,
@@ -28,31 +36,41 @@ import type {
   ReportMediaBody,
   ReportSubscriptionChannelBody,
   RegisterBody,
-  RequestCodeBody,
   SaveSnapshotBody,
+  SendContactRequestBody,
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
   SendDirectMessageBody,
   SendGroupMessageBody,
   SendManagedChannelPostBody,
   SendGroupThreadCommentBody,
+  SendSupportTicketBody,
+  SendSupportTicketCommentBody,
   SendSubscriptionChannelThreadCommentBody,
+  SubscribeToChannelResponse,
   SetPasswordBody,
   SubscriptionChannelHistoryResponse,
+  SubscriptionChannelPreviewResponse,
+  TransferManagedChannelBody,
   UpdateDialogBody,
   UpdateGroupBody,
   UpdateManagedChannelBody,
   UpdateSubscriptionChannelBody,
   UpdateSessionBody,
   UploadMediaKind,
-  VerifyCodeBody,
 } from '../../src/shared/backend'
 import type { RealtimeEvent } from '../../src/shared/backend'
 import type { AnalyticsBatchBody } from '../../src/shared/analytics'
+import {
+  messageFileUploadMaxSizeBytes,
+  premiumMessageFileUploadMaxSizeBytes,
+} from '../../src/shared/constants'
 import { ingestAnalyticsBatch, parseAnalyticsBatch } from './analytics'
 import { registerAdminRoutes } from './admin-routes'
+import { parseRequestCodeBody, parseVerifyCodeBody } from './auth-route-validation'
 import { verifyCaptchaOrThrow } from './captcha'
 import { runtimeConfig } from './config'
+import { getErrorStatusCode } from './http-error'
 import {
   deleteStoredMediaByUrl,
   getMediaBackend,
@@ -71,7 +89,7 @@ function getBearerToken(request: FastifyRequest) {
 
 function sendError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : 'Внутренняя ошибка сервера.'
-  return reply.code(400).send({ message })
+  return reply.code(getErrorStatusCode(error)).send({ message })
 }
 
 function parseJsonPayload<T>(value: unknown) {
@@ -89,6 +107,17 @@ function getNumericRouteParam(request: FastifyRequest, key: string) {
   return numericValue
 }
 
+function getNonNegativeNumericRouteParam(request: FastifyRequest, key: string) {
+  const rawValue = (request.params as Record<string, string | undefined> | undefined)?.[key]
+  const numericValue = Number(rawValue)
+
+  if (!rawValue || !Number.isInteger(numericValue) || numericValue < 0) {
+    throw new Error('Некорректный идентификатор ресурса.')
+  }
+
+  return numericValue
+}
+
 function getPositiveNumericQueryParam(request: FastifyRequest, key: string) {
   const rawValue = (request.query as Record<string, string | undefined> | undefined)?.[key]
   const numericValue = Number(rawValue)
@@ -98,6 +127,12 @@ function getPositiveNumericQueryParam(request: FastifyRequest, key: string) {
   }
 
   return numericValue
+}
+
+function getRouteParam(request: FastifyRequest, key: string) {
+  return decodeURIComponent(
+    ((request.params as Record<string, string | undefined> | undefined)?.[key] ?? '').trim(),
+  )
 }
 
 function getUploadKind(request: FastifyRequest): UploadMediaKind {
@@ -122,6 +157,31 @@ function getSearchQuery(request: FastifyRequest) {
 
 function normalizeUploadMimeType(mimeType: string | undefined) {
   return mimeType?.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+}
+
+const ATTACHMENT_EXTENSION_MIME_TYPE_MAP: Record<string, string> = {
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.m4v': 'video/x-m4v',
+  '.mov': 'video/quicktime',
+  '.mp4': 'video/mp4',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+  '.webm': 'video/webm',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.zip': 'application/zip',
+}
+
+function resolveAttachmentUploadMimeType(fileName: string, mimeType: string | undefined) {
+  const normalizedMimeType = normalizeUploadMimeType(mimeType)
+
+  if (normalizedMimeType && normalizedMimeType !== 'application/octet-stream') {
+    return normalizedMimeType
+  }
+
+  const extensionMatch = /\.[^.]+$/u.exec(fileName.trim().toLowerCase())
+  return ATTACHMENT_EXTENSION_MIME_TYPE_MAP[extensionMatch?.[0] ?? ''] ?? normalizedMimeType
 }
 
 function getRequestedMediaKey(request: FastifyRequest) {
@@ -157,28 +217,121 @@ function isLocalOrigin(origin: string) {
 }
 
 const { metadata: storeMetadata, store } = await createStore()
-const socketsByToken = new Map<string, WebSocket>()
+type LiveSocket = {
+  id: string
+  isAlive: boolean
+  socket: WebSocket
+}
 
-async function broadcastSnapshotsForIdentifier(identifier: string) {
-  const tokens = store.listTokensByIdentifier(identifier)
+const socketsByToken = new Map<string, Map<string, LiveSocket>>()
 
-  for (const token of tokens) {
-    const socket = socketsByToken.get(token)
-    const snapshot = store.getSnapshotByToken(token)
+function isAllowedRealtimeOrigin(origin: string | undefined) {
+  if (!origin) {
+    return false
+  }
 
-    if (!socket || socket.readyState !== socket.OPEN || !snapshot) continue
+  return isLocalOrigin(origin) || runtimeConfig.allowedOrigins.includes(origin)
+}
 
-    const payload: RealtimeEvent = {
-      snapshot,
-      type: 'snapshot.updated',
+function addLiveSocket(token: string, liveSocket: LiveSocket) {
+  const currentSockets = socketsByToken.get(token) ?? new Map<string, LiveSocket>()
+  currentSockets.set(liveSocket.id, liveSocket)
+  socketsByToken.set(token, currentSockets)
+}
+
+function dropLiveSocketByToken(
+  token: string,
+  socketId?: string,
+  options?: {
+    close?: boolean
+    code?: number
+    reason?: string
+  },
+) {
+  const liveSockets = socketsByToken.get(token)
+  if (!liveSockets || liveSockets.size === 0) {
+    return
+  }
+
+  const socketsToDrop = socketId
+    ? [liveSockets.get(socketId)].filter((value): value is LiveSocket => Boolean(value))
+    : [...liveSockets.values()]
+
+  for (const liveSocket of socketsToDrop) {
+    liveSockets.delete(liveSocket.id)
+    if (options?.close) {
+      liveSocket.socket.close(options.code, options.reason)
     }
-    socket.send(JSON.stringify(payload))
+  }
+
+  if (liveSockets.size === 0) {
+    socketsByToken.delete(token)
   }
 }
 
-async function broadcastSnapshotsForIdentifiers(identifiers: string[]) {
+function closeLiveSocketsForToken(token: string, options?: { code?: number; reason?: string }) {
+  dropLiveSocketByToken(token, undefined, {
+    close: true,
+    code: options?.code,
+    reason: options?.reason,
+  })
+}
+
+function hasLiveSocketsForToken(token: string) {
+  const liveSockets = socketsByToken.get(token)
+  return Boolean(liveSockets && liveSockets.size > 0)
+}
+
+function broadcastPresenceChangesForToken(token: string, mode: 'online' | 'offline') {
+  const identifiers =
+    mode === 'online'
+      ? store.markSessionLive(token)
+      : store.markSessionOffline(token)
+
+  if (identifiers.length > 0) {
+    broadcastSnapshotsForIdentifiers(identifiers)
+  }
+}
+
+function broadcastSnapshotsForIdentifier(identifier: string) {
+  const tokens = store.listTokensByIdentifier(identifier)
+  if (tokens.length === 0) {
+    return
+  }
+
+  // Realtime fan-out must not rebuild a full snapshot per token for the same user.
+  // We build the shared snapshot body once per identifier and only patch sessionToken per connection.
+  const baseSnapshot = store.getRealtimeSnapshotByIdentifier(identifier)
+  if (!baseSnapshot) {
+    return
+  }
+
+  for (const token of tokens) {
+    const liveSockets = socketsByToken.get(token)
+    if (!liveSockets || liveSockets.size === 0) continue
+
+    const payload: RealtimeEvent = {
+      snapshot: {
+        ...baseSnapshot,
+        session: {
+          ...baseSnapshot.session,
+          sessionToken: token,
+        },
+      },
+      type: 'snapshot.updated',
+    }
+
+    for (const liveSocket of liveSockets.values()) {
+      const socket = liveSocket.socket
+      if (socket.readyState !== socket.OPEN) continue
+      socket.send(JSON.stringify(payload))
+    }
+  }
+}
+
+function broadcastSnapshotsForIdentifiers(identifiers: string[]) {
   for (const identifier of [...new Set(identifiers)]) {
-    await broadcastSnapshotsForIdentifier(identifier)
+    broadcastSnapshotsForIdentifier(identifier)
   }
 }
 
@@ -204,6 +357,44 @@ setInterval(() => {
     app.log.error(error)
   })
 }, runtimeConfig.storage.retention.cleanupIntervalHours * 60 * 60 * 1000)
+
+setInterval(() => {
+  for (const [token, liveSockets] of socketsByToken) {
+    if (!store.getIdentifierByToken(token)) {
+      const staleSockets = [...liveSockets.values()]
+      closeLiveSocketsForToken(token)
+      broadcastPresenceChangesForToken(token, 'offline')
+      for (const liveSocket of staleSockets) {
+        liveSocket.socket.terminate()
+      }
+      continue
+    }
+
+    for (const liveSocket of liveSockets.values()) {
+      const socket = liveSocket.socket
+
+      if (socket.readyState !== socket.OPEN) {
+        dropLiveSocketByToken(token, liveSocket.id)
+        if (!hasLiveSocketsForToken(token)) {
+          broadcastPresenceChangesForToken(token, 'offline')
+        }
+        continue
+      }
+
+      if (!liveSocket.isAlive) {
+        dropLiveSocketByToken(token, liveSocket.id)
+        if (!hasLiveSocketsForToken(token)) {
+          broadcastPresenceChangesForToken(token, 'offline')
+        }
+        socket.terminate()
+        continue
+      }
+
+      liveSocket.isAlive = false
+      socket.ping()
+    }
+  }
+}, 30 * 1000)
 
 await app.register(cors, {
   credentials: true,
@@ -294,6 +485,7 @@ app.get('/readyz', async () => ({
   storage: {
     mediaBackend: getMediaBackend(),
     mode: storeMetadata.mode,
+    layout: storeMetadata.storageLayout ?? 'state-store',
     stateTableName: storeMetadata.stateTableName ?? null,
   },
   storageBootstrapSource: storeMetadata.bootstrapSource ?? null,
@@ -323,9 +515,8 @@ app.get('/api/client-config', async () => ({
 
 app.post('/api/auth/request-code', async (request, reply) => {
   try {
-    const body = parseJsonPayload<RequestCodeBody>(request.body)
-    const entryPoint = body.entryPoint ?? 'user'
-    const flow = body.flow ?? 'default'
+    const body = parseRequestCodeBody(request.body)
+    const { entryPoint, flow } = body
     const captchaRequired = entryPoint === 'admin' || flow === 'default' || flow === 'password-reset'
 
     if (captchaRequired) {
@@ -339,6 +530,7 @@ app.post('/api/auth/request-code', async (request, reply) => {
     return await store.requestCode(body.identifier ?? '', {
       entryPoint,
       flow,
+      ip: request.ip,
     })
   } catch (error) {
     return sendError(reply, error)
@@ -347,13 +539,13 @@ app.post('/api/auth/request-code', async (request, reply) => {
 
 app.post('/api/auth/verify-code', async (request, reply) => {
   try {
-    const body = parseJsonPayload<VerifyCodeBody>(request.body)
+    const body = parseVerifyCodeBody(request.body)
     return await store.verifyCode(body.identifier ?? '', body.code ?? '', {
       accessContext: {
         ip: request.ip,
         userAgent: request.headers['user-agent'],
       },
-      entryPoint: body.entryPoint ?? 'user',
+      entryPoint: body.entryPoint,
     })
   } catch (error) {
     return sendError(reply, error)
@@ -401,11 +593,15 @@ app.post('/api/auth/register', async (request, reply) => {
 app.post('/api/auth/set-password', async (request, reply) => {
   try {
     const body = parseJsonPayload<SetPasswordBody>(request.body)
-    const snapshot = await store.setPasswordAfterCode(body, {
+    const result = await store.setPasswordAfterCode(body, {
       ip: request.ip,
       userAgent: request.headers['user-agent'],
     })
-    return { snapshot }
+    for (const revokedToken of result.revokedTokens) {
+      closeLiveSocketsForToken(revokedToken, { code: 4003, reason: 'Session revoked' })
+    }
+    broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
   } catch (error) {
     return sendError(reply, error)
   }
@@ -414,11 +610,15 @@ app.post('/api/auth/set-password', async (request, reply) => {
 app.post('/api/auth/reset-password', async (request, reply) => {
   try {
     const body = parseJsonPayload<ResetPasswordBody>(request.body)
-    const snapshot = await store.resetPasswordAfterCode(body, {
+    const result = await store.resetPasswordAfterCode(body, {
       ip: request.ip,
       userAgent: request.headers['user-agent'],
     })
-    return { snapshot }
+    for (const revokedToken of result.revokedTokens) {
+      closeLiveSocketsForToken(revokedToken, { code: 4003, reason: 'Session revoked' })
+    }
+    broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
   } catch (error) {
     return sendError(reply, error)
   }
@@ -432,11 +632,15 @@ app.post('/api/session/change-password', async (request, reply) => {
 
   try {
     const body = parseJsonPayload<ChangePasswordBody>(request.body)
-    const snapshot = await store.changePassword(token, body, {
+    const result = await store.changePassword(token, body, {
       ip: request.ip,
       userAgent: request.headers['user-agent'],
     })
-    return { snapshot }
+    for (const revokedToken of result.revokedTokens) {
+      closeLiveSocketsForToken(revokedToken, { code: 4003, reason: 'Session revoked' })
+    }
+    broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
   } catch (error) {
     return sendError(reply, error)
   }
@@ -492,6 +696,22 @@ app.get('/api/bootstrap', async (request, reply) => {
   return snapshot
 })
 
+app.post('/api/logout', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const result = await store.logoutCurrentSession(token)
+    closeLiveSocketsForToken(token, { code: 4003, reason: 'Logged out' })
+    broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { ok: true as const }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.get('/api/discovery', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -501,6 +721,20 @@ app.get('/api/discovery', async (request, reply) => {
   try {
     const results = store.searchAccounts(token, getSearchQuery(request))
     return { results } satisfies DiscoverySearchResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.get('/api/channel-discovery', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const results = store.searchSubscriptionChannels(token, getSearchQuery(request))
+    return { results } satisfies ChannelDiscoverySearchResponse
   } catch (error) {
     return sendError(reply, error)
   }
@@ -555,6 +789,42 @@ app.get('/api/subscription-channels/:channelId/history', async (request, reply) 
   }
 })
 
+app.get('/api/channel-previews/:handle', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const handle = getRouteParam(request, 'handle')
+    return store.getSubscriptionChannelPreviewByHandle(
+      token,
+      handle,
+    ) satisfies SubscriptionChannelPreviewResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/channel-previews/:handle/subscribe', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const handle = getRouteParam(request, 'handle')
+    const result = await store.subscribeToChannelByHandle(token, handle)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return {
+      channelId: result.channelId,
+      snapshot: result.snapshot,
+    } satisfies SubscribeToChannelResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.put('/api/snapshot', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -589,6 +859,96 @@ app.post('/api/dialogs', async (request, reply) => {
       dialogId: result.dialogId,
       snapshot: result.snapshot,
     } satisfies OpenDirectDialogResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/contacts/requests', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const body = parseJsonPayload<SendContactRequestBody>(request.body)
+    const result = await store.sendContactRequest(token, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return {
+      snapshot: result.snapshot,
+    } satisfies ContactRequestActionResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/contacts/requests/:identifier/accept', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const identifier = getRouteParam(request, 'identifier')
+    const result = await store.acceptContactRequest(token, identifier)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return {
+      snapshot: result.snapshot,
+    } satisfies ContactRequestActionResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/contacts/requests/:identifier/cancel', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const identifier = getRouteParam(request, 'identifier')
+    const result = await store.cancelContactRequest(token, identifier)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return {
+      snapshot: result.snapshot,
+    } satisfies ContactRequestActionResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/contacts/requests/:identifier/reject', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const identifier = getRouteParam(request, 'identifier')
+    const result = await store.rejectContactRequest(token, identifier)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return {
+      snapshot: result.snapshot,
+    } satisfies ContactRequestActionResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/contacts/requests/:identifier/block', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const identifier = getRouteParam(request, 'identifier')
+    const result = await store.blockContactRequest(token, identifier)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return {
+      snapshot: result.snapshot,
+    } satisfies ContactRequestActionResponse
   } catch (error) {
     return sendError(reply, error)
   }
@@ -694,7 +1054,7 @@ app.post('/api/media', async (request, reply) => {
     }
 
     uploadDiagnostic.fileName = file.filename
-    uploadDiagnostic.mimeType = normalizeUploadMimeType(file.mimetype)
+    uploadDiagnostic.mimeType = resolveAttachmentUploadMimeType(file.filename, file.mimetype)
 
     const fileBuffer = await (async () => {
       try {
@@ -720,10 +1080,25 @@ app.post('/api/media', async (request, reply) => {
       }
     })()
 
-    store.assertMediaUploadWithinQuota(token, fileBuffer.byteLength)
+    await store.assertMediaUploadWithinQuota(token, fileBuffer.byteLength, kind)
     const ownerIdentifier = store.getIdentifierByToken(token)
     if (!ownerIdentifier) {
       return reply.code(401).send({ message: 'Сессия устарела. Войдите снова.' })
+    }
+
+    const sessionSnapshot = store.getSnapshotByToken(token)
+    const sessionHasPremium = Boolean(sessionSnapshot?.session.premium)
+    if (kind === 'attachment' && !uploadDiagnostic.mimeType.startsWith('image/')) {
+      const allowedMaxFileBytes = sessionHasPremium
+        ? premiumMessageFileUploadMaxSizeBytes
+        : messageFileUploadMaxSizeBytes
+      if (fileBuffer.byteLength > allowedMaxFileBytes) {
+        throw new Error(
+          sessionHasPremium
+            ? 'Файл слишком большой. Максимальный размер 200 МБ.'
+            : 'Файл слишком большой. Максимальный размер 10 МБ. С премиумом доступно до 200 МБ.',
+        )
+      }
     }
 
     const storedFile = await (async () => {
@@ -849,6 +1224,124 @@ app.delete('/api/session/gifs/:gifId', async (request, reply) => {
   }
 })
 
+app.get('/api/session/storage-items', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    return store.listUserStorageItems(token)
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+async function handleDeleteSessionStorageItem(request: FastifyRequest, reply: FastifyReply) {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const storageItemIdFromParams =
+      ((request.params as Record<string, string | undefined> | undefined)?.storageItemId ?? '').trim()
+    const storageItemIdFromBody =
+      ((request.body as Record<string, unknown> | undefined | null)?.storageItemId)?.toString().trim() ?? ''
+    const storageItemId = storageItemIdFromParams || storageItemIdFromBody
+    if (!storageItemId) {
+      throw new Error('Некорректный объект хранилища.')
+    }
+
+    const result = await store.removeUserStorageItem(token, storageItemId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+}
+
+app.delete('/api/session/storage-items', handleDeleteSessionStorageItem)
+app.delete('/api/session/storage-items/:storageItemId', handleDeleteSessionStorageItem)
+
+app.get('/api/channels/:channelId/storage-items', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    return store.listChannelStorageItems(token, getNumericRouteParam(request, 'channelId'))
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+async function handleDeleteChannelStorageItem(request: FastifyRequest, reply: FastifyReply) {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const body = parseJsonPayload<DeleteStorageItemBody>(request.body)
+    if (!body.storageItemId?.trim()) {
+      throw new Error('Некорректный объект хранилища.')
+    }
+    const result = await store.removeChannelStorageItem(
+      token,
+      getNumericRouteParam(request, 'channelId'),
+      body.storageItemId.trim(),
+    )
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+}
+
+app.delete('/api/channels/:channelId/storage-items', handleDeleteChannelStorageItem)
+
+app.get('/api/groups/:groupId/storage-items', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  const snapshot = store.getSnapshotByToken(token)
+  if (!snapshot) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  // Compatibility shim for cached clients: groups no longer have their own storage surface.
+  // Return an empty payload instead of a 404 so stale bundles fail soft while fresh UI rolls out.
+  return {
+    items: [],
+    usage: {
+      storageUsage: {
+        percentUsed: 0,
+        quotaBytes: 0,
+        remainingBytes: 0,
+        usedBytes: 0,
+      },
+    },
+  }
+})
+
+app.delete('/api/groups/:groupId/storage-items', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  const snapshot = store.getSnapshotByToken(token)
+  if (!snapshot) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  return { snapshot }
+})
+
 app.post('/api/session/debug-premium', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -944,7 +1437,8 @@ async function handleDeleteDialogMessage(request: FastifyRequest, reply: Fastify
   try {
     const dialogId = getNumericRouteParam(request, 'dialogId')
     const messageId = getNumericRouteParam(request, 'messageId')
-    const result = await store.deleteDialogMessage(token, dialogId, messageId)
+    const body = parseJsonPayload<DeleteDialogMessageBody>(request.body)
+    const result = await store.deleteDialogMessage(token, dialogId, messageId, body)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {
@@ -963,7 +1457,8 @@ async function handleDeleteDialogHistory(request: FastifyRequest, reply: Fastify
 
   try {
     const dialogId = getNumericRouteParam(request, 'dialogId')
-    const result = await store.deleteDialogHistory(token, dialogId)
+    const body = parseJsonPayload<DeleteDialogHistoryBody>(request.body)
+    const result = await store.deleteDialogHistory(token, dialogId, body)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {
@@ -1135,6 +1630,55 @@ app.post('/api/groups/:groupId/messages/:messageId/thread-read', async (request,
   }
 })
 
+app.post('/api/support/tickets', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const body = parseJsonPayload<SendSupportTicketBody>(request.body)
+    const result = await store.sendSupportTicket(token, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/support/tickets/:ticketId/comments', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const ticketId = getNonNegativeNumericRouteParam(request, 'ticketId')
+    const body = parseJsonPayload<SendSupportTicketCommentBody>(request.body)
+    const result = await store.sendSupportTicketComment(token, ticketId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/support/tickets/:ticketId/read', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const ticketId = getNonNegativeNumericRouteParam(request, 'ticketId')
+    const result = await store.markSupportTicketRead(token, ticketId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.post('/api/groups/:groupId/read', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -1180,6 +1724,59 @@ app.post('/api/groups/:groupId/invite', async (request, reply) => {
     const result = await store.inviteGroupMember(token, groupId, body)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/groups/:groupId/participants/remove', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const body = parseJsonPayload<ManageGroupParticipantBody>(request.body)
+    const result = await store.removeGroupParticipant(token, groupId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/groups/:groupId/participants/blacklist', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const body = parseJsonPayload<ManageGroupParticipantBody>(request.body)
+    const result = await store.blacklistGroupParticipant(token, groupId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/groups/by-shared/:sharedId/join', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const sharedId = getRouteParam(request, 'sharedId')
+    const result = await store.joinGroupBySharedId(token, sharedId)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return {
+      groupId: result.groupId,
+      snapshot: result.snapshot,
+    } satisfies JoinGroupFromInviteResponse
   } catch (error) {
     return sendError(reply, error)
   }
@@ -1321,6 +1918,23 @@ app.put('/api/channels/:channelId', async (request, reply) => {
     const channelId = getNumericRouteParam(request, 'channelId')
     const body = parseJsonPayload<UpdateManagedChannelBody>(request.body)
     const result = await store.updateManagedChannel(token, channelId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/channels/:channelId/transfer', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const body = parseJsonPayload<TransferManagedChannelBody>(request.body)
+    const result = await store.transferManagedChannel(token, channelId, body)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {
@@ -1543,9 +2157,18 @@ app.post('/api/subscription-channels/:channelId/report', async (request, reply) 
   }
 })
 
-await registerAdminRoutes(app, store)
+await registerAdminRoutes(app, store, broadcastSnapshotsForIdentifiers)
 
 app.get('/ws', { websocket: true }, (connection, request) => {
+  const origin = Array.isArray(request.headers.origin)
+    ? request.headers.origin[0]
+    : request.headers.origin
+  // Query-token auth is still the legacy transport for v1 realtime, so origin-check is mandatory.
+  if (!isAllowedRealtimeOrigin(origin)) {
+    connection.close(4003, 'Invalid origin')
+    return
+  }
+
   const requestUrl = new URL(request.url, `http://${request.headers.host ?? '127.0.0.1'}`)
   const token = requestUrl.searchParams.get('token')
 
@@ -1568,7 +2191,13 @@ app.get('/ws', { websocket: true }, (connection, request) => {
     app.log.error(error)
   })
 
-  socketsByToken.set(token, connection)
+  const liveSocket: LiveSocket = {
+    id: randomUUID(),
+    isAlive: true,
+    socket: connection,
+  }
+  addLiveSocket(token, liveSocket)
+  broadcastPresenceChangesForToken(token, 'online')
   connection.send(
     JSON.stringify({
       snapshot,
@@ -1576,8 +2205,22 @@ app.get('/ws', { websocket: true }, (connection, request) => {
     } satisfies RealtimeEvent),
   )
 
+  connection.on('pong', () => {
+    liveSocket.isAlive = true
+  })
+
   connection.on('close', () => {
-    socketsByToken.delete(token)
+    dropLiveSocketByToken(token, liveSocket.id)
+    if (!hasLiveSocketsForToken(token)) {
+      broadcastPresenceChangesForToken(token, 'offline')
+    }
+  })
+
+  connection.on('error', () => {
+    dropLiveSocketByToken(token, liveSocket.id)
+    if (!hasLiveSocketsForToken(token)) {
+      broadcastPresenceChangesForToken(token, 'offline')
+    }
   })
 })
 

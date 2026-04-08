@@ -1,12 +1,15 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './App.tsx'
-import AdminApp from './AdminApp.tsx'
 import { shouldRenderAdminApp } from './app/runtimeMode'
+
+const App = lazy(() => import('./App.tsx'))
+const AdminApp = lazy(() => import('./AdminApp.tsx'))
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {shouldRenderAdminApp() ? <AdminApp /> : <App />}
+    <Suspense fallback={null}>
+      {shouldRenderAdminApp() ? <AdminApp /> : <App />}
+    </Suspense>
   </StrictMode>,
 )

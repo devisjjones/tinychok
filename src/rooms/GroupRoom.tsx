@@ -1,5 +1,5 @@
-import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
+import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import type {
   ChannelMessageSource,
@@ -15,6 +15,7 @@ import {
   getConversationDayKey,
   insertComposerTextAtCursor,
   isImageMimeType,
+  isVideoMimeType,
   scrollFeedChildIntoView,
   shouldShowDeliveryCaption,
   shouldSubmitComposerWithEnter,
@@ -23,13 +24,68 @@ import {
   BubbleMessageContent,
   BubbleImageOverlayMeta,
   ForwardedChannelHeader,
+  shouldUseLightDeliveryIndicatorTint,
 } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ComposerAttachmentPreview } from '../components/ComposerAttachmentPreview'
 import { ComposerAttachmentPicker } from '../components/ComposerAttachmentPicker'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { EmojiPicker } from '../components/EmojiPicker'
+import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
 import { ThreadedBubble } from '../components/ThreadedBubble'
+
+function renderGroupSystemMessageContent(message: Message) {
+  const event = message.groupSystemEvent
+  if (!event) {
+    return <span className="group-system-message-label">{message.text}</span>
+  }
+
+  if (event.kind === 'member-joined') {
+    return (
+      <span className="group-system-message-copy">
+        <span>К группе присоединился </span>
+        <span className="group-system-message-actor">
+          <span>{event.actor.title}</span>
+          {event.actor.premium ? (
+            <span className="premium-crown group-system-message-crown" aria-label="Премиум">
+              <img src="/icons/crown64.png" alt="" />
+            </span>
+          ) : null}
+        </span>
+      </span>
+    )
+  }
+
+  if (event.kind === 'member-left') {
+    return (
+      <span className="group-system-message-copy">
+        <span className="group-system-message-actor">
+          <span>{event.actor.title}</span>
+          {event.actor.premium ? (
+            <span className="premium-crown group-system-message-crown" aria-label="Премиум">
+              <img src="/icons/crown64.png" alt="" />
+            </span>
+          ) : null}
+        </span>
+        <span> покинул группу</span>
+      </span>
+    )
+  }
+
+  return (
+    <span className="group-system-message-copy">
+      <span>У группы новый организатор: </span>
+      <span className="group-system-message-actor">
+        <span>{event.actor.title}</span>
+        {event.actor.premium ? (
+          <span className="premium-crown group-system-message-crown" aria-label="Премиум">
+            <img src="/icons/crown64.png" alt="" />
+          </span>
+        ) : null}
+      </span>
+    </span>
+  )
+}
 
 type GroupRoomProps = {
   actions: ReactNode
@@ -43,16 +99,20 @@ type GroupRoomProps = {
   messageFeedRef: RefObject<HTMLDivElement | null>
   visibleMessages: Message[]
   onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
+  onComposerPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void | Promise<void>
   onAttachmentClear: () => void
   onAttachmentPreviewOpen?: () => void
+  onRenameAttachmentFileBaseName?: (nextBaseName: string) => void
   onOpenGroupActions: (event: MouseEvent<HTMLButtonElement>) => void
   onBack: () => void
   onComposerFocus: () => void
   onDraftChange: (value: string) => void
-  onMessageSelect: (event: MouseEvent<HTMLButtonElement>, message: Message) => void
+  onMessageSelect: (anchorElement: HTMLElement, message: Message) => void
   onOpenAttachment: (attachment: NonNullable<Message['attachment']>) => void
+  onOpenExternalLink?: (url: string) => void
   onOpenThread: (messageId: number) => void
   onOpenLinkedChannel: (sourceChannel: ChannelMessageSource) => void
+  onOpenSourceContact: (sourceContact: NonNullable<Message['sourceContact']>) => void
   onOpenParticipants: () => void
   onOpenSourceChannel: (message: Message) => void
   onOpenAttachmentPicker: (mode: 'file' | 'photo') => void
@@ -61,6 +121,7 @@ type GroupRoomProps = {
   onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
   onSearchGifs?: (query: string) => Promise<UserGifLibraryItem[]>
   onSelectGif?: (gif: UserGifLibraryItem) => void
+  showOwnerEditIcon?: boolean
   onUploadGif?: (file: File) => Promise<void>
   onReplyReferenceJump?: (messageId: number) => void
   onToggleSendOriginal?: () => void
@@ -71,6 +132,7 @@ type GroupRoomProps = {
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   composerDisabledNotice?: string | null
   onSubmit: () => void | Promise<void>
+  storageCleanupWarning?: ReactNode
 }
 
 export function GroupRoom({
@@ -85,16 +147,20 @@ export function GroupRoom({
   messageFeedRef,
   visibleMessages,
   onAttachmentChange,
+  onComposerPaste,
   onAttachmentClear,
   onAttachmentPreviewOpen,
+  onRenameAttachmentFileBaseName,
   onOpenGroupActions,
   onBack,
   onComposerFocus,
   onDraftChange,
   onMessageSelect,
   onOpenAttachment,
+  onOpenExternalLink,
   onOpenThread,
   onOpenLinkedChannel,
+  onOpenSourceContact,
   onOpenParticipants,
   onOpenSourceChannel,
   onOpenAttachmentPicker,
@@ -103,6 +169,7 @@ export function GroupRoom({
   onDeleteGif,
   onSearchGifs,
   onSelectGif,
+  showOwnerEditIcon,
   onUploadGif,
   onReplyReferenceJump,
   onToggleSendOriginal,
@@ -113,6 +180,7 @@ export function GroupRoom({
   resolveLinkedChannelFromMessage,
   composerDisabledNotice,
   onSubmit,
+  storageCleanupWarning = null,
 }: GroupRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
@@ -120,7 +188,9 @@ export function GroupRoom({
   const composerPlaceholder = attachmentDraft
     ? isImageMimeType(attachmentDraft.mimeType)
       ? 'Добавьте подпись к фотографии...'
-      : 'Добавьте подпись к файлу...'
+      : isVideoMimeType(attachmentDraft.mimeType)
+        ? 'Добавьте подпись к видео...'
+        : 'Добавьте подпись к файлу...'
     : 'Напиши сообщение в группу...'
 
   async function submitComposer() {
@@ -165,18 +235,34 @@ export function GroupRoom({
     )
   }
 
-  useLayoutEffect(() => {
-    const textarea = draftInputRef.current
-    if (!textarea) return
+  function renderGroupMediaAuthor(message: Message, participant: GroupParticipant | null) {
+    if (message.author === 'me') {
+      return <span className="bubble-meta">Вы</span>
+    }
 
-    const viewportHeight = window.visualViewport?.height ?? window.innerHeight
-    const maxHeight = Math.max(120, Math.floor(viewportHeight * 0.5))
+    if (participant) {
+      return (
+        <div className="bubble-sender">
+          <span className="bubble-sender-avatar-stack">
+            <span className="avatar bubble-sender-avatar" style={{ backgroundColor: participant.accent }}>
+              {participant.title.slice(0, 1)}
+            </span>
+            {participant.online ? (
+              <span className="bubble-sender-presence-dot" aria-label="В сети" />
+            ) : null}
+          </span>
+          <span className="bubble-sender-name">{participant.title}</span>
+          {participant.premium ? (
+            <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+              <img src="/icons/crown64.png" alt="" />
+            </span>
+          ) : null}
+        </div>
+      )
+    }
 
-    textarea.style.height = '0px'
-    const nextHeight = Math.min(textarea.scrollHeight, maxHeight)
-    textarea.style.height = `${Math.max(56, nextHeight)}px`
-    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
-  }, [draft])
+    return <span className="bubble-meta">{message.displayAuthor ?? 'Участник группы'}</span>
+  }
 
   useEffect(() => {
     if (!replyTarget) return
@@ -185,6 +271,14 @@ export function GroupRoom({
       draftInputRef.current?.focus()
     })
   }, [replyTarget])
+
+  useEffect(() => {
+    if (composerDisabledNotice) return
+
+    window.requestAnimationFrame(() => {
+      draftInputRef.current?.focus()
+    })
+  }, [composerDisabledNotice, group.id])
 
   function jumpToMessage(messageId: number) {
     if (onReplyReferenceJump) {
@@ -222,15 +316,20 @@ export function GroupRoom({
                 <div className="room-title">
                 <div className="room-title-name">
                   <h3>{group.title}</h3>
+                  <span className="chat-star">
+                    <img src="/icons/group100.png" alt="Группа" />
+                  </span>
+                  {showOwnerEditIcon ? (
+                    <span className="room-owner-edit-badge" aria-label="Вы владелец группы" title="Вы владелец группы">
+                      <img src="/icons/edit100.png" alt="" aria-hidden="true" />
+                    </span>
+                  ) : null}
                   {group.archivedAt ? <span className="room-archive-badge">Архив</span> : null}
                   {group.muted ? (
-                      <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                    <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
                         <img src="/icons/bell-100.png" alt="" />
                       </span>
                     ) : null}
-                    <span className="chat-star">
-                      <img src="/icons/group100.png" alt="Группа" />
-                    </span>
                   </div>
                 </div>
               <button
@@ -277,6 +376,15 @@ export function GroupRoom({
               !linkedChannel &&
               !message.sourceChannel &&
               message.text.trim().length === 0
+            const isGroupCaptionedImageBubble =
+              hasImageAttachment &&
+              message.text.trim().length > 0 &&
+              !linkedChannel &&
+              !message.sourceChannel &&
+              !message.sourceContact &&
+              !message.sourceGroup
+            const shouldRenderExternalGroupAuthor =
+              message.author !== 'me' && !isImageOnlyBubble && !isGroupCaptionedImageBubble
             const bubbleClassNames = ['bubble', 'bubble-button']
 
             if (message.author === 'me') {
@@ -311,18 +419,28 @@ export function GroupRoom({
               bubbleClassNames.push('media-only-bubble')
             }
 
+            if (isGroupCaptionedImageBubble) {
+              bubbleClassNames.push('group-captioned-media-bubble')
+            }
+
             const replyReference = message.replyTo
 
-            return (
+          return (
               <Fragment key={message.id}>
                 {index === 0 || previousMessageDayKey !== messageDayKey ? (
                   <ConversationDayDivider label={formatConversationDayLabel(message.createdAt)} />
                 ) : null}
-                <ThreadedBubble
-                  isMine={message.author === 'me'}
-                  threadCount={message.threadComments?.length ?? 0}
-                  onOpenThread={() => onOpenThread(message.id)}
-                  bubble={
+                {message.system ? (
+                  <div className="group-system-message" data-group-message-id={message.id}>
+                    {renderGroupSystemMessageContent(message)}
+                    <time>{message.time}</time>
+                  </div>
+                ) : (
+                  <ThreadedBubble
+                    isMine={message.author === 'me'}
+                    threadCount={message.threadComments?.length ?? 0}
+                    onOpenThread={() => onOpenThread(message.id)}
+                    bubble={
                     <AttachedReplyBubble
                       mine={message.author === 'me'}
                       onReplyClick={
@@ -332,93 +450,157 @@ export function GroupRoom({
                       }
                       replyTo={replyReference}
                       bubble={
-                        <button
-                          type="button"
-                          data-group-message-id={message.id}
-                          className={bubbleClassNames.join(' ')}
-                          onClick={(event) => onMessageSelect(event, message)}
-                        >
-                          {message.author === 'me' ? (
-                            <span className="bubble-meta">Вы</span>
-                          ) : groupParticipant ? (
-                            <div className="bubble-sender">
-                              <span className="bubble-sender-avatar-stack">
-                                <span className="avatar bubble-sender-avatar" style={{ backgroundColor: groupParticipant.accent }}>
-                                  {groupParticipant.title.slice(0, 1)}
-                                </span>
-                                {groupParticipant.online ? (
-                                  <span className="bubble-sender-presence-dot" aria-label="В сети" />
-                                ) : null}
-                              </span>
-                              <span className="bubble-sender-name">{groupParticipant.title}</span>
-                              {groupParticipant.premium ? (
-                                <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
-                                  <img src="/icons/crown64.png" alt="" />
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <span className="bubble-meta">{message.displayAuthor ?? 'Участник группы'}</span>
-                          )}
-                          {message.sourceChannel ? (
-                            <>
-                              <ForwardedChannelHeader
-                                sourceChannel={message.sourceChannel}
-                                onClick={() => onOpenSourceChannel(message)}
-                              />
-                              {!message.sourceChannel.leadText ? (
-                                <span className="bubble-meta">Переслано</span>
-                              ) : null}
-                            </>
-                          ) : null}
-                          <BubbleMessageContent
-                            imageOverlay={
-                              hasImageAttachment ? (
-                                <BubbleImageOverlayMeta
-                                  deliveryIndicatorSrc={
-                                    showDeliveryIndicator
-                                      ? messageFailed
-                                        ? '/icons/warning-48.png'
-                                        : messagePending
-                                          ? '/icons/hourglass-48.png'
-                                          : '/icons/double-tick-50.png'
-                                      : null
-                                  }
-                                  time={message.time}
-                                />
-                              ) : undefined
-                            }
-                            linkedChannel={linkedChannel}
-                            message={message}
-                            onOpenAttachment={onOpenAttachment}
-                            onOpenLinkedChannel={
-                              linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                            }
-                            showReplyInline={false}
-                          />
-                          {!hasImageAttachment ? <time>{message.time}</time> : null}
-                          {!hasImageAttachment && showDeliveryCaption ? (
-                            <span className="bubble-delivery-caption">Сообщение не отправлено</span>
-                          ) : null}
-                          {!hasImageAttachment && showDeliveryIndicator ? (
-                            <img
-                              className="bubble-delivery-indicator"
-                              src={
-                                messageFailed
-                                  ? '/icons/warning-48.png'
-                                  : messagePending
-                                    ? '/icons/hourglass-48.png'
-                                    : '/icons/double-tick-50.png'
+                        isImageOnlyBubble ? (
+                          <MediaOnlyBubbleRow
+                            actionLabel="Открыть действия сообщения"
+                            bubbleAttributes={{ 'data-group-message-id': message.id }}
+                            bubbleClassName={bubbleClassNames.join(' ')}
+                            mine={message.author === 'me'}
+                            onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
+                          >
+                            <button
+                              type="button"
+                              className="bubble-media-header bubble-media-header-button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                onMessageSelect(event.currentTarget, message)
+                              }}
+                            >
+                              {renderGroupMediaAuthor(message, groupParticipant)}
+                            </button>
+                            <BubbleMessageContent
+                              imageOverlay={
+                                hasImageAttachment ? (
+                                  <BubbleImageOverlayMeta
+                                    deliveryIndicatorSrc={
+                                      showDeliveryIndicator
+                                        ? messageFailed
+                                          ? '/icons/warning-48.png'
+                                          : messagePending
+                                            ? '/icons/hourglass-48.png'
+                                            : '/icons/double-tick-50.png'
+                                        : null
+                                    }
+                                    time={message.time}
+                                  />
+                                ) : undefined
                               }
-                              alt=""
-                              aria-hidden="true"
+                              linkedChannel={linkedChannel}
+                              message={message}
+                              onOpenAttachment={onOpenAttachment}
+                              onOpenExternalLink={onOpenExternalLink}
+                              onOpenLinkedChannel={
+                                linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                              }
+                              onOpenSourceContact={
+                                message.sourceContact
+                                  ? () =>
+                                      onOpenSourceContact(
+                                        message.sourceContact as NonNullable<Message['sourceContact']>,
+                                      )
+                                  : undefined
+                              }
+                              showReplyInline={false}
                             />
-                          ) : null}
-                        </button>
+                          </MediaOnlyBubbleRow>
+                        ) : (
+                          <div className={shouldRenderExternalGroupAuthor ? 'bubble-author-layout' : undefined}>
+                            {shouldRenderExternalGroupAuthor ? (
+                              <div className="bubble-author-strip">
+                                {renderGroupMediaAuthor(message, groupParticipant)}
+                              </div>
+                            ) : null}
+                            <button
+                              type="button"
+                              data-bubble-measure={shouldRenderExternalGroupAuthor ? 'true' : undefined}
+                              data-group-message-id={message.id}
+                              className={bubbleClassNames.join(' ')}
+                              onClick={(event) => onMessageSelect(event.currentTarget, message)}
+                            >
+                              {isGroupCaptionedImageBubble ? (
+                                <div className="bubble-media-header bubble-media-header-captioned">
+                                  {renderGroupMediaAuthor(message, groupParticipant)}
+                                </div>
+                              ) : null}
+                              {message.sourceChannel ? (
+                                <>
+                                  <ForwardedChannelHeader
+                                    sourceChannel={message.sourceChannel}
+                                    onClick={() => onOpenSourceChannel(message)}
+                                  />
+                                  {!message.sourceChannel.leadText ? (
+                                    <span className="bubble-meta">Переслано</span>
+                                  ) : null}
+                                </>
+                              ) : null}
+                              <BubbleMessageContent
+                                imageOverlay={
+                                  hasImageAttachment ? (
+                                    <BubbleImageOverlayMeta
+                                      deliveryIndicatorSrc={
+                                        showDeliveryIndicator
+                                          ? messageFailed
+                                            ? '/icons/warning-48.png'
+                                            : messagePending
+                                              ? '/icons/hourglass-48.png'
+                                              : '/icons/double-tick-50.png'
+                                          : null
+                                      }
+                                      time={message.time}
+                                    />
+                                  ) : undefined
+                                }
+                                linkedChannel={linkedChannel}
+                                message={message}
+                                onOpenAttachment={onOpenAttachment}
+                                onOpenExternalLink={onOpenExternalLink}
+                                onOpenLinkedChannel={
+                                  linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                                }
+                                onOpenSourceContact={
+                                  message.sourceContact
+                                    ? () =>
+                                        onOpenSourceContact(
+                                          message.sourceContact as NonNullable<Message['sourceContact']>,
+                                        )
+                                    : undefined
+                                }
+                                showReplyInline={false}
+                              />
+                              {!hasImageAttachment ? <time>{message.time}</time> : null}
+                              {!hasImageAttachment && showDeliveryCaption ? (
+                                <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                              ) : null}
+                              {!hasImageAttachment && showDeliveryIndicator ? (
+                                (() => {
+                                  const deliveryIndicatorSrc = messageFailed
+                                    ? '/icons/warning-48.png'
+                                    : messagePending
+                                      ? '/icons/hourglass-48.png'
+                                      : '/icons/double-tick-50.png'
+
+                                  return (
+                                    <img
+                                      className={
+                                        shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
+                                          ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
+                                          : 'bubble-delivery-indicator'
+                                      }
+                                      src={deliveryIndicatorSrc}
+                                      alt=""
+                                      aria-hidden="true"
+                                    />
+                                  )
+                                })()
+                              ) : null}
+                            </button>
+                          </div>
+                        )
                       }
                     />
-                  }
-                />
+                    }
+                  />
+                )}
               </Fragment>
             )
           })}
@@ -461,9 +643,11 @@ export function GroupRoom({
                       attachmentDraft={attachmentDraft}
                       onClear={onAttachmentClear}
                       onOpenPreview={onAttachmentPreviewOpen}
+                      onRenameFileBaseName={onRenameAttachmentFileBaseName}
                       onOpenPremiumUpsell={onOpenPremiumUpsell}
                       onToggleSendOriginal={onToggleSendOriginal}
                       premiumUnlocked={premiumUnlocked}
+                      storageCleanupWarning={storageCleanupWarning}
                     />
                   ) : null}
                   <input
@@ -474,11 +658,11 @@ export function GroupRoom({
                   />
                   <textarea
                     ref={draftInputRef}
-                    rows={1}
                     placeholder={composerPlaceholder}
                     value={draft}
                     onFocus={onComposerFocus}
                     onChange={(event) => onDraftChange(event.target.value)}
+                    onPaste={onComposerPaste}
                     onKeyDown={handleComposerKeyDown}
                   />
                   <div className="composer-tools">
@@ -499,6 +683,7 @@ export function GroupRoom({
                     <ComposerAttachmentPicker
                       attachmentName={attachmentName}
                       onSelectMode={onOpenAttachmentPicker}
+                      premiumUnlocked={premiumUnlocked}
                     />
                     {hasComposerPayload ? (
                       <button

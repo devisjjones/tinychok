@@ -153,6 +153,12 @@ Backend надо держать не как один большой `store.ts`, 
 - PostgreSQL schema уже лежит в `server/sql/yandex-postgres-schema.sql`;
 - backend уже поддерживает transitional `file | postgres` state store;
 - для первого PostgreSQL migration-шага есть `server/sql/yandex-postgres-state-store.sql`;
+- следующим safe-step уже введён расширенный hybrid runtime layout:
+  - slim `app_runtime_state`
+  - отдельные postgres-таблицы под `dialogMessages`, `groupMessages`, `groups`, `subscriptionChannels`, `subscriptionPosts`, `supportTickets`, `threadStates`, `ipAccessLogs`, `adminAuditLogs`, `archivedMedia`, `pendingGroupInvitations`, `pendingChannelInvitations`, `pendingMediaUploads`
+  - `accounts.statusHistory` тоже вынесен из slim payload в отдельную hybrid-таблицу
+  - backend умеет per-collection подняться из старого slim payload и затем переписать runtime в новый layout без потери данных
+  - reference SQL для этого перехода лежит в `server/sql/yandex-postgres-hybrid-runtime.sql`
 - есть `.env.production.example` с production-переменными под Yandex Cloud;
 - тестовые staging/dev fixtures теперь помечаются флагом `isTestEntity` и на production startup автоматически вычищаются из runtime state.
 

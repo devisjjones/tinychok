@@ -3,15 +3,21 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, extname, resolve } from 'node:path'
 import { zipSync } from 'fflate'
 import {
+  defaultGroupsPerUserLimit,
   defaultGroupMemberLimit,
+  freeArchiveStorageQuotaBytes,
   displayNameFieldMaxLength,
   freeStorageQuotaBytes,
   groupTitleMaxLength,
   managedChannelsPerUserLimit,
   orphanUploadTtlMs,
+  premiumArchiveStorageQuotaBytes,
+  premiumGroupsPerUserLimit,
   premiumStorageQuotaBytes,
   premiumGroupMemberLimit,
   surnameFieldMaxLength,
+  channelArchiveStorageQuotaBytes,
+  channelStorageQuotaBytes,
 } from '../../src/shared/constants'
 import {
   initialChats,
@@ -20,34 +26,52 @@ import {
 } from '../../src/shared/mockData'
 import type {
   Account as SharedAccount,
+  AccountStatusHistoryEntry,
   ArchiveReason,
   StaffRole,
   ChannelThreadInboxItem,
   Channel,
+  ChannelSearchResult,
   Chat,
+  ContactRequestPreview,
+  ContactState,
   GroupThreadInboxItem,
   GroupParticipant,
   GroupPreview,
+  GroupSystemEvent,
+  AttachmentRemovedNotice,
   MessageAttachment,
   Message,
+  ChannelPost,
   SearchResult,
   Session,
-  StorageUsage,
+  StorageArchiveReason,
+  StorageArchiveUsage,
+  StorageQuotaUsage,
+  StorageSubjectKind,
+  SupportTicket,
+  SupportTicketStatus,
   SubscriptionChannel,
   ThreadComment,
   ThreadInboxItem,
   UserGifLibraryItem,
+  UserStorageItem,
 } from '../../src/shared/types'
 import {
   buildChannelDirectLinkFromTitle,
+  extendPremiumExpiry,
   ensureUniqueChannelDirectLink,
   formatAccountName,
   formatNowTime,
   getConversationDayKey,
+  getEffectiveQuietModeSettings,
+  getAdminSupportTicketStatusSortOrder,
   hasActivePremium,
   makePremiumExpiry,
   normalizeIdentifier,
   normalizeNickname,
+  normalizeQuietModeSettings,
+  resolveQuietModeInvisibilityState,
   sanitizeChannelDirectLink,
   sanitizeChannelDescription,
   sanitizeChannelTitle,
@@ -55,6 +79,7 @@ import {
   sanitizeStatusField,
 } from '../../src/shared/utils'
 import type {
+  AdminSupportTicketStatus,
   AdminAuditLogEntry,
   AdminAuditLogResponse,
   AdminDashboardResponse,
@@ -65,6 +90,7 @@ import type {
   AdminIpLogSource,
   AdminUserIpSummary,
   AdminLegalExportBody,
+  AdminUserMediaExportBody,
   AdminLinkedUser,
   AdminManagedChannelSummary,
   AdminManagedGroupSummary,
@@ -74,20 +100,30 @@ import type {
   AdminReportDetailResponse,
   AdminReportNote,
   AdminReportSummary,
+  AdminSupportTicketDetailResponse,
+  AdminSupportTicketReplyBody,
+  AdminSupportTicketSummary,
   AdminThreadSummary,
+  AdminStorageArchiveToggleBody,
+  AdminStorageExportBody,
   AdminUserSummary,
   AppSnapshot,
   ComplaintReason,
   CreateGroupBody,
   CreateManagedChannelBody,
   DeleteAccountBody,
+  DeleteDialogMessageBody,
   DeleteAccountResponse,
   DebugPremiumBody,
   DirectDialogHistoryResponse,
   GroupHistoryResponse,
+  StorageArchiveManifestItem,
+  StoragePrimaryItemsResponse,
+  StorageSubjectUsageResponse,
   InviteManagedChannelMembersBody,
   InviteGroupMemberBody,
   LoginPasswordBody,
+  ManageGroupParticipantBody,
   ManageSubscriptionChannelSubscriberBody,
   OpenDirectDialogBody,
   AuthEntrypoint,
@@ -103,11 +139,16 @@ import type {
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
   SendDirectMessageBody,
+  SendContactRequestBody,
   SendGroupMessageBody,
   SendManagedChannelPostBody,
   SendGroupThreadCommentBody,
   SendSubscriptionChannelThreadCommentBody,
+  SendSupportTicketBody,
+  SendSupportTicketCommentBody,
   SubscriptionChannelHistoryResponse,
+  SubscriptionChannelPreviewResponse,
+  TransferManagedChannelBody,
   UpdateDialogBody,
   UpdateGroupBody,
   UpdateManagedChannelBody,
@@ -127,6 +168,7 @@ import {
   type StoredAccountPasswordFields,
   verifyPassword,
 } from './auth-security'
+import { HttpError } from './http-error'
 import { deleteStoredMediaByUrl, readStoredMediaByUrl } from './media'
 
 type StoredAccount = SharedAccount & StoredAccountPasswordFields
@@ -142,6 +184,7 @@ type ArchivedPublicProfileSnapshot = {
 
 type StoredAccountLifecycleFields = {
   accountId: string
+  archiveUnlimited?: boolean
   archivedOriginalIdentifier?: string
   archivedProfile?: ArchivedPublicProfileSnapshot
   deletedAt?: string
@@ -154,16 +197,34 @@ type StoredAccountRecord = StoredAccount & StoredAccountLifecycleFields
 type AccountRecord = StoredAccountRecord
 type Account = AccountRecord
 
-type PersistedDialog = Omit<Chat, 'messages'> & {
+type PersistedDialog = Omit<Chat, 'messages' | 'contactState'> & {
+  hidden?: boolean
   ownerIdentifier: string
 }
 
 type PersistedDialogMessage = Message & {
+  archivedAt?: string
+  archivedReason?:
+    | 'delete-history-everyone'
+    | 'delete-message-everyone'
+    | 'delete-history-me'
+    | 'delete-message-me'
   dialogId: number
   ownerIdentifier: string
 }
 
+type ContactLink = {
+  blockedByIdentifier?: string
+  createdAt: string
+  leftIdentifier: string
+  requesterIdentifier: string
+  rightIdentifier: string
+  status: 'pending' | 'accepted' | 'blocked'
+  updatedAt: string
+}
+
 type PersistedGroup = Omit<GroupPreview, 'messages'> & {
+  archiveUnlimited?: boolean
   ownerIdentifier: string
 }
 
@@ -173,11 +234,13 @@ type PersistedGroupMessage = Message & {
 }
 
 type PersistedManagedChannel = Channel & {
+  archiveUnlimited?: boolean
   ownerIdentifier: string
 }
 
 type PersistedSubscriptionChannel = Omit<SubscriptionChannel, 'posts'> & {
   ownerIdentifier: string
+  subscribedAt?: string
 }
 
 type SubscriptionPost = SubscriptionChannel['posts'][number]
@@ -189,13 +252,32 @@ type PersistedSubscriptionPost = SubscriptionPost & {
 
 type PersistedThreadState = {
   lastReadCommentCreatedAt?: string
+  lastReadCommentId?: number
   ownerIdentifier: string
   subscription: 'implicit' | 'subscribed' | 'unsubscribed'
   threadId: string
 }
 
+type PersistedSupportTicket = {
+  attachment?: MessageAttachment
+  attachmentRemovedNotice?: Message['attachmentRemovedNotice']
+  comments: ThreadComment[]
+  createdAt: string
+  deliveryId?: string
+  id: number
+  openedByStaffAt?: string
+  ownerIdentifier: string
+  replyTo?: Message['replyTo']
+  status: SupportTicketStatus
+  text: string
+  threadId: string
+  time: string
+  updatedAt: string
+}
+
 type SessionRecord = {
   createdAt: string
+  expiresAt: string
   identifier: string
   token: string
 }
@@ -204,11 +286,40 @@ type IpAccessLogRecord = AdminIpLogEntry
 
 type PersistedPasswordAuthAttempt = PasswordAuthAttemptRecord
 
+type AuthCodeSendAttempt = {
+  createdAt: string
+  entryPoint: AuthEntrypoint
+  flow: AuthRequestCodeFlow
+  identifier: string
+  ip?: string
+}
+
+type PendingChannelInvitation = {
+  channelHandle: string
+  createdAt: string
+  recipientIdentifier: string
+  senderIdentifier: string
+}
+
+type PendingGroupInvitation = {
+  createdAt: string
+  recipientIdentifier: string
+  senderIdentifier: string
+  sharedId: string
+}
+
 type AuthChallenge = {
   code: string
   expiresAt: string
   identifier: string
   purpose: 'admin' | 'password-reset' | 'password-setup' | 'registration'
+}
+
+type AuthChallengePurpose = AuthChallenge['purpose']
+
+type SessionRevocationResult = {
+  broadcastIdentifiers: string[]
+  revokedTokens: string[]
 }
 
 type ContactReportRecord = {
@@ -259,6 +370,84 @@ type PersistedPendingMediaUpload = {
   storageKey: string
 }
 
+type PersistedArchivedMediaRecord = {
+  archivedAt: string
+  archiveReason: StorageArchiveReason
+  fileName: string
+  height?: number
+  id: string
+  kind: 'attachment' | 'gif'
+  mediaUrl: string
+  mimeType: string
+  originalContext: string
+  ownerIdentifier?: string
+  primaryLabel: string
+  restoreTargets?: PersistedArchivedMediaRestoreTarget[]
+  size: number
+  storageSubjectId: string
+  storageSubjectKind: StorageSubjectKind
+  width?: number
+}
+
+type PersistedArchivedMediaRestoreTarget =
+  | {
+      attachment: MessageAttachment
+      dialogId: number
+      kind: 'dialog-message'
+      messageId: number
+      ownerIdentifier: string
+    }
+  | {
+      attachment: MessageAttachment
+      groupId: number
+      kind: 'group-message'
+      messageId: number
+      ownerIdentifier: string
+    }
+  | {
+      attachment: MessageAttachment
+      commentId: number
+      groupId: number
+      kind: 'group-thread-comment'
+      messageId: number
+      ownerIdentifier: string
+    }
+  | {
+      attachment: MessageAttachment
+      channelId: number
+      kind: 'channel-post'
+      ownerIdentifier: string
+      postId: number
+    }
+  | {
+      attachment: MessageAttachment
+      channelId: number
+      commentId: number
+      kind: 'channel-thread-comment'
+      ownerIdentifier: string
+      postId: number
+    }
+  | {
+      attachment: MessageAttachment
+      kind: 'support-ticket'
+      ownerIdentifier: string
+      ticketId: number
+    }
+  | {
+      attachment: MessageAttachment
+      commentId: number
+      kind: 'support-ticket-comment'
+      ownerIdentifier: string
+      ticketId: number
+    }
+
+type StorageCleanupCandidate = {
+  createdAt: string
+  mediaUrl: string
+  storageSubjectId: string
+  storageSubjectKind: StorageSubjectKind
+}
+
 type LegacyAccountState = {
   channels: Channel[]
   chats: Chat[]
@@ -272,9 +461,12 @@ type LegacyPersistedAccount = AccountRecord & {
 
 export type Database = {
   accounts: AccountRecord[]
+  archivedMedia: PersistedArchivedMediaRecord[]
   adminAuditLogs: AdminAuditLogRecord[]
   adminReports: AdminReportRecord[]
+  authCodeSendAttempts: AuthCodeSendAttempt[]
   authChallenges: AuthChallenge[]
+  contactLinks: ContactLink[]
   contactReports: ContactReportRecord[]
   dialogs: PersistedDialog[]
   dialogMessages: PersistedDialogMessage[]
@@ -282,13 +474,17 @@ export type Database = {
   groups: PersistedGroup[]
   ipAccessLogs: IpAccessLogRecord[]
   managedChannels: PersistedManagedChannel[]
+  pendingChannelInvitations: PendingChannelInvitation[]
+  pendingGroupInvitations: PendingGroupInvitation[]
   pendingMediaUploads: PersistedPendingMediaUpload[]
   passwordAuthAttempts: PersistedPasswordAuthAttempt[]
   sessions: SessionRecord[]
   subscriptionChannelReports: SubscriptionChannelReportRecord[]
   subscriptionChannels: PersistedSubscriptionChannel[]
   subscriptionPosts: PersistedSubscriptionPost[]
+  supportTickets: PersistedSupportTicket[]
   threadStates: PersistedThreadState[]
+  nextSupportTicketNumber: number
 }
 
 type LegacyDatabase = {
@@ -314,6 +510,8 @@ type OpenDirectDialogResult = MutationResult & {
   dialogId: number
 }
 
+type LivePresenceLookup = Pick<ReadonlySet<string>, 'has'>
+
 type SessionAccessContext = {
   ip: string
   source: AdminIpLogSource
@@ -321,7 +519,12 @@ type SessionAccessContext = {
 }
 
 const AUTH_CODE_TTL_MS = 5 * 60 * 1000
+const AUTH_CODE_HOURLY_WINDOW_MS = 60 * 60 * 1000
+const AUTH_CODE_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const SESSION_LAST_ACTIVE_TOUCH_THROTTLE_MS = 60 * 1000
 const DEMO_AUTH_CODE = '1111'
+const SUPPORT_TICKET_COOLDOWN_MS = 10 * 60 * 1000
 export const DEFAULT_DATA_FILE = resolve(process.cwd(), 'server/data/dev-db.json')
 const FALLBACK_CHAT_ACCENT = '#8c5738'
 const CHAT_ACCENT_PALETTE = Array.from(new Set(initialChats.map((chat) => chat.accent)))
@@ -336,8 +539,52 @@ const PASSWORD_LOGIN_RATE_LIMITED_MESSAGE =
   'Слишком много неудачных попыток входа. Повторите позже.'
 const PASSWORD_LOGIN_CAPTCHA_REQUIRED_MESSAGE =
   'Подтвердите, что вы не робот, чтобы продолжить вход по паролю.'
+const ADMIN_STAFF_ONLY_MESSAGE = 'Вход в админку разрешён только staff-аккаунтам.'
+const AUTH_CODE_COOLDOWN_MESSAGE =
+  'Код уже был недавно отправлен. Подождите немного перед новым запросом.'
+const AUTH_CODE_RATE_LIMITED_MESSAGE =
+  'Слишком много запросов SMS-кода. Повторите позже.'
+type AttachmentRemovedNoticePerspective = 'author' | 'peer' | 'self'
+
+function buildStorageQuotaAttachmentRemovedNoticeText(
+  perspective: AttachmentRemovedNoticePerspective,
+) {
+  // Keep owner/viewer copy distinct. Premium readers on the other side must not
+  // see a misleading "your storage is full" notice when the sender ran out of quota.
+  if (perspective === 'peer') {
+    return 'Вложение удалено автоматически, потому что у собеседника закончилось место в хранилище.'
+  }
+
+  if (perspective === 'author') {
+    return 'Вложение удалено автоматически, потому что у автора сообщения закончилось место в хранилище.'
+  }
+
+  return 'Вложение удалено автоматически, потому что в вашем хранилище закончилось место.'
+}
+
+function buildStorageManualAttachmentRemovedNoticeText(
+  perspective: AttachmentRemovedNoticePerspective,
+) {
+  if (perspective === 'peer' || perspective === 'author') {
+    return 'Вложение удалено владельцем из хранилища, чтобы освободить место.'
+  }
+
+  return 'Вложение удалено вами из хранилища, чтобы освободить место.'
+}
 const TEST_FIXTURE_CREATED_AT = '2026-03-21T00:00:00.000Z'
 const TEST_FIXTURE_PREMIUM_EXPIRES_AT = '2099-01-01T00:00:00.000Z'
+const authRequestCodeLimits = runtimeConfig.auth.requestCodeLimits
+const authCodeIdentifierCooldownMs = authRequestCodeLimits.identifierCooldownSeconds * 1000
+
+function buildSyntheticNumericId(seed: string) {
+  let hash = 0
+
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = ((hash << 5) - hash + seed.charCodeAt(index)) | 0
+  }
+
+  return Math.abs(hash) || 1
+}
 
 function cloneDiscoveryResults() {
   return [] as SearchResult[]
@@ -346,9 +593,12 @@ function cloneDiscoveryResults() {
 function createDefaultDatabase(): Database {
   return {
     accounts: [],
+    archivedMedia: [],
     adminAuditLogs: [],
     adminReports: [],
+    authCodeSendAttempts: [],
     authChallenges: [],
+    contactLinks: [],
     contactReports: [],
     dialogs: [],
     dialogMessages: [],
@@ -356,13 +606,17 @@ function createDefaultDatabase(): Database {
     groups: [],
     ipAccessLogs: [],
     managedChannels: [],
+    pendingChannelInvitations: [],
+    pendingGroupInvitations: [],
     pendingMediaUploads: [],
     passwordAuthAttempts: [],
     sessions: [],
     subscriptionChannelReports: [],
     subscriptionChannels: [],
     subscriptionPosts: [],
+    supportTickets: [],
     threadStates: [],
+    nextSupportTicketNumber: 0,
   }
 }
 
@@ -393,6 +647,8 @@ function buildTestAccounts() {
     publicDeleted: undefined,
     displayName: chat.title,
     identifier: normalizeIdentifier(chat.phone),
+    invisibilityAutoEnabled: false,
+    invisibilityEnabled: false,
     isTestEntity: true,
     lastActiveAt: TEST_FIXTURE_CREATED_AT,
     nickname: normalizeNickname(chat.handle.replace(/^@+/u, '')),
@@ -422,6 +678,10 @@ function isAllowedTestPhone(identifier: string) {
   return runtimeConfig.auth.allowedTestPhones.some(
     (phone) => normalizeIdentifier(phone) === normalizedIdentifier,
   )
+}
+
+function hasStaffAccess(account: Pick<AccountRecord, 'staffRole'> | null | undefined) {
+  return Boolean(sanitizeStaffRole(account?.staffRole))
 }
 
 function sanitizeMessageText(value: string) {
@@ -464,6 +724,184 @@ function sanitizeMessageAttachment(attachment: Message['attachment']) {
     size,
     width,
   } satisfies NonNullable<Message['attachment']>
+}
+
+const invalidOwnedAttachmentMessage = 'Вложение недействительно или больше недоступно. Загрузите файл заново.'
+
+function sanitizeAttachmentRemovedNotice(
+  notice: Message['attachmentRemovedNotice'],
+): NonNullable<Message['attachmentRemovedNotice']> | undefined {
+  if (!notice) return undefined
+
+  const reason = notice.reason === 'storage-manual' ? notice.reason : 'storage-quota'
+  const removedAt = notice.removedAt?.trim() || new Date().toISOString()
+  const text =
+    notice.text?.replace(/\s+/g, ' ').trim().slice(0, 240) ||
+    (reason === 'storage-manual'
+      ? buildStorageManualAttachmentRemovedNoticeText('self')
+      : buildStorageQuotaAttachmentRemovedNoticeText('self'))
+
+  return {
+    reason,
+    removedAt,
+    text,
+  }
+}
+
+function sanitizeArchivedMediaRestoreTargets(
+  value: PersistedArchivedMediaRecord['restoreTargets'],
+): PersistedArchivedMediaRestoreTarget[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined
+  }
+
+  const targetsByKey = new Map<string, PersistedArchivedMediaRestoreTarget>()
+  const normalizeRestoreOwnerIdentifier = (identifier: string | undefined) => {
+    const normalizedIdentifier = normalizeIdentifier(identifier ?? '')
+    return normalizedIdentifier || identifier?.trim() || ''
+  }
+
+  for (const target of value) {
+    const normalizedOwnerIdentifier = normalizeRestoreOwnerIdentifier(target?.ownerIdentifier)
+    if (!normalizedOwnerIdentifier) {
+      continue
+    }
+
+    let attachment: MessageAttachment | undefined
+    try {
+      attachment = sanitizeMessageAttachment(target?.attachment)
+    } catch {
+      attachment = undefined
+    }
+    if (!attachment) {
+      continue
+    }
+
+    const normalizePositiveInteger = (candidate: number | undefined) => {
+      return Number.isInteger(candidate) && (candidate ?? 0) > 0 ? Math.floor(candidate ?? 0) : undefined
+    }
+
+    if (target.kind === 'dialog-message') {
+      const dialogId = normalizePositiveInteger(target.dialogId)
+      const messageId = normalizePositiveInteger(target.messageId)
+      if (!dialogId || !messageId) continue
+      targetsByKey.set(`dialog:${normalizedOwnerIdentifier}:${dialogId}:${messageId}`, {
+        attachment,
+        dialogId,
+        kind: 'dialog-message',
+        messageId,
+        ownerIdentifier: normalizedOwnerIdentifier,
+      })
+      continue
+    }
+
+    if (target.kind === 'group-message') {
+      const groupId = normalizePositiveInteger(target.groupId)
+      const messageId = normalizePositiveInteger(target.messageId)
+      if (!groupId || !messageId) continue
+      targetsByKey.set(`group:${normalizedOwnerIdentifier}:${groupId}:${messageId}`, {
+        attachment,
+        groupId,
+        kind: 'group-message',
+        messageId,
+        ownerIdentifier: normalizedOwnerIdentifier,
+      })
+      continue
+    }
+
+    if (target.kind === 'group-thread-comment') {
+      const commentId = normalizePositiveInteger(target.commentId)
+      const groupId = normalizePositiveInteger(target.groupId)
+      const messageId = normalizePositiveInteger(target.messageId)
+      if (!commentId || !groupId || !messageId) continue
+      targetsByKey.set(`group-comment:${normalizedOwnerIdentifier}:${groupId}:${messageId}:${commentId}`, {
+        attachment,
+        commentId,
+        groupId,
+        kind: 'group-thread-comment',
+        messageId,
+        ownerIdentifier: normalizedOwnerIdentifier,
+      })
+      continue
+    }
+
+    if (target.kind === 'channel-post') {
+      const channelId = normalizePositiveInteger(target.channelId)
+      const postId = normalizePositiveInteger(target.postId)
+      if (!channelId || !postId) continue
+      targetsByKey.set(`channel:${normalizedOwnerIdentifier}:${channelId}:${postId}`, {
+        attachment,
+        channelId,
+        kind: 'channel-post',
+        ownerIdentifier: normalizedOwnerIdentifier,
+        postId,
+      })
+      continue
+    }
+
+    if (target.kind === 'channel-thread-comment') {
+      const channelId = normalizePositiveInteger(target.channelId)
+      const commentId = normalizePositiveInteger(target.commentId)
+      const postId = normalizePositiveInteger(target.postId)
+      if (!channelId || !commentId || !postId) continue
+      targetsByKey.set(`channel-comment:${normalizedOwnerIdentifier}:${channelId}:${postId}:${commentId}`, {
+        attachment,
+        channelId,
+        commentId,
+        kind: 'channel-thread-comment',
+        ownerIdentifier: normalizedOwnerIdentifier,
+        postId,
+      })
+      continue
+    }
+
+    if (target.kind === 'support-ticket') {
+      const ticketId = normalizePositiveInteger(target.ticketId)
+      if (!ticketId) continue
+      targetsByKey.set(`support:${normalizedOwnerIdentifier}:${ticketId}`, {
+        attachment,
+        kind: 'support-ticket',
+        ownerIdentifier: normalizedOwnerIdentifier,
+        ticketId,
+      })
+      continue
+    }
+
+    if (target.kind === 'support-ticket-comment') {
+      const commentId = normalizePositiveInteger(target.commentId)
+      const ticketId = normalizePositiveInteger(target.ticketId)
+      if (!commentId || !ticketId) continue
+      targetsByKey.set(`support-comment:${normalizedOwnerIdentifier}:${ticketId}:${commentId}`, {
+        attachment,
+        commentId,
+        kind: 'support-ticket-comment',
+        ownerIdentifier: normalizedOwnerIdentifier,
+        ticketId,
+      })
+    }
+  }
+
+  return targetsByKey.size > 0 ? [...targetsByKey.values()] : undefined
+}
+
+function materializeAttachmentRemovedNoticeForViewer(
+  notice: Message['attachmentRemovedNotice'],
+  perspective: AttachmentRemovedNoticePerspective,
+): NonNullable<Message['attachmentRemovedNotice']> | undefined {
+  const sanitizedNotice = sanitizeAttachmentRemovedNotice(notice)
+  if (!sanitizedNotice) return undefined
+
+  const textBuilder =
+    sanitizedNotice.reason === 'storage-manual'
+      ? buildStorageManualAttachmentRemovedNoticeText
+      : buildStorageQuotaAttachmentRemovedNoticeText
+
+  // Never leak stored self-copy as-is. The rendered notice must stay
+  // viewer-aware so the owner and the reader understand whose storage action caused it.
+  return {
+    ...sanitizedNotice,
+    text: textBuilder(perspective),
+  }
 }
 
 function sanitizeUserGifLibraryItem(item: UserGifLibraryItem) {
@@ -531,14 +969,84 @@ function inferStoredMediaKind(mediaUrl: string): PersistedPendingMediaUpload['ki
 }
 
 type OwnedStoredMediaReference = {
+  archiveReason?: PersistedDialogMessage['archivedReason']
+  archivedAt?: string
+  createdAt?: string
   kind: PersistedPendingMediaUpload['kind']
+  fileName: string
+  height?: number
   mediaUrl: string
-  ownerIdentifier: string
+  mimeType: string
+  ownerIdentifier?: string
+  primaryLabel: string
   size: number
+  storageSubjectId: string
+  storageSubjectKind: StorageSubjectKind
+  width?: number
 }
 
-function buildStorageUsage(usedBytes: number, premium?: boolean, premiumExpiresAt?: string): StorageUsage {
-  const quotaBytes = hasActivePremium(premium, premiumExpiresAt) ? premiumStorageQuotaBytes : freeStorageQuotaBytes
+type UserStorageInventoryItem = UserStorageItem
+
+type StorageSubjectDescriptor = {
+  archiveQuotaBytes: number
+  archiveUnlimited: boolean
+  id: string
+  kind: StorageSubjectKind
+  primaryQuotaBytes: number
+}
+
+type StorageArchiveInventoryItem = PersistedArchivedMediaRecord & {
+  usageCount: number
+}
+
+type AdminOwnedMediaExportContext = {
+  archiveReason?: string
+  createdAt?: string
+  primaryLabel: string
+}
+
+type AdminOwnedMediaExportItem = {
+  archiveReason?: string
+  archivedAt?: string
+  contexts: AdminOwnedMediaExportContext[]
+  createdAt?: string
+  fileName: string
+  height?: number
+  kind: 'attachment' | 'gif'
+  mediaUrl: string
+  mimeType: string
+  ownerIdentifier: string
+  originalContext?: string
+  primaryLabel: string
+  retentionOnly: boolean
+  size: number
+  storageKind: PersistedPendingMediaUpload['kind']
+  usageCount: number
+  width?: number
+}
+
+type CanonicalDirectTranscriptEntry = {
+  archiveReason?: string
+  archivedAt?: string
+  attachment?: PersistedDialogMessage['attachment']
+  authorDisplayIdentifier: string
+  createdAt?: string
+  deliveryId?: string
+  id: string
+  leftArchivedAt?: string
+  leftArchiveReason?: PersistedDialogMessage['archivedReason']
+  logicalMessage: PersistedDialogMessage
+  readAt?: string
+  retentionNote?: string
+  replyTo?: PersistedDialogMessage['replyTo']
+  rightArchivedAt?: string
+  rightArchiveReason?: PersistedDialogMessage['archivedReason']
+  text: string
+  visibleForLeft: boolean
+  visibleForRight: boolean
+}
+
+function buildStorageQuotaUsage(usedBytes: number, quotaBytes: number): StorageQuotaUsage {
   const remainingBytes = Math.max(0, quotaBytes - usedBytes)
   const percentUsed = quotaBytes > 0 ? Math.min(100, (usedBytes / quotaBytes) * 100) : 0
 
@@ -598,6 +1106,7 @@ function sanitizeSourceChannel(
         ? sourceChannel.id
         : undefined,
     leadText: sanitizeMessageText(sourceChannel?.leadText ?? '') || undefined,
+    statusText: sanitizeStatusField(sourceChannel?.statusText ?? '') || undefined,
     title,
     visibility:
       sourceChannel?.visibility === 'private' ||
@@ -616,6 +1125,15 @@ function sanitizeSourceGroup(
 
   return {
     accent: sourceGroup?.accent?.trim() || undefined,
+    archivedAt: sourceGroup?.archivedAt?.trim() || undefined,
+    archiveReason:
+      sourceGroup?.archiveReason === 'admin-archived' ||
+      sourceGroup?.archiveReason === 'owner-deleted' ||
+      sourceGroup?.archiveReason === 'owner-self-deleted' ||
+      sourceGroup?.archiveReason === 'self-service-data-hidden' ||
+      sourceGroup?.archiveReason === 'orphaned-group'
+        ? sourceGroup.archiveReason
+        : undefined,
     avatarImage: sourceGroup?.avatarImage?.trim() || undefined,
     creatorIdentifier: sourceGroup?.creatorIdentifier
       ? normalizeIdentifier(sourceGroup.creatorIdentifier) || undefined
@@ -624,7 +1142,85 @@ function sanitizeSourceGroup(
       ? normalizeIdentifier(sourceGroup.groupOwnerIdentifier) || undefined
       : undefined,
     handle: sourceGroup?.handle ? sanitizeGroupHandle(sourceGroup.handle, 1) : undefined,
+    leadText: sanitizeMessageText(sourceGroup?.leadText ?? '') || undefined,
     sharedId: sourceGroup?.sharedId?.trim() || undefined,
+    title,
+  }
+}
+
+function materializeSourceGroupForViewer(
+  database: Database,
+  sourceGroup?: Message['sourceGroup'],
+): Message['sourceGroup'] | undefined {
+  const sanitizedSourceGroup = sanitizeSourceGroup(sourceGroup)
+  if (!sanitizedSourceGroup) return undefined
+
+  const normalizedSharedId = sanitizedSourceGroup.sharedId?.trim() || ''
+  if (!normalizedSharedId) {
+    return sanitizedSourceGroup
+  }
+
+  const matchingGroup =
+    database.groups.find(
+      (group) => (group.sharedId?.trim() || `${group.ownerIdentifier}:${group.id}`) === normalizedSharedId,
+    ) ?? null
+
+  if (!matchingGroup || !shouldHideArchivedGroupForUsers(matchingGroup)) {
+    return {
+      ...sanitizedSourceGroup,
+      archivedAt: undefined,
+      archiveReason: undefined,
+    }
+  }
+
+  return {
+    ...sanitizedSourceGroup,
+    archivedAt: matchingGroup.archivedAt,
+    archiveReason: matchingGroup.archiveReason,
+  }
+}
+
+function sanitizeSourceContact(
+  database: Database,
+  sourceContact?: Message['sourceContact'],
+): Message['sourceContact'] | undefined {
+  const normalizedIdentifier = normalizeIdentifier(sourceContact?.identifier ?? '')
+  if (normalizedIdentifier) {
+    const matchedAccount = database.accounts.find(
+      (account) =>
+        account.identifier === normalizedIdentifier &&
+        !isPublicDeletedAccount(account),
+    )
+    if (matchedAccount) {
+      return buildContactMessageSource(matchedAccount)
+    }
+  }
+
+  const normalizedHandle = normalizeNickname(sourceContact?.handle?.replace(/^@+/u, '') ?? '')
+  if (normalizedHandle) {
+    const matchedAccount = database.accounts.find((account) => {
+      if (isPublicDeletedAccount(account)) {
+        return false
+      }
+
+      return normalizeNickname(account.nickname ?? '') === normalizedHandle
+    })
+    if (matchedAccount) {
+      return buildContactMessageSource(matchedAccount)
+    }
+  }
+
+  const title = sanitizePersonField(sourceContact?.title ?? '', displayNameFieldMaxLength + surnameFieldMaxLength + 1)
+  if (!title) {
+    return undefined
+  }
+
+  return {
+    accent: sourceContact?.accent?.trim() || undefined,
+    avatarImage: sourceContact?.avatarImage?.trim() || undefined,
+    handle: normalizedHandle ? `@${normalizedHandle}` : undefined,
+    identifier: normalizedIdentifier || undefined,
+    status: sanitizeStatusField(sourceContact?.status ?? '') || undefined,
     title,
   }
 }
@@ -662,12 +1258,97 @@ function sanitizeStaffRole(value: string | undefined): StaffRole | undefined {
   return undefined
 }
 
+function sanitizeSupportTicketStatus(value: string | undefined): SupportTicketStatus {
+  if (
+    value === 'open' ||
+    value === 'needs_confirmation' ||
+    value === 'resolved' ||
+    value === 'reopened'
+  ) {
+    return value
+  }
+
+  return 'open'
+}
+
+function getAdminSupportTicketDisplayStatus(ticket: PersistedSupportTicket): AdminSupportTicketStatus {
+  if (!ticket.openedByStaffAt && ticket.status === 'open') {
+    return 'new'
+  }
+
+  return ticket.status
+}
+
 function sanitizeAdminText(value: string | undefined, maxLength = 1000) {
   return value?.replace(/\s+/g, ' ').trim().slice(0, maxLength) || ''
 }
 
 function isAccountBlocked(account: Pick<Account, 'blockedAt'> | null | undefined) {
   return Boolean(account?.blockedAt)
+}
+
+function hasPremiumStorageHistory(
+  account?: Pick<Account, 'premium' | 'premiumExpiresAt'> | null,
+) {
+  return Boolean(account?.premium || account?.premiumExpiresAt)
+}
+
+function sanitizeRetainedQuotaBytes(value: number | undefined) {
+  return Number.isFinite(value) && (value ?? 0) > 0 ? value ?? 0 : 0
+}
+
+function normalizeRetainedStorageQuotaBytes(
+  account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedStorageQuotaBytes'> | null,
+) {
+  const retainedQuotaBytes = Math.max(
+    sanitizeRetainedQuotaBytes(account?.retainedStorageQuotaBytes),
+    hasPremiumStorageHistory(account) ? premiumStorageQuotaBytes : 0,
+  )
+  return retainedQuotaBytes > freeStorageQuotaBytes ? retainedQuotaBytes : undefined
+}
+
+function normalizeRetainedArchiveStorageQuotaBytes(
+  account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedArchiveStorageQuotaBytes'> | null,
+) {
+  const retainedQuotaBytes = Math.max(
+    sanitizeRetainedQuotaBytes(account?.retainedArchiveStorageQuotaBytes),
+    hasPremiumStorageHistory(account) ? premiumArchiveStorageQuotaBytes : 0,
+  )
+  return retainedQuotaBytes > freeArchiveStorageQuotaBytes ? retainedQuotaBytes : undefined
+}
+
+function getEffectiveUserStorageQuotaBytes(
+  account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedStorageQuotaBytes'> | null,
+) {
+  return Math.max(
+    freeStorageQuotaBytes,
+    sanitizeRetainedQuotaBytes(account?.retainedStorageQuotaBytes),
+    hasActivePremium(account?.premium, account?.premiumExpiresAt) ? premiumStorageQuotaBytes : 0,
+  )
+}
+
+function getEffectiveUserArchiveStorageQuotaBytes(
+  account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedArchiveStorageQuotaBytes'> | null,
+) {
+  return Math.max(
+    freeArchiveStorageQuotaBytes,
+    sanitizeRetainedQuotaBytes(account?.retainedArchiveStorageQuotaBytes),
+    hasActivePremium(account?.premium, account?.premiumExpiresAt) ? premiumArchiveStorageQuotaBytes : 0,
+  )
+}
+
+function rememberUnlockedPremiumStorageQuota(
+  account: Pick<Account, 'retainedArchiveStorageQuotaBytes' | 'retainedStorageQuotaBytes'>,
+) {
+  // Once a user unlocks premium storage, don't shrink the quota back on expiry.
+  account.retainedStorageQuotaBytes = Math.max(
+    sanitizeRetainedQuotaBytes(account.retainedStorageQuotaBytes),
+    premiumStorageQuotaBytes,
+  )
+  account.retainedArchiveStorageQuotaBytes = Math.max(
+    sanitizeRetainedQuotaBytes(account.retainedArchiveStorageQuotaBytes),
+    premiumArchiveStorageQuotaBytes,
+  )
 }
 
 function isContentReportEntityType(entityType: AdminReportSummary['entityType']) {
@@ -738,6 +1419,10 @@ function buildArchivedAccountIdentifier(accountId: string) {
   return `archived_${token}`
 }
 
+function isArchivedSyntheticIdentifier(value: string | undefined | null) {
+  return /^archived_[a-z]+$/u.test((value ?? '').trim())
+}
+
 function getAccountOriginalIdentifier(account: Pick<AccountRecord, 'archivedOriginalIdentifier' | 'identifier'>) {
   return normalizeIdentifier(account.archivedOriginalIdentifier ?? '') || normalizeIdentifier(account.identifier)
 }
@@ -771,8 +1456,27 @@ function shouldHideArchivedChannelForUsers(
 ) {
   return Boolean(
     channel.archivedAt &&
-      (channel.archiveReason === 'owner-self-deleted' ||
+      (channel.archiveReason === 'admin-archived' ||
+        channel.archiveReason === 'owner-deleted' ||
+        channel.archiveReason === 'owner-self-deleted' ||
         channel.archiveReason === 'self-service-data-hidden'),
+  )
+}
+
+function shouldHideArchivedGroupForUsers(
+  group:
+    | Pick<PersistedGroup, 'archivedAt' | 'archiveReason'>
+    | Pick<GroupPreview, 'archivedAt' | 'archiveReason'>,
+) {
+  // User-facing delete policy for groups:
+  // - owner-deleted/self-service-data-hidden/admin-archived groups stay archived in server state
+  //   but must disappear from normal user snapshots
+  // - orphaned-group remains visible as a read-only archive for surviving members
+  return Boolean(
+    group.archivedAt &&
+      (group.archiveReason === 'admin-archived' ||
+        group.archiveReason === 'owner-deleted' ||
+        group.archiveReason === 'self-service-data-hidden'),
   )
 }
 
@@ -784,7 +1488,9 @@ function isArchivedIdentifier(identifier?: string | null) {
   return Boolean(identifier?.startsWith('archived_'))
 }
 
-function buildAccountHandle(account: Account) {
+function buildAccountHandle(
+  account: Pick<AccountRecord, 'deletedBySelfService' | 'identifier' | 'nickname' | 'publicDeleted'>,
+) {
   if (isPublicDeletedAccount(account)) {
     return ''
   }
@@ -810,6 +1516,141 @@ function buildAccountDisplayLabel(
   }
 
   return formatAccountName(account) || account.identifier
+}
+
+function buildContactMessageSource(
+  account: Pick<AccountRecord, 'avatarImage' | 'displayName' | 'identifier' | 'nickname' | 'status' | 'surname'>,
+): NonNullable<Message['sourceContact']> {
+  return {
+    accent: pickAccentForIdentifier(account.identifier),
+    avatarImage: account.avatarImage,
+    handle: buildAccountHandle(account),
+    identifier: account.identifier,
+    status: account.status?.trim() || 'На связи',
+    title: formatAccountName(account) || account.identifier,
+  }
+}
+
+function buildCanonicalContactPair(leftIdentifier: string, rightIdentifier: string) {
+  const normalizedLeft = normalizeIdentifier(leftIdentifier)
+  const normalizedRight = normalizeIdentifier(rightIdentifier)
+
+  return normalizedLeft <= normalizedRight
+    ? { leftIdentifier: normalizedLeft, rightIdentifier: normalizedRight }
+    : { leftIdentifier: normalizedRight, rightIdentifier: normalizedLeft }
+}
+
+function findContactLink(database: Database, leftIdentifier: string, rightIdentifier: string) {
+  const pair = buildCanonicalContactPair(leftIdentifier, rightIdentifier)
+  return database.contactLinks.find(
+    (link) =>
+      link.leftIdentifier === pair.leftIdentifier &&
+      link.rightIdentifier === pair.rightIdentifier,
+  )
+}
+
+function getContactStateForViewer(
+  database: Database,
+  viewerIdentifier: string,
+  peerIdentifier: string,
+): ContactState {
+  const link = findContactLink(database, viewerIdentifier, peerIdentifier)
+  if (!link) {
+    return 'none'
+  }
+
+  if (link.status === 'accepted') {
+    return 'accepted'
+  }
+
+  if (link.status === 'blocked') {
+    return link.blockedByIdentifier === viewerIdentifier ? 'blocked-by-me' : 'blocked-by-peer'
+  }
+
+  return link.requesterIdentifier === viewerIdentifier ? 'pending-outgoing' : 'pending-incoming'
+}
+
+function buildContactRequestPreview(account: Account): ContactRequestPreview {
+  return {
+    accent: pickAccentForIdentifier(account.identifier),
+    avatarImage: account.avatarImage,
+    createdAt: account.createdAt,
+    handle: buildAccountHandle(account),
+    identifier: account.identifier,
+    premium: hasActivePremium(account.premium, account.premiumExpiresAt),
+    status: account.status?.trim() || 'На связи',
+    title: formatAccountName(account) || account.identifier,
+  }
+}
+
+function resolveContactSourceReferenceFromText(
+  database: Database,
+  text: string,
+): Message['sourceContact'] | undefined {
+  const trimmedText = text.trim()
+  if (!/^@\S+$/u.test(trimmedText)) {
+    return undefined
+  }
+
+  const normalizedHandle = normalizeNickname(trimmedText.replace(/^@+/u, ''))
+  if (!normalizedHandle) {
+    return undefined
+  }
+
+  const matchedAccount = database.accounts.find((account) => {
+    if (isPublicDeletedAccount(account)) {
+      return false
+    }
+
+    const accountHandle = buildAccountHandle(account)
+    return normalizeNickname(accountHandle.replace(/^@+/u, '')) === normalizedHandle
+  })
+
+  return matchedAccount ? buildContactMessageSource(matchedAccount) : undefined
+}
+
+function resolveChannelSourceReferenceFromText(
+  database: Database,
+  text: string,
+): Message['sourceChannel'] | undefined {
+  const trimmedText = text.trim()
+  if (!/^@\S+$/u.test(trimmedText)) {
+    return undefined
+  }
+
+  const normalizedHandle = sanitizeChannelDirectLink(trimmedText)
+  if (!normalizedHandle) {
+    return undefined
+  }
+
+  const matchedChannel = database.managedChannels.find(
+    (channel) => (sanitizeChannelDirectLink(channel.directLink) || channel.directLink) === normalizedHandle,
+  )
+  if (!matchedChannel) {
+    return undefined
+  }
+
+  return {
+    accent: matchedChannel.avatarTone,
+    draft: matchedChannel.status === 'draft',
+    handle: matchedChannel.directLink,
+    id: matchedChannel.id,
+    statusText: matchedChannel.statusText?.trim() || undefined,
+    title: matchedChannel.title,
+    visibility: matchedChannel.visibility,
+  }
+}
+
+function getGroupSystemEventText(event: GroupSystemEvent) {
+  if (event.kind === 'member-joined') {
+    return `К группе присоединился ${event.actor.title}`
+  }
+
+  if (event.kind === 'member-left') {
+    return `${event.actor.title} покинул группу`
+  }
+
+  return `У группы новый организатор: ${event.actor.title}`
 }
 
 function getAdminVisibleAccount(account: Account) {
@@ -839,6 +1680,65 @@ function getUserVisibleDisplayName(account: Account) {
   return isPublicDeletedAccount(account)
     ? 'Аккаунт удалён'
     : buildAccountDisplayLabel(account)
+}
+
+function getStoredInvisibilityPreference(
+  account: Pick<Account, 'invisibilityEnabled' | 'quietModeEnabled'>,
+) {
+  // Legacy fallback:
+  // older sessions only had `Тихо`, so keep them invisible until the new explicit preference
+  // is written server-side. Once `invisibilityEnabled` is persisted, it becomes the single source
+  // of truth for the user's invisibility preference.
+  return Boolean(account.invisibilityEnabled ?? account.quietModeEnabled)
+}
+
+function getStoredQuietModeSettings(
+  account: Pick<Account, 'quietModeSettings'>,
+) {
+  // Quiet settings must always materialize as a full normalized object so legacy snapshots and
+  // new UI checkboxes cannot drift into partially-defined category behavior.
+  return normalizeQuietModeSettings(account.quietModeSettings)
+}
+
+function isInvisibleModeActive(
+  account: Pick<Account, 'invisibilityEnabled' | 'premium' | 'premiumExpiresAt' | 'quietModeEnabled'>,
+) {
+  // Invisibility contract:
+  // the checkbox is a premium-only persisted preference and must stay server-authoritative so every
+  // viewer sees the same offline-presence result across dialogs, groups and room headers.
+  return getStoredInvisibilityPreference(account) && hasActivePremium(account.premium, account.premiumExpiresAt)
+}
+
+function shouldHidePresenceFromOthers(
+  account: Pick<Account, 'invisibilityEnabled' | 'premium' | 'premiumExpiresAt' | 'quietModeEnabled'>,
+) {
+  // Keep this delegating through isInvisibleModeActive so presence masking, self-settings and
+  // direct read-receipt stealth cannot drift into separate behaviors.
+  return isInvisibleModeActive(account)
+}
+
+function shouldSuppressDirectReadReceipts(
+  account: Pick<Account, 'invisibilityEnabled' | 'premium' | 'premiumExpiresAt' | 'quietModeEnabled'>,
+) {
+  // Direct read-receipt stealth must follow the exact same gate as invisible mode itself.
+  return isInvisibleModeActive(account)
+}
+
+function getViewerVisibleOnline(
+  account: Pick<Account, 'identifier' | 'invisibilityEnabled' | 'premium' | 'premiumExpiresAt' | 'quietModeEnabled'>,
+  viewerIdentifier: string | undefined,
+  online: boolean,
+) {
+  if (!online) {
+    return false
+  }
+
+  const normalizedViewerIdentifier = normalizeStoredIdentifierReference(viewerIdentifier ?? '')
+  if (normalizedViewerIdentifier === account.identifier) {
+    return true
+  }
+
+  return !shouldHidePresenceFromOthers(account)
 }
 
 function getUserVisibleStatus(account: Account, online: boolean) {
@@ -875,6 +1775,16 @@ function isArchivedChannel(
   return Boolean(channel.archivedAt)
 }
 
+function isArchivedThread(
+  threadRoot:
+    | Pick<PersistedGroupMessage, 'threadArchivedAt'>
+    | Pick<PersistedSubscriptionPost, 'threadArchivedAt'>
+    | Pick<Message, 'threadArchivedAt'>
+    | Pick<ChannelPost, 'threadArchivedAt'>,
+) {
+  return Boolean(threadRoot.threadArchivedAt)
+}
+
 function buildAdminAuditAccountLabel(
   account:
     | Pick<Account, 'displayName' | 'identifier' | 'nickname' | 'surname'>
@@ -905,16 +1815,60 @@ function buildAdminLinkedUserSummary(
 ): AdminLinkedUser {
   const adminVisible = account ? getAdminVisibleAccount(account as Account) : null
   const normalizedNickname = normalizeNickname(adminVisible?.nickname ?? '')
+  const rawDisplayIdentifier = account
+    ? getAccountOriginalIdentifier(account) || (isArchivedSyntheticIdentifier(account.identifier) ? '' : account.identifier)
+    : isArchivedSyntheticIdentifier(identifier)
+      ? ''
+      : identifier
+  const displayIdentifier =
+    rawDisplayIdentifier && !isArchivedSyntheticIdentifier(rawDisplayIdentifier)
+      ? rawDisplayIdentifier
+      : ''
+  const rawDisplayName = account
+    ? formatAccountName({
+        displayName:
+          isArchivedSyntheticIdentifier(adminVisible?.displayName ?? '')
+            ? ''
+            : adminVisible?.displayName ?? account.displayName,
+        surname: adminVisible?.surname ?? account.surname ?? '',
+      }) ||
+      rawDisplayIdentifier ||
+      (isArchivedSyntheticIdentifier(account.identifier) ? 'Удалённый аккаунт' : account.identifier)
+    : isArchivedSyntheticIdentifier(identifier)
+      ? 'Удалённый аккаунт'
+      : identifier
+  const displayName = rawDisplayName && !isArchivedSyntheticIdentifier(rawDisplayName)
+    ? rawDisplayName
+    : 'Удалённый аккаунт'
+
   return {
-    displayName:
-      account
-        ? formatAccountName({
-            displayName: adminVisible?.displayName ?? account.displayName,
-            surname: adminVisible?.surname ?? account.surname ?? '',
-          }) || account.identifier
-        : identifier,
-    identifier,
+    displayName,
+    identifier: displayIdentifier || 'Нет данных',
+    lookupIdentifier: account?.identifier || undefined,
     nickname: normalizedNickname || undefined,
+  }
+}
+
+function getArchivedGroupOwnerTitleFallback(title: string) {
+  const match = title.trim().match(/^Группа:\s+(.+)$/u)
+  return match?.[1]?.trim() || ''
+}
+
+function patchArchivedGroupOwnerSummary(summary: AdminLinkedUser, groupTitle: string) {
+  const titleFallback = getArchivedGroupOwnerTitleFallback(groupTitle)
+  const needsDisplayNameFallback =
+    summary.displayName === 'Удалённый аккаунт' || isArchivedSyntheticIdentifier(summary.displayName)
+  const needsIdentifierFallback =
+    summary.identifier === 'Нет данных' || isArchivedSyntheticIdentifier(summary.identifier)
+
+  if (!titleFallback && !needsIdentifierFallback) {
+    return summary
+  }
+
+  return {
+    ...summary,
+    displayName: needsDisplayNameFallback && titleFallback ? titleFallback : summary.displayName,
+    identifier: needsIdentifierFallback ? 'Нет данных' : summary.identifier,
   }
 }
 
@@ -1000,6 +1954,39 @@ function isTimestampWithinRange(value: string | undefined, fromTimestamp: number
 
 function buildCsv(rows: unknown[][]) {
   return rows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')).join('\n')
+}
+
+function normalizeAccountStatusHistory(
+  statusHistory: AccountStatusHistoryEntry[] | undefined,
+  fallbackCreatedAt: string,
+  fallbackStatus: string | undefined,
+) {
+  const normalizedEntries = (statusHistory ?? [])
+    .map((entry) => ({
+      setAt: entry?.setAt || fallbackCreatedAt,
+      status: sanitizeStatusField(entry?.status ?? ''),
+    }))
+    .filter((entry) => Boolean(entry.status && parseIsoDate(entry.setAt) !== null))
+
+  if (normalizedEntries.length === 0) {
+    const normalizedFallbackStatus = sanitizeStatusField(fallbackStatus ?? '')
+    if (normalizedFallbackStatus) {
+      normalizedEntries.push({
+        setAt: fallbackCreatedAt,
+        status: normalizedFallbackStatus,
+      })
+    }
+  }
+
+  return normalizedEntries.sort((left, right) => {
+    const leftTimestamp = parseIsoDate(left.setAt) ?? 0
+    const rightTimestamp = parseIsoDate(right.setAt) ?? 0
+    return leftTimestamp - rightTimestamp
+  })
+}
+
+function getAccountStatusHistory(account: Pick<AccountRecord, 'createdAt' | 'status' | 'statusHistory'>) {
+  return normalizeAccountStatusHistory(account.statusHistory, account.createdAt, account.status)
 }
 
 function sanitizeIpAddress(value: string | undefined) {
@@ -1111,6 +2098,33 @@ function buildAdminGroupAggregateKey(
   return `${handleKey || titleKey}:${participantKey || ownerKey}`
 }
 
+function getAdminGroupSearchRank(
+  group: Pick<AdminManagedGroupSummary, 'owner' | 'sharedId' | 'title'>,
+  query: string,
+) {
+  if (!query) return 0
+
+  const normalizedTitle = group.title.trim().toLowerCase()
+  const normalizedSharedId = group.sharedId.trim().toLowerCase()
+  const normalizedOwnerName = group.owner.displayName.trim().toLowerCase()
+  const normalizedOwnerIdentifier = group.owner.identifier.trim().toLowerCase()
+
+  if (normalizedTitle === query) return 0
+  if (normalizedSharedId === query) return 1
+  if (normalizedTitle.startsWith(query)) return 2
+  if (normalizedSharedId.startsWith(query)) return 3
+  if (normalizedTitle.includes(query)) return 4
+  if (normalizedSharedId.includes(query)) return 5
+  if (normalizedOwnerName === query) return 10
+  if (normalizedOwnerIdentifier === query) return 11
+  if (normalizedOwnerName.startsWith(query)) return 12
+  if (normalizedOwnerIdentifier.startsWith(query)) return 13
+  if (normalizedOwnerName.includes(query)) return 14
+  if (normalizedOwnerIdentifier.includes(query)) return 15
+
+  return Number.POSITIVE_INFINITY
+}
+
 function buildAdminGroupThreadKey(
   group: Pick<PersistedGroup, 'creatorIdentifier' | 'groupOwnerIdentifier' | 'handle' | 'id' | 'ownerIdentifier' | 'participants' | 'sharedId' | 'title'>,
   message: Pick<Message, 'attachment' | 'createdAt' | 'deliveryId' | 'id' | 'text' | 'threadId' | 'time'>,
@@ -1197,10 +2211,93 @@ function findAccountByStoredIdentifier(database: Database, identifier?: string |
   return database.accounts.find((account) => account.identifier === normalizedIdentifier) ?? null
 }
 
+function hasLivePresenceInSet(livePresenceIdentifiers: LivePresenceLookup, identifier: string) {
+  const normalizedIdentifier = normalizeStoredIdentifierReference(identifier)
+  if (!normalizedIdentifier) {
+    return false
+  }
+
+  return livePresenceIdentifiers.has(normalizedIdentifier)
+}
+
+function syncPersistedDialogWithAccount(
+  dialog: PersistedDialog,
+  account: Account,
+  options?: {
+    online?: boolean
+  },
+) {
+  const online = options?.online ?? false
+  const archivedAccount = isPublicDeletedAccount(account)
+  // Invisibility invariant:
+  // Active invisible mode hides live presence from other viewers everywhere.
+  const visibleOnline = archivedAccount
+    ? false
+    : getViewerVisibleOnline(account, dialog.ownerIdentifier, online)
+  const nextState = {
+    accent: pickAccentForIdentifier(account.identifier),
+    avatarImage: archivedAccount ? undefined : account.avatarImage,
+    handle: buildAccountHandle(account),
+    lastSeen: archivedAccount || visibleOnline ? undefined : 'был(а) недавно в сети',
+    mood: archivedAccount ? 'Удалённый аккаунт' : account.status?.trim() || 'На связи',
+    online: archivedAccount ? false : visibleOnline,
+    phone: account.identifier,
+    premium: archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt),
+    status: getUserVisibleStatus(account, visibleOnline),
+    title: getUserVisibleDisplayName(account),
+  } as const
+
+  let didMutate = false
+
+  if (dialog.accent !== nextState.accent) {
+    dialog.accent = nextState.accent
+    didMutate = true
+  }
+  if (dialog.avatarImage !== nextState.avatarImage) {
+    dialog.avatarImage = nextState.avatarImage
+    didMutate = true
+  }
+  if (dialog.handle !== nextState.handle) {
+    dialog.handle = nextState.handle
+    didMutate = true
+  }
+  if (dialog.lastSeen !== nextState.lastSeen) {
+    dialog.lastSeen = nextState.lastSeen
+    didMutate = true
+  }
+  if (dialog.mood !== nextState.mood) {
+    dialog.mood = nextState.mood
+    didMutate = true
+  }
+  if (dialog.online !== nextState.online) {
+    dialog.online = nextState.online
+    didMutate = true
+  }
+  if (dialog.phone !== nextState.phone) {
+    dialog.phone = nextState.phone
+    didMutate = true
+  }
+  if (dialog.premium !== nextState.premium) {
+    dialog.premium = nextState.premium
+    didMutate = true
+  }
+  if (dialog.status !== nextState.status) {
+    dialog.status = nextState.status
+    didMutate = true
+  }
+  if (dialog.title !== nextState.title) {
+    dialog.title = nextState.title
+    didMutate = true
+  }
+
+  return didMutate
+}
+
 function materializeThreadCommentsForViewer(
   database: Database,
   reporterIdentifier: string,
   comments?: ThreadComment[],
+  perspective: AttachmentRemovedNoticePerspective = 'author',
 ) {
   return compactThreadComments(comments).flatMap((comment) => {
     const authorAccount = findAccountByStoredIdentifier(database, comment.authorIdentifier)
@@ -1208,13 +2305,26 @@ function materializeThreadCommentsForViewer(
       return []
     }
 
+    const materializedComment = materializeThreadCommentForViewer(comment, perspective)
+    if (!materializedComment) {
+      return []
+    }
+
     return [{
-      ...comment,
+      ...materializedComment,
       attachment: materializeAttachmentForViewer(database, reporterIdentifier, comment.attachment),
+      sourceChannel:
+        materializedComment.sourceChannel ??
+        (materializedComment.sourceContact
+          ? undefined
+          : resolveChannelSourceReferenceFromText(database, materializedComment.text)),
+      sourceContact:
+        materializedComment.sourceContact ??
+        resolveContactSourceReferenceFromText(database, materializedComment.text),
       displayAuthor:
         authorAccount && isPublicDeletedAccount(authorAccount)
           ? 'Аккаунт удалён'
-          : comment.displayAuthor,
+          : materializedComment.displayAuthor,
     }]
   })
 }
@@ -1300,6 +2410,19 @@ function getSubscriptionPostThreadId(
   return `channel:${normalizedHandle}:legacy:${post.id}:${post.time}:${post.text.trim()}`
 }
 
+function resolveSubscriptionPostAuthorIdentifier(
+  database: Database,
+  channel: Pick<PersistedSubscriptionChannel, 'handle'>,
+  post: PersistedSubscriptionPost,
+) {
+  const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
+  return (
+    database.managedChannels.find(
+      (candidate) => (sanitizeChannelDirectLink(candidate.directLink) || candidate.directLink) === normalizedHandle,
+    )?.ownerIdentifier ?? post.ownerIdentifier
+  )
+}
+
 function materializeThreadComment(
   comment: ThreadComment | undefined,
   fallbackAuthor: 'me' | 'them' = 'them',
@@ -1308,6 +2431,7 @@ function materializeThreadComment(
 
   return {
     attachment: sanitizeMessageAttachment(comment.attachment),
+    attachmentRemovedNotice: sanitizeAttachmentRemovedNotice(comment.attachmentRemovedNotice),
     author: comment.author === 'me' || comment.author === 'them' ? comment.author : fallbackAuthor,
     authorIdentifier: comment.authorIdentifier ? normalizeIdentifier(comment.authorIdentifier) : undefined,
     createdAt: comment.createdAt,
@@ -1320,6 +2444,30 @@ function materializeThreadComment(
   } satisfies ThreadComment
 }
 
+function materializeThreadCommentForViewer(
+  comment: ThreadComment | undefined,
+  perspective: AttachmentRemovedNoticePerspective,
+  fallbackAuthor: 'me' | 'them' = 'them',
+): ThreadComment | null {
+  const materializedComment = materializeThreadComment(comment, fallbackAuthor)
+  if (!materializedComment) return null
+
+  const effectivePerspective: AttachmentRemovedNoticePerspective =
+    materializedComment.author === 'me'
+      ? 'self'
+      : perspective === 'peer'
+        ? 'peer'
+        : 'author'
+
+  return {
+    ...materializedComment,
+    attachmentRemovedNotice: materializeAttachmentRemovedNoticeForViewer(
+      materializedComment.attachmentRemovedNotice,
+      effectivePerspective,
+    ),
+  }
+}
+
 function compactThreadComments(comments: Array<ThreadComment | undefined> | undefined): ThreadComment[] {
   return (comments ?? []).flatMap((comment) => {
     const materialized = materializeThreadComment(comment)
@@ -1330,7 +2478,9 @@ function compactThreadComments(comments: Array<ThreadComment | undefined> | unde
 function toPersistedDialog(ownerIdentifier: string, chat: Chat): PersistedDialog {
   return {
     accent: chat.accent,
+    avatarImage: chat.avatarImage,
     handle: chat.handle,
+    hidden: Boolean(chat.hidden),
     id: chat.id,
     isTestEntity: chat.isTestEntity,
     lastSeen: chat.lastSeen,
@@ -1371,6 +2521,7 @@ function toPersistedGroup(ownerIdentifier: string, group: GroupPreview): Persist
     commentsEnabledForAll: Boolean(group.commentsEnabledForAll),
     commentsEnabledForPremium: Boolean(group.commentsEnabledForPremium),
     creatorIdentifier: group.creatorIdentifier?.trim() || ownerIdentifier,
+    description: sanitizeChannelDescription(group.description ?? ''),
     handle: group.handle,
     id: group.id,
     isTestEntity: group.isTestEntity,
@@ -1387,6 +2538,7 @@ function toPersistedGroup(ownerIdentifier: string, group: GroupPreview): Persist
       nickname: normalizeNickname(participant.nickname ?? ''),
     })),
     preview: group.preview,
+    showHistoryToNewMembers: group.showHistoryToNewMembers !== false,
     sharedId: group.sharedId?.trim() || `${ownerIdentifier}:${group.id}`,
     time: group.time,
     title: group.title,
@@ -1420,6 +2572,8 @@ function toPersistedSubscriptionChannel(
   ownerIdentifier: string,
   channel: SubscriptionChannel,
 ): PersistedSubscriptionChannel {
+  const subscribedAt =
+    (channel as SubscriptionChannel & { subscribedAt?: string }).subscribedAt?.trim() || undefined
   return {
     accent: channel.accent,
     archivedAt: channel.archivedAt,
@@ -1439,10 +2593,11 @@ function toPersistedSubscriptionChannel(
         ...participant,
         identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
         nickname: normalizeNickname(participant.nickname ?? ''),
-    })) ?? [],
+      })) ?? [],
     preview: channel.preview,
     readers: channel.readers ?? 0,
     statusText: channel.statusText?.trim() || undefined,
+    subscribedAt,
     time: channel.time,
     title: channel.title,
     unread: channel.unread,
@@ -1480,28 +2635,44 @@ function resolveGroupMessageAuthorIdentifier(
 
 function materializeDialog(
   database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
   dialog: PersistedDialog,
-): Omit<PersistedDialog, 'ownerIdentifier'> {
+): Omit<Chat, 'messages'> {
   const contactAccount = findAccountByStoredIdentifier(database, dialog.phone)
-  const archivedAccount = Boolean(contactAccount && isPublicDeletedAccount(contactAccount)) || isArchivedIdentifier(dialog.phone)
+  const effectiveDialog = { ...dialog }
+
+  if (contactAccount) {
+    syncPersistedDialogWithAccount(effectiveDialog, contactAccount, {
+      online: hasLivePresenceInSet(livePresenceIdentifiers, contactAccount.identifier),
+    })
+  }
+
+  const archivedAccount =
+    Boolean(contactAccount && isPublicDeletedAccount(contactAccount)) || isArchivedIdentifier(effectiveDialog.phone)
   return {
-    accent: dialog.accent,
+    accent: effectiveDialog.accent,
     archivedAccount,
-    handle: archivedAccount ? '' : dialog.handle,
-    id: dialog.id,
-    isTestEntity: dialog.isTestEntity,
-    lastSeen: archivedAccount ? undefined : dialog.lastSeen,
-    mood: dialog.mood,
-    muted: Boolean(dialog.muted),
-    online: archivedAccount ? false : dialog.online,
-    phone: dialog.phone,
-    pinned: dialog.pinned,
-    pinnedMessageId: dialog.pinnedMessageId,
-    premium: archivedAccount ? false : dialog.premium,
-    status: archivedAccount ? 'Удалённый аккаунт' : dialog.status,
-    title: archivedAccount ? 'Аккаунт удалён' : dialog.title,
-    typing: dialog.typing,
-    unread: dialog.unread,
+    avatarImage: archivedAccount ? undefined : effectiveDialog.avatarImage,
+    contactState:
+      archivedAccount
+        ? 'accepted'
+        : getContactStateForViewer(database, effectiveDialog.ownerIdentifier, effectiveDialog.phone),
+    handle: archivedAccount ? '' : effectiveDialog.handle,
+    hidden: Boolean(effectiveDialog.hidden),
+    id: effectiveDialog.id,
+    isTestEntity: effectiveDialog.isTestEntity,
+    lastSeen: archivedAccount ? undefined : effectiveDialog.lastSeen,
+    mood: effectiveDialog.mood,
+    muted: Boolean(effectiveDialog.muted),
+    online: archivedAccount ? false : effectiveDialog.online,
+    phone: effectiveDialog.phone,
+    pinned: effectiveDialog.pinned,
+    pinnedMessageId: effectiveDialog.pinnedMessageId,
+    premium: archivedAccount ? false : effectiveDialog.premium,
+    status: archivedAccount ? 'Удалённый аккаунт' : effectiveDialog.status,
+    title: archivedAccount ? 'Аккаунт удалён' : effectiveDialog.title,
+    typing: effectiveDialog.typing,
+    unread: effectiveDialog.unread,
   }
 }
 
@@ -1510,8 +2681,13 @@ function materializeDialogMessage(
   viewerIdentifier: string,
   message: PersistedDialogMessage,
 ): Omit<PersistedDialogMessage, 'dialogId' | 'ownerIdentifier'> {
+  const resolvedSourceContact = message.sourceContact ?? resolveContactSourceReferenceFromText(database, message.text)
   return {
     attachment: materializeAttachmentForViewer(database, viewerIdentifier, message.attachment),
+    attachmentRemovedNotice: materializeAttachmentRemovedNoticeForViewer(
+      message.attachmentRemovedNotice,
+      message.author === 'me' ? 'self' : 'peer',
+    ),
     author: message.author,
     createdAt: message.createdAt,
     deliveryId: message.deliveryId,
@@ -1521,8 +2697,12 @@ function materializeDialogMessage(
     id: message.id,
     readAt: message.readAt,
     replyTo: message.replyTo,
-    sourceChannel: message.sourceChannel,
-    sourceGroup: message.sourceGroup,
+    sourceChannel:
+      message.sourceChannel ??
+      (resolvedSourceContact ? undefined : resolveChannelSourceReferenceFromText(database, message.text)),
+    sourceContact: resolvedSourceContact,
+    sourceGroup: materializeSourceGroupForViewer(database, message.sourceGroup),
+    system: Boolean(message.system),
     text: message.text,
     time: message.time,
   }
@@ -1530,6 +2710,8 @@ function materializeDialogMessage(
 
 function materializeGroup(
   database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
+  viewerIdentifier: string,
   group: PersistedGroup,
 ): Omit<PersistedGroup, 'ownerIdentifier'> {
   const fallbackParticipants =
@@ -1542,12 +2724,19 @@ function materializeGroup(
       return [] as GroupParticipant[]
     }
 
+    const online = account ? hasLivePresenceInSet(livePresenceIdentifiers, account.identifier) : Boolean(participant.online)
+    const visibleOnline = account
+      ? getViewerVisibleOnline(account, viewerIdentifier, online)
+      : Boolean(participant.online)
+
     return [{
       ...participant,
       archivedAccount: false,
       identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
       nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
-      status: account?.status?.trim() || participant.status,
+      online: visibleOnline,
+      premium: account ? hasActivePremium(account.premium, account.premiumExpiresAt) : participant.premium,
+      status: account ? getUserVisibleStatus(account, visibleOnline) : participant.status,
       title: account ? formatAccountName(account) || account.identifier : participant.title,
     }]
   })
@@ -1561,6 +2750,7 @@ function materializeGroup(
     commentsEnabledForAll: Boolean(group.commentsEnabledForAll),
     commentsEnabledForPremium: Boolean(group.commentsEnabledForPremium),
     creatorIdentifier: group.creatorIdentifier ?? group.ownerIdentifier,
+    description: sanitizeChannelDescription(group.description ?? '') || undefined,
     groupOwnerIdentifier: getCurrentGroupOwnerIdentifier(group),
     handle: group.handle,
     id: group.id,
@@ -1569,10 +2759,12 @@ function materializeGroup(
     muted: Boolean(group.muted),
     participants,
     preview: group.preview,
+    showHistoryToNewMembers: group.showHistoryToNewMembers !== false,
     sharedId: group.sharedId ?? `${group.ownerIdentifier}:${group.id}`,
     time: group.time,
     title: group.title,
     unread: group.unread,
+    viewerIsOwner: getCurrentGroupOwnerIdentifier(group) === viewerIdentifier,
   }
 }
 
@@ -1581,8 +2773,14 @@ function materializeGroupMessage(
   viewerIdentifier: string,
   message: PersistedGroupMessage,
 ): Omit<PersistedGroupMessage, 'groupId' | 'ownerIdentifier'> {
+  const resolvedSourceContact = message.sourceContact ?? resolveContactSourceReferenceFromText(database, message.text)
+  const hideThreadForViewer = isArchivedThread(message)
   return {
     attachment: materializeAttachmentForViewer(database, viewerIdentifier, message.attachment),
+    attachmentRemovedNotice: materializeAttachmentRemovedNoticeForViewer(
+      message.attachmentRemovedNotice,
+      message.author === 'me' ? 'self' : 'author',
+    ),
     author: message.author,
     createdAt: message.createdAt,
     deliveryId: message.deliveryId,
@@ -1590,14 +2788,23 @@ function materializeGroupMessage(
     forwarded: message.forwarded,
     forwardedAuthorName: message.forwardedAuthorName,
     groupParticipantId: message.groupParticipantId,
+    groupSystemEvent: message.groupSystemEvent,
     id: message.id,
     readAt: message.readAt,
     replyTo: message.replyTo,
-    sourceChannel: message.sourceChannel,
-    sourceGroup: message.sourceGroup,
+    sourceChannel:
+      message.sourceChannel ??
+      (resolvedSourceContact ? undefined : resolveChannelSourceReferenceFromText(database, message.text)),
+    sourceContact: resolvedSourceContact,
+    sourceGroup: materializeSourceGroupForViewer(database, message.sourceGroup),
+    system: Boolean(message.system),
     text: message.text,
-    threadComments: materializeThreadCommentsForViewer(database, viewerIdentifier, message.threadComments),
-    threadId: message.threadId?.trim() || undefined,
+    threadArchivedAt: message.threadArchivedAt,
+    threadArchiveReason: message.threadArchiveReason,
+    threadComments: hideThreadForViewer
+      ? []
+      : materializeThreadCommentsForViewer(database, viewerIdentifier, message.threadComments, 'author'),
+    threadId: hideThreadForViewer ? undefined : message.threadId?.trim() || undefined,
     time: message.time,
   }
 }
@@ -1637,6 +2844,55 @@ function getMessageReadReceiptKey(
     text: message.text,
     time: message.time,
   })
+}
+
+function getDirectArchiveReasonForExport(
+  leftReason?: PersistedDialogMessage['archivedReason'],
+  rightReason?: PersistedDialogMessage['archivedReason'],
+) {
+  if (leftReason && rightReason) {
+    return leftReason === rightReason ? leftReason : `${leftReason}|${rightReason}`
+  }
+  return leftReason ?? rightReason
+}
+
+function buildDirectRetentionNoteForExport(
+  leftReason?: PersistedDialogMessage['archivedReason'],
+  rightReason?: PersistedDialogMessage['archivedReason'],
+) {
+  if (!leftReason && !rightReason) return undefined
+
+  if (leftReason === 'delete-message-everyone' || rightReason === 'delete-message-everyone') {
+    if (
+      (leftReason && leftReason !== 'delete-message-everyone') ||
+      (rightReason && rightReason !== 'delete-message-everyone')
+    ) {
+      return 'Сообщение удалено пользователем у всех; часть локальных копий уже была скрыта, но серверная запись сохранена.'
+    }
+    return 'Сообщение удалено пользователем у всех, но серверная запись сохранена.'
+  }
+
+  if (leftReason === rightReason) {
+    if (leftReason === 'delete-message-me') {
+      return 'Сообщение скрыто у обоих участников через «Удалить у меня», но серверная запись сохранена.'
+    }
+    if (leftReason === 'delete-history-me') {
+      return 'Сообщение скрыто у обоих участников через «Удалить переписку у меня», но серверная запись сохранена.'
+    }
+  }
+
+  if (leftReason && rightReason) {
+    return `Сообщение скрыто локально у участников (${humanizeDirectArchiveReason(leftReason)}; ${humanizeDirectArchiveReason(rightReason)}), но серверная запись сохранена.`
+  }
+
+  return `Сообщение скрыто локально у одного участника (${humanizeDirectArchiveReason(leftReason ?? rightReason)}), но серверная запись сохранена.`
+}
+
+function humanizeDirectArchiveReason(reason?: PersistedDialogMessage['archivedReason']) {
+  if (reason === 'delete-message-me') return '«Удалить у меня»'
+  if (reason === 'delete-history-me') return '«Удалить переписку у меня»'
+  if (reason === 'delete-message-everyone') return '«Удалить у всех»'
+  return 'локальное скрытие'
 }
 
 function materializeManagedChannel(
@@ -1711,15 +2967,29 @@ function materializeSubscriptionPost(
   viewerIdentifier: string,
   post: PersistedSubscriptionPost,
 ): Omit<PersistedSubscriptionPost, 'channelId' | 'ownerIdentifier'> {
+  const resolvedSourceContact = post.sourceContact ?? resolveContactSourceReferenceFromText(database, post.text)
+  const hideThreadForViewer = isArchivedThread(post)
   return {
     attachment: materializeAttachmentForViewer(database, viewerIdentifier, post.attachment),
+    attachmentRemovedNotice: materializeAttachmentRemovedNoticeForViewer(
+      post.attachmentRemovedNotice,
+      post.ownerIdentifier === viewerIdentifier ? 'self' : 'author',
+    ),
     createdAt: post.createdAt,
     id: post.id,
     replyTo: post.replyTo,
+    sourceChannel:
+      post.sourceChannel ??
+      (resolvedSourceContact ? undefined : resolveChannelSourceReferenceFromText(database, post.text)),
+    sourceContact: resolvedSourceContact,
     system: Boolean(post.system),
     text: post.text,
-    threadComments: materializeThreadCommentsForViewer(database, viewerIdentifier, post.threadComments),
-    threadId: post.threadId?.trim() || undefined,
+    threadArchivedAt: post.threadArchivedAt,
+    threadArchiveReason: post.threadArchiveReason,
+    threadComments: hideThreadForViewer
+      ? []
+      : materializeThreadCommentsForViewer(database, viewerIdentifier, post.threadComments, 'author'),
+    threadId: hideThreadForViewer ? undefined : post.threadId?.trim() || undefined,
     time: post.time,
   }
 }
@@ -1849,15 +3119,15 @@ function buildOlderHistorySlice<T extends HistoryTimelineItem>(
 }
 
 function normalizeChats(ownerIdentifier: string, chats: Chat[]) {
-  const visibleChats = chats.filter(
+  const persistedChats = chats.filter(
     (chat) => normalizeIdentifier(chat.phone) !== ownerIdentifier,
   )
 
   return {
-    dialogMessages: visibleChats.flatMap((chat) =>
+    dialogMessages: persistedChats.flatMap((chat) =>
       chat.messages.map((message) => toPersistedDialogMessage(ownerIdentifier, chat.id, message)),
     ),
-    dialogs: visibleChats.map((chat) => toPersistedDialog(ownerIdentifier, chat)),
+    dialogs: persistedChats.map((chat) => toPersistedDialog(ownerIdentifier, chat)),
   }
 }
 
@@ -1902,6 +3172,8 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
   nextDatabase.threadStates = []
 
   for (const legacyAccount of value.accounts ?? []) {
+    const legacyPremium = legacyAccount.premium ?? true
+    const legacyPremiumExpiresAt = legacyAccount.premiumExpiresAt ?? makePremiumExpiry(30)
     nextDatabase.accounts.push({
       accountId: randomUUID(),
       avatarImage: legacyAccount.avatarImage?.trim() || undefined,
@@ -1918,15 +3190,27 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
       displayName: legacyAccount.displayName,
       gifLibrary: [...(legacyAccount.gifLibrary ?? [])],
       identifier: legacyAccount.identifier,
+      invisibilityAutoEnabled: Boolean(legacyAccount.invisibilityAutoEnabled),
+      invisibilityEnabled: legacyAccount.invisibilityEnabled ?? legacyAccount.quietModeEnabled ?? false,
       isTestEntity: legacyAccount.isTestEntity,
       lastActiveAt: legacyAccount.lastActiveAt ?? legacyAccount.createdAt,
       nickname: legacyAccount.nickname ?? '',
       passwordHash: legacyAccount.passwordHash?.trim() || undefined,
       passwordSetAt: legacyAccount.passwordSetAt || undefined,
-      premium: legacyAccount.premium ?? true,
-      premiumExpiresAt: legacyAccount.premiumExpiresAt ?? makePremiumExpiry(30),
+      premium: legacyPremium,
+      premiumExpiresAt: legacyPremiumExpiresAt,
+      retainedArchiveStorageQuotaBytes: normalizeRetainedArchiveStorageQuotaBytes({
+        premium: legacyPremium,
+        premiumExpiresAt: legacyPremiumExpiresAt,
+      }),
+      retainedStorageQuotaBytes: normalizeRetainedStorageQuotaBytes({
+        premium: legacyPremium,
+        premiumExpiresAt: legacyPremiumExpiresAt,
+      }),
+      quietModeSettings: normalizeQuietModeSettings(legacyAccount.quietModeSettings),
       staffRole: sanitizeStaffRole(legacyAccount.staffRole),
       status: legacyAccount.status ?? '',
+      statusHistory: normalizeAccountStatusHistory(undefined, legacyAccount.createdAt, legacyAccount.status ?? ''),
       surname: legacyAccount.surname ?? '',
     })
 
@@ -1953,9 +3237,16 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
   return nextDatabase
 }
 
-function materializeFullChats(database: Database, ownerIdentifier: string): Chat[] {
+function materializeFullChats(
+  database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
+  ownerIdentifier: string,
+  options: { includeHidden?: boolean } = {},
+): Chat[] {
+  const includeHidden = Boolean(options.includeHidden)
+
   return database.dialogs
-    .filter((dialog) => dialog.ownerIdentifier === ownerIdentifier)
+    .filter((dialog) => dialog.ownerIdentifier === ownerIdentifier && (includeHidden || !dialog.hidden))
     .flatMap((dialog) => {
       const contactAccount = database.accounts.find(
         (account) => normalizeStoredIdentifierReference(dialog.phone) === account.identifier,
@@ -1966,8 +3257,12 @@ function materializeFullChats(database: Database, ownerIdentifier: string): Chat
       const messages = database.dialogMessages
         .filter(
           (message) =>
-            message.ownerIdentifier === ownerIdentifier && message.dialogId === dialog.id,
+            message.ownerIdentifier === ownerIdentifier &&
+            message.dialogId === dialog.id &&
+            !message.archivedAt,
         )
+        // Direct "delete for everyone" archives messages server-side for admin recovery,
+        // but those archived copies must disappear from every normal user snapshot/history view.
         .map((message) => materializeDialogMessage(database, ownerIdentifier, message))
       const pinnedMessage =
         dialog.pinnedMessageId === undefined
@@ -1975,7 +3270,7 @@ function materializeFullChats(database: Database, ownerIdentifier: string): Chat
           : messages.find((message) => message.id === dialog.pinnedMessageId)
 
       return [{
-        ...materializeDialog(database, dialog),
+        ...materializeDialog(database, livePresenceIdentifiers, dialog),
         blockedByAdmin: Boolean(contactAccount?.blockedAt),
         blockedReason: contactAccount?.blockedReason?.trim() || undefined,
         messages,
@@ -1984,8 +3279,12 @@ function materializeFullChats(database: Database, ownerIdentifier: string): Chat
     })
 }
 
-function materializeChats(database: Database, ownerIdentifier: string): Chat[] {
-  return materializeFullChats(database, ownerIdentifier).map((chat) => {
+function materializeChats(
+  database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
+  ownerIdentifier: string,
+): Chat[] {
+  return materializeFullChats(database, livePresenceIdentifiers, ownerIdentifier, { includeHidden: true }).map((chat) => {
     const historySlice = buildInitialHistorySlice(chat.messages)
 
     return {
@@ -1996,11 +3295,63 @@ function materializeChats(database: Database, ownerIdentifier: string): Chat[] {
   })
 }
 
-function materializeFullGroups(database: Database, ownerIdentifier: string): GroupPreview[] {
+function materializeContactRequests(database: Database, ownerIdentifier: string): ContactRequestPreview[] {
+  return database.contactLinks
+    .filter(
+      (link) =>
+        link.status === 'pending' &&
+        link.requesterIdentifier !== ownerIdentifier &&
+        (link.leftIdentifier === ownerIdentifier || link.rightIdentifier === ownerIdentifier),
+    )
+    .map((link) => {
+      const requester = database.accounts.find((account) => account.identifier === link.requesterIdentifier)
+      if (!requester || isPublicDeletedAccount(requester)) {
+        return null
+      }
+
+      return {
+        ...buildContactRequestPreview(requester),
+        createdAt: link.createdAt,
+      } satisfies ContactRequestPreview
+    })
+    .filter((request): request is ContactRequestPreview => request !== null)
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+}
+
+function materializeOutgoingContactRequests(database: Database, ownerIdentifier: string): ContactRequestPreview[] {
+  return database.contactLinks
+    .filter(
+      (link) =>
+        link.status === 'pending' &&
+        link.requesterIdentifier === ownerIdentifier &&
+        (link.leftIdentifier === ownerIdentifier || link.rightIdentifier === ownerIdentifier),
+    )
+    .map((link) => {
+      const peerIdentifier =
+        link.leftIdentifier === ownerIdentifier ? link.rightIdentifier : link.leftIdentifier
+      const peer = database.accounts.find((account) => account.identifier === peerIdentifier)
+      if (!peer || isPublicDeletedAccount(peer)) {
+        return null
+      }
+
+      return {
+        ...buildContactRequestPreview(peer),
+        createdAt: link.createdAt,
+      } satisfies ContactRequestPreview
+    })
+    .filter((request): request is ContactRequestPreview => request !== null)
+}
+
+function materializeFullGroups(
+  database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
+  ownerIdentifier: string,
+): GroupPreview[] {
   return database.groups
     .filter((group) => group.ownerIdentifier === ownerIdentifier)
+    .filter((group) => !shouldHideArchivedGroupForUsers(group))
     .map((group) => {
-      const materializedGroup = materializeGroup(database, group)
+      const materializedGroup = materializeGroup(database, livePresenceIdentifiers, ownerIdentifier, group)
       const messages = database.groupMessages
         .filter(
           (message) => message.ownerIdentifier === ownerIdentifier && message.groupId === group.id,
@@ -2021,7 +3372,7 @@ function materializeFullGroups(database: Database, ownerIdentifier: string): Gro
                 ? 'Аккаунт удалён'
                 : materializedMessage.displayAuthor,
             threadComments: materializedMessage.threadComments ?? [],
-            threadId: getGroupMessageThreadId(group, materializedMessage),
+            threadId: materializedMessage.threadId,
           }]
         })
 
@@ -2033,8 +3384,12 @@ function materializeFullGroups(database: Database, ownerIdentifier: string): Gro
     })
 }
 
-function materializeGroups(database: Database, ownerIdentifier: string): GroupPreview[] {
-  return materializeFullGroups(database, ownerIdentifier).map((group) => {
+function materializeGroups(
+  database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
+  ownerIdentifier: string,
+): GroupPreview[] {
+  return materializeFullGroups(database, livePresenceIdentifiers, ownerIdentifier).map((group) => {
     const historySlice = buildInitialHistorySlice(group.messages)
 
     return {
@@ -2048,35 +3403,16 @@ function materializeGroups(database: Database, ownerIdentifier: string): GroupPr
 function materializeManagedChannels(database: Database, ownerIdentifier: string): Channel[] {
   return database.managedChannels
     .filter((channel) => channel.ownerIdentifier === ownerIdentifier)
+    .filter((channel) => !shouldHideArchivedChannelForUsers(channel))
     .map((channel) => materializeManagedChannel(channel))
 }
 
-function materializeSubscriptionParticipants(
+function buildDerivedSubscriptionParticipants(
   database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
   ownerIdentifier: string,
-  channel: PersistedSubscriptionChannel,
+  normalizedHandle: string,
 ) {
-  const explicitParticipants = channel.participants ?? []
-  if (explicitParticipants.length > 0) {
-    return explicitParticipants.flatMap((participant) => {
-      const account = findAccountByStoredIdentifier(database, participant.identifier)
-      const archivedAccount =
-        Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
-      if (archivedAccount) {
-        return [] as GroupParticipant[]
-      }
-      return [{
-        ...participant,
-        archivedAccount: false,
-        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
-        nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
-        status: account?.status?.trim() || participant.status,
-        title: account ? formatAccountName(account) || account.identifier : participant.title,
-      }]
-    })
-  }
-
-  const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
   const matchingOwners = new Set(
     database.subscriptionChannels
       .filter(
@@ -2110,7 +3446,7 @@ function materializeSubscriptionParticipants(
         id: getStableParticipantId(account.identifier),
         identifier: account.identifier,
         nickname: normalizeNickname(account.nickname ?? ''),
-        online: database.sessions.some((session) => session.identifier === account.identifier),
+        online: hasLivePresenceInSet(livePresenceIdentifiers, account.identifier),
         premium: hasActivePremium(account.premium, account.premiumExpiresAt),
         status: account.status?.trim() || 'в сети',
         title: formatAccountName(account) || account.identifier,
@@ -2118,8 +3454,61 @@ function materializeSubscriptionParticipants(
     })
 }
 
+function materializeSubscriptionParticipants(
+  database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
+  ownerIdentifier: string,
+  channel: PersistedSubscriptionChannel,
+) {
+  const explicitParticipants = channel.participants ?? []
+  const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
+  const derivedParticipants = buildDerivedSubscriptionParticipants(
+    database,
+    livePresenceIdentifiers,
+    ownerIdentifier,
+    normalizedHandle,
+  )
+
+  if (explicitParticipants.length > 0) {
+    const materializedExplicitParticipants = explicitParticipants.flatMap((participant) => {
+      const account = findAccountByStoredIdentifier(database, participant.identifier)
+      const archivedAccount =
+        Boolean(account && isPublicDeletedAccount(account)) || isArchivedIdentifier(participant.identifier)
+      if (archivedAccount) {
+        return [] as GroupParticipant[]
+      }
+      return [{
+        ...participant,
+        archivedAccount: false,
+        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
+        nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
+        status: account?.status?.trim() || participant.status,
+        title: account ? formatAccountName(account) || account.identifier : participant.title,
+      }]
+    })
+
+    if (derivedParticipants.length > materializedExplicitParticipants.length) {
+      const mergedParticipants = new Map<string, GroupParticipant>()
+
+      for (const participant of materializedExplicitParticipants.concat(derivedParticipants)) {
+        const normalizedIdentifier = normalizeIdentifier(participant.identifier ?? '')
+        if (normalizedIdentifier && !mergedParticipants.has(normalizedIdentifier)) {
+          mergedParticipants.set(normalizedIdentifier, participant)
+        }
+      }
+
+      return [...mergedParticipants.values()]
+    }
+
+    return materializedExplicitParticipants
+  }
+
+  return derivedParticipants
+}
+
 function materializeFullSubscriptionChannels(
   database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
   ownerIdentifier: string,
 ): SubscriptionChannel[] {
   return database.subscriptionChannels
@@ -2127,7 +3516,12 @@ function materializeFullSubscriptionChannels(
     .filter((channel) => !shouldHideArchivedChannelForUsers(channel))
     .map((channel) => {
       const materializedChannel = materializeSubscriptionChannel(database, channel)
-      const participants = materializeSubscriptionParticipants(database, ownerIdentifier, channel)
+      const participants = materializeSubscriptionParticipants(
+        database,
+        livePresenceIdentifiers,
+        ownerIdentifier,
+        channel,
+      )
       const normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
       const isManagedChannel = database.managedChannels.some(
         (managedChannel) =>
@@ -2145,7 +3539,7 @@ function materializeFullSubscriptionChannels(
           return [{
             ...materializedPost,
             threadComments: materializedPost.threadComments ?? [],
-            threadId: getSubscriptionPostThreadId(channel, materializedPost),
+            threadId: materializedPost.threadId,
           }]
         })
 
@@ -2161,9 +3555,10 @@ function materializeFullSubscriptionChannels(
 
 function materializeSubscriptionChannels(
   database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
   ownerIdentifier: string,
 ): SubscriptionChannel[] {
-  return materializeFullSubscriptionChannels(database, ownerIdentifier).map((channel) => {
+  return materializeFullSubscriptionChannels(database, livePresenceIdentifiers, ownerIdentifier).map((channel) => {
     const historySlice = buildInitialHistorySlice(channel.posts)
 
     return {
@@ -2174,43 +3569,164 @@ function materializeSubscriptionChannels(
   })
 }
 
+function buildEphemeralSubscriptionChannelFromManagedChannel(
+  sourceChannel: PersistedManagedChannel,
+): PersistedSubscriptionChannel {
+  return {
+    accent: sourceChannel.avatarTone,
+    archivedAt: sourceChannel.archivedAt,
+    archiveReason: sourceChannel.archiveReason,
+    avatarImage: sourceChannel.avatarImage,
+    commentBlacklistIdentifiers: sanitizeIdentifierList(sourceChannel.commentBlacklistIdentifiers),
+    commentsEnabledForAll: Boolean(sourceChannel.commentsEnabledForAll),
+    commentsEnabledForPremium: Boolean(sourceChannel.commentsEnabledForPremium),
+    creatorIdentifier: sourceChannel.ownerIdentifier,
+    description: sourceChannel.description,
+    draft: sourceChannel.status === 'draft',
+    handle: sourceChannel.directLink,
+    id: 0,
+    muted: false,
+    ownerIdentifier: sourceChannel.ownerIdentifier,
+    participants: [],
+    preview: buildManagedChannelFallbackPreview(sourceChannel),
+    readers: 0,
+    statusText: sourceChannel.statusText?.trim() || undefined,
+    time: '',
+    title: sourceChannel.title,
+    unread: 0,
+    visibility: sourceChannel.visibility,
+  }
+}
+
+function materializeSubscriptionChannelPreview(
+  database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
+  viewerIdentifier: string,
+  sourceChannel: PersistedManagedChannel,
+): SubscriptionChannel {
+  const normalizedHandle = sanitizeChannelDirectLink(sourceChannel.directLink) || sourceChannel.directLink
+  const ownerCopy =
+    database.subscriptionChannels.find(
+      (channel) =>
+        channel.ownerIdentifier === sourceChannel.ownerIdentifier &&
+        (sanitizeChannelDirectLink(channel.handle) || channel.handle) === normalizedHandle,
+    ) ??
+    database.subscriptionChannels.find(
+      (channel) => (sanitizeChannelDirectLink(channel.handle) || channel.handle) === normalizedHandle,
+    ) ??
+    buildEphemeralSubscriptionChannelFromManagedChannel(sourceChannel)
+
+  const materializedChannel = materializeSubscriptionChannel(database, ownerCopy)
+  const participants = materializeSubscriptionParticipants(
+    database,
+    livePresenceIdentifiers,
+    viewerIdentifier,
+    ownerCopy,
+  )
+  const posts = database.subscriptionPosts
+    .filter(
+      (post) =>
+        post.ownerIdentifier === ownerCopy.ownerIdentifier &&
+        post.channelId === ownerCopy.id,
+    )
+    .sort((left, right) => {
+      const leftCreatedAt = parseIsoDate(left.createdAt)
+      const rightCreatedAt = parseIsoDate(right.createdAt)
+
+      if (leftCreatedAt !== null && rightCreatedAt !== null && leftCreatedAt !== rightCreatedAt) {
+        return leftCreatedAt - rightCreatedAt
+      }
+      if (leftCreatedAt !== null && rightCreatedAt === null) return -1
+      if (leftCreatedAt === null && rightCreatedAt !== null) return 1
+      return left.id - right.id
+    })
+    .map((post) => {
+      const materializedPost = materializeSubscriptionPost(database, viewerIdentifier, post)
+      return {
+        ...materializedPost,
+        threadComments: materializedPost.threadComments ?? [],
+        threadId: materializedPost.threadId,
+      }
+    })
+
+  return {
+    ...materializedChannel,
+    historyHasMore: false,
+    latestActivityAt: posts.at(-1)?.createdAt,
+    participants,
+    posts,
+    readers: Math.max(1, participants.length),
+    unread: 0,
+  }
+}
+
 function compareIsoDateDesc(left?: string, right?: string) {
   const leftValue = left ? Date.parse(left) : Number.NEGATIVE_INFINITY
   const rightValue = right ? Date.parse(right) : Number.NEGATIVE_INFINITY
   return rightValue - leftValue
 }
 
-function findLatestThreadCommentCreatedAt(comments: ThreadComment[]) {
-  let latestCreatedAt: string | undefined
+function compareThreadCommentOrder(
+  left: Pick<ThreadComment, 'createdAt' | 'id'>,
+  right: Pick<ThreadComment, 'createdAt' | 'id'>,
+) {
+  const leftCreatedAt = Date.parse(left.createdAt ?? '')
+  const rightCreatedAt = Date.parse(right.createdAt ?? '')
+
+  if (!Number.isNaN(leftCreatedAt) || !Number.isNaN(rightCreatedAt)) {
+    if (Number.isNaN(leftCreatedAt)) return -1
+    if (Number.isNaN(rightCreatedAt)) return 1
+    if (leftCreatedAt !== rightCreatedAt) return leftCreatedAt - rightCreatedAt
+  } else if ((left.createdAt ?? '') !== (right.createdAt ?? '')) {
+    return (left.createdAt ?? '').localeCompare(right.createdAt ?? '')
+  }
+
+  return (left.id ?? 0) - (right.id ?? 0)
+}
+
+function findLatestThreadComment(comments: ThreadComment[]) {
+  let latestComment: ThreadComment | undefined
 
   for (const comment of comments) {
     if (!comment.createdAt) continue
-    if (!latestCreatedAt || Date.parse(comment.createdAt) > Date.parse(latestCreatedAt)) {
-      latestCreatedAt = comment.createdAt
+    if (!latestComment || compareThreadCommentOrder(comment, latestComment) > 0) {
+      latestComment = comment
     }
   }
 
-  return latestCreatedAt
+  return latestComment
 }
 
-function findLatestOwnThreadCommentCreatedAt(comments: ThreadComment[], ownerIdentifier: string) {
-  let latestCreatedAt: string | undefined
+function findLatestOwnThreadComment(comments: ThreadComment[], ownerIdentifier: string) {
+  let latestComment: ThreadComment | undefined
 
   for (const comment of comments) {
     if (!comment.createdAt) continue
     if (normalizeIdentifier(comment.authorIdentifier ?? '') !== ownerIdentifier) continue
-    if (!latestCreatedAt || Date.parse(comment.createdAt) > Date.parse(latestCreatedAt)) {
-      latestCreatedAt = comment.createdAt
+    if (!latestComment || compareThreadCommentOrder(comment, latestComment) > 0) {
+      latestComment = comment
     }
   }
 
-  return latestCreatedAt
+  return latestComment
+}
+
+function buildThreadReadMarker(
+  latestComment: Pick<ThreadComment, 'createdAt' | 'id'> | undefined,
+  fallbackCreatedAt?: string,
+): Pick<PersistedThreadState, 'lastReadCommentCreatedAt' | 'lastReadCommentId'> {
+  return {
+    lastReadCommentCreatedAt: latestComment?.createdAt ?? fallbackCreatedAt,
+    lastReadCommentId:
+      latestComment?.id ?? (latestComment?.createdAt || fallbackCreatedAt ? 0 : undefined),
+  }
 }
 
 function countUnreadThreadReplies(
   comments: ThreadComment[],
   ownerIdentifier: string,
   lastReadCommentCreatedAt?: string,
+  lastReadCommentId?: number,
 ) {
   if (!lastReadCommentCreatedAt) return 0
 
@@ -2221,7 +3737,12 @@ function countUnreadThreadReplies(
     if (!comment.createdAt) return count
     if (normalizeIdentifier(comment.authorIdentifier ?? '') === ownerIdentifier) return count
     const createdAt = Date.parse(comment.createdAt)
-    if (Number.isNaN(createdAt) || createdAt <= lastReadAt) return count
+    if (Number.isNaN(createdAt)) return count
+    if (createdAt < lastReadAt) return count
+    if (createdAt === lastReadAt) {
+      if (lastReadCommentId === undefined) return count
+      if ((comment.id ?? 0) <= lastReadCommentId) return count
+    }
     return count + 1
   }, 0)
 }
@@ -2262,9 +3783,16 @@ function buildThreadInbox(
   }
 
   for (const group of database.groups.filter((candidate) => candidate.ownerIdentifier === ownerIdentifier)) {
+    if (shouldHideArchivedGroupForUsers(group)) {
+      continue
+    }
+
     for (const message of database.groupMessages.filter(
       (candidate) => candidate.ownerIdentifier === ownerIdentifier && candidate.groupId === group.id,
     )) {
+      if (isArchivedThread(message)) {
+        continue
+      }
       const authorAccount = findAccountByStoredIdentifier(
         database,
         resolveGroupMessageAuthorIdentifier(group, message),
@@ -2275,20 +3803,36 @@ function buildThreadInbox(
       const threadId = getGroupMessageThreadId(group, message)
       const comments = materializeThreadCommentsForViewer(database, ownerIdentifier, message.threadComments)
       const threadState = threadStatesById.get(threadId)
-      const hasParticipation = comments.some(
+      const isRootAuthor =
+        normalizeIdentifier(resolveGroupMessageAuthorIdentifier(group, message)) === ownerIdentifier
+      const hasParticipation = isRootAuthor || comments.some(
         (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === ownerIdentifier,
       )
-      const isSubscribed =
-        threadState?.subscription === 'subscribed' ||
-        (hasParticipation && threadState?.subscription !== 'unsubscribed')
+      const isExplicitlySubscribed = threadState?.subscription === 'subscribed'
+      const isImplicitlySubscribed =
+        comments.length > 0 &&
+        hasParticipation &&
+        threadState?.subscription !== 'unsubscribed'
+      const isSubscribed = isExplicitlySubscribed || isImplicitlySubscribed
 
       if (!isSubscribed) continue
 
-      const latestComment = comments.at(-1)
+      const latestComment = findLatestThreadComment(comments)
+      const latestOwnComment = findLatestOwnThreadComment(comments, ownerIdentifier)
       const lastReadCommentCreatedAt =
         threadState?.lastReadCommentCreatedAt ??
-        findLatestOwnThreadCommentCreatedAt(comments, ownerIdentifier)
-      const unreadCount = countUnreadThreadReplies(comments, ownerIdentifier, lastReadCommentCreatedAt)
+        latestOwnComment?.createdAt ??
+        message.createdAt
+      const lastReadCommentId =
+        threadState?.lastReadCommentId ??
+        latestOwnComment?.id ??
+        (lastReadCommentCreatedAt ? 0 : undefined)
+      const unreadCount = countUnreadThreadReplies(
+        comments,
+        ownerIdentifier,
+        lastReadCommentCreatedAt,
+        lastReadCommentId,
+      )
 
       upsertThreadInboxItem({
         commentCount: comments.length,
@@ -2321,23 +3865,42 @@ function buildThreadInbox(
     for (const post of database.subscriptionPosts.filter(
       (candidate) => candidate.ownerIdentifier === ownerIdentifier && candidate.channelId === channel.id,
     )) {
+      if (isArchivedThread(post)) {
+        continue
+      }
       const threadId = getSubscriptionPostThreadId(channel, post)
       const comments = materializeThreadCommentsForViewer(database, ownerIdentifier, post.threadComments)
       const threadState = threadStatesById.get(threadId)
-      const hasParticipation = comments.some(
+      const isRootAuthor =
+        normalizeIdentifier(resolveSubscriptionPostAuthorIdentifier(database, channel, post)) === ownerIdentifier
+      const hasParticipation = isRootAuthor || comments.some(
         (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === ownerIdentifier,
       )
-      const isSubscribed =
-        threadState?.subscription === 'subscribed' ||
-        (hasParticipation && threadState?.subscription !== 'unsubscribed')
+      const isExplicitlySubscribed = threadState?.subscription === 'subscribed'
+      const isImplicitlySubscribed =
+        comments.length > 0 &&
+        hasParticipation &&
+        threadState?.subscription !== 'unsubscribed'
+      const isSubscribed = isExplicitlySubscribed || isImplicitlySubscribed
 
       if (!isSubscribed) continue
 
-      const latestComment = comments.at(-1)
+      const latestComment = findLatestThreadComment(comments)
+      const latestOwnComment = findLatestOwnThreadComment(comments, ownerIdentifier)
       const lastReadCommentCreatedAt =
         threadState?.lastReadCommentCreatedAt ??
-        findLatestOwnThreadCommentCreatedAt(comments, ownerIdentifier)
-      const unreadCount = countUnreadThreadReplies(comments, ownerIdentifier, lastReadCommentCreatedAt)
+        latestOwnComment?.createdAt ??
+        post.createdAt
+      const lastReadCommentId =
+        threadState?.lastReadCommentId ??
+        latestOwnComment?.id ??
+        (lastReadCommentCreatedAt ? 0 : undefined)
+      const unreadCount = countUnreadThreadReplies(
+        comments,
+        ownerIdentifier,
+        lastReadCommentCreatedAt,
+        lastReadCommentId,
+      )
 
       upsertThreadInboxItem({
         channelAccent: channel.accent,
@@ -2364,17 +3927,254 @@ function buildThreadInbox(
   )
 }
 
+function materializeSupportTickets(
+  database: Database,
+  ownerIdentifier: string,
+): SupportTicket[] {
+  return database.supportTickets
+    .filter((ticket) => ticket.ownerIdentifier === ownerIdentifier)
+    .map((ticket) => {
+      const comments = materializeThreadCommentsForViewer(database, ownerIdentifier, ticket.comments, 'self')
+      const threadState = database.threadStates.find(
+        (state) => state.ownerIdentifier === ownerIdentifier && state.threadId === ticket.threadId,
+      )
+      const latestComment = findLatestThreadComment(comments)
+      const latestOwnComment = findLatestOwnThreadComment(comments, ownerIdentifier)
+      const lastReadCommentCreatedAt =
+        threadState?.lastReadCommentCreatedAt ??
+        latestOwnComment?.createdAt ??
+        ticket.updatedAt
+      const lastReadCommentId =
+        threadState?.lastReadCommentId ??
+        latestOwnComment?.id ??
+        (lastReadCommentCreatedAt ? 0 : undefined)
+      const unreadCount = countUnreadThreadReplies(
+        comments,
+        ownerIdentifier,
+        lastReadCommentCreatedAt,
+        lastReadCommentId,
+      )
+
+      return {
+        attachment: materializeAttachmentForViewer(database, ownerIdentifier, ticket.attachment),
+        attachmentRemovedNotice: materializeAttachmentRemovedNoticeForViewer(
+          ticket.attachmentRemovedNotice,
+          'self',
+        ),
+        comments,
+        createdAt: ticket.createdAt,
+        id: ticket.id,
+        latestActivityAt: latestComment?.createdAt ?? ticket.updatedAt,
+        replyTo: ticket.replyTo,
+        status: ticket.status,
+        text: ticket.text,
+        threadId: ticket.threadId,
+        time: ticket.time,
+        unreadCount,
+        updatedAt: ticket.updatedAt,
+      } satisfies SupportTicket
+    })
+    .sort((left, right) => compareIsoDateDesc(left.latestActivityAt, right.latestActivityAt))
+}
+
+function getSupportTicketCooldownUntil(
+  database: Database,
+  ownerIdentifier: string,
+): string | undefined {
+  const latestTicketCreatedAt = database.supportTickets
+    .filter((ticket) => ticket.ownerIdentifier === ownerIdentifier)
+    .map((ticket) => ticket.createdAt)
+    .sort(compareIsoDateDesc)[0]
+
+  if (!latestTicketCreatedAt) {
+    return undefined
+  }
+
+  const latestTimestamp = Date.parse(latestTicketCreatedAt)
+  if (Number.isNaN(latestTimestamp)) {
+    return undefined
+  }
+
+  const cooldownUntil = new Date(latestTimestamp + SUPPORT_TICKET_COOLDOWN_MS).toISOString()
+  return Date.parse(cooldownUntil) > Date.now() ? cooldownUntil : undefined
+}
+
 export class TinychokStore {
   private readonly persistDatabase: PersistDatabaseFn
   private database: Database
+  private readonly livePresenceConnectionsByToken = new Map<string, number>()
+  private readonly livePresenceCountsByIdentifier = new Map<string, number>()
 
   private constructor(database: Database, persistDatabase: PersistDatabaseFn) {
     this.database = database
     this.persistDatabase = persistDatabase
   }
 
+  private hasLivePresence(identifier: string) {
+    const normalizedIdentifier = normalizeStoredIdentifierReference(identifier)
+    if (!normalizedIdentifier) {
+      return false
+    }
+
+    // Presence source of truth:
+    // "в сети" must only reflect live realtime sockets. Persisted database.sessions are allowed to
+    // outlive the browser for retention/audit reasons and must never by themselves keep users online.
+    return (this.livePresenceCountsByIdentifier.get(normalizedIdentifier) ?? 0) > 0
+  }
+
+  private incrementLivePresence(identifier: string) {
+    const nextCount = (this.livePresenceCountsByIdentifier.get(identifier) ?? 0) + 1
+    this.livePresenceCountsByIdentifier.set(identifier, nextCount)
+  }
+
+  private decrementLivePresence(identifier: string) {
+    const nextCount = (this.livePresenceCountsByIdentifier.get(identifier) ?? 0) - 1
+    if (nextCount > 0) {
+      this.livePresenceCountsByIdentifier.set(identifier, nextCount)
+      return
+    }
+
+    this.livePresenceCountsByIdentifier.delete(identifier)
+  }
+
+  private getPresenceBroadcastIdentifiers(identifier: string) {
+    const normalizedIdentifier = normalizeStoredIdentifierReference(identifier)
+    if (!normalizedIdentifier) {
+      return [] as string[]
+    }
+
+    const affectedIdentifiers = new Set<string>([normalizedIdentifier])
+    const account = this.findAccount(normalizedIdentifier)
+    if (account) {
+      for (const ownerIdentifier of this.refreshDialogsForAccount(account)) {
+        affectedIdentifiers.add(ownerIdentifier)
+      }
+    }
+
+    for (const group of this.database.groups) {
+      const participantIdentifiers = new Set<string>([
+        normalizeStoredIdentifierReference(group.groupOwnerIdentifier ?? ''),
+        normalizeStoredIdentifierReference(group.creatorIdentifier ?? ''),
+        ...(group.participants ?? []).map((participant) => normalizeStoredIdentifierReference(participant.identifier ?? '')),
+      ])
+      if (participantIdentifiers.has(normalizedIdentifier)) {
+        affectedIdentifiers.add(group.ownerIdentifier)
+      }
+    }
+
+    return [...affectedIdentifiers]
+  }
+
+  private clearLivePresenceToken(
+    token: string,
+    identifierOverride?: string,
+  ) {
+    const normalizedIdentifier = normalizeStoredIdentifierReference(
+      identifierOverride ?? this.getIdentifierByToken(token) ?? '',
+    )
+    const activeConnections = this.livePresenceConnectionsByToken.get(token) ?? 0
+    if (!normalizedIdentifier || activeConnections <= 0) {
+      return [] as string[]
+    }
+
+    if (activeConnections > 1) {
+      this.livePresenceConnectionsByToken.set(token, activeConnections - 1)
+      return []
+    }
+
+    const wasOnline = this.hasLivePresence(normalizedIdentifier)
+    this.livePresenceConnectionsByToken.delete(token)
+    this.decrementLivePresence(normalizedIdentifier)
+    const isOnline = this.hasLivePresence(normalizedIdentifier)
+
+    if (wasOnline === isOnline) {
+      return []
+    }
+
+    return this.getPresenceBroadcastIdentifiers(normalizedIdentifier)
+  }
+
+  markSessionLive(token: string) {
+    const normalizedIdentifier = normalizeStoredIdentifierReference(this.getIdentifierByToken(token) ?? '')
+    if (!normalizedIdentifier) {
+      return [] as string[]
+    }
+
+    const existingConnections = this.livePresenceConnectionsByToken.get(token) ?? 0
+    if (existingConnections > 0) {
+      this.livePresenceConnectionsByToken.set(token, existingConnections + 1)
+      return []
+    }
+
+    const wasOnline = this.hasLivePresence(normalizedIdentifier)
+    this.livePresenceConnectionsByToken.set(token, 1)
+    this.incrementLivePresence(normalizedIdentifier)
+    const isOnline = this.hasLivePresence(normalizedIdentifier)
+
+    if (wasOnline === isOnline) {
+      return []
+    }
+
+    return this.getPresenceBroadcastIdentifiers(normalizedIdentifier)
+  }
+
+  markSessionOffline(token: string) {
+    return this.clearLivePresenceToken(token)
+  }
+
+  private dropLegacyGroupStorageState() {
+    const archivedMediaBefore = this.database.archivedMedia.length
+    this.database.archivedMedia = this.database.archivedMedia.filter(
+      (item) => item.storageSubjectKind !== 'group',
+    )
+    return this.database.archivedMedia.length !== archivedMediaBefore
+  }
+
+  revokeSessionToken(token: string) {
+    const normalizedIdentifier = normalizeStoredIdentifierReference(this.getIdentifierByToken(token) ?? '')
+    const broadcastIdentifiers = new Set<string>(
+      normalizedIdentifier ? this.clearLivePresenceToken(token, normalizedIdentifier) : [],
+    )
+    const hadSession = this.database.sessions.some((session) => session.token === token)
+    if (!hadSession) {
+      return {
+        broadcastIdentifiers: [...broadcastIdentifiers],
+        revokedTokens: [] as string[],
+      } satisfies SessionRevocationResult
+    }
+
+    this.database.sessions = this.database.sessions.filter((session) => session.token !== token)
+    if (normalizedIdentifier) {
+      broadcastIdentifiers.add(normalizedIdentifier)
+    }
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      revokedTokens: [token],
+    } satisfies SessionRevocationResult
+  }
+
+  async logoutCurrentSession(token: string) {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    // Presence contract:
+    // logging out must immediately invalidate the current token and clear live online state instead
+    // of waiting for retention cleanup of database.sessions.
+    const revocation = this.revokeSessionToken(token)
+    await this.persist()
+    return {
+      broadcastIdentifiers: [...new Set([...revocation.broadcastIdentifiers, account.identifier])],
+      ok: true as const,
+    }
+  }
+
   static create(database: Database, persistDatabase: PersistDatabaseFn) {
-    return new TinychokStore(database, persistDatabase)
+    const store = new TinychokStore(database, persistDatabase)
+    store.dropLegacyGroupStorageState()
+    return store
   }
 
   static async load(dataFilePath = DEFAULT_DATA_FILE) {
@@ -2383,7 +4183,8 @@ export class TinychokStore {
       persistDatabaseToFile(dataFilePath, nextDatabase),
     )
 
-    if (needsPersistenceRewrite) {
+    const droppedLegacyGroupStorage = store.dropLegacyGroupStorageState()
+    if (needsPersistenceRewrite || droppedLegacyGroupStorage) {
       await store.persist()
     }
 
@@ -2395,11 +4196,13 @@ export class TinychokStore {
     options?: {
       entryPoint?: AuthEntrypoint
       flow?: AuthRequestCodeFlow
+      ip?: string
     },
   ): Promise<RequestCodeResponse> {
     const normalizedIdentifier = normalizeIdentifier(identifier)
     const entryPoint = options?.entryPoint ?? 'user'
     const flow = options?.flow ?? 'default'
+    const sanitizedIp = sanitizeIpAddress(options?.ip)
 
     if (!normalizedIdentifier || normalizedIdentifier.length < 12) {
       throw new Error('Проверь номер телефона.')
@@ -2410,6 +4213,18 @@ export class TinychokStore {
     }
 
     const existingAccount = this.findAccount(normalizedIdentifier)
+    if (entryPoint === 'admin' && !hasStaffAccess(existingAccount)) {
+      throw new HttpError(403, ADMIN_STAFF_ONLY_MESSAGE)
+    }
+
+    if (entryPoint === 'user' && existingAccount && isAccountBlocked(existingAccount)) {
+      return {
+        existingAccount: buildExistingAccountPreview(existingAccount),
+        hasPassword: hasAccountPassword(existingAccount),
+        status: 'blocked',
+      }
+    }
+
     if (entryPoint === 'user' && flow === 'default' && existingAccount && hasAccountPassword(existingAccount)) {
       return {
         existingAccount: buildExistingAccountPreview(existingAccount),
@@ -2432,14 +4247,29 @@ export class TinychokStore {
             ? 'password-setup'
             : 'registration'
 
-    this.database.authChallenges = this.database.authChallenges
-      .filter((challenge) => challenge.identifier !== normalizedIdentifier)
-      .concat({
-        code: DEMO_AUTH_CODE,
-        expiresAt,
-        identifier: normalizedIdentifier,
-        purpose,
-      })
+    const didCleanupAuthCodeAttempts = this.cleanupExpiredAuthCodeSendAttempts()
+    const authCodeRateLimitError = this.getAuthCodeSendRateLimitError(normalizedIdentifier, sanitizedIp)
+    if (authCodeRateLimitError) {
+      if (didCleanupAuthCodeAttempts) {
+        await this.persist()
+      }
+      throw authCodeRateLimitError
+    }
+
+    this.database.authCodeSendAttempts.push({
+      createdAt: new Date().toISOString(),
+      entryPoint,
+      flow,
+      identifier: normalizedIdentifier,
+      ip: sanitizedIp ?? undefined,
+    })
+    this.clearChallenge(normalizedIdentifier, purpose)
+    this.database.authChallenges.push({
+      code: DEMO_AUTH_CODE,
+      expiresAt,
+      identifier: normalizedIdentifier,
+      purpose,
+    })
 
     await this.persist()
     console.info(`[tinychok-server] demo code for ${normalizedIdentifier}: ${DEMO_AUTH_CODE}`)
@@ -2474,19 +4304,16 @@ export class TinychokStore {
       throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
     }
 
-    const challenge = this.assertValidChallenge(normalizedIdentifier, code)
-
     if (this.isIdentifierBlockedByReports(normalizedIdentifier)) {
       throw new Error(CONTACT_REPORT_BLOCK_MESSAGE)
     }
 
     const existingAccount = this.findAccount(normalizedIdentifier)
     if (entryPoint === 'admin') {
-      if (!existingAccount) {
-        return {
-          existingAccount: null,
-          status: 'needs-profile-and-password',
-        }
+      const challenge = this.assertValidChallenge(normalizedIdentifier, code, 'admin')
+
+      if (!existingAccount || !hasStaffAccess(existingAccount)) {
+        throw new HttpError(403, ADMIN_STAFF_ONLY_MESSAGE)
       }
 
       if (isAccountBlocked(existingAccount)) {
@@ -2498,7 +4325,7 @@ export class TinychokStore {
         source: 'verify-code',
         userAgent: options?.accessContext?.userAgent,
       })
-      this.clearChallenge(normalizedIdentifier)
+      this.clearChallenge(normalizedIdentifier, challenge.purpose)
       await this.persist()
 
       return {
@@ -2506,6 +4333,12 @@ export class TinychokStore {
         status: 'authenticated',
       }
     }
+
+    const challenge = this.assertValidChallenge(normalizedIdentifier, code, [
+      'registration',
+      'password-reset',
+      'password-setup',
+    ])
 
     if (!existingAccount && challenge.purpose !== 'registration') {
       throw new Error('Аккаунт с таким номером не найден.')
@@ -2545,7 +4378,7 @@ export class TinychokStore {
       throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
     }
 
-    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code)
+    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code, 'registration')
 
     if (this.findAccount(normalizedIdentifier)) {
       throw new Error('Аккаунт уже существует. Попробуйте войти.')
@@ -2579,6 +4412,8 @@ export class TinychokStore {
       displayName,
       gifLibrary: [],
       identifier: normalizedIdentifier,
+      invisibilityAutoEnabled: false,
+      invisibilityEnabled: false,
       isTestEntity: false,
       lastActiveAt: new Date().toISOString(),
       nickname: '',
@@ -2586,9 +4421,11 @@ export class TinychokStore {
       passwordSetAt: new Date().toISOString(),
       premium: false,
       premiumExpiresAt: undefined,
+      quietModeSettings: normalizeQuietModeSettings(undefined),
       soundsDisabled: true,
       staffRole: undefined,
       status: '',
+      statusHistory: [],
       surname: '',
     }
 
@@ -2599,7 +4436,7 @@ export class TinychokStore {
       source: 'register',
       userAgent: accessContext?.userAgent,
     })
-    this.clearChallenge(normalizedIdentifier)
+    this.clearChallenge(normalizedIdentifier, challenge.purpose)
     await this.persist()
 
     return this.buildSnapshot(nextAccount, token)
@@ -2663,9 +4500,9 @@ export class TinychokStore {
   async setPasswordAfterCode(
     payload: SetPasswordBody,
     accessContext?: Omit<SessionAccessContext, 'source'>,
-  ): Promise<AppSnapshot> {
+  ): Promise<{ broadcastIdentifiers: string[]; revokedTokens: string[]; snapshot: AppSnapshot }> {
     const normalizedIdentifier = normalizeIdentifier(payload.identifier)
-    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code)
+    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code, 'password-setup')
     const existingAccount = this.findAccount(normalizedIdentifier)
 
     if (!existingAccount) {
@@ -2683,7 +4520,7 @@ export class TinychokStore {
     assertValidPassword(payload.password, payload.confirmPassword)
     existingAccount.passwordHash = await hashPassword(payload.password)
     existingAccount.passwordSetAt = new Date().toISOString()
-    this.revokeSessionsForIdentifier(normalizedIdentifier)
+    const revocation = this.revokeSessionsForIdentifier(normalizedIdentifier)
     this.clearPasswordLoginAttempts(normalizedIdentifier)
 
     const token = await this.createSessionToken(normalizedIdentifier, {
@@ -2691,17 +4528,21 @@ export class TinychokStore {
       source: 'password-setup',
       userAgent: accessContext?.userAgent,
     })
-    this.clearChallenge(normalizedIdentifier)
+    this.clearChallenge(normalizedIdentifier, challenge.purpose)
     await this.persist()
-    return this.buildSnapshot(existingAccount, token)
+    return {
+      broadcastIdentifiers: revocation.broadcastIdentifiers,
+      revokedTokens: revocation.revokedTokens,
+      snapshot: this.buildSnapshot(existingAccount, token),
+    }
   }
 
   async resetPasswordAfterCode(
     payload: ResetPasswordBody,
     accessContext?: Omit<SessionAccessContext, 'source'>,
-  ): Promise<AppSnapshot> {
+  ): Promise<{ broadcastIdentifiers: string[]; revokedTokens: string[]; snapshot: AppSnapshot }> {
     const normalizedIdentifier = normalizeIdentifier(payload.identifier)
-    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code)
+    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code, 'password-reset')
     const existingAccount = this.findAccount(normalizedIdentifier)
 
     if (!existingAccount) {
@@ -2715,7 +4556,7 @@ export class TinychokStore {
     assertValidPassword(payload.password, payload.confirmPassword)
     existingAccount.passwordHash = await hashPassword(payload.password)
     existingAccount.passwordSetAt = new Date().toISOString()
-    this.revokeSessionsForIdentifier(normalizedIdentifier)
+    const revocation = this.revokeSessionsForIdentifier(normalizedIdentifier)
     this.clearPasswordLoginAttempts(normalizedIdentifier)
 
     const token = await this.createSessionToken(normalizedIdentifier, {
@@ -2723,16 +4564,20 @@ export class TinychokStore {
       source: 'password-reset',
       userAgent: accessContext?.userAgent,
     })
-    this.clearChallenge(normalizedIdentifier)
+    this.clearChallenge(normalizedIdentifier, challenge.purpose)
     await this.persist()
-    return this.buildSnapshot(existingAccount, token)
+    return {
+      broadcastIdentifiers: revocation.broadcastIdentifiers,
+      revokedTokens: revocation.revokedTokens,
+      snapshot: this.buildSnapshot(existingAccount, token),
+    }
   }
 
   async changePassword(
     token: string,
     payload: { confirmPassword: string; currentPassword: string; password: string },
     accessContext?: Omit<SessionAccessContext, 'source'>,
-  ): Promise<AppSnapshot> {
+  ): Promise<{ broadcastIdentifiers: string[]; revokedTokens: string[]; snapshot: AppSnapshot }> {
     const existingAccount = this.findAccountByToken(token)
 
     if (!existingAccount) {
@@ -2759,17 +4604,23 @@ export class TinychokStore {
 
     existingAccount.passwordHash = await hashPassword(nextPassword)
     existingAccount.passwordSetAt = new Date().toISOString()
-    this.revokeSessionsForIdentifier(existingAccount.identifier)
-    this.clearPasswordLoginAttempts(existingAccount.identifier)
-
-    const nextToken = await this.createSessionToken(existingAccount.identifier, {
-      ip: accessContext?.ip ?? '',
-      source: 'password-change',
-      userAgent: accessContext?.userAgent,
+    const revocation = this.revokeSessionsForIdentifier(existingAccount.identifier, {
+      keepToken: token,
     })
+    this.clearPasswordLoginAttempts(existingAccount.identifier)
+    if (accessContext) {
+      await this.recordIpAccessEvent(existingAccount.identifier, {
+        ...accessContext,
+        source: 'password-change',
+      })
+    }
     await this.persist()
 
-    return this.buildSnapshot(existingAccount, nextToken)
+    return {
+      broadcastIdentifiers: revocation.broadcastIdentifiers,
+      revokedTokens: revocation.revokedTokens,
+      snapshot: this.buildSnapshot(existingAccount, token),
+    }
   }
 
   async deleteAccountSelfService(token: string, payload: DeleteAccountBody): Promise<DeleteAccountResponse> {
@@ -2852,13 +4703,34 @@ export class TinychokStore {
     return account ? this.buildSnapshot(account, token) : null
   }
 
+  getRealtimeSnapshotByIdentifier(identifier: string) {
+    const account = this.findAccount(identifier)
+    return account ? this.buildSnapshot(account, '') : null
+  }
+
   async recordSessionAccessByToken(token: string, context: SessionAccessContext) {
     const account = this.findAccountByToken(token)
     if (!account) {
       return false
     }
 
-    return this.recordIpAccessEvent(account.identifier, context)
+    const now = Date.now()
+    const lastActiveAt = parseIsoDate(account.lastActiveAt)
+    const shouldRefreshLastActiveAt =
+      lastActiveAt === null || now - lastActiveAt >= SESSION_LAST_ACTIVE_TOUCH_THROTTLE_MS
+
+    if (shouldRefreshLastActiveAt) {
+      // Admin "Последняя активность" must move on ordinary API / websocket traffic too,
+      // not only on fresh logins, otherwise restored sessions look stale in moderation UI.
+      account.lastActiveAt = new Date(now).toISOString()
+    }
+
+    const recordedIpEvent = await this.recordIpAccessEvent(account.identifier, context)
+    if (!recordedIpEvent && shouldRefreshLastActiveAt) {
+      await this.persist()
+    }
+
+    return recordedIpEvent || shouldRefreshLastActiveAt
   }
 
   getDirectDialogHistory(
@@ -2885,7 +4757,12 @@ export class TinychokStore {
       }
     }
 
-    const chat = materializeFullChats(this.database, account.identifier).find(
+    const chat = materializeFullChats(
+      this.database,
+      this.livePresenceCountsByIdentifier,
+      account.identifier,
+      { includeHidden: true },
+    ).find(
       (candidate) => candidate.id === dialogId,
     )
     if (!chat) {
@@ -2907,7 +4784,11 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const group = materializeFullGroups(this.database, account.identifier).find(
+    const group = materializeFullGroups(
+      this.database,
+      this.livePresenceCountsByIdentifier,
+      account.identifier,
+    ).find(
       (candidate) => candidate.id === groupId,
     )
     if (!group) {
@@ -2933,7 +4814,11 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const channel = materializeFullSubscriptionChannels(this.database, account.identifier).find(
+    const channel = materializeFullSubscriptionChannels(
+      this.database,
+      this.livePresenceCountsByIdentifier,
+      account.identifier,
+    ).find(
       (candidate) => candidate.id === channelId,
     )
     if (!channel) {
@@ -2949,14 +4834,345 @@ export class TinychokStore {
     }
   }
 
+  getSubscriptionChannelPreviewByHandle(
+    token: string,
+    handle: string,
+  ): SubscriptionChannelPreviewResponse {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedHandle = normalizeChannelHandleForComparison(handle)
+    if (!normalizedHandle) {
+      throw new Error('Канал не найден.')
+    }
+
+    const sourceChannel = this.findManagedChannelByHandle(normalizedHandle)
+    if (!sourceChannel) {
+      throw new HttpError(403, 'Доступ к каналу не разрешён.')
+    }
+
+    if (
+      sourceChannel.archiveReason === 'owner-deleted' &&
+      this.canAccessDeletedChannelTombstone(sourceChannel, account.identifier)
+    ) {
+      return {
+        channel: this.buildDeletedChannelTombstonePreview(account.identifier, sourceChannel),
+      }
+    }
+
+    if (sourceChannel.archivedAt) {
+      throw new HttpError(403, 'Доступ к каналу не разрешён.')
+    }
+
+    if (!this.canAccessChannelPreview(sourceChannel, account.identifier)) {
+      throw new HttpError(403, 'Доступ к каналу не разрешён.')
+    }
+
+    return {
+      channel: materializeSubscriptionChannelPreview(
+        this.database,
+        this.livePresenceCountsByIdentifier,
+        account.identifier,
+        sourceChannel,
+      ),
+    }
+  }
+
+  async subscribeToChannelByHandle(
+    token: string,
+    handle: string,
+  ): Promise<MutationResult & { channelId: number }> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedHandle = normalizeChannelHandleForComparison(handle)
+    if (!normalizedHandle) {
+      throw new Error('Канал не найден.')
+    }
+
+    const sourceChannel = this.findManagedChannelByHandle(normalizedHandle)
+    if (!sourceChannel || !this.canAccessChannelPreview(sourceChannel, account.identifier)) {
+      throw new HttpError(403, 'Доступ к каналу не разрешён.')
+    }
+
+    if (sourceChannel.archiveReason === 'owner-deleted') {
+      throw new HttpError(403, 'Канал удалён владельцем.')
+    }
+
+    if (sourceChannel.archivedAt) {
+      throw new Error('Канал находится в архиве.')
+    }
+
+    this.ensureManagedChannelOwnerSubscriptionCopy(sourceChannel)
+    const channelCopy = this.ensureSubscriptionChannelCopyForOwner(sourceChannel, account.identifier)
+    this.clearPendingChannelInvitation(sourceChannel.directLink, account.identifier)
+
+    const broadcastIdentifiers = new Set<string>([account.identifier, sourceChannel.ownerIdentifier])
+    for (const subscriptionCopy of this.syncManagedChannelSubscriptionCopies(sourceChannel)) {
+      broadcastIdentifiers.add(subscriptionCopy.ownerIdentifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      channelId: channelCopy.id,
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async joinGroupBySharedId(
+    token: string,
+    sharedId: string,
+  ): Promise<MutationResult & { groupId: number }> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedSharedId = sharedId.trim()
+    if (!normalizedSharedId) {
+      throw new HttpError(403, 'Доступ к группе не разрешён.')
+    }
+
+    const groupCopiesForJoin = this.listGroupCopies(normalizedSharedId)
+    const activeGroupCopies = groupCopiesForJoin.filter((group) => !isArchivedGroup(group))
+    const canonicalOwnerIdentifier =
+      normalizeStoredIdentifierReference(
+        activeGroupCopies[0]?.groupOwnerIdentifier ??
+        activeGroupCopies[0]?.creatorIdentifier ??
+        activeGroupCopies[0]?.ownerIdentifier ??
+        '',
+      ) || ''
+    const existingGroup =
+      activeGroupCopies.find((group) => group.ownerIdentifier === canonicalOwnerIdentifier) ??
+      activeGroupCopies[0] ??
+      groupCopiesForJoin[0] ??
+      null
+    if (!existingGroup) {
+      throw new HttpError(403, 'Доступ к группе не разрешён.')
+    }
+
+    const currentCopy = this.listGroupCopies(normalizedSharedId).find(
+      (group) => group.ownerIdentifier === account.identifier,
+    )
+    if (currentCopy) {
+      const repairedPendingInvitation = this.hasPendingGroupInvitation(normalizedSharedId, account.identifier)
+      if (repairedPendingInvitation) {
+        const participantAccount = this.findAccount(account.identifier)
+        const authoritativeParticipants = this.buildAuthoritativeGroupParticipants(normalizedSharedId)
+        const nextParticipants =
+          participantAccount &&
+          !authoritativeParticipants.some(
+            (participant) => normalizeIdentifier(participant.identifier ?? '') === participantAccount.identifier,
+          )
+            ? authoritativeParticipants
+                .map((participant) => this.cloneGroupParticipant(participant))
+                .concat(this.buildGroupParticipant(participantAccount))
+            : authoritativeParticipants.map((participant) => this.cloneGroupParticipant(participant))
+
+        if (nextParticipants.length > 0) {
+          this.syncGroupCopiesParticipants(normalizedSharedId, nextParticipants)
+        }
+
+        this.clearPendingGroupInvitation(normalizedSharedId, account.identifier)
+        if (
+          participantAccount &&
+          !participantAccount.quietModeEnabled &&
+          !this.hasGroupSystemEventForActor(normalizedSharedId, 'member-joined', participantAccount.identifier)
+        ) {
+          // Defensive repair for invite-accept edge cases:
+          // if a participant copy exists while the invitation is still pending,
+          // treat this as an incomplete join finalization and emit the missing join event.
+          this.appendGroupSystemEvent(normalizedSharedId, {
+            actor: this.buildGroupSystemEventActor(participantAccount),
+            kind: 'member-joined',
+          })
+        }
+
+        await this.persist()
+
+        return {
+          broadcastIdentifiers: [...new Set(
+            this.listGroupCopies(normalizedSharedId).map((group) => group.ownerIdentifier),
+          )],
+          groupId: currentCopy.id,
+          snapshot: this.buildSnapshot(account, token),
+        }
+      }
+
+      return {
+        broadcastIdentifiers: [account.identifier],
+        groupId: currentCopy.id,
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    if (isArchivedGroup(existingGroup)) {
+      throw new HttpError(403, 'Доступ к группе не разрешён.')
+    }
+
+    if (!this.hasPendingGroupInvitation(normalizedSharedId, account.identifier)) {
+      throw new HttpError(403, 'Доступ к группе не разрешён.')
+    }
+
+    const participantAccount = this.findAccount(account.identifier)
+    if (!participantAccount) {
+      throw new Error('Аккаунт не найден.')
+    }
+
+    const authoritativeParticipants = this.buildAuthoritativeGroupParticipants(normalizedSharedId)
+    const ownerIdentifier = normalizeIdentifier(
+      existingGroup.groupOwnerIdentifier ?? existingGroup.creatorIdentifier ?? existingGroup.ownerIdentifier,
+    )
+    const ownerAccount = this.findAccount(ownerIdentifier) ?? participantAccount
+    const memberLimit = getGroupMemberLimit(ownerAccount)
+    if (authoritativeParticipants.length + 1 > memberLimit) {
+      throw new Error(
+        memberLimit === premiumGroupMemberLimit
+          ? `Даже с премиумом владельца в группе может быть максимум ${premiumGroupMemberLimit} человек.`
+          : `Максимальный размер одной группы — ${defaultGroupMemberLimit} человек. Чтобы приглашать больше людей, необходимо активировать премиум владельцу группы.`,
+      )
+    }
+
+    const nextParticipants = authoritativeParticipants.some(
+      (participant) => normalizeIdentifier(participant.identifier ?? '') === account.identifier,
+    )
+      ? authoritativeParticipants.map((participant) => this.cloneGroupParticipant(participant))
+      : authoritativeParticipants
+        .map((participant) => this.cloneGroupParticipant(participant))
+        .concat(this.buildGroupParticipant(participantAccount))
+
+    const groupCopy = this.ensureGroupCopyForOwner(existingGroup, account.identifier, nextParticipants)
+    this.syncGroupCopiesParticipants(normalizedSharedId, nextParticipants)
+    if (existingGroup.showHistoryToNewMembers !== false) {
+      // Group history visibility for newly joined members is decided at join time.
+      // When enabled, we backfill the existing message log into the new owner copy;
+      // when disabled, the newcomer starts from an empty visible history.
+      this.seedGroupHistoryForOwnerCopy(existingGroup, groupCopy)
+    } else {
+      groupCopy.preview = 'Можно начинать обсуждение.'
+      groupCopy.time = formatNowTime()
+      groupCopy.unread = 0
+    }
+    this.clearPendingGroupInvitation(normalizedSharedId, account.identifier)
+    if (!participantAccount.quietModeEnabled) {
+      this.appendGroupSystemEvent(normalizedSharedId, {
+        actor: this.buildGroupSystemEventActor(participantAccount),
+        kind: 'member-joined',
+      })
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...new Set(
+        this.listGroupCopies(normalizedSharedId).map((group) => group.ownerIdentifier),
+      )],
+      groupId: groupCopy.id,
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   getIdentifierByToken(token: string) {
-    return this.database.sessions.find((session) => session.token === token)?.identifier ?? null
+    return this.getActiveSessionRecord(token)?.identifier ?? null
   }
 
   listTokensByIdentifier(identifier: string) {
     return this.database.sessions
-      .filter((session) => session.identifier === identifier)
+      .filter(
+        (session) =>
+          session.identifier === identifier &&
+          this.getActiveSessionRecord(session.token)?.token === session.token,
+      )
       .map((session) => session.token)
+  }
+
+  private cleanupExpiredAuthCodeSendAttempts(now = Date.now()) {
+    const cutoffTimestamp = now - AUTH_CODE_DAILY_WINDOW_MS
+    const nextAttempts = this.database.authCodeSendAttempts.filter((attempt) => {
+      const createdAt = parseIsoDate(attempt.createdAt)
+      return createdAt !== null && createdAt >= cutoffTimestamp
+    })
+
+    if (nextAttempts.length === this.database.authCodeSendAttempts.length) {
+      return false
+    }
+
+    this.database.authCodeSendAttempts = nextAttempts
+    return true
+  }
+
+  private getAuthCodeSendRateLimitError(identifier: string, ip?: string | null, now = Date.now()) {
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    if (!normalizedIdentifier) {
+      return null
+    }
+
+    const sanitizedIp = sanitizeIpAddress(ip ?? undefined)
+    const hourlyCutoffTimestamp = now - AUTH_CODE_HOURLY_WINDOW_MS
+    const dailyCutoffTimestamp = now - AUTH_CODE_DAILY_WINDOW_MS
+    let latestIdentifierAttemptTimestamp: number | null = null
+    let identifierHourlyCount = 0
+    let identifierDailyCount = 0
+    let ipHourlyCount = 0
+    let ipDailyCount = 0
+    let globalDailyCount = 0
+
+    for (const attempt of this.database.authCodeSendAttempts) {
+      const createdAt = parseIsoDate(attempt.createdAt)
+      if (createdAt === null || createdAt < dailyCutoffTimestamp) {
+        continue
+      }
+
+      globalDailyCount += 1
+
+      if (attempt.identifier === normalizedIdentifier) {
+        identifierDailyCount += 1
+        if (createdAt >= hourlyCutoffTimestamp) {
+          identifierHourlyCount += 1
+        }
+        if (latestIdentifierAttemptTimestamp === null || createdAt > latestIdentifierAttemptTimestamp) {
+          latestIdentifierAttemptTimestamp = createdAt
+        }
+      }
+
+      if (sanitizedIp && attempt.ip === sanitizedIp) {
+        ipDailyCount += 1
+        if (createdAt >= hourlyCutoffTimestamp) {
+          ipHourlyCount += 1
+        }
+      }
+    }
+
+    if (
+      latestIdentifierAttemptTimestamp !== null &&
+      now - latestIdentifierAttemptTimestamp < authCodeIdentifierCooldownMs
+    ) {
+      return new HttpError(429, AUTH_CODE_COOLDOWN_MESSAGE)
+    }
+
+    if (
+      identifierHourlyCount >= authRequestCodeLimits.identifierHourlyLimit ||
+      identifierDailyCount >= authRequestCodeLimits.identifierDailyLimit ||
+      globalDailyCount >= authRequestCodeLimits.globalDailyLimit
+    ) {
+      return new HttpError(429, AUTH_CODE_RATE_LIMITED_MESSAGE)
+    }
+
+    if (
+      sanitizedIp &&
+      (ipHourlyCount >= authRequestCodeLimits.ipHourlyLimit ||
+        ipDailyCount >= authRequestCodeLimits.ipDailyLimit)
+    ) {
+      return new HttpError(429, AUTH_CODE_RATE_LIMITED_MESSAGE)
+    }
+
+    return null
   }
 
   private getPasswordAttemptRecord(identifier: string, ip?: string | null) {
@@ -3023,15 +5239,47 @@ export class TinychokStore {
     })
   }
 
-  private revokeSessionsForIdentifier(identifier: string) {
+  private revokeSessionsForIdentifier(
+    identifier: string,
+    options?: {
+      keepToken?: string
+    },
+  ): SessionRevocationResult {
     const normalizedIdentifier = normalizeStoredIdentifierReference(identifier)
     if (!normalizedIdentifier) {
-      return
+      return {
+        broadcastIdentifiers: [],
+        revokedTokens: [],
+      }
     }
 
+    const revokedTokens = this.database.sessions
+      .filter(
+        (session) =>
+          session.identifier === normalizedIdentifier &&
+          (!options?.keepToken || session.token !== options.keepToken),
+      )
+      .map((session) => session.token)
+    const broadcastIdentifiers = new Set<string>()
+    for (const token of revokedTokens) {
+      for (const affectedIdentifier of this.clearLivePresenceToken(token, normalizedIdentifier)) {
+        broadcastIdentifiers.add(affectedIdentifier)
+      }
+    }
     this.database.sessions = this.database.sessions.filter(
-      (session) => session.identifier !== normalizedIdentifier,
+      (session) =>
+        session.identifier !== normalizedIdentifier ||
+        (options?.keepToken ? session.token === options.keepToken : false),
     )
+
+    if (revokedTokens.length > 0) {
+      broadcastIdentifiers.add(normalizedIdentifier)
+    }
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      revokedTokens,
+    }
   }
 
   private rewriteAccountIdentifierReferences(
@@ -3069,7 +5317,7 @@ export class TinychokStore {
     this.database.passwordAuthAttempts = this.database.passwordAuthAttempts.filter(
       (attempt) => attempt.identifier !== liveIdentifier,
     )
-    this.database.sessions = this.database.sessions.filter((session) => session.identifier !== liveIdentifier)
+    this.revokeSessionsForIdentifier(liveIdentifier)
 
     for (const report of this.database.contactReports) {
       if (report.reporterIdentifier === liveIdentifier) {
@@ -3224,9 +5472,12 @@ export class TinychokStore {
     const normalizedIdentifierQuery = normalizeIdentifier(trimmedQuery)
     const normalizedDigitsQuery = trimmedQuery.replace(/[^\d]/g, '')
     const normalizedQuery = trimmedQuery.toLowerCase()
+    // Search must exclude only currently visible direct dialogs.
+    // Hidden former-contact dialogs stay searchable so users can reopen the room
+    // and restart the contact-request flow against preserved per-side history.
     const existingDialogPhones = new Set(
       this.database.dialogs
-        .filter((dialog) => dialog.ownerIdentifier === account.identifier)
+        .filter((dialog) => dialog.ownerIdentifier === account.identifier && !dialog.hidden)
         .map((dialog) => normalizeStoredIdentifierReference(dialog.phone)),
     )
 
@@ -3269,6 +5520,78 @@ export class TinychokStore {
         phone: getAccountOriginalIdentifier(candidate) || candidate.identifier,
         subtitle: buildSearchSubtitle(candidate),
         title: formatAccountName(candidate) || getAccountOriginalIdentifier(candidate) || candidate.identifier,
+      }))
+  }
+
+  searchSubscriptionChannels(token: string, query: string) {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const trimmedQuery = query.trim()
+    if (!trimmedQuery) {
+      return [] as ChannelSearchResult[]
+    }
+
+    const normalizedQuery = trimmedQuery.toLowerCase()
+    const normalizedHandleQuery = normalizeChannelHandleForComparison(trimmedQuery)
+
+    // Channel discovery is intentionally sourced from managed channels, not the viewer's
+    // current subscription copies, so leaving a channel does not erase the ability to
+    // find it again via search when preview access is still valid.
+    return this.database.managedChannels
+      .filter((channel) => {
+        if (channel.archiveReason === 'owner-deleted') {
+          return this.canAccessDeletedChannelTombstone(channel, account.identifier)
+        }
+        // Channel discovery must not depend on a current subscription copy:
+        // after self-unsubscribe the channel stays searchable while preview access still exists.
+        return !channel.archivedAt && this.canAccessChannelPreview(channel, account.identifier)
+      })
+      .filter((channel) => {
+        const title = channel.title.toLowerCase()
+        const handle = (sanitizeChannelDirectLink(channel.directLink) || channel.directLink).toLowerCase()
+        const statusText = (channel.statusText?.trim() || '').toLowerCase()
+        const description = (channel.description?.trim() || '').toLowerCase()
+
+        return (
+          title.includes(normalizedQuery) ||
+          handle.includes(normalizedQuery) ||
+          statusText.includes(normalizedQuery) ||
+          description.includes(normalizedQuery)
+        )
+      })
+      .sort((left, right) => {
+        const leftHandle = normalizeChannelHandleForComparison(left.directLink)
+        const rightHandle = normalizeChannelHandleForComparison(right.directLink)
+        const leftExactHandle = normalizedHandleQuery !== '' && leftHandle === normalizedHandleQuery
+        const rightExactHandle = normalizedHandleQuery !== '' && rightHandle === normalizedHandleQuery
+        if (leftExactHandle !== rightExactHandle) {
+          return leftExactHandle ? -1 : 1
+        }
+
+        const leftExactTitle = left.title.trim().toLowerCase() === normalizedQuery
+        const rightExactTitle = right.title.trim().toLowerCase() === normalizedQuery
+        if (leftExactTitle !== rightExactTitle) {
+          return leftExactTitle ? -1 : 1
+        }
+
+        return left.title.localeCompare(right.title, 'ru')
+      })
+      .slice(0, 20)
+      .map((channel) => ({
+        accent: channel.avatarTone,
+        archivedAt: channel.archivedAt,
+        avatarImage: channel.avatarImage,
+        description: channel.description?.trim() || undefined,
+        handle: sanitizeChannelDirectLink(channel.directLink) || channel.directLink,
+        id: channel.id,
+        muted: false,
+        statusText: channel.statusText?.trim() || undefined,
+        title: channel.archiveReason === 'owner-deleted' ? 'Канал удалён владельцем' : channel.title,
+        unread: 0,
+        visibility: channel.visibility,
       }))
   }
 
@@ -3394,6 +5717,20 @@ export class TinychokStore {
 
         return compareIsoDateDesc(left.lastActiveAt, right.lastActiveAt)
       })
+      // Admin user search should show one row per real phone identity by default.
+      // A deleted self-service archived account can legitimately coexist with a newer
+      // active re-registered account that has the same original phone number.
+      // Returning both rows in the normal user list looks like a duplicate live account.
+      .filter((account, index, accounts) => {
+        const originalIdentifier = getAccountOriginalIdentifier(account) || account.identifier
+        return (
+          accounts.findIndex((candidate) => {
+            const candidateOriginalIdentifier =
+              getAccountOriginalIdentifier(candidate) || candidate.identifier
+            return candidateOriginalIdentifier === originalIdentifier
+          }) === index
+        )
+      })
       .slice(0, 20)
       .map((account) => this.buildAdminUserSummary(account))
 
@@ -3412,7 +5749,44 @@ export class TinychokStore {
 
     return {
       ipSummary: this.buildAdminUserIpSummary(account.identifier),
+      statusHistory: getAccountStatusHistory(account),
       user: this.buildAdminUserSummary(account),
+    }
+  }
+
+  async adminExportUserStatusHistoryCsv(actorToken: string, identifier: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const account = this.findAccountForAdmin(identifier)
+    if (!account) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    const rows = getAccountStatusHistory(account)
+    const fileName = `user-status-history-${
+      sanitizeExportFileName(account.displayName) || account.identifier
+    }-${formatExportDateStamp()}.csv`
+
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.user.status-history.export.csv',
+      nextValue: {
+        fileName,
+        rowCount: rows.length,
+      },
+      summary: `Экспортирована история статусов пользователя ${buildAdminAuditAccountLabel(account)}`,
+      targetId: account.identifier,
+      targetType: 'user',
+    })
+
+    return {
+      csv: buildCsv([
+        ['Когда установлен', 'Статус', 'Текущий'],
+        ...rows.map((entry, index) => [
+          entry.setAt,
+          entry.status,
+          index === rows.length - 1 && account.status?.trim() === entry.status ? 'Да' : 'Нет',
+        ]),
+      ]),
+      fileName,
     }
   }
 
@@ -3469,9 +5843,7 @@ export class TinychokStore {
     if (options.blocked) {
       target.blockedAt = new Date().toISOString()
       target.blockedReason = normalizedReason || 'Аккаунт заблокирован staff-командой.'
-      this.database.sessions = this.database.sessions.filter(
-        (session) => session.identifier !== target.identifier,
-      )
+      this.revokeSessionsForIdentifier(target.identifier)
     } else {
       target.blockedAt = undefined
       target.blockedReason = undefined
@@ -3509,12 +5881,21 @@ export class TinychokStore {
 
     const previousValue = this.buildAdminUserSummary(target)
     const normalizedReason = sanitizeAdminText(options.reason, 280)
+    const previousStorageQuotaBytes = getEffectiveUserStorageQuotaBytes(target)
     const durationDays =
       Number.isInteger(options.durationDays) && (options.durationDays ?? 0) > 0
         ? options.durationDays ?? 30
         : 30
+    if (options.enabled || hasPremiumStorageHistory(target)) {
+      rememberUnlockedPremiumStorageQuota(target)
+    }
     target.premium = options.enabled
-    target.premiumExpiresAt = options.enabled ? makePremiumExpiry(durationDays) : ''
+    target.premiumExpiresAt = options.enabled
+      ? extendPremiumExpiry(durationDays, target.premiumExpiresAt)
+      : ''
+    if (getEffectiveUserStorageQuotaBytes(target) > previousStorageQuotaBytes) {
+      this.restoreArchivedMediaIntoPrimaryStorageIfQuotaAllows(this.getUserStorageSubject(target.identifier))
+    }
     await this.persist()
     await this.appendAdminAuditLog(actor, {
       action: options.enabled ? 'admin.user.premium.grant' : 'admin.user.premium.revoke',
@@ -3718,6 +6099,8 @@ export class TinychokStore {
           .sort(compareIsoDateDesc)[0]
 
         const summary: AdminManagedChannelSummary = {
+          archiveStorageUsage: this.getArchiveStorageUsage(this.getChannelStorageSubjectByHandle(handle)),
+          archiveUnlimited: Boolean(channel.archiveUnlimited),
           archivedAt: channel.archivedAt,
           archiveReason: channel.archiveReason,
           csvFileName: `channel-${sanitizeExportFileName(channel.title) || channel.id}-${formatExportDateStamp()}.csv`,
@@ -3729,6 +6112,7 @@ export class TinychokStore {
           readers: new Set(copies.map((item) => item.ownerIdentifier)).size,
           relatedReportCount: reportCountByHandle.get(handle) ?? 0,
           status: channel.status,
+          storageUsage: this.getStorageSubjectUsage(this.getChannelStorageSubjectByHandle(handle)),
           title: channel.title,
           visibility: channel.visibility,
         }
@@ -3796,33 +6180,39 @@ export class TinychokStore {
           .filter((value): value is string => Boolean(value))
           .sort(compareIsoDateDesc)[0]
 
+        const owner = patchArchivedGroupOwnerSummary(buildAdminLinkedUser(ownerIdentifier), primaryGroup.title)
+        const creator = patchArchivedGroupOwnerSummary(buildAdminLinkedUser(creatorIdentifier), primaryGroup.title)
+
         return {
           archivedAt: primaryGroup.archivedAt,
           archiveReason: primaryGroup.archiveReason,
-          creator: buildAdminLinkedUser(creatorIdentifier),
+          creator,
           csvFileName: `group-${sanitizeExportFileName(primaryGroup.title) || 'group'}-${formatExportDateStamp()}.csv`,
           id: groupKey,
           latestActivityAt,
           members: Math.max(...copies.map((group) => group.members), 0),
-          owner: buildAdminLinkedUser(ownerIdentifier),
+          owner,
           relatedReportCount: copies.reduce((count, group) => {
             const sharedId = group.sharedId?.trim()
             return count + (sharedId ? reportCountBySharedId.get(sharedId) ?? 0 : 0)
           }, 0),
+          sharedId: this.getSharedGroupId(primaryGroup),
           title: primaryGroup.title,
         }
       })
       .filter((group): group is AdminManagedGroupSummary => Boolean(group))
-      .filter((group) => {
-        if (!trimmedQuery) return true
-        return (
-          group.title.toLowerCase().includes(trimmedQuery) ||
-          group.id.toLowerCase().includes(trimmedQuery) ||
-          group.owner.displayName.toLowerCase().includes(trimmedQuery) ||
-          group.owner.identifier.toLowerCase().includes(trimmedQuery)
-        )
+      .map((group) => ({
+        group,
+        searchRank: getAdminGroupSearchRank(group, trimmedQuery),
+      }))
+      .filter(({ searchRank }) => !trimmedQuery || Number.isFinite(searchRank))
+      .sort((left, right) => {
+        if (trimmedQuery && left.searchRank !== right.searchRank) {
+          return left.searchRank - right.searchRank
+        }
+        return compareIsoDateDesc(left.group.latestActivityAt, right.group.latestActivityAt)
       })
-      .sort((left, right) => compareIsoDateDesc(left.latestActivityAt, right.latestActivityAt))
+      .map(({ group }) => group)
 
     return groups.slice(0, 20)
   }
@@ -3856,6 +6246,8 @@ export class TinychokStore {
         )
 
       upsertThread({
+        archiveReason: message.threadArchiveReason,
+        archivedAt: message.threadArchivedAt,
         commentCount: comments.length,
         contextLabel: `Группа: ${group.title}`,
         csvFileName: `thread-${sanitizeExportFileName(group.title) || 'group'}-${message.id}-${formatExportDateStamp()}.csv`,
@@ -3880,6 +6272,8 @@ export class TinychokStore {
       if (comments.length === 0) continue
 
       upsertThread({
+        archiveReason: post.threadArchiveReason,
+        archivedAt: post.threadArchivedAt,
         commentCount: comments.length,
         contextLabel: `Канал: ${channel.title}`,
         csvFileName: `thread-${sanitizeExportFileName(channel.title) || 'channel'}-${post.id}-${formatExportDateStamp()}.csv`,
@@ -3909,6 +6303,133 @@ export class TinychokStore {
       .slice(0, 20)
   }
 
+  adminListSupportTickets(query: string) {
+    const trimmedQuery = query.trim().toLowerCase()
+
+    return this.database.supportTickets
+      .map((ticket) => this.buildAdminSupportTicketSummary(ticket))
+      .filter((ticket) => {
+        if (!trimmedQuery) return true
+        return (
+          ticket.rootText.toLowerCase().includes(trimmedQuery) ||
+          String(ticket.ticketNumber).includes(trimmedQuery) ||
+          ticket.owner.displayName.toLowerCase().includes(trimmedQuery) ||
+          ticket.owner.identifier.toLowerCase().includes(trimmedQuery)
+        )
+      })
+      .sort((left, right) => {
+        const statusDelta = getAdminSupportTicketStatusSortOrder(left.status) - getAdminSupportTicketStatusSortOrder(right.status)
+        if (statusDelta !== 0) {
+          return statusDelta
+        }
+
+        return compareIsoDateDesc(left.latestActivityAt, right.latestActivityAt)
+      })
+      .slice(0, 50)
+  }
+
+  async adminGetSupportTicket(
+    actorToken: string,
+    ticketId: number,
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const ticket = this.findSupportTicketById(ticketId)
+    if (!ticket) {
+      throw new Error('Тикет поддержки не найден.')
+    }
+
+    if (!ticket.openedByStaffAt && ticket.status === 'open') {
+      ticket.openedByStaffAt = new Date().toISOString()
+      await this.persist()
+    }
+
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.support.view',
+      summary: `Открыт тикет поддержки #${ticket.id}`,
+      targetId: String(ticket.id),
+      targetType: 'support-ticket',
+    })
+
+    return {
+      ...this.buildAdminSupportTicketSummary(ticket),
+      attachment: ticket.attachment,
+      comments: compactThreadComments(ticket.comments),
+      threadId: ticket.threadId,
+      time: ticket.time,
+    } satisfies AdminSupportTicketDetailResponse['ticket']
+  }
+
+  async adminReplySupportTicket(
+    actorToken: string,
+    ticketId: number,
+    payload: AdminSupportTicketReplyBody,
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const ticket = this.findSupportTicketById(ticketId)
+    if (!ticket) {
+      throw new Error('Тикет поддержки не найден.')
+    }
+
+    const text = sanitizeThreadCommentText(payload.text)
+    const attachment = this.assertOwnedPendingAttachment(actor.identifier, payload.attachment)
+    const status = sanitizeSupportTicketStatus(payload.status)
+    if (!text && !attachment) {
+      throw new Error('Ответ поддержки не может быть пустым.')
+    }
+    const normalizedClientDeliveryId = this.normalizeClientDeliveryId(payload.clientDeliveryId)
+    if (this.hasExistingSupportCommentDeliveryId(ticket, actor.identifier, normalizedClientDeliveryId)) {
+      return {
+        broadcastIdentifiers: [],
+        ticket: {
+          ...this.buildAdminSupportTicketSummary(ticket),
+          attachment: ticket.attachment,
+          comments: compactThreadComments(ticket.comments),
+          threadId: ticket.threadId,
+          time: ticket.time,
+        } satisfies AdminSupportTicketDetailResponse['ticket'],
+      }
+    }
+
+    if (attachment) {
+      await this.reclaimStorageForAttachmentUpload(
+        this.getUserStorageSubject(actor.identifier),
+        attachment.size,
+        attachment.mediaUrl,
+      )
+    }
+
+    // Staff replies stay inside the ticket thread so support never behaves like a regular dialog.
+    this.appendCommentToSupportTicket(
+      ticket,
+      actor,
+      text,
+      attachment,
+      sanitizeReplyTarget(payload.replyTo),
+      normalizedClientDeliveryId,
+    )
+    ticket.status = status
+
+    await this.persist()
+    this.markAttachmentUploadLinked(attachment)
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.support.reply',
+      summary: `Добавлен комментарий к тикету поддержки #${ticket.id} · статус ${status}`,
+      targetId: String(ticket.id),
+      targetType: 'support-ticket',
+    })
+
+    return {
+      broadcastIdentifiers: [ticket.ownerIdentifier],
+      ticket: {
+        ...this.buildAdminSupportTicketSummary(ticket),
+        attachment: ticket.attachment,
+        comments: compactThreadComments(ticket.comments),
+        threadId: ticket.threadId,
+        time: ticket.time,
+      } satisfies AdminSupportTicketDetailResponse['ticket'],
+    }
+  }
+
   adminListDialogs(ownerIdentifierInput: string, query: string) {
     const owner = this.findAccountForAdmin(ownerIdentifierInput)
     if (!owner) {
@@ -3929,22 +6450,15 @@ export class TinychokStore {
         }
 
         const peer = this.findAccountForAdmin(peerIdentifier)
-        const messages = this.database.dialogMessages
-          .filter(
-            (message) =>
-              message.ownerIdentifier === owner.identifier &&
-              message.dialogId === dialog.id,
-          )
-          .sort((left, right) => compareIsoDateDesc(right.createdAt, left.createdAt))
-
-        const firstMessageAt = messages[0]?.createdAt
-        const latestMessageAt = messages.at(-1)?.createdAt
+        const transcript = this.buildCanonicalDirectTranscript(owner.identifier, peerIdentifier)
+        const firstMessageAt = transcript[0]?.createdAt
+        const latestMessageAt = transcript.at(-1)?.createdAt
         const preview =
-          messages.at(-1)?.text || messages.at(-1)?.attachment?.fileName || 'Без сообщений'
+          transcript.at(-1)?.text || transcript.at(-1)?.attachment?.fileName || 'Без сообщений'
         const summary: AdminDialogSummary = {
           csvFileName: `dialog-${sanitizeExportFileName(owner.displayName)}-${sanitizeExportFileName(peer?.displayName ?? dialog.title)}-${formatExportDateStamp()}.csv`,
           firstMessageAt,
-          messageCount: messages.length,
+          messageCount: transcript.length,
           owner: {
             displayName: buildAccountDisplayLabel(owner),
             identifier: owner.identifier,
@@ -3974,6 +6488,113 @@ export class TinychokStore {
       .sort((left, right) => compareIsoDateDesc(left.updatedAt, right.updatedAt))
 
     return dialogs.slice(0, 20)
+  }
+
+  private buildCanonicalDirectTranscript(
+    ownerIdentifierInput: string,
+    peerIdentifierInput: string,
+  ): CanonicalDirectTranscriptEntry[] {
+    const ownerIdentifier = normalizeIdentifier(ownerIdentifierInput)
+    const peerIdentifier = normalizeIdentifier(peerIdentifierInput)
+    if (!ownerIdentifier || !peerIdentifier || ownerIdentifier === peerIdentifier) {
+      return []
+    }
+
+    const [leftIdentifier, rightIdentifier] = [ownerIdentifier, peerIdentifier].sort()
+    const transcriptByKey = new Map<
+      string,
+      {
+        leftCopy?: PersistedDialogMessage
+        logicalMessage: PersistedDialogMessage
+        rightCopy?: PersistedDialogMessage
+      }
+    >()
+
+    for (const message of this.database.dialogMessages) {
+      if (message.ownerIdentifier !== leftIdentifier && message.ownerIdentifier !== rightIdentifier) continue
+
+      const dialog = this.findDialog(message.ownerIdentifier, message.dialogId)
+      const counterpartIdentifier = normalizeStoredIdentifierReference(dialog?.phone)
+      if (!counterpartIdentifier) continue
+      if (
+        !(
+          (message.ownerIdentifier === leftIdentifier && counterpartIdentifier === rightIdentifier) ||
+          (message.ownerIdentifier === rightIdentifier && counterpartIdentifier === leftIdentifier)
+        )
+      ) {
+        continue
+      }
+
+      const authorDisplayIdentifier =
+        message.author === 'me' ? message.ownerIdentifier : counterpartIdentifier
+      const dedupeKey = message.deliveryId?.trim()
+        ? `delivery:${message.deliveryId.trim()}`
+        : `legacy:${authorDisplayIdentifier}:${getMessageReadReceiptKey(message)}`
+      const existing = transcriptByKey.get(dedupeKey)
+      const entry = existing ?? { logicalMessage: message }
+
+      if (
+        !existing ||
+        Boolean(entry.logicalMessage.archivedAt) ||
+        (message.createdAt ?? '') < (entry.logicalMessage.createdAt ?? '')
+      ) {
+        entry.logicalMessage = message
+      }
+
+      if (message.ownerIdentifier === leftIdentifier) {
+        entry.leftCopy = message
+      } else {
+        entry.rightCopy = message
+      }
+
+      transcriptByKey.set(dedupeKey, entry)
+    }
+
+    return [...transcriptByKey.entries()]
+      .map(([id, entry]) => {
+        const leftCopy = entry.leftCopy
+        const rightCopy = entry.rightCopy
+        const logicalMessage =
+          (!entry.logicalMessage.archivedAt && entry.logicalMessage) ||
+          leftCopy ||
+          rightCopy ||
+          entry.logicalMessage
+        const dialog = this.findDialog(logicalMessage.ownerIdentifier, logicalMessage.dialogId)
+        const counterpartIdentifier = normalizeStoredIdentifierReference(dialog?.phone) || logicalMessage.ownerIdentifier
+
+        return {
+          archiveReason: getDirectArchiveReasonForExport(leftCopy?.archivedReason, rightCopy?.archivedReason),
+          archivedAt: leftCopy?.archivedAt ?? rightCopy?.archivedAt,
+          attachment: logicalMessage.attachment,
+          authorDisplayIdentifier:
+            logicalMessage.author === 'me' ? logicalMessage.ownerIdentifier : counterpartIdentifier,
+          createdAt: logicalMessage.createdAt,
+          deliveryId: logicalMessage.deliveryId,
+          id,
+          leftArchivedAt: leftCopy?.archivedAt,
+          leftArchiveReason: leftCopy?.archivedReason,
+          logicalMessage,
+          readAt: leftCopy?.readAt ?? rightCopy?.readAt ?? logicalMessage.readAt,
+          // Direct export must stay human-readable: raw archiveReason alone is too opaque for staff/legal review.
+          retentionNote: buildDirectRetentionNoteForExport(leftCopy?.archivedReason, rightCopy?.archivedReason),
+          replyTo: logicalMessage.replyTo,
+          rightArchivedAt: rightCopy?.archivedAt,
+          rightArchiveReason: rightCopy?.archivedReason,
+          text: logicalMessage.text,
+          visibleForLeft: Boolean(leftCopy && !leftCopy.archivedAt),
+          visibleForRight: Boolean(rightCopy && !rightCopy.archivedAt),
+        } satisfies CanonicalDirectTranscriptEntry
+      })
+      .sort((left, right) => {
+        const leftCreatedAt = parseIsoDate(left.createdAt)
+        const rightCreatedAt = parseIsoDate(right.createdAt)
+        if (leftCreatedAt !== null && rightCreatedAt !== null && leftCreatedAt !== rightCreatedAt) {
+          return leftCreatedAt - rightCreatedAt
+        }
+        if (leftCreatedAt !== null && rightCreatedAt === null) return -1
+        if (leftCreatedAt === null && rightCreatedAt !== null) return 1
+        return left.id.localeCompare(right.id)
+      })
   }
 
   async adminExportChannelCsv(actorToken: string, handle: string, reason: string) {
@@ -4052,6 +6673,76 @@ export class TinychokStore {
     return {
       csv,
       fileName: channel.csvFileName,
+    }
+  }
+
+  async adminExportChannelSubscribersCsv(actorToken: string, handle: string, reason: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const normalizedHandle = sanitizeChannelDirectLink(handle) || handle
+    const channel = this.adminListChannels(normalizedHandle).find((item) => item.handle === normalizedHandle)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+
+    const subscribersByIdentifier = new Map<string, { identifier: string; subscribedAt?: string }>()
+    for (const copy of this.listSubscriptionChannelCopiesByHandle(normalizedHandle)) {
+      const normalizedIdentifier =
+        normalizeStoredIdentifierReference(copy.ownerIdentifier) || copy.ownerIdentifier
+      const existing = subscribersByIdentifier.get(normalizedIdentifier)
+      const subscribedAt = copy.subscribedAt?.trim() || undefined
+      if (!existing) {
+        subscribersByIdentifier.set(normalizedIdentifier, {
+          identifier: normalizedIdentifier,
+          subscribedAt,
+        })
+        continue
+      }
+      if (!existing.subscribedAt && subscribedAt) {
+        existing.subscribedAt = subscribedAt
+        continue
+      }
+      if (
+        existing.subscribedAt &&
+        subscribedAt &&
+        Date.parse(subscribedAt) < Date.parse(existing.subscribedAt)
+      ) {
+        existing.subscribedAt = subscribedAt
+      }
+    }
+    const subscribers = [...subscribersByIdentifier.values()]
+
+    const csv = [
+      ['Имя', 'Телефон', 'Юзернейм', 'Дата подписки'],
+      ...subscribers.map(({ identifier, subscribedAt }) => {
+        const account = identifier ? this.findAccount(identifier) : null
+        const displayName =
+          (account ? formatAccountName(account) : '') ||
+          identifier ||
+          'Без имени'
+        const nickname = normalizeNickname(account?.nickname ?? '')
+        return [
+          displayName,
+          identifier || '',
+          nickname ? `@${nickname}` : '',
+          subscribedAt || '',
+        ]
+      }),
+    ]
+      .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
+      .join('\n')
+
+    const normalizedReason = sanitizeAdminText(reason, 280)
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.channel.subscribers-export.csv',
+      reason: normalizedReason || undefined,
+      summary: `Экспортирован CSV подписчиков канала @${normalizedHandle}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
+      targetId: normalizedHandle,
+      targetType: 'channel',
+    })
+
+    return {
+      csv,
+      fileName: `channel-subscribers-${sanitizeExportFileName(channel.title) || normalizedHandle.replace(/^@/u, '') || 'channel'}-${formatExportDateStamp()}.csv`,
     }
   }
 
@@ -4134,6 +6825,226 @@ export class TinychokStore {
     return {
       csv,
       fileName: `group-${sanitizeExportFileName(primaryGroup.title) || 'group'}-${formatExportDateStamp()}.csv`,
+    }
+  }
+
+  async adminExportGroupParticipantsCsv(actorToken: string, groupId: string, reason: string) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const copies = this.database.groups.filter((group) => buildAdminGroupAggregateKey(group) === groupId)
+    const primaryGroup = copies[0]
+    if (!primaryGroup) {
+      throw new Error('Группа не найдена.')
+    }
+
+    const participants = [...new Map(
+      copies.flatMap((group) => group.participants ?? []).map((participant) => {
+        const normalizedIdentifier = normalizeStoredIdentifierReference(participant.identifier ?? '')
+        const key = normalizedIdentifier || `legacy:${participant.id}:${participant.title}`
+        return [key, participant] as const
+      }),
+    ).values()]
+
+    const csv = [
+      ['Имя', 'Телефон', 'Юзернейм'],
+      ...participants.map((participant) => {
+        const normalizedIdentifier = normalizeStoredIdentifierReference(participant.identifier ?? '')
+        const account = normalizedIdentifier ? this.findAccount(normalizedIdentifier) : null
+        const displayName =
+          (account ? formatAccountName(account) : '') ||
+          participant.title ||
+          normalizedIdentifier ||
+          'Без имени'
+        const nickname = normalizeNickname(account?.nickname ?? participant.nickname ?? '')
+        return [
+          displayName,
+          normalizedIdentifier || participant.identifier || '',
+          nickname ? `@${nickname}` : '',
+        ]
+      }),
+    ]
+      .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
+      .join('\n')
+
+    const normalizedReason = sanitizeAdminText(reason, 280)
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.group.participants-export.csv',
+      reason: normalizedReason || undefined,
+      summary: `Экспортирован CSV участников группы ${primaryGroup.title}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
+      targetId: groupId,
+      targetType: 'group',
+    })
+
+    return {
+      csv,
+      fileName: `group-participants-${sanitizeExportFileName(primaryGroup.title) || 'group'}-${formatExportDateStamp()}.csv`,
+    }
+  }
+
+  async adminSetGroupArchived(
+    actorToken: string,
+    groupId: string,
+    payload: { enabled: boolean; reason: string },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const normalizedReason = sanitizeAdminText(payload.reason, 280)
+    if (!normalizedReason) {
+      throw new Error('Нужно указать причину изменения статуса архива.')
+    }
+
+    const copies = this.database.groups.filter((group) => buildAdminGroupAggregateKey(group) === groupId)
+    const primaryGroup = copies[0]
+    if (!primaryGroup) {
+      throw new Error('Группа не найдена.')
+    }
+
+    const sharedId = this.getSharedGroupId(primaryGroup)
+    const broadcastIdentifiers = [...new Set(copies.map((group) => group.ownerIdentifier))]
+    if (payload.enabled) {
+      this.archiveGroupCopies(sharedId, 'admin-archived', new Date().toISOString())
+    } else {
+      this.unarchiveGroupCopies(sharedId)
+    }
+
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: payload.enabled ? 'admin.group.archive' : 'admin.group.unarchive',
+      reason: normalizedReason,
+      summary: `${payload.enabled ? 'Архивирована' : 'Разархивирована'} группа ${primaryGroup.title} · ${normalizedReason}`,
+      targetId: groupId,
+      targetType: 'group',
+    })
+
+    return {
+      broadcastIdentifiers,
+      groups: this.adminListGroups(''),
+    }
+  }
+
+  async adminSetManagedChannelArchived(
+    actorToken: string,
+    handle: string,
+    payload: { enabled: boolean; reason: string },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const normalizedReason = sanitizeAdminText(payload.reason, 280)
+    if (!normalizedReason) {
+      throw new Error('Нужно указать причину изменения статуса архива.')
+    }
+
+    const normalizedHandle = sanitizeChannelDirectLink(handle) || handle
+    const channel = this.findManagedChannelByHandle(normalizedHandle)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+
+    this.ensureManagedChannelOwnerSubscriptionCopy(channel)
+    const channelCopies = this.listSubscriptionChannelCopiesByHandle(normalizedHandle)
+    const broadcastIdentifiers = [
+      ...new Set(channelCopies.map((copy) => copy.ownerIdentifier).concat(channel.ownerIdentifier)),
+    ]
+
+    if (payload.enabled) {
+      this.archiveManagedChannel(channel, 'admin-archived', new Date().toISOString())
+    } else {
+      this.unarchiveManagedChannel(channel)
+    }
+
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: payload.enabled ? 'admin.channel.archive' : 'admin.channel.unarchive',
+      reason: normalizedReason,
+      summary: `${payload.enabled ? 'Архивирован' : 'Разархивирован'} канал ${channel.title} · ${normalizedReason}`,
+      targetId: normalizedHandle,
+      targetType: 'channel',
+    })
+
+    return {
+      broadcastIdentifiers,
+      channels: this.adminListChannels(''),
+    }
+  }
+
+  async adminSetThreadArchived(
+    actorToken: string,
+    threadId: string,
+    payload: { enabled: boolean; reason: string },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const normalizedReason = sanitizeAdminText(payload.reason, 280)
+    if (!normalizedReason) {
+      throw new Error('Нужно указать причину изменения статуса архива.')
+    }
+
+    const archivedAt = payload.enabled ? new Date().toISOString() : undefined
+    const broadcastIdentifiers = new Set<string>()
+    let summaryLabel = threadId
+
+    if (threadId.startsWith('admin-group-thread:')) {
+      let canonicalThreadId: string | null = null
+      let sharedId: string | null = null
+      for (const message of this.database.groupMessages) {
+        const group = this.findGroup(message.ownerIdentifier, message.groupId)
+        if (!group || buildAdminGroupThreadKey(group, message) !== threadId) continue
+        canonicalThreadId = getGroupMessageThreadId(group, message)
+        sharedId = this.getSharedGroupId(group)
+        summaryLabel = `${group.title} · ${message.text || message.attachment?.fileName || 'Сообщение без текста'}`
+        break
+      }
+
+      if (!canonicalThreadId || !sharedId) {
+        throw new Error('Тред не найден.')
+      }
+
+      for (const message of this.database.groupMessages) {
+        const group = this.findGroup(message.ownerIdentifier, message.groupId)
+        if (!group) continue
+        if (this.getSharedGroupId(group) !== sharedId) continue
+        if (getGroupMessageThreadId(group, message) !== canonicalThreadId) continue
+        message.threadArchivedAt = archivedAt
+        message.threadArchiveReason = payload.enabled ? 'admin-archived' : undefined
+        broadcastIdentifiers.add(group.ownerIdentifier)
+      }
+    } else if (threadId.startsWith('admin-channel-thread:')) {
+      let canonicalThreadId: string | null = null
+      let normalizedHandle: string | null = null
+      for (const post of this.database.subscriptionPosts) {
+        const channel = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+        if (!channel || buildAdminChannelThreadKey(channel, post) !== threadId) continue
+        canonicalThreadId = getSubscriptionPostThreadId(channel, post)
+        normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
+        summaryLabel = `${channel.title} · ${post.text || post.attachment?.fileName || 'Пост без текста'}`
+        break
+      }
+
+      if (!canonicalThreadId || !normalizedHandle) {
+        throw new Error('Тред не найден.')
+      }
+
+      for (const post of this.database.subscriptionPosts) {
+        const channel = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
+        if (!channel) continue
+        if ((sanitizeChannelDirectLink(channel.handle) || channel.handle) !== normalizedHandle) continue
+        if (getSubscriptionPostThreadId(channel, post) !== canonicalThreadId) continue
+        post.threadArchivedAt = archivedAt
+        post.threadArchiveReason = payload.enabled ? 'admin-archived' : undefined
+        broadcastIdentifiers.add(channel.ownerIdentifier)
+      }
+    } else {
+      throw new Error('Тред не найден.')
+    }
+
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: payload.enabled ? 'admin.thread.archive' : 'admin.thread.unarchive',
+      reason: normalizedReason,
+      summary: `${payload.enabled ? 'Архивирован' : 'Разархивирован'} тред ${summaryLabel} · ${normalizedReason}`,
+      targetId: threadId,
+      targetType: 'thread',
+    })
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      threads: this.adminListThreads(''),
     }
   }
 
@@ -4239,28 +7150,27 @@ export class TinychokStore {
       throw new Error('Диалог не найден.')
     }
 
-    const ownerDialog = this.database.dialogs.find(
-      (item) =>
-        item.ownerIdentifier === dialog.owner.identifier &&
-        normalizeStoredIdentifierReference(item.phone) === dialog.peer.identifier,
-    )
-    if (!ownerDialog) {
-      throw new Error('Диалог не найден.')
-    }
-
-    const messages = this.database.dialogMessages
-      .filter(
-        (message) =>
-          message.ownerIdentifier === dialog.owner.identifier &&
-          message.dialogId === ownerDialog.id,
-      )
-      .sort((left, right) => compareIsoDateDesc(right.createdAt, left.createdAt))
+    const [leftIdentifier, rightIdentifier] = [dialog.owner.identifier, dialog.peer.identifier].sort()
+    const messages = this.buildCanonicalDirectTranscript(dialog.owner.identifier, dialog.peer.identifier)
 
     const csv = [
-      ['Когда', 'Автор', 'ID автора', 'Текст', 'Файл'],
+      [
+        'Когда',
+        'Автор',
+        'ID автора',
+        'Текст',
+        'Файл',
+        'Media URL',
+        'Reply To',
+        'Read At',
+        'Archived At',
+        'Retention Note',
+        'Archive Reason',
+        `Visible For ${leftIdentifier}`,
+        `Visible For ${rightIdentifier}`,
+      ],
       ...messages.map((message) => {
-        const authorIdentifier =
-          message.author === 'me' ? dialog.owner.identifier : dialog.peer.identifier
+        const authorIdentifier = message.authorDisplayIdentifier
         const author = this.findAccount(authorIdentifier)
         return [
           message.createdAt ?? '',
@@ -4268,6 +7178,14 @@ export class TinychokStore {
           authorIdentifier,
           message.text,
           message.attachment?.fileName ?? '',
+          message.attachment?.mediaUrl ?? '',
+          message.replyTo?.text ?? '',
+          message.readAt ?? '',
+          message.archivedAt ?? '',
+          message.retentionNote ?? '',
+          message.archiveReason ?? '',
+          message.visibleForLeft ? 'yes' : 'no',
+          message.visibleForRight ? 'yes' : 'no',
         ]
       }),
     ]
@@ -4402,20 +7320,30 @@ export class TinychokStore {
     for (const [sharedKey, exportTarget] of dialogExports.entries()) {
       const ownerAccount = this.findAccount(exportTarget.ownerIdentifier)
       const peerAccount = this.findAccount(exportTarget.peerIdentifier)
-      const messages = sortByCreatedAtAsc(
-        this.database.dialogMessages.filter(
-          (message) =>
-            message.ownerIdentifier === exportTarget.ownerIdentifier &&
-            message.dialogId === exportTarget.dialogId &&
-            isTimestampWithinRange(message.createdAt, fromTimestamp, toTimestamp),
-        ),
-      )
+      const [leftIdentifier, rightIdentifier] = [exportTarget.ownerIdentifier, exportTarget.peerIdentifier].sort()
+      const messages = this.buildCanonicalDirectTranscript(
+        exportTarget.ownerIdentifier,
+        exportTarget.peerIdentifier,
+      ).filter((message) => isTimestampWithinRange(message.createdAt, fromTimestamp, toTimestamp))
 
       const fileBaseName = `dialog-${sanitizeExportFileName(ownerAccount ? buildAccountDisplayLabel(ownerAccount) : exportTarget.ownerIdentifier)}-${sanitizeExportFileName(peerAccount ? buildAccountDisplayLabel(peerAccount) : exportTarget.peerIdentifier)}`
-      const rows: unknown[][] = [['Когда', 'Автор', 'ID автора', 'Текст', 'Файл', 'Media URL', 'Reply To', 'Read At']]
+      const rows: unknown[][] = [[
+        'Когда',
+        'Автор',
+        'ID автора',
+        'Текст',
+        'Файл',
+        'Media URL',
+        'Reply To',
+        'Read At',
+        'Archived At',
+        'Retention Note',
+        'Archive Reason',
+        `Visible For ${leftIdentifier}`,
+        `Visible For ${rightIdentifier}`,
+      ]]
       const payloadMessages = messages.map((message) => {
-        const authorIdentifier =
-          message.author === 'me' ? exportTarget.ownerIdentifier : exportTarget.peerIdentifier
+        const authorIdentifier = message.authorDisplayIdentifier
         const author = this.findAccount(authorIdentifier)
         rows.push([
           message.createdAt ?? '',
@@ -4426,18 +7354,32 @@ export class TinychokStore {
           message.attachment?.mediaUrl ?? '',
           message.replyTo?.text ?? '',
           message.readAt ?? '',
+          message.archivedAt ?? '',
+          message.retentionNote ?? '',
+          message.archiveReason ?? '',
+          message.visibleForLeft,
+          message.visibleForRight,
         ])
 
         return {
           attachment: message.attachment ?? null,
           authorDisplayName: author ? buildAccountDisplayLabel(author) : authorIdentifier,
           authorIdentifier,
+          archiveReason: message.archiveReason ?? null,
+          archivedAt: message.archivedAt ?? null,
           createdAt: message.createdAt,
           deliveryId: message.deliveryId,
           id: message.id,
+          leftArchivedAt: message.leftArchivedAt ?? null,
+          leftArchiveReason: message.leftArchiveReason ?? null,
           readAt: message.readAt,
+          retentionNote: message.retentionNote ?? null,
           replyTo: message.replyTo ?? null,
+          rightArchivedAt: message.rightArchivedAt ?? null,
+          rightArchiveReason: message.rightArchiveReason ?? null,
           text: message.text,
+          visibleForLeft: message.visibleForLeft,
+          visibleForRight: message.visibleForRight,
         }
       })
 
@@ -5081,6 +8023,351 @@ export class TinychokStore {
     }
   }
 
+  private async buildAdminStorageArchivePayload(
+    actor: ReturnType<TinychokStore['getStaffAccountByTokenOrThrow']>,
+    subjectDescriptor: ReturnType<TinychokStore['resolveAdminStorageSubject']>,
+    mode: 'current' | 'archive',
+    reason: string,
+    options?: {
+      signal?: AbortSignal
+      onProgress?: (progress: {
+        failedFiles: number
+        fileCount: number
+        phase: 'preparing' | 'zipping'
+        processedItems: number
+        totalItems: number
+      }) => void
+    },
+  ) {
+    const throwIfStorageExportAborted = () => {
+      if (options?.signal?.aborted) {
+        const abortError = new Error('Подготовка архива отменена.')
+        abortError.name = 'AbortError'
+        throw abortError
+      }
+    }
+    const mediaItems =
+      mode === 'archive'
+        ? this.collectAdminArchivedMediaExportItems(subjectDescriptor.subject)
+        : this.collectAdminOwnedMediaExportItems(subjectDescriptor.subject, { currentOnly: true })
+    const archiveEntries: Record<string, Uint8Array> = {}
+    const registerJson = (pathname: string, payload: unknown) => {
+      archiveEntries[pathname] = toJsonBuffer(payload)
+    }
+    const registerCsv = (pathname: string, rows: unknown[][]) => {
+      archiveEntries[pathname] = toTextBuffer(buildCsv(rows))
+    }
+
+    const fileNameCounters = new Map<string, number>()
+    const nextArchiveMediaPath = (fileName: string) => {
+      const extension = extname(fileName).toLowerCase()
+      const basename = sanitizeExportFileName(fileName.slice(0, fileName.length - extension.length) || 'media') || 'media'
+      const counterKey = `${basename}${extension}`
+      const nextIndex = (fileNameCounters.get(counterKey) ?? 0) + 1
+      fileNameCounters.set(counterKey, nextIndex)
+      return nextIndex === 1
+        ? `media/${basename}${extension}`
+        : `media/${basename}-${nextIndex}${extension}`
+    }
+
+    const manifestEntries: StorageArchiveManifestItem[] = []
+    let failedFiles = 0
+    let processedItems = 0
+    let fileCount = 0
+    const totalItems = mediaItems.length
+    const reportProgress = (phase: 'preparing' | 'zipping') => {
+      options?.onProgress?.({
+        failedFiles,
+        fileCount,
+        phase,
+        processedItems,
+        totalItems,
+      })
+    }
+
+    reportProgress('preparing')
+
+    for (const item of mediaItems) {
+      throwIfStorageExportAborted()
+      const baseRecord: StorageArchiveManifestItem = {
+        archiveReason: item.archiveReason as StorageArchiveReason | undefined,
+        archivedAt: item.archivedAt,
+        fileName: item.fileName,
+        kind: item.kind,
+        mediaUrl: item.mediaUrl,
+        mimeType: item.mimeType,
+        originalContext: item.originalContext ?? item.primaryLabel,
+        ownerIdentifier: item.ownerIdentifier || undefined,
+        primaryLabel: item.primaryLabel,
+        retentionOnly: item.retentionOnly,
+        size: item.size,
+        storageSubject: `${subjectDescriptor.subject.kind}:${subjectDescriptor.subject.id}`,
+        storageSubjectKind: subjectDescriptor.subject.kind,
+        usageCount: item.usageCount,
+      }
+
+      try {
+        const buffer = await readStoredMediaByUrl(item.mediaUrl, item.storageKind)
+        throwIfStorageExportAborted()
+        const archivePath = nextArchiveMediaPath(item.fileName || item.mediaUrl)
+        archiveEntries[archivePath] = buffer
+        manifestEntries.push({
+          ...baseRecord,
+          archivePath,
+        })
+        fileCount += 1
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw error
+        }
+        manifestEntries.push({
+          ...baseRecord,
+          exportError: error instanceof Error ? error.message : 'Не удалось прочитать media-файл.',
+        })
+        failedFiles += 1
+      } finally {
+        processedItems += 1
+        reportProgress('preparing')
+      }
+    }
+
+    registerJson('manifest/media.json', manifestEntries)
+    registerCsv('manifest/media.csv', [
+      [
+        'Media URL',
+        'Файл',
+        'Вид',
+        'MIME',
+        'Размер',
+        'Владелец',
+        'Primary label',
+        'Original context',
+        'Использований',
+        'Retention only',
+        'Archive reason',
+        'Archived at',
+        'Storage subject',
+        'Путь в архиве',
+        'Ошибка выгрузки',
+      ],
+      ...manifestEntries.map((entry) => [
+        entry.mediaUrl,
+        entry.fileName,
+        entry.kind,
+        entry.mimeType,
+        entry.size,
+        entry.ownerIdentifier ?? '',
+        entry.primaryLabel,
+        entry.originalContext,
+        entry.usageCount,
+        entry.retentionOnly ? 'yes' : 'no',
+        entry.archiveReason ?? '',
+        entry.archivedAt ?? '',
+        entry.storageSubject,
+        entry.archivePath ?? '',
+        entry.exportError ?? '',
+      ]),
+    ])
+    registerJson('manifest/export.json', {
+      actorIdentifier: actor.identifier,
+      actorRole: actor.staffRole,
+      counts: {
+        archiveOnly: manifestEntries.filter((entry) => entry.archivedAt || entry.retentionOnly).length,
+        failedFiles: manifestEntries.filter((entry) => entry.exportError).length,
+        filesIncluded: manifestEntries.filter((entry) => entry.archivePath).length,
+        items: manifestEntries.length,
+      },
+      createdAt: new Date().toISOString(),
+      mode,
+      reason,
+      subject: {
+        id: subjectDescriptor.subject.id,
+        kind: subjectDescriptor.subject.kind,
+      },
+      target: subjectDescriptor.auditLabel,
+    })
+
+    const archiveFileName = `${mode === 'archive' ? 'archive' : 'current'}-media-export-${subjectDescriptor.exportBaseName}-${formatExportDateStamp()}.zip`
+    throwIfStorageExportAborted()
+    reportProgress('zipping')
+    return {
+      counts: {
+        failedFiles: manifestEntries.filter((entry) => entry.exportError).length,
+        fileCount: manifestEntries.filter((entry) => entry.archivePath).length,
+        itemCount: manifestEntries.length,
+      },
+      fileName: archiveFileName,
+      manifestEntries,
+      payload: {
+        buffer: Buffer.from(zipSync(archiveEntries, { level: 0 })),
+        fileName: archiveFileName,
+      },
+    }
+  }
+
+  async adminExportStorageArchive(
+    actorToken: string,
+    body: AdminStorageExportBody,
+    options?: {
+      signal?: AbortSignal
+      onProgress?: (progress: {
+        failedFiles: number
+        fileCount: number
+        phase: 'preparing' | 'zipping'
+        processedItems: number
+        totalItems: number
+      }) => void
+    },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    if (actor.staffRole !== 'owner') {
+      throw new Error('Выгрузка архивного хранилища доступна только владельцу.')
+    }
+    if (!actor.passwordHash) {
+      throw new Error('У owner-аккаунта должен быть настроен пароль для этой выгрузки.')
+    }
+    const currentPasswordMatches = await verifyPassword(body.currentPassword ?? '', actor.passwordHash)
+    if (!currentPasswordMatches) {
+      throw new Error('Неверный пароль текущего owner-аккаунта.')
+    }
+
+    const normalizedReason = sanitizeAdminText(body.reason, 280) || 'Проверка архивного хранилища'
+    const subjectDescriptor = this.resolveAdminStorageSubject(body.subjectKind, body.subjectId)
+    const bundle = await this.buildAdminStorageArchivePayload(
+      actor,
+      subjectDescriptor,
+      'archive',
+      normalizedReason,
+      options,
+    )
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.storage.archive-export.download',
+      nextValue: {
+        archiveFileName: bundle.fileName,
+        failedFiles: bundle.counts.failedFiles,
+        fileCount: bundle.counts.fileCount,
+        itemCount: bundle.counts.itemCount,
+        subjectId: subjectDescriptor.subject.id,
+        subjectKind: subjectDescriptor.subject.kind,
+      },
+      reason: normalizedReason,
+      summary: `Сформирована выгрузка архивного хранилища для ${subjectDescriptor.auditLabel} · ${normalizedReason}`,
+      targetId: subjectDescriptor.auditTargetId,
+      targetType: subjectDescriptor.auditTargetType,
+    })
+
+    return bundle.payload
+  }
+
+  async adminExportCurrentStorage(
+    actorToken: string,
+    body: AdminStorageExportBody,
+    options?: {
+      signal?: AbortSignal
+      onProgress?: (progress: {
+        failedFiles: number
+        fileCount: number
+        phase: 'preparing' | 'zipping'
+        processedItems: number
+        totalItems: number
+      }) => void
+    },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    if (actor.staffRole !== 'owner') {
+      throw new Error('Выгрузка хранилища доступна только владельцу.')
+    }
+    if (!actor.passwordHash) {
+      throw new Error('У owner-аккаунта должен быть настроен пароль для этой выгрузки.')
+    }
+    const currentPasswordMatches = await verifyPassword(body.currentPassword ?? '', actor.passwordHash)
+    if (!currentPasswordMatches) {
+      throw new Error('Неверный пароль текущего owner-аккаунта.')
+    }
+
+    const normalizedReason = sanitizeAdminText(body.reason, 280) || 'Проверка текущего хранилища'
+    const subjectDescriptor = this.resolveAdminStorageSubject(body.subjectKind, body.subjectId)
+    const bundle = await this.buildAdminStorageArchivePayload(
+      actor,
+      subjectDescriptor,
+      'current',
+      normalizedReason,
+      options,
+    )
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.storage.current-export.download',
+      nextValue: {
+        archiveFileName: bundle.fileName,
+        failedFiles: bundle.counts.failedFiles,
+        fileCount: bundle.counts.fileCount,
+        itemCount: bundle.counts.itemCount,
+        subjectId: subjectDescriptor.subject.id,
+        subjectKind: subjectDescriptor.subject.kind,
+      },
+      reason: normalizedReason,
+      summary: `Сформирована выгрузка текущего хранилища для ${subjectDescriptor.auditLabel} · ${normalizedReason}`,
+      targetId: subjectDescriptor.auditTargetId,
+      targetType: subjectDescriptor.auditTargetType,
+    })
+
+    return bundle.payload
+  }
+
+  async adminSetStorageArchiveUnlimited(actorToken: string, body: AdminStorageArchiveToggleBody) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    if (actor.staffRole !== 'owner') {
+      throw new Error('Управление архивным лимитом доступно только владельцу.')
+    }
+
+    const normalizedReason = sanitizeAdminText(body.reason, 280)
+    if (!normalizedReason) {
+      throw new Error('Нужно указать причину изменения архивного лимита.')
+    }
+
+    const subjectDescriptor = this.resolveAdminStorageSubject(body.subjectKind, body.subjectId)
+    const previousValue = this.buildStorageSubjectUsageResponse(subjectDescriptor.subject)
+
+    if (body.subjectKind === 'user') {
+      const target = this.findAccount(subjectDescriptor.subject.id)
+      if (!target) throw new Error('Пользователь не найден.')
+      target.archiveUnlimited = Boolean(body.enabled)
+    } else if (body.subjectKind === 'group') {
+      for (const group of this.database.groups.filter((candidate) => buildAdminGroupAggregateKey(candidate) === body.subjectId.trim())) {
+        group.archiveUnlimited = Boolean(body.enabled)
+      }
+    } else {
+      const channel = this.findManagedChannelByHandle(subjectDescriptor.auditTargetId)
+      if (!channel) throw new Error('Канал не найден.')
+      channel.archiveUnlimited = Boolean(body.enabled)
+    }
+
+    await this.persist()
+    const nextSubject = this.resolveAdminStorageSubject(body.subjectKind, body.subjectId).subject
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.storage.archive-unlimited.toggle',
+      nextValue: {
+        ...this.buildStorageSubjectUsageResponse(nextSubject),
+        enabled: Boolean(body.enabled),
+      },
+      previousValue,
+      reason: normalizedReason,
+      summary: `${body.enabled ? 'Снято' : 'Включено'} ограничение архивного хранилища для ${subjectDescriptor.auditLabel} · ${normalizedReason}`,
+      targetId: subjectDescriptor.auditTargetId,
+      targetType: subjectDescriptor.auditTargetType,
+    })
+
+    return this.buildStorageSubjectUsageResponse(nextSubject)
+  }
+
+  async adminExportUserMediaArchive(actorToken: string, body: AdminUserMediaExportBody) {
+    return this.adminExportCurrentStorage(actorToken, {
+      currentPassword: body.currentPassword,
+      reason: body.reason,
+      subjectId: body.targetIdentifier,
+      subjectKind: 'user',
+    })
+  }
+
   adminListAuditActors() {
     const actors = new Map<string, AdminAuditLogResponse['actors'][number]>()
 
@@ -5288,71 +8575,79 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const previousAvatarImage = account.avatarImage
-
-    account.displayName = sanitizePersonField(snapshot.session.displayName, displayNameFieldMaxLength)
-    account.surname = sanitizePersonField(snapshot.session.surname ?? '', surnameFieldMaxLength)
-    account.nickname = normalizeNickname(snapshot.session.nickname ?? '')
-    account.status = sanitizeStatusField(snapshot.session.status ?? '')
-    account.avatarImage = snapshot.session.avatarImage?.trim() || undefined
-    account.blockedContactIds = [...(snapshot.session.blockedContactIds ?? [])]
-    account.premium = snapshot.session.premium ?? true
-    account.premiumExpiresAt = snapshot.session.premiumExpiresAt ?? account.premiumExpiresAt
-
-    const fullChats = materializeFullChats(this.database, account.identifier)
-    const fullGroups = materializeFullGroups(this.database, account.identifier)
-    const fullSubscriptionChannels = materializeFullSubscriptionChannels(this.database, account.identifier)
+    const fullChats = materializeFullChats(
+      this.database,
+      this.livePresenceCountsByIdentifier,
+      account.identifier,
+      { includeHidden: true },
+    )
+    const fullGroups = materializeFullGroups(
+      this.database,
+      this.livePresenceCountsByIdentifier,
+      account.identifier,
+    )
+    const fullSubscriptionChannels = materializeFullSubscriptionChannels(
+      this.database,
+      this.livePresenceCountsByIdentifier,
+      account.identifier,
+    )
+    const fullChannels = materializeManagedChannels(this.database, account.identifier)
 
     const fullChatsById = new Map(fullChats.map((chat) => [chat.id, chat] as const))
     const fullGroupsById = new Map(fullGroups.map((group) => [group.id, group] as const))
     const fullSubscriptionChannelsById = new Map(
       fullSubscriptionChannels.map((channel) => [channel.id, channel] as const),
     )
+    const fullChannelsById = new Map(fullChannels.map((channel) => [channel.id, channel] as const))
 
-    const chats = snapshot.chats.map((chat) => {
-      const persistedChat = fullChatsById.get(chat.id)
+    // Snapshot sync is not an account/session source of truth. Sensitive profile, premium,
+    // privacy and channel-management fields must only change through dedicated server mutations.
+    const chats = fullChats.map((chat) => {
+      const snapshotChat = fullChatsById.has(chat.id)
+        ? snapshot.chats.find((candidate) => candidate.id === chat.id)
+        : undefined
 
       return {
         ...chat,
-        // Message history must stay server-authoritative. Client snapshot sync is allowed
-        // to update room metadata, but it must not resurrect deleted messages from stale UI state.
-        messages: persistedChat?.messages ?? [],
-        pinnedMessage: persistedChat?.pinnedMessage,
+        hidden: snapshotChat?.hidden ?? chat.hidden,
+        muted: snapshotChat?.muted ?? chat.muted,
+        pinned: snapshotChat?.pinned ?? chat.pinned,
+        pinnedMessageId:
+          snapshotChat?.pinnedMessageId !== undefined
+            ? snapshotChat.pinnedMessageId
+            : chat.pinnedMessageId,
       }
     })
-    const groups = snapshot.groups.map((group) => {
-      const persistedGroup = fullGroupsById.get(group.id)
+    const groups = fullGroups.map((group) => {
+      const snapshotGroup = fullGroupsById.has(group.id)
+        ? snapshot.groups.find((candidate) => candidate.id === group.id)
+        : undefined
 
       return {
         ...group,
-        // Group timelines and thread comments are persisted through dedicated mutations only.
-        messages: persistedGroup?.messages ?? [],
+        muted: snapshotGroup?.muted ?? group.muted,
       }
     })
-    const subscriptionChannels = snapshot.subscriptionChannels.map((channel) => {
-      const persistedChannel = fullSubscriptionChannelsById.get(channel.id)
+    const subscriptionChannels = fullSubscriptionChannels.map((channel) => {
+      const snapshotChannel = fullSubscriptionChannelsById.has(channel.id)
+        ? snapshot.subscriptionChannels.find((candidate) => candidate.id === channel.id)
+        : undefined
 
       return {
         ...channel,
-        // Channel posts and thread comments must never be restored from a stale client snapshot.
-        posts: persistedChannel?.posts ?? [],
+        muted: snapshotChannel?.muted ?? channel.muted,
       }
     })
+    const channels = fullChannels.map((channel) => fullChannelsById.get(channel.id) ?? channel)
 
     this.replaceOwnerState(account.identifier, {
-      channels: snapshot.channels,
+      channels,
       chats,
       groups,
       subscriptionChannels,
     })
 
     await this.persist()
-
-    this.clearPendingMediaUpload(account.avatarImage)
-
-    if (previousAvatarImage && previousAvatarImage !== account.avatarImage) {
-      await this.deleteMediaIfUnreferenced(previousAvatarImage)
-    }
 
     return this.buildSnapshot(account, token)
   }
@@ -5382,11 +8677,63 @@ export class TinychokStore {
     }
 
     if (payload.status !== undefined) {
-      account.status = sanitizeStatusField(payload.status)
+      const nextStatus = sanitizeStatusField(payload.status)
+      const previousStatus = sanitizeStatusField(account.status ?? '')
+      const statusChanged = nextStatus !== previousStatus
+      account.statusHistory = normalizeAccountStatusHistory(
+        account.statusHistory,
+        account.createdAt,
+        previousStatus,
+      )
+      account.status = nextStatus
+
+      if (statusChanged && nextStatus) {
+        account.statusHistory.push({
+          setAt: new Date().toISOString(),
+          status: nextStatus,
+        })
+      }
     }
 
     if (payload.avatarImage !== undefined) {
       account.avatarImage = payload.avatarImage.trim() || undefined
+    }
+
+    if (payload.quietModeSettings !== undefined) {
+      account.quietModeSettings = normalizeQuietModeSettings(payload.quietModeSettings)
+    }
+
+    if (payload.invisibilityEnabled !== undefined) {
+      account.invisibilityEnabled = Boolean(payload.invisibilityEnabled)
+      // Manual invisibility preference must always clear the quiet-origin marker; otherwise
+      // `Тихо -> off` could incorrectly undo a user decision made in settings.
+      account.invisibilityAutoEnabled = false
+    }
+
+    if (payload.quietModeEnabled !== undefined) {
+      const previousQuietModeEnabled = Boolean(account.quietModeEnabled)
+      const currentInvisibilityEnabled = getStoredInvisibilityPreference(account)
+      const currentInvisibilityAutoEnabled = Boolean(account.invisibilityAutoEnabled)
+      const nextQuietModeEnabled = Boolean(payload.quietModeEnabled)
+
+      account.quietModeEnabled = nextQuietModeEnabled
+
+      // Server-side source of truth:
+      // quiet-mode may auto-toggle invisibility, but only auto-enabled invisibility may be
+      // auto-disabled again when quiet-mode turns off.
+      const nextInvisibilityState = resolveQuietModeInvisibilityState({
+        autoInvisibility: getEffectiveQuietModeSettings(
+          account.quietModeSettings,
+          hasActivePremium(account.premium, account.premiumExpiresAt),
+        ).autoInvisibility,
+        currentInvisibilityAutoEnabled,
+        currentInvisibilityEnabled,
+        currentQuietModeEnabled: previousQuietModeEnabled,
+        nextQuietModeEnabled,
+      })
+
+      account.invisibilityAutoEnabled = nextInvisibilityState.invisibilityAutoEnabled
+      account.invisibilityEnabled = nextInvisibilityState.invisibilityEnabled
     }
 
     if (payload.soundsDisabled !== undefined) {
@@ -5524,23 +8871,155 @@ export class TinychokStore {
     }
   }
 
+  listUserStorageItems(token: string) {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const subject = this.getUserStorageSubject(account.identifier)
+    return {
+      items: this.buildPrimaryStorageInventoryForSubject(subject),
+      usage: this.buildStorageSubjectUsageResponse(subject),
+    }
+  }
+
+  async removeUserStorageItem(token: string, storageItemId: string): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const parsedStorageItem = this.parseUserStorageItemId(storageItemId.trim())
+    if (!parsedStorageItem) {
+      throw new Error('Некорректный объект хранилища.')
+    }
+
+    const subject = this.getUserStorageSubject(account.identifier)
+    const storageItem = this.buildPrimaryStorageInventoryForSubject(subject).find((item) => item.id === storageItemId) ?? null
+    if (!storageItem) {
+      throw new Error('Объект хранилища не найден.')
+    }
+
+    if (parsedStorageItem.kind === 'gif') {
+      const currentLibrary = account.gifLibrary ?? []
+      await this.archiveReferencesForSubject(subject, parsedStorageItem.mediaUrl, 'manual-delete')
+      account.gifLibrary = currentLibrary.filter((gif) => gif.mediaUrl !== parsedStorageItem.mediaUrl)
+      await this.persist()
+      await this.deleteMediaIfUnreferenced(parsedStorageItem.mediaUrl)
+      return {
+        broadcastIdentifiers: [account.identifier],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    await this.archiveReferencesForSubject(subject, parsedStorageItem.mediaUrl, 'manual-delete')
+    const affectedIdentifiers = this.removeAttachmentReferencesForSubject(
+      subject,
+      parsedStorageItem.mediaUrl,
+      this.buildAttachmentRemovedNoticeForSubject(subject, 'storage-manual'),
+    )
+    if (affectedIdentifiers.length === 0) {
+      throw new Error('Объект хранилища не найден.')
+    }
+
+    await this.persist()
+    await this.deleteMediaIfUnreferenced(parsedStorageItem.mediaUrl)
+
+    return {
+      broadcastIdentifiers: [...new Set([account.identifier, ...affectedIdentifiers])],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  listChannelStorageItems(token: string, channelId: number): StoragePrimaryItemsResponse {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const channel = this.findManagedChannel(account.identifier, channelId)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+    this.assertManagedChannelWritable(channel)
+
+    const subject = this.getChannelStorageSubjectByHandle(channel.directLink)
+    return {
+      items: this.buildPrimaryStorageInventoryForSubject(subject),
+      usage: this.buildStorageSubjectUsageResponse(subject),
+    }
+  }
+
+  async removeChannelStorageItem(token: string, channelId: number, storageItemId: string): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const channel = this.findManagedChannel(account.identifier, channelId)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+    this.assertManagedChannelWritable(channel)
+
+    const subject = this.getChannelStorageSubjectByHandle(channel.directLink)
+    const parsedStorageItem = this.parseUserStorageItemId(storageItemId.trim())
+    if (!parsedStorageItem || parsedStorageItem.kind !== 'attachment') {
+      throw new Error('Некорректный объект хранилища.')
+    }
+
+    const storageItem = this.buildPrimaryStorageInventoryForSubject(subject).find((item) => item.id === storageItemId)
+    if (!storageItem) {
+      throw new Error('Объект хранилища не найден.')
+    }
+
+    await this.archiveReferencesForSubject(subject, parsedStorageItem.mediaUrl, 'manual-delete')
+    const affectedIdentifiers = this.removeAttachmentReferencesForSubject(
+      subject,
+      parsedStorageItem.mediaUrl,
+      this.buildAttachmentRemovedNoticeForSubject(subject, 'storage-manual'),
+    )
+    if (affectedIdentifiers.length === 0) {
+      throw new Error('Объект хранилища не найден.')
+    }
+
+    await this.persist()
+    await this.deleteMediaIfUnreferenced(parsedStorageItem.mediaUrl)
+
+    return {
+      broadcastIdentifiers: [...new Set(affectedIdentifiers)],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async setDebugPremiumState(token: string, payload: DebugPremiumBody): Promise<MutationResult> {
     const account = this.findAccountByToken(token)
     if (!account) {
       throw new Error('Сессия не найдена.')
     }
 
+    const previousStorageQuotaBytes = getEffectiveUserStorageQuotaBytes(account)
+    if (payload.enabled || hasPremiumStorageHistory(account)) {
+      rememberUnlockedPremiumStorageQuota(account)
+    }
     account.premium = Boolean(payload.enabled)
     account.premiumExpiresAt = payload.enabled
-      ? makePremiumExpiry(
+      ? extendPremiumExpiry(
           Number.isInteger(payload.durationDays) && (payload.durationDays ?? 0) > 0
             ? payload.durationDays!
             : 30,
+          account.premiumExpiresAt,
         )
       : ''
+    const restoredIdentifiers =
+      getEffectiveUserStorageQuotaBytes(account) > previousStorageQuotaBytes
+        ? this.restoreArchivedMediaIntoPrimaryStorageIfQuotaAllows(this.getUserStorageSubject(account.identifier))
+        : []
 
     const broadcastIdentifiers = this.refreshDialogsForAccount(account)
     broadcastIdentifiers.push(account.identifier)
+    broadcastIdentifiers.push(...restoredIdentifiers)
 
     await this.persist()
 
@@ -5573,12 +9052,207 @@ export class TinychokStore {
       throw new Error('Этот аккаунт удалён и недоступен для переписки.')
     }
 
-    const dialog = this.ensureDialogForContact(account.identifier, contactAccount)
+    const contactState = this.getContactState(account.identifier, contactAccount.identifier)
+    const shouldHideDialog = contactState !== 'accepted'
+
+    // Reopen must reuse hidden former-contact dialogs instead of creating a new empty room,
+    // otherwise preserved history and per-side delete semantics are lost.
+    const dialog = this.ensureDialogForContact(account.identifier, contactAccount, {
+      hidden: shouldHideDialog,
+    })
     await this.persist()
 
     return {
       broadcastIdentifiers: [account.identifier],
       dialogId: dialog.id,
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async sendContactRequest(
+    token: string,
+    payload: SendContactRequestBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedIdentifier = normalizeIdentifier(payload.identifier)
+    if (!normalizedIdentifier) {
+      throw new Error('Нужно указать номер контакта.')
+    }
+
+    if (normalizedIdentifier === account.identifier) {
+      throw new Error('Нельзя отправить запрос самому себе.')
+    }
+
+    const contactAccount = this.findAccount(normalizedIdentifier)
+    if (!contactAccount || isPublicDeletedAccount(contactAccount)) {
+      throw new Error('Аккаунт не найден.')
+    }
+
+    const currentState = this.getContactState(account.identifier, contactAccount.identifier)
+    if (currentState === 'accepted') {
+      throw new Error('Контакт уже установлен.')
+    }
+    if (currentState === 'blocked-by-me') {
+      throw new Error('Вы заблокировали этот контакт.')
+    }
+    if (currentState === 'blocked-by-peer') {
+      throw new Error('Пользователь заблокировал контакт с вами.')
+    }
+    if (currentState === 'pending-outgoing') {
+      throw new Error('Заявка на контакт уже отправлена.')
+    }
+    if (currentState === 'pending-incoming') {
+      throw new Error('Пользователь уже ждёт вашего ответа в разделе контактов.')
+    }
+
+    // Pending contact requests must stay out of the normal chat lists for both sides.
+    // We keep a hidden direct room so preserved history can be reopened later through
+    // Contacts or Search without granting accepted-contact messaging yet.
+    this.ensureDialogForContact(account.identifier, contactAccount, {
+      hidden: true,
+    })
+    this.upsertContactLink(account.identifier, contactAccount.identifier, {
+      requesterIdentifier: account.identifier,
+      status: 'pending',
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier, contactAccount.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async acceptContactRequest(token: string, identifier: string): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const requester = this.findAccount(normalizedIdentifier)
+    if (!requester || isPublicDeletedAccount(requester)) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    const link = this.getContactLink(account.identifier, requester.identifier)
+    if (!link || link.status !== 'pending' || link.requesterIdentifier !== requester.identifier) {
+      throw new Error('Заявка на контакт не найдена.')
+    }
+
+    this.upsertContactLink(account.identifier, requester.identifier, {
+      requesterIdentifier: requester.identifier,
+      status: 'accepted',
+    })
+
+    // Accept is the only path that turns a pending request into a visible, canonical
+    // direct dialog for both sides. All other pending actions must leave the room hidden.
+    const accepterDialog = this.ensureDialogForContact(account.identifier, requester, {
+      hidden: false,
+    })
+    const requesterDialog = this.ensureDialogForContact(requester.identifier, account, {
+      hidden: false,
+    })
+    this.appendDirectSystemMessage(account.identifier, accepterDialog, 'Контакт установлен', {
+      author: 'me',
+    })
+    this.appendDirectSystemMessage(requester.identifier, requesterDialog, 'Контакт установлен', {
+      author: 'them',
+      incrementUnread: true,
+    })
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier, requester.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async rejectContactRequest(token: string, identifier: string): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const requester = this.findAccount(normalizedIdentifier)
+    if (!requester || isPublicDeletedAccount(requester)) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    const link = this.getContactLink(account.identifier, requester.identifier)
+    if (!link || link.status !== 'pending' || link.requesterIdentifier !== requester.identifier) {
+      throw new Error('Заявка на контакт не найдена.')
+    }
+
+    // Reject clears only the pending relationship. It must not create or reveal
+    // a visible direct chat for the requester.
+    this.clearContactLink(account.identifier, requester.identifier)
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier, requester.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async cancelContactRequest(token: string, identifier: string): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const recipient = this.findAccount(normalizedIdentifier)
+    if (!recipient || isPublicDeletedAccount(recipient)) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    const link = this.getContactLink(account.identifier, recipient.identifier)
+    if (!link || link.status !== 'pending' || link.requesterIdentifier !== account.identifier) {
+      throw new Error('Заявка на контакт не найдена.')
+    }
+
+    // Cancel mirrors reject from the requester side: remove the pending request and
+    // return the pair to request-required state while keeping any hidden history intact.
+    this.clearContactLink(account.identifier, recipient.identifier)
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier, recipient.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async blockContactRequest(token: string, identifier: string): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const requester = this.findAccount(normalizedIdentifier)
+    if (!requester || isPublicDeletedAccount(requester)) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    // Blocking upgrades the pair into a server-authoritative denied state so future
+    // contact requests cannot recreate the pending flow from the requester side.
+    this.upsertContactLink(account.identifier, requester.identifier, {
+      blockedByIdentifier: account.identifier,
+      requesterIdentifier: requester.identifier,
+      status: 'blocked',
+    })
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [account.identifier, requester.identifier],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -5598,18 +9272,53 @@ export class TinychokStore {
       throw new Error('Диалог не найден.')
     }
 
+    const directContactState = this.getContactState(account.identifier, dialog.phone)
+    if (directContactState !== 'accepted') {
+      if (directContactState === 'blocked-by-peer') {
+        throw new Error('Пользователь заблокировал контакт с вами.')
+      }
+      if (directContactState === 'blocked-by-me') {
+        throw new Error('Вы заблокировали этот контакт.')
+      }
+      throw new Error('Сначала отправьте запрос на контакт.')
+    }
+
     const text = sanitizeMessageText(payload.text)
-    const attachment = sanitizeMessageAttachment(payload.attachment)
+    const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
     const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
+    const sourceContact =
+      sanitizeSourceContact(this.database, payload.sourceContact) ??
+      resolveContactSourceReferenceFromText(this.database, text)
     const sourceGroup = sanitizeSourceGroup(payload.sourceGroup)
-    if (!text && !attachment && !sourceChannel && !sourceGroup) {
+    if (!text && !attachment && !sourceChannel && !sourceContact && !sourceGroup) {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
 
     const senderReplyTo = sanitizeReplyTarget(payload.replyTo)
     const forwardedAuthorName = sanitizeForwardedAuthorName(payload.forwardedAuthorName)
+    const normalizedClientDeliveryId = this.normalizeClientDeliveryId(payload.clientDeliveryId)
+    const duplicateMessage = this.findExistingDirectMessageByDeliveryId(
+      account.identifier,
+      dialog.id,
+      normalizedClientDeliveryId,
+    )
+    if (duplicateMessage) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    if (attachment) {
+      await this.reclaimStorageForAttachmentUpload(
+        this.getUserStorageSubject(account.identifier),
+        attachment.size,
+        attachment.mediaUrl,
+      )
+    }
+
     const createdAt = new Date().toISOString()
-    const deliveryId = this.resolveDeliveryId(payload.clientDeliveryId)
+    const deliveryId = this.resolveDeliveryId(normalizedClientDeliveryId)
     const time = formatNowTime()
     const recipientIdentifier = normalizeIdentifier(dialog.phone)
     const recipientAccount =
@@ -5640,6 +9349,7 @@ export class TinychokStore {
       ownerIdentifier: account.identifier,
       replyTo: senderReplyTo,
       sourceChannel,
+      sourceContact,
       sourceGroup,
       text,
       createdAt,
@@ -5675,6 +9385,7 @@ export class TinychokStore {
         ownerIdentifier: recipientAccount.identifier,
         replyTo: recipientReplyTo,
         sourceChannel,
+        sourceContact,
         sourceGroup,
         text,
         createdAt,
@@ -5689,7 +9400,7 @@ export class TinychokStore {
     }
 
     await this.persist()
-    this.clearPendingMediaUpload(attachment?.mediaUrl)
+    this.markAttachmentUploadLinked(attachment)
 
     return {
       broadcastIdentifiers: [...new Set(broadcastIdentifiers)],
@@ -5912,6 +9623,7 @@ export class TinychokStore {
     token: string,
     dialogId: number,
     messageId: number,
+    options: DeleteDialogMessageBody = {},
   ): Promise<MutationResult> {
     const account = this.findAccountByToken(token)
     if (!account) {
@@ -5930,26 +9642,85 @@ export class TinychokStore {
         message.id === messageId,
     )
 
-    const beforeCount = this.database.dialogMessages.length
-    this.database.dialogMessages = this.database.dialogMessages.filter(
-      (message) =>
-        !(
-          message.ownerIdentifier === account.identifier &&
-          message.dialogId === dialogId &&
-          message.id === messageId
-        ),
-    )
-
-    if (this.database.dialogMessages.length === beforeCount) {
+    if (!removedMessage) {
       throw new Error('Сообщение не найдено.')
     }
 
+    if (options.scope === 'everyone') {
+      if (removedMessage.author !== 'me') {
+        throw new Error('Удалить у всех можно только своё сообщение.')
+      }
+
+      const peerIdentifier = normalizeIdentifier(dialog.phone)
+      const peerAccount =
+        peerIdentifier && !isArchivedIdentifier(peerIdentifier)
+          ? this.findAccount(peerIdentifier)
+          : null
+
+      const affectedIdentifiers = new Set<string>([account.identifier])
+      const archivedAt = new Date().toISOString()
+      const removedMediaUrls = collectMediaUrlsFromAttachment(removedMessage.attachment)
+
+      removedMessage.archivedAt = archivedAt
+      removedMessage.archivedReason = 'delete-message-everyone'
+      if (dialog.pinnedMessageId === messageId) {
+        dialog.pinnedMessageId = undefined
+      }
+
+      if (peerIdentifier && peerAccount && !isPublicDeletedAccount(peerAccount)) {
+        const peerDialog = this.findDialogByPhone(peerAccount.identifier, account.identifier)
+        if (peerDialog) {
+          const peerCopy = this.database.dialogMessages.find((message) => {
+            if (
+              message.ownerIdentifier !== peerAccount.identifier ||
+              message.dialogId !== peerDialog.id
+            ) {
+              return false
+            }
+
+            if (removedMessage.deliveryId && message.deliveryId) {
+              return message.deliveryId === removedMessage.deliveryId
+            }
+
+            return (
+              message.createdAt === removedMessage.createdAt &&
+              message.text === removedMessage.text &&
+              message.attachment?.mediaUrl === removedMessage.attachment?.mediaUrl &&
+              message.author === 'them'
+            )
+          })
+
+          if (peerCopy) {
+            peerCopy.archivedAt = archivedAt
+            peerCopy.archivedReason = 'delete-message-everyone'
+            if (peerDialog.pinnedMessageId === peerCopy.id) {
+              peerDialog.pinnedMessageId = undefined
+            }
+            affectedIdentifiers.add(peerAccount.identifier)
+          }
+        }
+      }
+
+      await this.persist()
+      for (const mediaUrl of removedMediaUrls) {
+        await this.deleteMediaIfUnreferenced(mediaUrl)
+      }
+
+      return {
+        broadcastIdentifiers: [...affectedIdentifiers],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    // `Удалить у меня` is a local hide, not a server purge.
+    // We retain the direct row for admin/legal recovery and hide it from normal snapshot/history via archive flags.
+    removedMessage.archivedAt = new Date().toISOString()
+    removedMessage.archivedReason = 'delete-message-me'
     if (dialog.pinnedMessageId === messageId) {
       dialog.pinnedMessageId = undefined
     }
 
     await this.persist()
-    await this.deleteMediaIfUnreferenced(removedMessage?.attachment?.mediaUrl)
 
     return {
       broadcastIdentifiers: [account.identifier],
@@ -5957,7 +9728,11 @@ export class TinychokStore {
     }
   }
 
-  async deleteDialogHistory(token: string, dialogId: number): Promise<MutationResult> {
+  async deleteDialogHistory(
+    token: string,
+    dialogId: number,
+    options: { scope?: 'everyone' | 'me' } = {},
+  ): Promise<MutationResult> {
     const account = this.findAccountByToken(token)
     if (!account) {
       throw new Error('Сессия не найдена.')
@@ -5968,21 +9743,64 @@ export class TinychokStore {
       throw new Error('Диалог не найден.')
     }
 
-    const removedMediaUrls = this.database.dialogMessages
-      .filter((message) => message.ownerIdentifier === account.identifier && message.dialogId === dialogId)
-      .flatMap((message) => collectMediaUrlsFromAttachment(message.attachment))
+    if (options.scope === 'everyone') {
+      const peerIdentifier = normalizeIdentifier(dialog.phone)
+      const peerAccount =
+        peerIdentifier && !isArchivedIdentifier(peerIdentifier)
+          ? this.findAccount(peerIdentifier)
+          : null
 
-    this.database.dialogMessages = this.database.dialogMessages.filter(
-      (message) => !(message.ownerIdentifier === account.identifier && message.dialogId === dialogId),
-    )
+      const affectedIdentifiers = new Set<string>([account.identifier])
+      const affectedDialogs: PersistedDialog[] = [dialog]
+
+      if (peerIdentifier && peerAccount && !isPublicDeletedAccount(peerAccount)) {
+        const peerDialog = this.findDialogByPhone(peerAccount.identifier, account.identifier)
+        if (peerDialog) {
+          affectedDialogs.push(peerDialog)
+          affectedIdentifiers.add(peerAccount.identifier)
+        }
+      }
+
+      const archivedAt = new Date().toISOString()
+      const affectedDialogKeys = new Set(affectedDialogs.map((item) => `${item.ownerIdentifier}:${item.id}`))
+
+      // `Удалить переписку у всех` must clear the room for both participants without destroying data.
+      // The admin/legal layer still needs recoverable server-side history, so we archive direct messages
+      // instead of filtering them out of the database permanently.
+      for (const message of this.database.dialogMessages) {
+        if (!affectedDialogKeys.has(`${message.ownerIdentifier}:${message.dialogId}`)) continue
+        message.archivedAt = archivedAt
+        message.archivedReason = 'delete-history-everyone'
+      }
+
+      for (const affectedDialog of affectedDialogs) {
+        affectedDialog.pinnedMessageId = undefined
+        affectedDialog.typing = false
+        affectedDialog.unread = 0
+      }
+
+      await this.persist()
+
+      return {
+        broadcastIdentifiers: [...affectedIdentifiers],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    // Direct self-delete must stay recoverable for admin/legal export even if both sides clear the room locally.
+    const archivedAt = new Date().toISOString()
+    for (const message of this.database.dialogMessages) {
+      if (message.ownerIdentifier !== account.identifier || message.dialogId !== dialogId || message.archivedAt) {
+        continue
+      }
+      message.archivedAt = archivedAt
+      message.archivedReason = 'delete-history-me'
+    }
     dialog.pinnedMessageId = undefined
     dialog.typing = false
     dialog.unread = 0
 
     await this.persist()
-    for (const mediaUrl of removedMediaUrls) {
-      await this.deleteMediaIfUnreferenced(mediaUrl)
-    }
 
     return {
       broadcastIdentifiers: [account.identifier],
@@ -5996,32 +9814,60 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const hasDialog = this.database.dialogs.some(
-      (dialog) => dialog.ownerIdentifier === account.identifier && dialog.id === dialogId,
-    )
-    if (!hasDialog) {
+    const dialog = this.findDialog(account.identifier, dialogId)
+    if (!dialog) {
       throw new Error('Диалог не найден.')
     }
 
-    const removedMediaUrls = this.database.dialogMessages
-      .filter((message) => message.ownerIdentifier === account.identifier && message.dialogId === dialogId)
-      .flatMap((message) => collectMediaUrlsFromAttachment(message.attachment))
+    const peerIdentifier = normalizeIdentifier(dialog.phone)
+    const peerAccount =
+      peerIdentifier && !isArchivedIdentifier(peerIdentifier)
+        ? this.findAccount(peerIdentifier)
+        : null
 
-    this.database.dialogs = this.database.dialogs.filter(
-      (dialog) => !(dialog.ownerIdentifier === account.identifier && dialog.id === dialogId),
-    )
-    this.database.dialogMessages = this.database.dialogMessages.filter(
-      (message) => !(message.ownerIdentifier === account.identifier && message.dialogId === dialogId),
-    )
-    account.blockedContactIds = (account.blockedContactIds ?? []).filter((id) => id !== dialogId)
+    const affectedIdentifiers = new Set<string>([account.identifier])
+    const affectedDialogs: PersistedDialog[] = [dialog]
 
-    await this.persist()
-    for (const mediaUrl of removedMediaUrls) {
-      await this.deleteMediaIfUnreferenced(mediaUrl)
+    if (peerIdentifier && peerAccount && !isPublicDeletedAccount(peerAccount)) {
+      const peerDialog = this.findDialogByPhone(peerAccount.identifier, account.identifier)
+      if (peerDialog) {
+        affectedDialogs.push(peerDialog)
+        affectedIdentifiers.add(peerAccount.identifier)
+      }
     }
 
+    // `Удалить контакт` is a symmetric hide, not a physical direct-history purge.
+    // Per-side history remains attached to the hidden dialog copy and can be reopened via search.
+    // The peer must also lose the visible dialog immediately; accepted contact state must not survive.
+    for (const affectedDialog of affectedDialogs) {
+      affectedDialog.hidden = true
+      affectedDialog.typing = false
+      affectedDialog.unread = 0
+      affectedDialog.pinned = false
+      affectedDialog.pinnedMessageId = undefined
+    }
+
+    for (const affectedIdentifier of affectedIdentifiers) {
+      const ownerAccount = this.findAccount(affectedIdentifier)
+      if (!ownerAccount) continue
+      const ownerDialogIds = new Set(
+        affectedDialogs
+          .filter((candidate) => candidate.ownerIdentifier === affectedIdentifier)
+          .map((candidate) => candidate.id),
+      )
+      ownerAccount.blockedContactIds = (ownerAccount.blockedContactIds ?? []).filter(
+        (candidateId) => !ownerDialogIds.has(candidateId),
+      )
+    }
+
+    if (peerIdentifier) {
+      this.clearContactLink(account.identifier, peerIdentifier)
+    }
+
+    await this.persist()
+
     return {
-      broadcastIdentifiers: [account.identifier],
+      broadcastIdentifiers: [...affectedIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -6045,16 +9891,38 @@ export class TinychokStore {
     this.assertNotBlacklistedFromGroup(group, account.identifier)
 
     const text = sanitizeMessageText(payload.text)
-    const attachment = sanitizeMessageAttachment(payload.attachment)
+    const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
     const forwardedAuthorName = sanitizeForwardedAuthorName(payload.forwardedAuthorName)
     const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
+    const sourceContact = resolveContactSourceReferenceFromText(this.database, text)
     const replyTo = sanitizeReplyTarget(payload.replyTo)
     if (!text && !attachment) {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
 
+    const normalizedClientDeliveryId = this.normalizeClientDeliveryId(payload.clientDeliveryId)
+    const duplicateMessage = this.findExistingGroupMessageByDeliveryId(
+      account.identifier,
+      group.id,
+      normalizedClientDeliveryId,
+    )
+    if (duplicateMessage) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    if (attachment) {
+      await this.reclaimStorageForAttachmentUpload(
+        this.getUserStorageSubject(account.identifier),
+        attachment.size,
+        attachment.mediaUrl,
+      )
+    }
+
     const createdAt = new Date().toISOString()
-    const deliveryId = this.resolveDeliveryId(payload.clientDeliveryId)
+    const deliveryId = this.resolveDeliveryId(normalizedClientDeliveryId)
     const time = formatNowTime()
     const sharedId = this.getSharedGroupId(group)
     const senderParticipant = group.participants.find(
@@ -6079,6 +9947,7 @@ export class TinychokStore {
         ownerIdentifier: groupCopy.ownerIdentifier,
         replyTo,
         sourceChannel,
+        sourceContact,
         text,
         threadComments: [],
         threadId: getGroupMessageThreadId(groupCopy, { createdAt, deliveryId, id: 0, text, time }),
@@ -6094,6 +9963,7 @@ export class TinychokStore {
     }
 
     await this.persist()
+    this.markAttachmentUploadLinked(attachment)
 
     return {
       broadcastIdentifiers: [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))],
@@ -6116,16 +9986,39 @@ export class TinychokStore {
     if (!target) {
       throw new Error('Сообщение группы не найдено.')
     }
+    if (isArchivedThread(target.message)) {
+      throw new Error('Тред находится в архиве и недоступен пользователям.')
+    }
 
     this.assertCanCommentInGroup(target.group, account)
 
     const text = sanitizeThreadCommentText(payload.text)
-    const attachment = sanitizeMessageAttachment(payload.attachment)
+    const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
     if (!text && !attachment) {
       throw new Error('Комментарий не может быть пустым.')
     }
     const replyTo = sanitizeReplyTarget(payload.replyTo)
-    const deliveryId = this.resolveDeliveryId(payload.clientDeliveryId)
+    const normalizedClientDeliveryId = this.normalizeClientDeliveryId(payload.clientDeliveryId)
+    if (
+      this.hasExistingGroupThreadCommentDeliveryId(
+        target.message,
+        account.identifier,
+        normalizedClientDeliveryId,
+      )
+    ) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+    if (attachment) {
+      await this.reclaimStorageForAttachmentUpload(
+        this.getUserStorageSubject(account.identifier),
+        attachment.size,
+        attachment.mediaUrl,
+      )
+    }
+    const deliveryId = this.resolveDeliveryId(normalizedClientDeliveryId)
 
     const sharedId = this.getSharedGroupId(target.group)
     const threadId = getGroupMessageThreadId(target.group, target.message)
@@ -6138,15 +10031,183 @@ export class TinychokStore {
       replyTo,
       deliveryId,
     )
+    const latestOwnComment = findLatestOwnThreadComment(
+      compactThreadComments(target.message.threadComments),
+      account.identifier,
+    )
     this.upsertThreadState(account.identifier, threadId, {
-      lastReadCommentCreatedAt: new Date().toISOString(),
+      ...buildThreadReadMarker(latestOwnComment),
+      subscription: 'subscribed',
+    })
+
+    await this.persist()
+    this.markAttachmentUploadLinked(attachment)
+
+    return {
+      broadcastIdentifiers,
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async sendSupportTicket(
+    token: string,
+    payload: SendSupportTicketBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const normalizedClientDeliveryId = this.normalizeClientDeliveryId(payload.clientDeliveryId)
+    const duplicateTicket = this.findExistingSupportTicketByDeliveryId(
+      account.identifier,
+      normalizedClientDeliveryId,
+    )
+    if (duplicateTicket) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    const cooldownUntil = getSupportTicketCooldownUntil(this.database, account.identifier)
+    if (cooldownUntil) {
+      throw new Error('Новую задачу для поддержки пока рано открывать.')
+    }
+
+    const text = sanitizeThreadCommentText(payload.text)
+    const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    if (!text && !attachment) {
+      throw new Error('Сообщение поддержки не может быть пустым.')
+    }
+
+    if (attachment) {
+      await this.reclaimStorageForAttachmentUpload(
+        this.getUserStorageSubject(account.identifier),
+        attachment.size,
+        attachment.mediaUrl,
+      )
+    }
+
+    const createdAt = new Date().toISOString()
+    // Support invariant:
+    // root support messages create standalone globally numbered tickets starting from 0.
+    // Replies must never create another root item in the feed; they live only inside ticket comments.
+    const ticketNumber = Math.max(0, Math.floor(this.database.nextSupportTicketNumber))
+    const threadId = this.buildSupportThreadId(ticketNumber)
+
+    this.database.supportTickets.push({
+      attachment,
+      comments: [],
+      createdAt,
+      deliveryId: this.resolveDeliveryId(normalizedClientDeliveryId),
+      id: ticketNumber,
+      ownerIdentifier: account.identifier,
+      replyTo: undefined,
+      status: 'open',
+      text,
+      threadId,
+      time: formatNowTime(),
+      updatedAt: createdAt,
+    })
+    this.database.nextSupportTicketNumber = ticketNumber + 1
+    this.upsertThreadState(account.identifier, threadId, {
+      ...buildThreadReadMarker(undefined, createdAt),
+      subscription: 'subscribed',
+    })
+
+    await this.persist()
+    this.markAttachmentUploadLinked(attachment)
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async sendSupportTicketComment(
+    token: string,
+    ticketId: number,
+    payload: SendSupportTicketCommentBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const ticket = this.findSupportTicketForOwner(account.identifier, ticketId)
+    if (!ticket) {
+      throw new Error('Тикет поддержки не найден.')
+    }
+
+    const text = sanitizeThreadCommentText(payload.text)
+    const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    if (!text && !attachment) {
+      throw new Error('Комментарий не может быть пустым.')
+    }
+
+    const normalizedClientDeliveryId = this.normalizeClientDeliveryId(payload.clientDeliveryId)
+    if (this.hasExistingSupportCommentDeliveryId(ticket, account.identifier, normalizedClientDeliveryId)) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    if (attachment) {
+      await this.reclaimStorageForAttachmentUpload(
+        this.getUserStorageSubject(account.identifier),
+        attachment.size,
+        attachment.mediaUrl,
+      )
+    }
+
+    const createdComment = this.appendCommentToSupportTicket(
+      ticket,
+      account,
+      text,
+      attachment,
+      sanitizeReplyTarget(payload.replyTo),
+      normalizedClientDeliveryId,
+    )
+    this.upsertThreadState(account.identifier, ticket.threadId, {
+      ...buildThreadReadMarker(createdComment),
+      subscription: 'subscribed',
+    })
+
+    await this.persist()
+    this.markAttachmentUploadLinked(attachment)
+
+    return {
+      broadcastIdentifiers: [account.identifier],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async markSupportTicketRead(
+    token: string,
+    ticketId: number,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const ticket = this.findSupportTicketForOwner(account.identifier, ticketId)
+    if (!ticket) {
+      throw new Error('Тикет поддержки не найден.')
+    }
+
+    const latestComment = findLatestThreadComment(compactThreadComments(ticket.comments))
+    this.upsertThreadState(account.identifier, ticket.threadId, {
+      ...buildThreadReadMarker(latestComment),
       subscription: 'subscribed',
     })
 
     await this.persist()
 
     return {
-      broadcastIdentifiers,
+      broadcastIdentifiers: [account.identifier],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -6226,17 +10287,46 @@ export class TinychokStore {
     this.assertManagedChannelWritable(channel)
 
     const text = sanitizeMessageText(payload.text)
-    const attachment = sanitizeMessageAttachment(payload.attachment)
+    const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    const sourceContact = resolveContactSourceReferenceFromText(this.database, text)
     if (!text && !attachment) {
       throw new Error('Нельзя отправить пустое сообщение.')
     }
     const replyTo = sanitizeReplyTarget(payload.replyTo)
 
-    this.ensureSubscriptionChannelCopyForOwner(channel, account.identifier)
+    this.ensureManagedChannelOwnerSubscriptionCopy(channel)
     const channelCopies = this.syncManagedChannelSubscriptionCopies(channel)
+
+    const normalizedClientDeliveryId = this.normalizeClientDeliveryId(payload.clientDeliveryId)
+    const ownerSubscriptionCopy = this.findSubscriptionChannel(
+      account.identifier,
+      this.ensureSubscriptionChannelCopyForOwner(channel, account.identifier).id,
+    )
+    const duplicatePost = ownerSubscriptionCopy
+      ? this.findExistingSubscriptionPostByDeliveryId(
+          account.identifier,
+          ownerSubscriptionCopy.id,
+          normalizedClientDeliveryId,
+        )
+      : null
+    if (duplicatePost) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    if (attachment) {
+      await this.reclaimStorageForAttachmentUpload(
+        this.getChannelStorageSubjectByHandle(channel.directLink),
+        attachment.size,
+        attachment.mediaUrl,
+      )
+    }
 
     const createdAt = new Date().toISOString()
     const time = formatNowTime()
+    const deliveryId = this.resolveDeliveryId(normalizedClientDeliveryId)
     const fallbackPreview = buildManagedChannelFallbackPreview(channel)
 
     for (const channelCopy of channelCopies) {
@@ -6244,9 +10334,11 @@ export class TinychokStore {
         channelId: channelCopy.id,
         createdAt,
         attachment,
+        deliveryId,
         id: this.getNextSubscriptionPostId(channelCopy.ownerIdentifier, channelCopy.id),
         ownerIdentifier: channelCopy.ownerIdentifier,
         replyTo,
+        sourceContact,
         text,
         threadComments: [],
         threadId: getSubscriptionPostThreadId(channelCopy, { createdAt, id: 0, text, time }),
@@ -6262,6 +10354,7 @@ export class TinychokStore {
     }
 
     await this.persist()
+    this.markAttachmentUploadLinked(attachment)
 
     return {
       broadcastIdentifiers: [...new Set(channelCopies.map((channelCopy) => channelCopy.ownerIdentifier))],
@@ -6466,6 +10559,19 @@ export class TinychokStore {
       }
     }
 
+    if (payload.description !== undefined) {
+      const nextDescription = sanitizeChannelDescription(payload.description)
+      for (const groupCopy of groupCopies) {
+        groupCopy.description = nextDescription
+      }
+    }
+
+    if (payload.showHistoryToNewMembers !== undefined) {
+      for (const groupCopy of groupCopies) {
+        groupCopy.showHistoryToNewMembers = Boolean(payload.showHistoryToNewMembers)
+      }
+    }
+
     if (payload.commentsEnabledForAll !== undefined) {
       for (const groupCopy of groupCopies) {
         groupCopy.commentsEnabledForAll = Boolean(payload.commentsEnabledForAll)
@@ -6510,6 +10616,13 @@ export class TinychokStore {
       }
 
       this.transferGroupOwnership(sharedId, nextCreatorIdentifier)
+      const nextOwnerAccount = this.findAccount(nextCreatorIdentifier)
+      if (nextOwnerAccount) {
+        this.appendGroupSystemEvent(sharedId, {
+          actor: this.buildGroupSystemEventActor(nextOwnerAccount),
+          kind: 'owner-transferred',
+        })
+      }
     }
 
     await this.persist()
@@ -6556,11 +10669,10 @@ export class TinychokStore {
       throw new Error('Аккаунт контакта не найден.')
     }
 
-    const recipientTitle = formatAccountName(recipientAccount) || recipientAccount.identifier
-    const alreadyParticipant = group.participants.some(
-      (participant) =>
-        normalizeIdentifier(participant.identifier ?? '') === recipientIdentifier ||
-        participant.title === recipientTitle,
+    const sharedId = this.getSharedGroupId(group)
+    const authoritativeParticipants = this.buildAuthoritativeGroupParticipants(sharedId)
+    const alreadyParticipant = authoritativeParticipants.some(
+      (participant) => normalizeIdentifier(participant.identifier ?? '') === recipientIdentifier,
     )
     if (alreadyParticipant) {
       throw new Error('Этот контакт уже состоит в группе.')
@@ -6571,7 +10683,7 @@ export class TinychokStore {
     )
     const creatorAccount = this.findAccount(creatorIdentifier) ?? account
     const memberLimit = getGroupMemberLimit(creatorAccount)
-    const currentMemberCount = group.participants.length
+    const currentMemberCount = authoritativeParticipants.length
 
     if (currentMemberCount >= memberLimit) {
       throw new Error(
@@ -6581,52 +10693,10 @@ export class TinychokStore {
       )
     }
 
-    const nextParticipants = group.participants
-      .map((participant) => this.cloneGroupParticipant(participant))
-      .concat(this.buildGroupParticipant(recipientAccount))
-    const sharedId = this.getSharedGroupId(group)
     const existingGroupCopies = this.listGroupCopies(sharedId)
 
-    this.ensureGroupCopyForOwner(group, recipientAccount.identifier, nextParticipants)
-    this.syncGroupCopiesParticipants(sharedId, nextParticipants)
-
-    const senderDialog = this.ensureDialogForContact(account.identifier, recipientAccount)
-    const recipientDialog = this.ensureDialogForContact(recipientAccount.identifier, account)
-    const createdAt = new Date().toISOString()
-    const deliveryId = randomUUID()
-    const time = formatNowTime()
-    const sourceGroup = this.buildGroupInviteSource(group)
-
-    this.database.dialogMessages.push({
-      author: 'me',
-      createdAt,
-      deliveryId,
-      dialogId: senderDialog.id,
-      id: this.getNextDialogMessageId(account.identifier, senderDialog.id),
-      ownerIdentifier: account.identifier,
-      sourceGroup,
-      text: '',
-      time,
-    })
-
-    this.database.dialogMessages.push({
-      author: 'them',
-      createdAt,
-      deliveryId,
-      dialogId: recipientDialog.id,
-      id: this.getNextDialogMessageId(recipientAccount.identifier, recipientDialog.id),
-      ownerIdentifier: recipientAccount.identifier,
-      sourceGroup,
-      text: '',
-      time,
-    })
-
-    senderDialog.typing = false
-    senderDialog.unread = 0
-    senderDialog.status = 'только что был(а) здесь'
-    recipientDialog.typing = false
-    recipientDialog.unread += 1
-    this.syncDialogContactProfile(recipientDialog, account)
+    this.upsertPendingGroupInvitation(sharedId, account.identifier, recipientAccount.identifier)
+    this.deliverDirectGroupInvitation(account, recipientAccount, group)
 
     await this.persist()
 
@@ -6636,6 +10706,158 @@ export class TinychokStore {
           .map((groupCopy) => groupCopy.ownerIdentifier)
           .concat(account.identifier, recipientAccount.identifier),
       )],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async removeGroupParticipant(
+    token: string,
+    groupId: number,
+    payload: ManageGroupParticipantBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const group = this.findGroup(account.identifier, groupId)
+    if (!group) {
+      throw new Error('Группа не найдена.')
+    }
+    this.assertGroupWritable(group)
+
+    const currentOwnerIdentifier = normalizeIdentifier(getCurrentGroupOwnerIdentifier(group))
+    if (currentOwnerIdentifier !== account.identifier) {
+      throw new Error('Только владелец группы может управлять участниками.')
+    }
+
+    const targetIdentifier = normalizeIdentifier(payload.identifier)
+    if (!targetIdentifier) {
+      throw new Error('Участник не найден.')
+    }
+
+    if (targetIdentifier === currentOwnerIdentifier) {
+      throw new Error('Нельзя удалить владельца группы.')
+    }
+
+    const sharedId = this.getSharedGroupId(group)
+    const authoritativeParticipants = this.buildAuthoritativeGroupParticipants(sharedId)
+    if (
+      !authoritativeParticipants.some(
+        (participant) => normalizeIdentifier(participant.identifier ?? '') === targetIdentifier,
+      )
+    ) {
+      throw new Error('Участник не найден.')
+    }
+
+    const groupCopies = this.listGroupCopies(sharedId)
+    const removedGroupIds = new Set(
+      groupCopies
+        .filter((groupCopy) => groupCopy.ownerIdentifier === targetIdentifier)
+        .map((groupCopy) => groupCopy.id),
+    )
+    if (removedGroupIds.size === 0) {
+      throw new Error('Участник не найден.')
+    }
+
+    const nextParticipants = authoritativeParticipants.filter(
+      (participant) => normalizeIdentifier(participant.identifier ?? '') !== targetIdentifier,
+    )
+
+    this.database.groups = this.database.groups.filter(
+      (candidate) =>
+        !(
+          candidate.ownerIdentifier === targetIdentifier &&
+          this.getSharedGroupId(candidate) === sharedId
+        ),
+    )
+    this.database.groupMessages = this.database.groupMessages.filter(
+      (candidate) => !(candidate.ownerIdentifier === targetIdentifier && removedGroupIds.has(candidate.groupId)),
+    )
+    this.database.threadStates = this.database.threadStates.filter(
+      (threadState) =>
+        !(
+          threadState.ownerIdentifier === targetIdentifier &&
+          threadState.threadId.startsWith(`group:${sharedId}:`)
+        ),
+    )
+    this.clearPendingGroupInvitation(sharedId, targetIdentifier)
+    this.syncGroupCopiesParticipants(sharedId, nextParticipants)
+
+    const remainingCopies = this.listGroupCopies(sharedId)
+    const broadcastIdentifiers = new Set<string>([
+      account.identifier,
+      targetIdentifier,
+      ...remainingCopies.map((groupCopy) => groupCopy.ownerIdentifier),
+    ])
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async blacklistGroupParticipant(
+    token: string,
+    groupId: number,
+    payload: ManageGroupParticipantBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const group = this.findGroup(account.identifier, groupId)
+    if (!group) {
+      throw new Error('Группа не найдена.')
+    }
+    this.assertGroupWritable(group)
+
+    const currentOwnerIdentifier = normalizeIdentifier(getCurrentGroupOwnerIdentifier(group))
+    if (currentOwnerIdentifier !== account.identifier) {
+      throw new Error('Только владелец группы может управлять участниками.')
+    }
+
+    const targetIdentifier = normalizeIdentifier(payload.identifier)
+    if (!targetIdentifier) {
+      throw new Error('Участник не найден.')
+    }
+
+    if (targetIdentifier === currentOwnerIdentifier) {
+      throw new Error('Нельзя добавить владельца в чёрный список.')
+    }
+
+    const sharedId = this.getSharedGroupId(group)
+    const authoritativeParticipants = this.buildAuthoritativeGroupParticipants(sharedId)
+    if (
+      !authoritativeParticipants.some(
+        (participant) => normalizeIdentifier(participant.identifier ?? '') === targetIdentifier,
+      )
+    ) {
+      throw new Error('Участник не найден.')
+    }
+
+    const groupCopies = this.listGroupCopies(sharedId)
+    const nextBlacklist = sanitizeIdentifierList([
+      ...(group.commentBlacklistIdentifiers ?? []),
+      targetIdentifier,
+    ])
+    for (const groupCopy of groupCopies) {
+      groupCopy.commentBlacklistIdentifiers = nextBlacklist
+    }
+
+    const broadcastIdentifiers = new Set<string>([
+      account.identifier,
+      targetIdentifier,
+      ...groupCopies.map((groupCopy) => groupCopy.ownerIdentifier),
+    ])
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -6650,7 +10872,6 @@ export class TinychokStore {
     if (!group) {
       throw new Error('Группа не найдена.')
     }
-    this.assertGroupWritable(group)
 
     const sharedId = this.getSharedGroupId(group)
     const creatorIdentifier = normalizeIdentifier(
@@ -6659,29 +10880,13 @@ export class TinychokStore {
     const groupCopies = this.listGroupCopies(sharedId)
 
     if (creatorIdentifier === account.identifier) {
-      const groupCopyKeys = new Set(groupCopies.map((groupCopy) => `${groupCopy.ownerIdentifier}:${groupCopy.id}`))
-      const removedAvatarImage = group.avatarImage
-      const removedMediaUrls = this.database.groupMessages
-        .filter((candidate) => groupCopyKeys.has(`${candidate.ownerIdentifier}:${candidate.groupId}`))
-        .flatMap((candidate) => [
-          ...collectMediaUrlsFromAttachment(candidate.attachment),
-          ...collectMediaUrlsFromThreadComments(candidate.threadComments),
-        ])
-      this.database.groups = this.database.groups.filter(
-        (candidate) => this.getSharedGroupId(candidate) !== sharedId,
-      )
-      this.database.groupMessages = this.database.groupMessages.filter(
-        (candidate) => !groupCopyKeys.has(`${candidate.ownerIdentifier}:${candidate.groupId}`),
-      )
+      this.assertGroupWritable(group)
+      const archivedAt = new Date().toISOString()
+      // User-facing "Удалить группу" is archival, not physical purge:
+      // keep server-side records/history, but remove the group from ordinary user snapshots.
+      this.archiveGroupCopies(sharedId, 'owner-deleted', archivedAt)
 
       await this.persist()
-
-      if (removedAvatarImage) {
-        await this.deleteMediaIfUnreferenced(removedAvatarImage)
-      }
-      for (const mediaUrl of removedMediaUrls) {
-        await this.deleteMediaIfUnreferenced(mediaUrl)
-      }
 
       return {
         broadcastIdentifiers: [...new Set(groupCopies.map((groupCopy) => groupCopy.ownerIdentifier))],
@@ -6689,7 +10894,7 @@ export class TinychokStore {
       }
     }
 
-    const nextParticipants = group.participants.filter(
+    const nextParticipants = this.buildAuthoritativeGroupParticipants(sharedId).filter(
       (participant) => normalizeIdentifier(participant.identifier ?? '') !== account.identifier,
     )
     const currentGroupCopyKeys = new Set(groupCopies.map((groupCopy) => `${groupCopy.ownerIdentifier}:${groupCopy.id}`))
@@ -6707,6 +10912,23 @@ export class TinychokStore {
     this.syncGroupCopiesParticipants(sharedId, nextParticipants)
 
     const remainingCopies = this.listGroupCopies(sharedId)
+    const currentOwnerIdentifier = normalizeIdentifier(
+      remainingCopies[0]
+        ? getCurrentGroupOwnerIdentifier(remainingCopies[0])
+        : getCurrentGroupOwnerIdentifier(group),
+    )
+    const hasLiveGroupAccess = remainingCopies.some((copy) => !isArchivedGroup(copy))
+    if (hasLiveGroupAccess && currentOwnerIdentifier && currentOwnerIdentifier !== account.identifier) {
+      // Group invite lifecycle invariant:
+      // invite -> pending -> join clears -> self-leave restores.
+      this.upsertPendingGroupInvitation(sharedId, currentOwnerIdentifier, account.identifier)
+    }
+    if (!account.quietModeEnabled) {
+      this.appendGroupSystemEvent(sharedId, {
+        actor: this.buildGroupSystemEventActor(account),
+        kind: 'member-left',
+      })
+    }
     await this.persist()
 
     return {
@@ -6743,8 +10965,14 @@ export class TinychokStore {
 
     const broadcastIdentifiers = [account.identifier]
     const contactIdentifier = normalizeIdentifier(dialog.phone)
+    const suppressReadReceipts = shouldSuppressDirectReadReceipts(account)
 
-    if (contactIdentifier && contactIdentifier !== account.identifier && justReadMessages.length > 0) {
+    if (
+      contactIdentifier &&
+      contactIdentifier !== account.identifier &&
+      justReadMessages.length > 0 &&
+      !suppressReadReceipts
+    ) {
       const senderDialog = this.database.dialogs.find(
         (candidate) =>
           candidate.ownerIdentifier === contactIdentifier &&
@@ -6776,6 +11004,15 @@ export class TinychokStore {
         if (senderMessagesUpdated) {
           broadcastIdentifiers.push(contactIdentifier)
         }
+      }
+    }
+    // Invisibility invariant:
+    // Active invisible mode clears local unread, but must not leak direct read receipts to the peer.
+    // Keep this coupled to shouldSuppressDirectReadReceipts so future changes cannot split invisibility
+    // from one-tick behavior in direct dialogs.
+    if (suppressReadReceipts) {
+      for (const message of justReadMessages) {
+        message.readAt = undefined
       }
     }
 
@@ -6841,10 +11078,14 @@ export class TinychokStore {
     if (!target) {
       throw new Error('Сообщение группы не найдено.')
     }
+    if (isArchivedThread(target.message)) {
+      throw new Error('Тред находится в архиве и недоступен пользователям.')
+    }
 
     const threadId = getGroupMessageThreadId(target.group, target.message)
+    const latestComment = findLatestThreadComment(compactThreadComments(target.message.threadComments))
     this.upsertThreadState(account.identifier, threadId, {
-      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.message.threadComments)),
+      ...buildThreadReadMarker(latestComment, target.message.createdAt),
       subscription: 'subscribed',
     })
 
@@ -6872,8 +11113,9 @@ export class TinychokStore {
     }
 
     const threadId = getGroupMessageThreadId(target.group, target.message)
+    const latestComment = findLatestThreadComment(compactThreadComments(target.message.threadComments))
     this.upsertThreadState(account.identifier, threadId, {
-      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.message.threadComments)),
+      ...buildThreadReadMarker(latestComment, target.message.createdAt),
       subscription: 'unsubscribed',
     })
 
@@ -6902,8 +11144,9 @@ export class TinychokStore {
 
     const threadId = getGroupMessageThreadId(target.group, target.message)
     const existingState = this.getThreadState(account.identifier, threadId)
+    const latestComment = findLatestThreadComment(compactThreadComments(target.message.threadComments))
     this.upsertThreadState(account.identifier, threadId, {
-      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.message.threadComments)),
+      ...buildThreadReadMarker(latestComment, target.message.createdAt),
       subscription: existingState?.subscription ?? 'implicit',
     })
 
@@ -7013,7 +11256,9 @@ export class TinychokStore {
     if (!wasRemoved) {
       throw new Error('Подписчик не найден.')
     }
+    this.clearPendingChannelInvitation(sourceManagedChannel.directLink, targetIdentifier)
 
+    this.ensureManagedChannelOwnerSubscriptionCopy(sourceManagedChannel)
     const broadcastIdentifiers = new Set<string>([account.identifier, targetIdentifier])
     for (const channelCopy of this.syncManagedChannelSubscriptionCopies(sourceManagedChannel)) {
       broadcastIdentifiers.add(channelCopy.ownerIdentifier)
@@ -7058,6 +11303,7 @@ export class TinychokStore {
       throw new Error('Нельзя добавить владельца в чёрный список.')
     }
 
+    this.ensureManagedChannelOwnerSubscriptionCopy(sourceManagedChannel)
     sourceManagedChannel.commentBlacklistIdentifiers = sanitizeIdentifierList([
       ...(sourceManagedChannel.commentBlacklistIdentifiers ?? []),
       targetIdentifier,
@@ -7091,6 +11337,9 @@ export class TinychokStore {
     if (!target) {
       throw new Error('Пост канала не найден.')
     }
+    if (isArchivedThread(target.post)) {
+      throw new Error('Тред находится в архиве и недоступен пользователям.')
+    }
     this.assertSubscriptionChannelWritable(target.channel)
     if (target.post.system) {
       throw new Error('Техническое сообщение канала не поддерживает комментарии.')
@@ -7099,12 +11348,32 @@ export class TinychokStore {
     this.assertCanCommentInSubscriptionChannel(target.channel, account)
 
     const text = sanitizeThreadCommentText(payload.text)
-    const attachment = sanitizeMessageAttachment(payload.attachment)
+    const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
     if (!text && !attachment) {
       throw new Error('Комментарий не может быть пустым.')
     }
     const replyTo = sanitizeReplyTarget(payload.replyTo)
-    const deliveryId = this.resolveDeliveryId(payload.clientDeliveryId)
+    const normalizedClientDeliveryId = this.normalizeClientDeliveryId(payload.clientDeliveryId)
+    if (
+      this.hasExistingSubscriptionThreadCommentDeliveryId(
+        target.post,
+        account.identifier,
+        normalizedClientDeliveryId,
+      )
+    ) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+    if (attachment) {
+      await this.reclaimStorageForAttachmentUpload(
+        this.getUserStorageSubject(account.identifier),
+        attachment.size,
+        attachment.mediaUrl,
+      )
+    }
+    const deliveryId = this.resolveDeliveryId(normalizedClientDeliveryId)
 
     const normalizedHandle = sanitizeChannelDirectLink(target.channel.handle) || target.channel.handle
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
@@ -7117,12 +11386,17 @@ export class TinychokStore {
       replyTo,
       deliveryId,
     )
+    const latestOwnComment = findLatestOwnThreadComment(
+      compactThreadComments(target.post.threadComments),
+      account.identifier,
+    )
     this.upsertThreadState(account.identifier, threadId, {
-      lastReadCommentCreatedAt: new Date().toISOString(),
+      ...buildThreadReadMarker(latestOwnComment),
       subscription: 'subscribed',
     })
 
     await this.persist()
+    this.markAttachmentUploadLinked(attachment)
 
     return {
       broadcastIdentifiers,
@@ -7144,13 +11418,17 @@ export class TinychokStore {
     if (!target) {
       throw new Error('Пост канала не найден.')
     }
+    if (isArchivedThread(target.post)) {
+      throw new Error('Тред находится в архиве и недоступен пользователям.')
+    }
     if (target.post.system) {
       throw new Error('Техническое сообщение канала не поддерживает тред.')
     }
 
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
+    const latestComment = findLatestThreadComment(compactThreadComments(target.post.threadComments))
     this.upsertThreadState(account.identifier, threadId, {
-      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.post.threadComments)),
+      ...buildThreadReadMarker(latestComment, target.post.createdAt),
       subscription: 'subscribed',
     })
 
@@ -7181,8 +11459,9 @@ export class TinychokStore {
     }
 
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
+    const latestComment = findLatestThreadComment(compactThreadComments(target.post.threadComments))
     this.upsertThreadState(account.identifier, threadId, {
-      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.post.threadComments)),
+      ...buildThreadReadMarker(latestComment, target.post.createdAt),
       subscription: 'unsubscribed',
     })
 
@@ -7211,8 +11490,9 @@ export class TinychokStore {
 
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
     const existingState = this.getThreadState(account.identifier, threadId)
+    const latestComment = findLatestThreadComment(compactThreadComments(target.post.threadComments))
     this.upsertThreadState(account.identifier, threadId, {
-      lastReadCommentCreatedAt: findLatestThreadCommentCreatedAt(compactThreadComments(target.post.threadComments)),
+      ...buildThreadReadMarker(latestComment, target.post.createdAt),
       subscription: existingState?.subscription ?? 'implicit',
     })
 
@@ -7291,12 +11571,13 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const hasChannel = this.database.subscriptionChannels.some(
+    const targetChannel = this.database.subscriptionChannels.find(
       (channel) => channel.ownerIdentifier === account.identifier && channel.id === channelId,
     )
-    if (!hasChannel) {
+    if (!targetChannel) {
       throw new Error('Канал не найден.')
     }
+    const normalizedHandle = sanitizeChannelDirectLink(targetChannel.handle) || targetChannel.handle
 
     this.database.subscriptionChannels = this.database.subscriptionChannels.filter(
       (channel) => !(channel.ownerIdentifier === account.identifier && channel.id === channelId),
@@ -7304,11 +11585,34 @@ export class TinychokStore {
     this.database.subscriptionPosts = this.database.subscriptionPosts.filter(
       (post) => !(post.ownerIdentifier === account.identifier && post.channelId === channelId),
     )
+    this.database.threadStates = this.database.threadStates.filter(
+      (threadState) =>
+        !(
+          threadState.ownerIdentifier === account.identifier &&
+          threadState.threadId.startsWith(`channel:${normalizedHandle}:`)
+        ),
+    )
+
+    const broadcastIdentifiers = new Set<string>([account.identifier])
+    const sourceManagedChannel = this.findManagedChannelByHandle(normalizedHandle)
+    if (sourceManagedChannel) {
+      this.ensureManagedChannelOwnerSubscriptionCopy(sourceManagedChannel)
+      if (sourceManagedChannel.ownerIdentifier !== account.identifier) {
+        this.upsertPendingChannelInvitation(
+          sourceManagedChannel.directLink,
+          sourceManagedChannel.ownerIdentifier,
+          account.identifier,
+        )
+      }
+      for (const channelCopy of this.syncManagedChannelSubscriptionCopies(sourceManagedChannel)) {
+        broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+      }
+    }
 
     await this.persist()
 
     return {
-      broadcastIdentifiers: [account.identifier],
+      broadcastIdentifiers: [...broadcastIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -7422,7 +11726,7 @@ export class TinychokStore {
 
     const createdChannel = this.findManagedChannel(account.identifier, channelId)
     if (createdChannel) {
-      this.ensureSubscriptionChannelCopyForOwner(createdChannel, account.identifier)
+      this.ensureManagedChannelOwnerSubscriptionCopy(createdChannel)
       this.createManagedChannelSystemPost(createdChannel, 'Канал создан')
       this.clearPendingMediaUpload(createdChannel.avatarImage)
     }
@@ -7465,7 +11769,7 @@ export class TinychokStore {
     }
 
     const broadcastIdentifiers = new Set<string>([account.identifier])
-    this.ensureSubscriptionChannelCopyForOwner(channel, account.identifier)
+    this.ensureManagedChannelOwnerSubscriptionCopy(channel)
 
     for (const dialogId of uniqueDialogIds) {
       const dialog = this.database.dialogs.find(
@@ -7485,7 +11789,9 @@ export class TinychokStore {
         continue
       }
 
-      this.ensureSubscriptionChannelCopyForOwner(channel, recipientAccount.identifier)
+      if (!this.hasSubscriptionChannelCopyForOwner(channel.directLink, recipientAccount.identifier)) {
+        this.upsertPendingChannelInvitation(channel.directLink, account.identifier, recipientAccount.identifier)
+      }
       this.deliverDirectChannelInvitation(account, recipientAccount, channel)
       broadcastIdentifiers.add(recipientAccount.identifier)
     }
@@ -7537,7 +11843,7 @@ export class TinychokStore {
     }
 
     const broadcastIdentifiers = new Set<string>([account.identifier, sourceManagedChannel.ownerIdentifier])
-    this.ensureSubscriptionChannelCopyForOwner(sourceManagedChannel, account.identifier)
+    this.ensureManagedChannelOwnerSubscriptionCopy(sourceManagedChannel)
 
     for (const dialogId of uniqueDialogIds) {
       const dialog = this.database.dialogs.find(
@@ -7557,7 +11863,13 @@ export class TinychokStore {
         continue
       }
 
-      this.ensureSubscriptionChannelCopyForOwner(sourceManagedChannel, recipientAccount.identifier)
+      if (!this.hasSubscriptionChannelCopyForOwner(sourceManagedChannel.directLink, recipientAccount.identifier)) {
+        this.upsertPendingChannelInvitation(
+          sourceManagedChannel.directLink,
+          account.identifier,
+          recipientAccount.identifier,
+        )
+      }
       this.deliverDirectChannelInvitation(account, recipientAccount, sourceManagedChannel)
       broadcastIdentifiers.add(recipientAccount.identifier)
     }
@@ -7676,6 +11988,7 @@ export class TinychokStore {
       }
     }
 
+    this.ensureManagedChannelOwnerSubscriptionCopy(channel)
     const subscriptionChannelCopies = this.syncManagedChannelSubscriptionCopies(channel)
 
     await this.persist()
@@ -7700,6 +12013,77 @@ export class TinychokStore {
     }
   }
 
+  async transferManagedChannel(
+    token: string,
+    channelId: number,
+    payload: TransferManagedChannelBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const channel = this.findManagedChannel(account.identifier, channelId)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+    this.assertManagedChannelWritable(channel)
+
+    const targetIdentifier = normalizeIdentifier(payload.identifier)
+    if (!targetIdentifier) {
+      throw new Error('Получатель канала не найден.')
+    }
+    if (targetIdentifier === account.identifier) {
+      throw new Error('Нельзя передать канал самому себе.')
+    }
+    if (!hasAccountPassword(account)) {
+      throw new Error('Сначала задайте пароль в настройках профиля.')
+    }
+
+    const currentPasswordMatches = await verifyPassword(payload.currentPassword ?? '', account.passwordHash!)
+    if (!currentPasswordMatches) {
+      throw new Error('Неверный пароль.')
+    }
+
+    const targetAccount = this.findAccount(targetIdentifier)
+    if (!targetAccount || isArchivedAccount(targetAccount)) {
+      throw new Error('Аккаунт получателя не найден.')
+    }
+
+    const targetOwnedChannelCount = this.database.managedChannels.filter(
+      (candidate) => candidate.ownerIdentifier === targetIdentifier,
+    ).length
+    if (targetOwnedChannelCount >= managedChannelsPerUserLimit) {
+      throw new Error(
+        `Один пользователь может управлять только ${managedChannelsPerUserLimit} каналами.`,
+      )
+    }
+
+    const previousOwnerIdentifier = channel.ownerIdentifier
+
+    // Channel transfer invariant:
+    // transfer is a real owner reassignment, never a delete-flow, and must preserve
+    // the managed entity plus all subscriber copies/history for every participant.
+    channel.ownerIdentifier = targetIdentifier
+    channel.id = this.getNextOwnedId(this.database.managedChannels, targetIdentifier)
+
+    this.ensureManagedChannelOwnerSubscriptionCopy(channel)
+    this.clearPendingChannelInvitation(channel.directLink, targetIdentifier)
+    this.reassignPendingChannelInvitationSender(channel.directLink, targetIdentifier)
+
+    const broadcastIdentifiers = new Set<string>([previousOwnerIdentifier, targetIdentifier])
+    for (const channelCopy of this.syncManagedChannelSubscriptionCopies(channel)) {
+      broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async deleteManagedChannel(token: string, channelId: number): Promise<MutationResult> {
     const account = this.findAccountByToken(token)
     if (!account) {
@@ -7715,16 +12099,8 @@ export class TinychokStore {
     }
     this.assertManagedChannelWritable(channelToDelete)
 
-    const removedAvatarImage = channelToDelete.avatarImage
+    this.ensureManagedChannelOwnerSubscriptionCopy(channelToDelete)
     const normalizedHandle = sanitizeChannelDirectLink(channelToDelete.directLink) || channelToDelete.directLink
-    const removableSubscriptionChannelKeys = new Set(
-      this.database.subscriptionChannels
-        .filter(
-          (channel) =>
-            (sanitizeChannelDirectLink(channel.handle) || channel.handle) === normalizedHandle,
-        )
-        .map((channel) => `${channel.ownerIdentifier}:${channel.id}`),
-    )
     const broadcastIdentifiers = [
       ...new Set(
         this.database.subscriptionChannels
@@ -7736,31 +12112,12 @@ export class TinychokStore {
           .concat(account.identifier),
       ),
     ]
-    const removedMediaUrls = this.database.subscriptionPosts
-      .filter((post) => removableSubscriptionChannelKeys.has(`${post.ownerIdentifier}:${post.channelId}`))
-      .flatMap((post) => [
-        ...collectMediaUrlsFromAttachment(post.attachment),
-        ...collectMediaUrlsFromThreadComments(post.threadComments),
-      ])
-
-    this.database.managedChannels = this.database.managedChannels.filter(
-      (channel) => !(channel.ownerIdentifier === account.identifier && channel.id === channelId),
-    )
-    this.database.subscriptionChannels = this.database.subscriptionChannels.filter(
-      (channel) => !removableSubscriptionChannelKeys.has(`${channel.ownerIdentifier}:${channel.id}`),
-    )
-    this.database.subscriptionPosts = this.database.subscriptionPosts.filter(
-      (post) => !removableSubscriptionChannelKeys.has(`${post.ownerIdentifier}:${post.channelId}`),
-    )
+    // User-facing channel delete is also archival:
+    // keep the managed entity for tombstone / historical invite resolution,
+    // but hide it from active user-facing channel lists.
+    this.archiveManagedChannel(channelToDelete, 'owner-deleted', new Date().toISOString())
 
     await this.persist()
-
-    if (removedAvatarImage) {
-      await this.deleteMediaIfUnreferenced(removedAvatarImage)
-    }
-    for (const mediaUrl of removedMediaUrls) {
-      await this.deleteMediaIfUnreferenced(mediaUrl)
-    }
 
     return {
       broadcastIdentifiers,
@@ -7772,6 +12129,27 @@ export class TinychokStore {
     const account = this.findAccountByToken(token)
     if (!account) {
       throw new Error('Сессия не найдена.')
+    }
+
+    // Tariff limit for active owner groups is server-authoritative.
+    // The client mirrors it for earlier UX, but stale bundles or direct API
+    // calls must still be rejected here.
+    const groupsPerUserLimit = hasActivePremium(account.premium, account.premiumExpiresAt)
+      ? premiumGroupsPerUserLimit
+      : defaultGroupsPerUserLimit
+    // Count distinct active groups owned by this account, not per-participant copies.
+    const activeOwnedGroupCount = new Set(
+      this.database.groups
+        .filter((group) => getCurrentGroupOwnerIdentifier(group) === account.identifier)
+        .filter((group) => !shouldHideArchivedGroupForUsers(group))
+        .map((group) => this.getSharedGroupId(group)),
+    ).size
+    if (activeOwnedGroupCount >= groupsPerUserLimit) {
+      throw new Error(
+        groupsPerUserLimit === premiumGroupsPerUserLimit
+          ? `Даже с премиумом можно создать не больше ${premiumGroupsPerUserLimit} активных групп.`
+          : `На бесплатном аккаунте можно создать только ${defaultGroupsPerUserLimit} групп. Чтобы создать больше, активируйте премиум.`,
+      )
     }
 
     const uniqueDialogIds = [...new Set(payload.memberDialogIds.filter((dialogId) => Number.isInteger(dialogId) && dialogId > 0))]
@@ -7826,7 +12204,7 @@ export class TinychokStore {
     const groupId = this.getNextOwnedId(this.database.groups, account.identifier)
     const title = sanitizeGroupTitle(payload.title) || `Группа: ${formatAccountName(account) || account.identifier}`
     const creatorParticipant = this.buildGroupParticipant(account)
-    const participants = [creatorParticipant, ...recipientAccounts.map((recipient) => this.buildGroupParticipant(recipient))]
+    const participants = [creatorParticipant]
     const sharedId = randomUUID()
     const nextGroup: PersistedGroup = {
       accent: payload.accent?.trim() || pickAccentForIdentifier(`${account.identifier}${groupId}`),
@@ -7835,6 +12213,7 @@ export class TinychokStore {
       commentsEnabledForAll: Boolean(payload.commentsEnabledForAll),
       commentsEnabledForPremium: Boolean(payload.commentsEnabledForPremium),
       creatorIdentifier: account.identifier,
+      description: sanitizeChannelDescription(payload.description ?? ''),
       groupOwnerIdentifier: account.identifier,
       handle: payload.handle?.trim()
         ? sanitizeGroupHandle(payload.handle, groupId)
@@ -7845,6 +12224,7 @@ export class TinychokStore {
       ownerIdentifier: account.identifier,
       participants,
       preview: 'Группа создана. Можно начинать обсуждение.',
+      showHistoryToNewMembers: payload.showHistoryToNewMembers !== false,
       sharedId,
       time: formatNowTime(),
       title,
@@ -7855,45 +12235,8 @@ export class TinychokStore {
     this.clearPendingMediaUpload(nextGroup.avatarImage)
 
     for (const recipientAccount of recipientAccounts) {
-      this.ensureGroupCopyForOwner(nextGroup, recipientAccount.identifier, participants)
-
-      const senderDialog = this.ensureDialogForContact(account.identifier, recipientAccount)
-      const recipientDialog = this.ensureDialogForContact(recipientAccount.identifier, account)
-      const createdAt = new Date().toISOString()
-      const deliveryId = randomUUID()
-      const time = formatNowTime()
-      const sourceGroup = this.buildGroupInviteSource(nextGroup)
-
-      this.database.dialogMessages.push({
-        author: 'me',
-        createdAt,
-        deliveryId,
-        dialogId: senderDialog.id,
-        id: this.getNextDialogMessageId(account.identifier, senderDialog.id),
-        ownerIdentifier: account.identifier,
-        sourceGroup,
-        text: '',
-        time,
-      })
-
-      this.database.dialogMessages.push({
-        author: 'them',
-        createdAt,
-        deliveryId,
-        dialogId: recipientDialog.id,
-        id: this.getNextDialogMessageId(recipientAccount.identifier, recipientDialog.id),
-        ownerIdentifier: recipientAccount.identifier,
-        sourceGroup,
-        text: '',
-        time,
-      })
-
-      senderDialog.typing = false
-      senderDialog.unread = 0
-      senderDialog.status = 'только что был(а) здесь'
-      recipientDialog.typing = false
-      recipientDialog.unread += 1
-      this.syncDialogContactProfile(recipientDialog, account)
+      this.upsertPendingGroupInvitation(sharedId, account.identifier, recipientAccount.identifier)
+      this.deliverDirectGroupInvitation(account, recipientAccount, nextGroup)
     }
 
     await this.persist()
@@ -7905,15 +12248,28 @@ export class TinychokStore {
     }
   }
 
-  private assertValidChallenge(identifier: string, code: string) {
-    const challenge = this.database.authChallenges.find((item) => item.identifier === identifier)
+  private assertValidChallenge(
+    identifier: string,
+    code: string,
+    expectedPurpose?: AuthChallengePurpose | AuthChallengePurpose[],
+  ) {
+    const allowedPurposes = expectedPurpose
+      ? Array.isArray(expectedPurpose)
+        ? expectedPurpose
+        : [expectedPurpose]
+      : null
+    const challenge = this.database.authChallenges.find(
+      (item) =>
+        item.identifier === identifier &&
+        (allowedPurposes === null || allowedPurposes.includes(item.purpose)),
+    )
 
     if (!challenge) {
       throw new Error('Сначала запросите код подтверждения.')
     }
 
     if (new Date(challenge.expiresAt).getTime() <= Date.now()) {
-      this.clearChallenge(identifier)
+      this.clearChallenge(identifier, challenge.purpose)
       throw new Error('Код истёк. Запросите новый.')
     }
 
@@ -7925,11 +12281,29 @@ export class TinychokStore {
   }
 
   private buildSnapshot(account: Account, token: string): AppSnapshot {
+    const supportTickets = materializeSupportTickets(this.database, account.identifier)
+    const groups = materializeGroups(this.database, this.livePresenceCountsByIdentifier, account.identifier)
+    const managedChannels = materializeManagedChannels(this.database, account.identifier).map((channel) => ({
+      ...channel,
+      storageUsage: this.getStorageSubjectUsage(
+        this.getChannelStorageSubjectByHandle(channel.directLink),
+      ),
+    }))
+    const subscriptionChannels = materializeSubscriptionChannels(
+      this.database,
+      this.livePresenceCountsByIdentifier,
+      account.identifier,
+    ).map((channel) => ({
+      ...channel,
+      storageUsage: this.getStorageSubjectUsage(this.getChannelStorageSubjectByHandle(channel.handle)),
+    }))
     return {
-      channels: materializeManagedChannels(this.database, account.identifier),
-      chats: materializeChats(this.database, account.identifier),
+      channels: managedChannels,
+      chats: materializeChats(this.database, this.livePresenceCountsByIdentifier, account.identifier),
+      contactRequests: materializeContactRequests(this.database, account.identifier),
+      outgoingContactRequests: materializeOutgoingContactRequests(this.database, account.identifier),
       discoveryResults: cloneDiscoveryResults(),
-      groups: materializeGroups(this.database, account.identifier),
+      groups,
       session: {
         avatarImage: account.avatarImage,
         blockedAt: account.blockedAt,
@@ -7938,10 +12312,14 @@ export class TinychokStore {
         displayName: account.displayName,
         gifLibrary: [...(account.gifLibrary ?? [])],
         identifier: account.identifier,
+        invisibilityAutoEnabled: Boolean(account.invisibilityAutoEnabled),
+        invisibilityEnabled: getStoredInvisibilityPreference(account),
         lastActiveAt: account.lastActiveAt,
         nickname: account.nickname ?? '',
         premium: account.premium ?? true,
         premiumExpiresAt: account.premiumExpiresAt ?? '',
+        quietModeEnabled: Boolean(account.quietModeEnabled),
+        quietModeSettings: getStoredQuietModeSettings(account),
         sessionToken: token,
         soundsDisabled: Boolean(account.soundsDisabled),
         staffRole: account.staffRole,
@@ -7949,7 +12327,10 @@ export class TinychokStore {
         status: account.status ?? '',
         surname: account.surname ?? '',
       } satisfies Session,
-      subscriptionChannels: materializeSubscriptionChannels(this.database, account.identifier),
+      subscriptionChannels,
+      supportTicketCooldownUntil: getSupportTicketCooldownUntil(this.database, account.identifier),
+      supportTickets,
+      supportUnreadCount: supportTickets.reduce((sum, ticket) => sum + ticket.unreadCount, 0),
       threadInbox: buildThreadInbox(this.database, account.identifier),
     }
   }
@@ -7989,7 +12370,10 @@ export class TinychokStore {
 
   private buildAdminUserSummary(account: Account): AdminUserSummary {
     const adminVisible = getAdminVisibleAccount(account)
+    const subject = this.getUserStorageSubject(account.identifier)
     return {
+      archiveStorageUsage: this.getArchiveStorageUsage(subject),
+      archiveUnlimited: subject.archiveUnlimited,
       avatarImage: adminVisible.avatarImage,
       blocked: isAccountBlocked(account),
       blockedAt: account.blockedAt,
@@ -8011,7 +12395,7 @@ export class TinychokStore {
       premiumExpiresAt: account.premiumExpiresAt,
       staffRole: sanitizeStaffRole(account.staffRole),
       status: adminVisible.status,
-      storageUsage: this.getStorageUsage(account.identifier),
+      storageUsage: this.getStorageSubjectUsage(subject),
     }
   }
 
@@ -8188,6 +12572,11 @@ export class TinychokStore {
       return thread ? `Тред · ${thread.contextLabel} · ${thread.title}` : `Тред · ${entry.targetId}`
     }
 
+    if (entry.targetType === 'support-ticket') {
+      const ticket = this.findSupportTicketById(Number(entry.targetId))
+      return ticket ? `Тикет поддержки · #${ticket.id}` : `Тикет поддержки · ${entry.targetId}`
+    }
+
     if (entry.targetType === 'dialog') {
       const [ownerIdentifier, peerIdentifier] = entry.targetId.split('::')
       const dialog = ownerIdentifier && peerIdentifier ? this.adminLookupDialog(ownerIdentifier, peerIdentifier) : null
@@ -8308,6 +12697,13 @@ export class TinychokStore {
     if (entry.targetType === 'thread') {
       const thread = this.adminListThreads('').find((candidate) => candidate.id === entry.targetId)
       if (thread && matchesIdentifier(thread.owner.identifier)) {
+        return true
+      }
+    }
+
+    if (entry.targetType === 'support-ticket') {
+      const ticket = this.findSupportTicketById(Number(entry.targetId))
+      if (ticket && matchesIdentifier(ticket.ownerIdentifier)) {
         return true
       }
     }
@@ -8796,7 +13192,7 @@ export class TinychokStore {
     const previousValue = this.buildAdminUserSummary(target)
     target.blockedAt = new Date().toISOString()
     target.blockedReason = reason || 'Аккаунт ограничен staff-командой.'
-    this.database.sessions = this.database.sessions.filter((session) => session.identifier !== target.identifier)
+    this.revokeSessionsForIdentifier(target.identifier)
     await this.persist()
     await this.appendAdminAuditLog(actor, {
       action: 'admin.user.block',
@@ -9209,10 +13605,21 @@ export class TinychokStore {
     return this.getStorageUsage(account.identifier)
   }
 
-  assertMediaUploadWithinQuota(token: string, size: number) {
+  async assertMediaUploadWithinQuota(
+    token: string,
+    size: number,
+    kind: PersistedPendingMediaUpload['kind'] = 'attachment',
+  ) {
     const account = this.findAccountByToken(token)
     if (!account) {
       throw new Error('Сессия не найдена.')
+    }
+
+    if (kind === 'attachment') {
+      // Upload-time quota can only know the uploader, not the final storage subject.
+      // Root group/channel posts are charged to the group/channel at send-time, while
+      // direct/support/thread attachments are charged to the author at send-time too.
+      return
     }
 
     const usage = this.getStorageUsage(account.identifier)
@@ -9261,6 +13668,8 @@ export class TinychokStore {
     const now = Date.now()
     const staleUploads = this.database.pendingMediaUploads.filter((upload) => {
       const createdAt = Date.parse(upload.createdAt)
+      // `linked` is the invariant that the stored file is already attached to a live entity.
+      // Orphan cleanup must only reap uploads that never became part of a message/ticket/avatar flow.
       return !upload.linked && !Number.isNaN(createdAt) && now - createdAt >= orphanUploadTtlMs
     })
 
@@ -9285,18 +13694,22 @@ export class TinychokStore {
   }
 
   async cleanupExpiredRetentionData() {
-    const cutoffTimestamp = Date.now() - historicalRetentionMs
+    const now = Date.now()
+    const cutoffTimestamp = now - historicalRetentionMs
     let didMutate = false
     const removedMediaUrls = new Set<string>()
     const summary = {
       adminAuditLogs: 0,
       adminReports: 0,
+      authCodeSendAttempts: 0,
       contactReports: 0,
       dialogMessages: 0,
       dialogs: 0,
       groupMessages: 0,
       groups: 0,
       ipAccessLogs: 0,
+      pendingChannelInvitations: 0,
+      pendingGroupInvitations: 0,
       passwordAuthAttempts: 0,
       sessions: 0,
       subscriptionChannelReports: 0,
@@ -9337,6 +13750,33 @@ export class TinychokStore {
         gifLibrary: nextGifLibrary.length > 0 ? nextGifLibrary : undefined,
       }
     })
+
+    const authCodeAttemptCountBeforeCleanup = this.database.authCodeSendAttempts.length
+    if (this.cleanupExpiredAuthCodeSendAttempts(now)) {
+      summary.authCodeSendAttempts =
+        authCodeAttemptCountBeforeCleanup - this.database.authCodeSendAttempts.length
+      didMutate = true
+    }
+
+    const nextPendingChannelInvitations = this.database.pendingChannelInvitations.filter(
+      (invitation) => !isTimestampOlderThan(invitation.createdAt, cutoffTimestamp),
+    )
+    if (nextPendingChannelInvitations.length !== this.database.pendingChannelInvitations.length) {
+      summary.pendingChannelInvitations =
+        this.database.pendingChannelInvitations.length - nextPendingChannelInvitations.length
+      this.database.pendingChannelInvitations = nextPendingChannelInvitations
+      didMutate = true
+    }
+
+    const nextPendingGroupInvitations = this.database.pendingGroupInvitations.filter(
+      (invitation) => !isTimestampOlderThan(invitation.createdAt, cutoffTimestamp),
+    )
+    if (nextPendingGroupInvitations.length !== this.database.pendingGroupInvitations.length) {
+      summary.pendingGroupInvitations =
+        this.database.pendingGroupInvitations.length - nextPendingGroupInvitations.length
+      this.database.pendingGroupInvitations = nextPendingGroupInvitations
+      didMutate = true
+    }
 
     const nextSessions = this.database.sessions.filter((session) => !isTimestampOlderThan(session.createdAt, cutoffTimestamp))
     if (nextSessions.length !== this.database.sessions.length) {
@@ -9627,113 +14067,1090 @@ export class TinychokStore {
     return summary
   }
 
-  private getStorageUsage(ownerIdentifier: string): StorageUsage {
-    const account = this.findAccount(ownerIdentifier)
+  private getStorageUsage(ownerIdentifier: string): StorageQuotaUsage {
+    return this.getStorageSubjectUsage(this.getUserStorageSubject(ownerIdentifier))
+  }
+
+  private buildStorageSubjectUsageResponse(subject: StorageSubjectDescriptor): StorageSubjectUsageResponse {
+    return {
+      archiveUnlimited: subject.archiveUnlimited,
+      archiveUsage: this.getArchiveStorageUsage(subject),
+      storageUsage: this.getStorageSubjectUsage(subject),
+    }
+  }
+
+  private buildUserStorageItemId(kind: UserStorageInventoryItem['kind'], mediaUrl: string) {
+    // Storage item ids are consumed by a DELETE route, so the mediaUrl part must stay path-safe.
+    return `${kind}:${Buffer.from(mediaUrl, 'utf8').toString('base64url')}`
+  }
+
+  private parseUserStorageItemId(storageItemId: string): {
+    kind: UserStorageInventoryItem['kind']
+    mediaUrl: string
+  } | null {
+    const separatorIndex = storageItemId.indexOf(':')
+    if (separatorIndex <= 0) return null
+
+    const kind = storageItemId.slice(0, separatorIndex)
+    const encodedMediaUrl = storageItemId.slice(separatorIndex + 1).trim()
+    if ((kind !== 'attachment' && kind !== 'gif') || !encodedMediaUrl) {
+      return null
+    }
+
+    let mediaUrl = ''
+    try {
+      mediaUrl = Buffer.from(encodedMediaUrl, 'base64url').toString('utf8').trim()
+    } catch {
+      return null
+    }
+    if (!mediaUrl) {
+      return null
+    }
+
+    return {
+      kind,
+      mediaUrl,
+    }
+  }
+
+  private assertOwnedPendingAttachment(
+    ownerIdentifier: string,
+    attachment?: Message['attachment'],
+  ): NonNullable<Message['attachment']> | undefined {
+    const sanitizedAttachment = sanitizeMessageAttachment(attachment)
+    if (!sanitizedAttachment) {
+      return undefined
+    }
+
+    const ownedGif = (this.findAccount(ownerIdentifier)?.gifLibrary ?? []).find(
+      (item) => item.mediaUrl === sanitizedAttachment.mediaUrl,
+    )
+    if (ownedGif) {
+      if (
+        ownedGif.fileName !== sanitizedAttachment.fileName ||
+        ownedGif.mimeType !== sanitizedAttachment.mimeType ||
+        ownedGif.size !== sanitizedAttachment.size
+      ) {
+        throw new Error(invalidOwnedAttachmentMessage)
+      }
+
+      return {
+        ...sanitizedAttachment,
+        height: sanitizedAttachment.height ?? ownedGif.height,
+        width: sanitizedAttachment.width ?? ownedGif.width,
+      }
+    }
+
+    const pendingUpload = this.database.pendingMediaUploads.find(
+      (upload) =>
+        upload.ownerIdentifier === ownerIdentifier &&
+        upload.mediaUrl === sanitizedAttachment.mediaUrl &&
+        upload.kind === 'attachment',
+    )
+    if (!pendingUpload) {
+      throw new Error(invalidOwnedAttachmentMessage)
+    }
+
+    // `mediaUrl` is client-provided metadata, not proof of ownership.
+    // Every message/comment attachment must resolve back to the sender's own registered upload.
+    if (
+      pendingUpload.fileName !== sanitizedAttachment.fileName ||
+      pendingUpload.mimeType !== sanitizedAttachment.mimeType ||
+      pendingUpload.size !== sanitizedAttachment.size
+    ) {
+      throw new Error(invalidOwnedAttachmentMessage)
+    }
+
+    return sanitizedAttachment
+  }
+
+  private normalizeClientDeliveryId(clientDeliveryId?: string) {
+    const normalizedDeliveryId = clientDeliveryId?.trim()
+    return normalizedDeliveryId || undefined
+  }
+
+  private findExistingDirectMessageByDeliveryId(
+    ownerIdentifier: string,
+    dialogId: number,
+    deliveryId?: string,
+  ) {
+    if (!deliveryId) return null
+    return (
+      this.database.dialogMessages.find(
+        (message) =>
+          message.ownerIdentifier === ownerIdentifier &&
+          message.dialogId === dialogId &&
+          message.deliveryId === deliveryId &&
+          !message.archivedAt,
+      ) ?? null
+    )
+  }
+
+  private findExistingGroupMessageByDeliveryId(
+    ownerIdentifier: string,
+    groupId: number,
+    deliveryId?: string,
+  ) {
+    if (!deliveryId) return null
+    return (
+      this.database.groupMessages.find(
+        (message) =>
+          message.ownerIdentifier === ownerIdentifier &&
+          message.groupId === groupId &&
+          message.deliveryId === deliveryId,
+      ) ?? null
+    )
+  }
+
+  private findExistingSupportTicketByDeliveryId(
+    ownerIdentifier: string,
+    deliveryId?: string,
+  ) {
+    if (!deliveryId) return null
+    return (
+      this.database.supportTickets.find(
+        (ticket) => ticket.ownerIdentifier === ownerIdentifier && ticket.deliveryId === deliveryId,
+      ) ?? null
+    )
+  }
+
+  private hasExistingSupportCommentDeliveryId(
+    ticket: PersistedSupportTicket,
+    authorIdentifier: string,
+    deliveryId?: string,
+  ) {
+    if (!deliveryId) return false
+    return ticket.comments.some(
+      (comment) =>
+        normalizeIdentifier(comment.authorIdentifier ?? '') === authorIdentifier &&
+        comment.deliveryId === deliveryId,
+    )
+  }
+
+  private hasExistingGroupThreadCommentDeliveryId(
+    message: PersistedGroupMessage,
+    authorIdentifier: string,
+    deliveryId?: string,
+  ) {
+    if (!deliveryId) return false
+    return compactThreadComments(message.threadComments).some(
+      (comment) =>
+        normalizeIdentifier(comment.authorIdentifier ?? '') === authorIdentifier &&
+        comment.deliveryId === deliveryId,
+    )
+  }
+
+  private findExistingSubscriptionPostByDeliveryId(
+    ownerIdentifier: string,
+    channelId: number,
+    deliveryId?: string,
+  ) {
+    if (!deliveryId) return null
+    return (
+      this.database.subscriptionPosts.find(
+        (post) =>
+          post.ownerIdentifier === ownerIdentifier &&
+          post.channelId === channelId &&
+          post.deliveryId === deliveryId,
+      ) ?? null
+    )
+  }
+
+  private hasExistingSubscriptionThreadCommentDeliveryId(
+    post: PersistedSubscriptionPost,
+    authorIdentifier: string,
+    deliveryId?: string,
+  ) {
+    if (!deliveryId) return false
+    return compactThreadComments(post.threadComments).some(
+      (comment) =>
+        normalizeIdentifier(comment.authorIdentifier ?? '') === authorIdentifier &&
+        comment.deliveryId === deliveryId,
+    )
+  }
+
+  private markAttachmentUploadLinked(attachment?: Message['attachment']) {
+    if (!attachment) return
+    // Every successful send-path must land here so non-direct attachments never stay orphan-cleanup eligible.
+    this.clearPendingMediaUpload(attachment.mediaUrl)
+  }
+
+  private getDirectMessageAttachmentOwnerIdentifier(message: PersistedDialogMessage) {
+    return message.author === 'me'
+      ? message.ownerIdentifier
+      : normalizeIdentifier(this.findDialog(message.ownerIdentifier, message.dialogId)?.phone ?? '') ||
+          message.ownerIdentifier
+  }
+
+  private getUserStorageSubject(identifier: string): StorageSubjectDescriptor {
+    const account = this.findAccount(identifier)
+    return {
+      archiveQuotaBytes: getEffectiveUserArchiveStorageQuotaBytes(account),
+      archiveUnlimited: Boolean(account?.archiveUnlimited),
+      id: identifier,
+      kind: 'user',
+      primaryQuotaBytes: getEffectiveUserStorageQuotaBytes(account),
+    }
+  }
+
+  private getChannelStorageSubjectByHandle(handle: string): StorageSubjectDescriptor {
+    const managedChannel = this.findManagedChannelByHandle(handle)
+    const fallbackOwnerIdentifier = managedChannel ? managedChannel.ownerIdentifier : ''
+    const fallbackTitle = managedChannel ? managedChannel.title : handle
+    return {
+      archiveQuotaBytes: channelArchiveStorageQuotaBytes,
+      archiveUnlimited: Boolean(managedChannel?.archiveUnlimited),
+      id: buildAdminChannelAggregateKey(
+        managedChannel ?? {
+          directLink: handle,
+          ownerIdentifier: fallbackOwnerIdentifier,
+          title: fallbackTitle,
+        },
+      ),
+      kind: 'channel',
+      primaryQuotaBytes: channelStorageQuotaBytes,
+    }
+  }
+
+  private getSubscriptionPostStorageSubject(post: PersistedSubscriptionPost): StorageSubjectDescriptor {
+    const handle = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)?.handle ?? ''
+    return this.getChannelStorageSubjectByHandle(handle)
+  }
+
+  private getStorageSubjectUsage(subject: StorageSubjectDescriptor): StorageQuotaUsage {
     const trackedMedia = new Map<string, number>()
 
     for (const upload of this.database.pendingMediaUploads) {
-      if (upload.ownerIdentifier !== ownerIdentifier) continue
+      if (subject.kind !== 'user') continue
+      if (upload.ownerIdentifier !== subject.id) continue
+      if (upload.linked) continue
       trackedMedia.set(upload.mediaUrl, upload.size)
     }
 
     for (const reference of this.collectOwnedMediaReferences()) {
-      if (reference.ownerIdentifier !== ownerIdentifier) continue
+      if (reference.storageSubjectKind !== subject.kind || reference.storageSubjectId !== subject.id) continue
+      if (reference.archiveReason || reference.archivedAt) continue
       if (!trackedMedia.has(reference.mediaUrl)) {
         trackedMedia.set(reference.mediaUrl, reference.size)
       }
     }
 
     const usedBytes = [...trackedMedia.values()].reduce((total, size) => total + size, 0)
-    return buildStorageUsage(usedBytes, account?.premium, account?.premiumExpiresAt)
+    return buildStorageQuotaUsage(usedBytes, subject.primaryQuotaBytes)
+  }
+
+  private isMediaTrackedInPrimaryStorage(subject: StorageSubjectDescriptor, mediaUrl?: string) {
+    if (!mediaUrl) return false
+
+    for (const upload of this.database.pendingMediaUploads) {
+      if (subject.kind !== 'user') continue
+      if (upload.ownerIdentifier !== subject.id) continue
+      if (upload.linked) continue
+      if (upload.mediaUrl === mediaUrl) {
+        return true
+      }
+    }
+
+    return this.collectOwnedMediaReferences().some(
+      (reference) =>
+        reference.mediaUrl === mediaUrl &&
+        reference.storageSubjectKind === subject.kind &&
+        reference.storageSubjectId === subject.id &&
+        !reference.archiveReason &&
+        !reference.archivedAt,
+    )
+  }
+
+  private getArchiveStorageUsage(subject: StorageSubjectDescriptor): StorageArchiveUsage {
+    const trackedMedia = new Map<string, number>()
+
+    for (const item of this.database.archivedMedia) {
+      if (item.storageSubjectKind !== subject.kind || item.storageSubjectId !== subject.id) continue
+      trackedMedia.set(item.mediaUrl, item.size)
+    }
+
+    // Retention-only direct rows still belong to archive accounting even though they are hidden
+    // from the regular storage screen and no longer participate in primary quota.
+    for (const reference of this.collectOwnedMediaReferences()) {
+      if (reference.storageSubjectKind !== subject.kind || reference.storageSubjectId !== subject.id) continue
+      if (!reference.archiveReason && !reference.archivedAt) continue
+      if (!trackedMedia.has(reference.mediaUrl)) {
+        trackedMedia.set(reference.mediaUrl, reference.size)
+      }
+    }
+
+    const usedBytes = [...trackedMedia.values()].reduce((total, size) => total + size, 0)
+    return {
+      ...buildStorageQuotaUsage(usedBytes, subject.archiveQuotaBytes),
+      unlimited: subject.archiveUnlimited,
+    }
+  }
+
+  private getGroupMessageAttachmentOwnerIdentifier(message: PersistedGroupMessage) {
+    return message.author === 'me'
+      ? message.ownerIdentifier
+      : normalizeIdentifier(
+          this.findGroup(message.ownerIdentifier, message.groupId)
+            ?.participants.find((participant) => participant.id === message.groupParticipantId)
+            ?.identifier ?? '',
+        ) || message.ownerIdentifier
+  }
+
+  private getSubscriptionPostAttachmentOwnerIdentifier(post: PersistedSubscriptionPost) {
+    const channelHandle = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)?.handle ?? ''
+    return this.findManagedChannelByHandle(channelHandle)?.ownerIdentifier ?? post.ownerIdentifier
+  }
+
+  private buildStorageCleanupCandidates(subject: StorageSubjectDescriptor) {
+    const candidatesByMediaUrl = new Map<string, StorageCleanupCandidate>()
+
+    const upsertCandidate = (
+      createdAt: string | undefined,
+      mediaUrl: string | undefined,
+      candidateSubject: StorageSubjectDescriptor,
+    ) => {
+      if (!createdAt || !mediaUrl) return
+      if (candidateSubject.kind !== subject.kind || candidateSubject.id !== subject.id) return
+
+      const existing = candidatesByMediaUrl.get(mediaUrl)
+      if (!existing || Date.parse(createdAt) < Date.parse(existing.createdAt)) {
+        candidatesByMediaUrl.set(mediaUrl, {
+          createdAt,
+          mediaUrl,
+          storageSubjectId: candidateSubject.id,
+          storageSubjectKind: candidateSubject.kind,
+        })
+      }
+    }
+
+    // Product rule: messenger attachments are disposable storage.
+    // When quota runs out, we reclaim the oldest previously sent attachments first.
+    for (const message of this.database.dialogMessages) {
+      // Archived direct rows are retention-only. They stay recoverable for admin/legal export,
+      // but must not re-enter user-facing quota cleanup once the user hid them from the dialog UI.
+      if (message.archivedAt) continue
+      upsertCandidate(
+        message.createdAt,
+        sanitizeMessageAttachment(message.attachment)?.mediaUrl,
+        this.getUserStorageSubject(this.getDirectMessageAttachmentOwnerIdentifier(message)),
+      )
+    }
+
+    for (const message of this.database.groupMessages) {
+      upsertCandidate(
+        message.createdAt,
+        sanitizeMessageAttachment(message.attachment)?.mediaUrl,
+        this.getUserStorageSubject(this.getGroupMessageAttachmentOwnerIdentifier(message)),
+      )
+
+      for (const comment of compactThreadComments(message.threadComments)) {
+        upsertCandidate(
+          comment.createdAt,
+          sanitizeMessageAttachment(comment.attachment)?.mediaUrl,
+          this.getUserStorageSubject(normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier),
+        )
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      upsertCandidate(
+        post.createdAt,
+        sanitizeMessageAttachment(post.attachment)?.mediaUrl,
+        this.getSubscriptionPostStorageSubject(post),
+      )
+
+      for (const comment of compactThreadComments(post.threadComments)) {
+        upsertCandidate(
+          comment.createdAt,
+          sanitizeMessageAttachment(comment.attachment)?.mediaUrl,
+          this.getUserStorageSubject(normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier),
+        )
+      }
+    }
+
+    for (const ticket of this.database.supportTickets) {
+      upsertCandidate(
+        ticket.createdAt,
+        sanitizeMessageAttachment(ticket.attachment)?.mediaUrl,
+        this.getUserStorageSubject(ticket.ownerIdentifier),
+      )
+
+      for (const comment of compactThreadComments(ticket.comments)) {
+        upsertCandidate(
+          comment.createdAt,
+          sanitizeMessageAttachment(comment.attachment)?.mediaUrl,
+          this.getUserStorageSubject(normalizeIdentifier(comment.authorIdentifier ?? '') || ticket.ownerIdentifier),
+        )
+      }
+    }
+
+    return [...candidatesByMediaUrl.values()].sort((left, right) => {
+      const leftTimestamp = Date.parse(left.createdAt)
+      const rightTimestamp = Date.parse(right.createdAt)
+      return leftTimestamp - rightTimestamp
+    })
+  }
+
+  private getStorageQuotaNoticeText(
+    subject: StorageSubjectDescriptor,
+    perspective: AttachmentRemovedNoticePerspective,
+  ) {
+    if (subject.kind === 'user') {
+      return buildStorageQuotaAttachmentRemovedNoticeText(perspective)
+    }
+
+    return 'Вложение автоматически убрано из активного хранилища канала, чтобы освободить место.'
+  }
+
+  private getStorageManualNoticeText(
+    subject: StorageSubjectDescriptor,
+    perspective: AttachmentRemovedNoticePerspective,
+  ) {
+    if (subject.kind === 'user') {
+      return buildStorageManualAttachmentRemovedNoticeText(perspective)
+    }
+
+    return 'Вложение удалено из хранилища канала владельцем настроек.'
+  }
+
+  private buildAttachmentRemovedNoticeForSubject(
+    subject: StorageSubjectDescriptor,
+    reason: AttachmentRemovedNotice['reason'],
+  ): NonNullable<Message['attachmentRemovedNotice']> {
+    const perspective = subject.kind === 'user' ? 'self' : 'author'
+    return {
+      reason,
+      removedAt: new Date().toISOString(),
+      text:
+        reason === 'storage-manual'
+          ? this.getStorageManualNoticeText(subject, perspective)
+          : this.getStorageQuotaNoticeText(subject, perspective),
+    }
+  }
+
+  private collectArchivedMediaRestoreTargetsForSubject(
+    subject: StorageSubjectDescriptor,
+    mediaUrl: string,
+  ): PersistedArchivedMediaRestoreTarget[] {
+    const targetsByKey = new Map<string, PersistedArchivedMediaRestoreTarget>()
+
+    const upsertTarget = (key: string, target: PersistedArchivedMediaRestoreTarget) => {
+      targetsByKey.set(key, target)
+    }
+
+    for (const message of this.database.dialogMessages) {
+      const attachment = sanitizeMessageAttachment(message.attachment)
+      if (!attachment || attachment.mediaUrl !== mediaUrl) continue
+      const messageSubject = this.getUserStorageSubject(this.getDirectMessageAttachmentOwnerIdentifier(message))
+      if (messageSubject.kind !== subject.kind || messageSubject.id !== subject.id) continue
+      upsertTarget(`dialog:${message.ownerIdentifier}:${message.dialogId}:${message.id}`, {
+        attachment,
+        dialogId: message.dialogId,
+        kind: 'dialog-message',
+        messageId: message.id,
+        ownerIdentifier: message.ownerIdentifier,
+      })
+    }
+
+    for (const message of this.database.groupMessages) {
+      const attachment = sanitizeMessageAttachment(message.attachment)
+      if (attachment?.mediaUrl === mediaUrl) {
+        const messageSubject = this.getUserStorageSubject(this.getGroupMessageAttachmentOwnerIdentifier(message))
+        if (messageSubject.kind === subject.kind && messageSubject.id === subject.id) {
+          upsertTarget(`group:${message.ownerIdentifier}:${message.groupId}:${message.id}`, {
+            attachment,
+            groupId: message.groupId,
+            kind: 'group-message',
+            messageId: message.id,
+            ownerIdentifier: message.ownerIdentifier,
+          })
+        }
+      }
+
+      for (const comment of compactThreadComments(message.threadComments)) {
+        const commentAttachment = sanitizeMessageAttachment(comment.attachment)
+        if (!commentAttachment || commentAttachment.mediaUrl !== mediaUrl) continue
+        const commentSubject = this.getUserStorageSubject(
+          normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier,
+        )
+        if (commentSubject.kind !== subject.kind || commentSubject.id !== subject.id) continue
+        upsertTarget(`group-comment:${message.ownerIdentifier}:${message.groupId}:${message.id}:${comment.id}`, {
+          attachment: commentAttachment,
+          commentId: comment.id,
+          groupId: message.groupId,
+          kind: 'group-thread-comment',
+          messageId: message.id,
+          ownerIdentifier: message.ownerIdentifier,
+        })
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      const attachment = sanitizeMessageAttachment(post.attachment)
+      if (attachment?.mediaUrl === mediaUrl) {
+        const postSubject = this.getSubscriptionPostStorageSubject(post)
+        if (postSubject.kind === subject.kind && postSubject.id === subject.id) {
+          upsertTarget(`channel:${post.ownerIdentifier}:${post.channelId}:${post.id}`, {
+            attachment,
+            channelId: post.channelId,
+            kind: 'channel-post',
+            ownerIdentifier: post.ownerIdentifier,
+            postId: post.id,
+          })
+        }
+      }
+
+      for (const comment of compactThreadComments(post.threadComments)) {
+        const commentAttachment = sanitizeMessageAttachment(comment.attachment)
+        if (!commentAttachment || commentAttachment.mediaUrl !== mediaUrl) continue
+        const commentSubject = this.getUserStorageSubject(
+          normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier,
+        )
+        if (commentSubject.kind !== subject.kind || commentSubject.id !== subject.id) continue
+        upsertTarget(
+          `channel-comment:${post.ownerIdentifier}:${post.channelId}:${post.id}:${comment.id}`,
+          {
+            attachment: commentAttachment,
+            channelId: post.channelId,
+            commentId: comment.id,
+            kind: 'channel-thread-comment',
+            ownerIdentifier: post.ownerIdentifier,
+            postId: post.id,
+          },
+        )
+      }
+    }
+
+    for (const ticket of this.database.supportTickets) {
+      if (subject.kind !== 'user' || ticket.ownerIdentifier !== subject.id) continue
+      const attachment = sanitizeMessageAttachment(ticket.attachment)
+      if (attachment?.mediaUrl === mediaUrl) {
+        upsertTarget(`support:${ticket.ownerIdentifier}:${ticket.id}`, {
+          attachment,
+          kind: 'support-ticket',
+          ownerIdentifier: ticket.ownerIdentifier,
+          ticketId: ticket.id,
+        })
+      }
+
+      for (const comment of compactThreadComments(ticket.comments)) {
+        const commentAttachment = sanitizeMessageAttachment(comment.attachment)
+        if (!commentAttachment || commentAttachment.mediaUrl !== mediaUrl) continue
+        const commentSubject = this.getUserStorageSubject(
+          normalizeIdentifier(comment.authorIdentifier ?? '') || ticket.ownerIdentifier,
+        )
+        if (commentSubject.kind !== subject.kind || commentSubject.id !== subject.id) continue
+        upsertTarget(`support-comment:${ticket.ownerIdentifier}:${ticket.id}:${comment.id}`, {
+          attachment: commentAttachment,
+          commentId: comment.id,
+          kind: 'support-ticket-comment',
+          ownerIdentifier: ticket.ownerIdentifier,
+          ticketId: ticket.id,
+        })
+      }
+    }
+
+    return [...targetsByKey.values()]
+  }
+
+  private restoreAttachmentReferencesForArchivedMedia(item: PersistedArchivedMediaRecord) {
+    const affectedIdentifiers = new Set<string>()
+
+    const restoreTargetEntity = <
+      Entity extends {
+        attachment?: MessageAttachment
+        attachmentRemovedNotice?: Message['attachmentRemovedNotice']
+      },
+    >(
+      entity: Entity | undefined,
+      attachment: MessageAttachment,
+      ownerIdentifier: string,
+    ) => {
+      if (!entity) {
+        return
+      }
+
+      if (entity.attachment?.mediaUrl === attachment.mediaUrl) {
+        if (entity.attachmentRemovedNotice?.reason === 'storage-quota') {
+          entity.attachmentRemovedNotice = undefined
+        }
+        affectedIdentifiers.add(ownerIdentifier)
+        return
+      }
+
+      if (entity.attachment || entity.attachmentRemovedNotice?.reason !== 'storage-quota') {
+        return
+      }
+
+      entity.attachment = { ...attachment }
+      entity.attachmentRemovedNotice = undefined
+      affectedIdentifiers.add(ownerIdentifier)
+    }
+
+    for (const target of item.restoreTargets ?? []) {
+      if (target.kind === 'dialog-message') {
+        restoreTargetEntity(
+          this.database.dialogMessages.find(
+            (message) =>
+              message.ownerIdentifier === target.ownerIdentifier &&
+              message.dialogId === target.dialogId &&
+              message.id === target.messageId,
+          ),
+          target.attachment,
+          target.ownerIdentifier,
+        )
+        continue
+      }
+
+      if (target.kind === 'group-message') {
+        restoreTargetEntity(
+          this.database.groupMessages.find(
+            (message) =>
+              message.ownerIdentifier === target.ownerIdentifier &&
+              message.groupId === target.groupId &&
+              message.id === target.messageId,
+          ),
+          target.attachment,
+          target.ownerIdentifier,
+        )
+        continue
+      }
+
+      if (target.kind === 'group-thread-comment') {
+        const message = this.database.groupMessages.find(
+          (candidate) =>
+            candidate.ownerIdentifier === target.ownerIdentifier &&
+            candidate.groupId === target.groupId &&
+            candidate.id === target.messageId,
+        )
+        restoreTargetEntity(
+          compactThreadComments(message?.threadComments).find((comment) => comment.id === target.commentId),
+          target.attachment,
+          target.ownerIdentifier,
+        )
+        continue
+      }
+
+      if (target.kind === 'channel-post') {
+        restoreTargetEntity(
+          this.database.subscriptionPosts.find(
+            (post) =>
+              post.ownerIdentifier === target.ownerIdentifier &&
+              post.channelId === target.channelId &&
+              post.id === target.postId,
+          ),
+          target.attachment,
+          target.ownerIdentifier,
+        )
+        continue
+      }
+
+      if (target.kind === 'channel-thread-comment') {
+        const post = this.database.subscriptionPosts.find(
+          (candidate) =>
+            candidate.ownerIdentifier === target.ownerIdentifier &&
+            candidate.channelId === target.channelId &&
+            candidate.id === target.postId,
+        )
+        restoreTargetEntity(
+          compactThreadComments(post?.threadComments).find((comment) => comment.id === target.commentId),
+          target.attachment,
+          target.ownerIdentifier,
+        )
+        continue
+      }
+
+      if (target.kind === 'support-ticket') {
+        restoreTargetEntity(
+          this.database.supportTickets.find(
+            (ticket) =>
+              ticket.ownerIdentifier === target.ownerIdentifier && ticket.id === target.ticketId,
+          ),
+          target.attachment,
+          target.ownerIdentifier,
+        )
+        continue
+      }
+
+      if (target.kind === 'support-ticket-comment') {
+        const ticket = this.database.supportTickets.find(
+          (candidate) =>
+            candidate.ownerIdentifier === target.ownerIdentifier && candidate.id === target.ticketId,
+        )
+        restoreTargetEntity(
+          compactThreadComments(ticket?.comments).find((comment) => comment.id === target.commentId),
+          target.attachment,
+          target.ownerIdentifier,
+        )
+      }
+    }
+
+    return [...affectedIdentifiers]
+  }
+
+  private restoreArchivedMediaIntoPrimaryStorageIfQuotaAllows(subject: StorageSubjectDescriptor) {
+    const affectedIdentifiers = new Set<string>()
+    const archivedItems = [...this.database.archivedMedia]
+      .filter(
+        (item) =>
+          item.storageSubjectKind === subject.kind &&
+          item.storageSubjectId === subject.id &&
+          item.archiveReason === 'storage-quota',
+      )
+      .sort((left, right) => (parseIsoDate(right.archivedAt) ?? 0) - (parseIsoDate(left.archivedAt) ?? 0))
+
+    for (const item of archivedItems) {
+      const additionalBytes = this.isMediaTrackedInPrimaryStorage(subject, item.mediaUrl) ? 0 : item.size
+      if (this.getStorageSubjectUsage(subject).usedBytes + additionalBytes > subject.primaryQuotaBytes) {
+        continue
+      }
+
+      for (const identifier of this.restoreAttachmentReferencesForArchivedMedia(item)) {
+        affectedIdentifiers.add(identifier)
+      }
+
+      if (!this.isMediaTrackedInPrimaryStorage(subject, item.mediaUrl)) {
+        continue
+      }
+
+      this.database.archivedMedia = this.database.archivedMedia.filter((candidate) => candidate.id !== item.id)
+    }
+
+    return [...affectedIdentifiers]
+  }
+
+  private archiveMediaForSubject(
+    subject: StorageSubjectDescriptor,
+    reference: OwnedStoredMediaReference,
+    archiveReason: StorageArchiveReason,
+  ) {
+    const existing = this.database.archivedMedia.find(
+      (item) =>
+        item.mediaUrl === reference.mediaUrl &&
+        item.storageSubjectKind === subject.kind &&
+        item.storageSubjectId === subject.id,
+    )
+    if (existing) {
+      existing.archivedAt = new Date().toISOString()
+      existing.archiveReason = archiveReason
+      existing.originalContext = reference.primaryLabel
+      existing.ownerIdentifier = reference.ownerIdentifier
+      if (archiveReason !== 'storage-quota') {
+        existing.restoreTargets = undefined
+      }
+      return existing
+    }
+
+    const nextArchiveRecord: PersistedArchivedMediaRecord = {
+      archivedAt: new Date().toISOString(),
+      archiveReason,
+      fileName: reference.fileName,
+      height: reference.height,
+      id: randomUUID(),
+      kind: reference.kind === 'user-gif' ? 'gif' : 'attachment',
+      mediaUrl: reference.mediaUrl,
+      mimeType: reference.mimeType,
+      originalContext: reference.primaryLabel,
+      ownerIdentifier: reference.ownerIdentifier,
+      primaryLabel: reference.primaryLabel,
+      restoreTargets: undefined,
+      size: reference.size,
+      storageSubjectId: subject.id,
+      storageSubjectKind: subject.kind,
+      width: reference.width,
+    }
+    this.database.archivedMedia.push(nextArchiveRecord)
+    return nextArchiveRecord
+  }
+
+  private async rotateArchiveStorageIfNeeded(subject: StorageSubjectDescriptor) {
+    if (subject.archiveUnlimited) {
+      return
+    }
+
+    const items = [...this.database.archivedMedia]
+      .filter((item) => item.storageSubjectKind === subject.kind && item.storageSubjectId === subject.id)
+      .sort((left, right) => (parseIsoDate(left.archivedAt) ?? 0) - (parseIsoDate(right.archivedAt) ?? 0))
+
+    let usage = this.getArchiveStorageUsage(subject).usedBytes
+    const removedMediaUrls: string[] = []
+
+    for (const item of items) {
+      if (usage <= subject.archiveQuotaBytes) {
+        break
+      }
+      usage -= item.size
+      this.database.archivedMedia = this.database.archivedMedia.filter((candidate) => candidate.id !== item.id)
+      removedMediaUrls.push(item.mediaUrl)
+    }
+
+    if (removedMediaUrls.length === 0) {
+      return
+    }
+
+    await this.persist()
+    for (const mediaUrl of removedMediaUrls) {
+      await this.deleteMediaIfUnreferenced(mediaUrl)
+    }
+  }
+
+  private async archiveReferencesForSubject(
+    subject: StorageSubjectDescriptor,
+    mediaUrl: string,
+    archiveReason: StorageArchiveReason,
+  ) {
+    for (const reference of this.collectOwnedMediaReferences()) {
+      if (reference.mediaUrl !== mediaUrl) continue
+      if (reference.storageSubjectKind !== subject.kind || reference.storageSubjectId !== subject.id) continue
+      if (reference.archivedAt) continue
+      this.archiveMediaForSubject(subject, reference, archiveReason)
+    }
+    if (archiveReason === 'storage-quota') {
+      const restoreTargets = this.collectArchivedMediaRestoreTargetsForSubject(subject, mediaUrl)
+      const archivedItem = this.database.archivedMedia.find(
+        (item) =>
+          item.mediaUrl === mediaUrl &&
+          item.storageSubjectKind === subject.kind &&
+          item.storageSubjectId === subject.id,
+      )
+      if (archivedItem) {
+        archivedItem.restoreTargets = restoreTargets.length > 0 ? restoreTargets : archivedItem.restoreTargets
+      }
+    }
+    await this.rotateArchiveStorageIfNeeded(subject)
+  }
+
+  private removeAttachmentReferencesForSubject(
+    subject: StorageSubjectDescriptor,
+    mediaUrl: string,
+    attachmentRemovedNotice: NonNullable<Message['attachmentRemovedNotice']>,
+  ) {
+    const affectedIdentifiers = new Set<string>()
+
+    for (const message of this.database.dialogMessages) {
+      const messageSubject = this.getUserStorageSubject(this.getDirectMessageAttachmentOwnerIdentifier(message))
+      if (messageSubject.kind !== subject.kind || messageSubject.id !== subject.id) continue
+      if (message.attachment?.mediaUrl !== mediaUrl) continue
+      // Product contract: reclaim only the stored file. The message bubble stays in
+      // history with an explanatory notice for both sides instead of disappearing.
+      message.attachment = undefined
+      message.attachmentRemovedNotice = attachmentRemovedNotice
+      affectedIdentifiers.add(message.ownerIdentifier)
+    }
+
+    for (const message of this.database.groupMessages) {
+      const messageSubject = this.getUserStorageSubject(this.getGroupMessageAttachmentOwnerIdentifier(message))
+      if (
+        message.attachment?.mediaUrl === mediaUrl &&
+        messageSubject.kind === subject.kind &&
+        messageSubject.id === subject.id
+      ) {
+        message.attachment = undefined
+        message.attachmentRemovedNotice = attachmentRemovedNotice
+        affectedIdentifiers.add(message.ownerIdentifier)
+      }
+
+      for (const comment of compactThreadComments(message.threadComments)) {
+        if (comment.attachment?.mediaUrl !== mediaUrl) continue
+        const commentSubject = this.getUserStorageSubject(
+          normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier,
+        )
+        if (commentSubject.kind !== subject.kind || commentSubject.id !== subject.id) {
+          continue
+        }
+
+        comment.attachment = undefined
+        comment.attachmentRemovedNotice = attachmentRemovedNotice
+        affectedIdentifiers.add(message.ownerIdentifier)
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      const postSubject = this.getSubscriptionPostStorageSubject(post)
+      if (
+        post.attachment?.mediaUrl === mediaUrl &&
+        postSubject.kind === subject.kind &&
+        postSubject.id === subject.id
+      ) {
+        post.attachment = undefined
+        post.attachmentRemovedNotice = attachmentRemovedNotice
+        affectedIdentifiers.add(post.ownerIdentifier)
+      }
+
+      for (const comment of compactThreadComments(post.threadComments)) {
+        if (comment.attachment?.mediaUrl !== mediaUrl) continue
+        const commentSubject = this.getUserStorageSubject(
+          normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier,
+        )
+        if (commentSubject.kind !== subject.kind || commentSubject.id !== subject.id) {
+          continue
+        }
+
+        comment.attachment = undefined
+        comment.attachmentRemovedNotice = attachmentRemovedNotice
+        affectedIdentifiers.add(post.ownerIdentifier)
+      }
+    }
+
+    for (const ticket of this.database.supportTickets) {
+      if (subject.kind !== 'user' || ticket.ownerIdentifier !== subject.id) continue
+
+      if (ticket.attachment?.mediaUrl === mediaUrl) {
+        ticket.attachment = undefined
+        ticket.attachmentRemovedNotice = attachmentRemovedNotice
+        affectedIdentifiers.add(ticket.ownerIdentifier)
+      }
+
+      for (const comment of compactThreadComments(ticket.comments)) {
+        if (comment.attachment?.mediaUrl !== mediaUrl) continue
+        const commentSubject = this.getUserStorageSubject(
+          normalizeIdentifier(comment.authorIdentifier ?? '') || ticket.ownerIdentifier,
+        )
+        if (commentSubject.kind !== subject.kind || commentSubject.id !== subject.id) {
+          continue
+        }
+
+        comment.attachment = undefined
+        comment.attachmentRemovedNotice = attachmentRemovedNotice
+        affectedIdentifiers.add(ticket.ownerIdentifier)
+      }
+    }
+
+    return [...affectedIdentifiers]
+  }
+
+  private async reclaimStorageForAttachmentUpload(
+    subject: StorageSubjectDescriptor,
+    size: number,
+    mediaUrl?: string,
+  ) {
+    const additionalBytes = this.isMediaTrackedInPrimaryStorage(subject, mediaUrl) ? 0 : size
+    const usage = this.getStorageSubjectUsage(subject)
+    if (usage.usedBytes + additionalBytes <= usage.quotaBytes) {
+      return 0
+    }
+
+    const evictedMediaUrls: string[] = []
+    // Keep cleanup stable and predictable: evict oldest previously sent attachments first
+    // and stop as soon as the new upload fits. This is a messenger, not archival storage.
+    for (const candidate of this.buildStorageCleanupCandidates(subject)) {
+      if (this.getStorageSubjectUsage(subject).usedBytes + additionalBytes <= usage.quotaBytes) {
+        break
+      }
+
+      await this.archiveReferencesForSubject(subject, candidate.mediaUrl, 'storage-quota')
+      if (
+        this.removeAttachmentReferencesForSubject(
+          subject,
+          candidate.mediaUrl,
+          this.buildAttachmentRemovedNoticeForSubject(subject, 'storage-quota'),
+        ).length === 0
+      ) {
+        continue
+      }
+
+      evictedMediaUrls.push(candidate.mediaUrl)
+    }
+
+    if (evictedMediaUrls.length === 0) {
+      return 0
+    }
+
+    await this.persist()
+    for (const mediaUrl of evictedMediaUrls) {
+      await this.deleteMediaIfUnreferenced(mediaUrl)
+    }
+
+    return evictedMediaUrls.length
   }
 
   private collectOwnedMediaReferences(): OwnedStoredMediaReference[] {
     const references: OwnedStoredMediaReference[] = []
 
+    // Product rule: user-manageable storage excludes every avatar surface.
+    // Profile/group/channel avatars live in Tinychok-owned external storage and must not
+    // inflate user quota or appear in the self-service storage manager.
     for (const account of this.database.accounts) {
-      if (account.avatarImage) {
-        references.push({
-          kind: 'profile-avatar',
-          mediaUrl: account.avatarImage,
-          ownerIdentifier: account.identifier,
-          size: 0,
-        })
-      }
-
+      const userSubject = this.getUserStorageSubject(account.identifier)
       for (const gif of account.gifLibrary ?? []) {
         references.push({
+          createdAt: gif.createdAt,
+          fileName: gif.fileName,
+          height: gif.height,
           kind: 'user-gif',
           mediaUrl: gif.mediaUrl,
+          mimeType: gif.mimeType,
           ownerIdentifier: account.identifier,
+          primaryLabel: 'GIF из библиотеки',
           size: gif.size,
+          storageSubjectId: userSubject.id,
+          storageSubjectKind: userSubject.kind,
+          width: gif.width,
         })
       }
-    }
-
-    for (const group of this.database.groups) {
-      if (!group.avatarImage) continue
-      references.push({
-        kind: 'group-avatar',
-        mediaUrl: group.avatarImage,
-        ownerIdentifier: group.ownerIdentifier,
-        size: 0,
-      })
-    }
-
-    for (const channel of this.database.managedChannels) {
-      if (!channel.avatarImage) continue
-      references.push({
-        kind: 'channel-avatar',
-        mediaUrl: channel.avatarImage,
-        ownerIdentifier: channel.ownerIdentifier,
-        size: 0,
-      })
     }
 
     for (const message of this.database.dialogMessages) {
       const attachment = sanitizeMessageAttachment(message.attachment)
       if (!attachment) continue
-      const ownerIdentifier =
-        message.author === 'me'
-          ? message.ownerIdentifier
-          : normalizeIdentifier(
-              this.findDialog(message.ownerIdentifier, message.dialogId)?.phone ?? '',
-            ) || message.ownerIdentifier
+      const messageOwnerIdentifier = this.getDirectMessageAttachmentOwnerIdentifier(message)
+      const userSubject = this.getUserStorageSubject(messageOwnerIdentifier)
       references.push({
+        archiveReason: message.archivedReason,
+        archivedAt: message.archivedAt,
+        createdAt: message.createdAt,
+        fileName: attachment.fileName,
+        height: attachment.height,
         kind: inferStoredMediaKind(attachment.mediaUrl) ?? 'attachment',
         mediaUrl: attachment.mediaUrl,
-        ownerIdentifier,
+        mimeType: attachment.mimeType,
+        ownerIdentifier: messageOwnerIdentifier,
+        primaryLabel: 'Вложение в диалоге',
         size: attachment.size,
+        storageSubjectId: userSubject.id,
+        storageSubjectKind: userSubject.kind,
+        width: attachment.width,
       })
     }
 
     for (const message of this.database.groupMessages) {
       const attachment = sanitizeMessageAttachment(message.attachment)
       if (attachment) {
-        const ownerIdentifier =
-          message.author === 'me'
-            ? message.ownerIdentifier
-            : normalizeIdentifier(
-                this.findGroup(message.ownerIdentifier, message.groupId)
-                  ?.participants.find((participant) => participant.id === message.groupParticipantId)
-                  ?.identifier ?? '',
-              ) || message.ownerIdentifier
+        const authorSubject = this.getUserStorageSubject(this.getGroupMessageAttachmentOwnerIdentifier(message))
         references.push({
+          createdAt: message.createdAt,
+          fileName: attachment.fileName,
+          height: attachment.height,
           kind: inferStoredMediaKind(attachment.mediaUrl) ?? 'attachment',
           mediaUrl: attachment.mediaUrl,
-          ownerIdentifier,
+          mimeType: attachment.mimeType,
+          ownerIdentifier: this.getGroupMessageAttachmentOwnerIdentifier(message),
+          primaryLabel: 'Вложение в группе',
           size: attachment.size,
+          storageSubjectId: authorSubject.id,
+          storageSubjectKind: authorSubject.kind,
+          width: attachment.width,
         })
       }
 
       for (const comment of message.threadComments ?? []) {
         const commentAttachment = sanitizeMessageAttachment(comment.attachment)
         if (!commentAttachment) continue
+        const commentOwnerIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
+        const commentSubject = this.getUserStorageSubject(commentOwnerIdentifier)
         references.push({
+          createdAt: comment.createdAt,
+          fileName: commentAttachment.fileName,
+          height: commentAttachment.height,
           kind: inferStoredMediaKind(commentAttachment.mediaUrl) ?? 'attachment',
           mediaUrl: commentAttachment.mediaUrl,
-          ownerIdentifier: normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier,
+          mimeType: commentAttachment.mimeType,
+          ownerIdentifier: commentOwnerIdentifier,
+          primaryLabel: 'Комментарий в группе',
           size: commentAttachment.size,
+          storageSubjectId: commentSubject.id,
+          storageSubjectKind: commentSubject.kind,
+          width: commentAttachment.width,
         })
       }
     }
@@ -9741,26 +15158,83 @@ export class TinychokStore {
     for (const post of this.database.subscriptionPosts) {
       const attachment = sanitizeMessageAttachment(post.attachment)
       if (attachment) {
-        const channelHandle =
-          this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)?.handle ?? ''
-        const channelOwnerIdentifier =
-          this.findManagedChannelByHandle(channelHandle)?.ownerIdentifier ?? post.ownerIdentifier
+        const postSubject = this.getSubscriptionPostStorageSubject(post)
         references.push({
+          createdAt: post.createdAt,
+          fileName: attachment.fileName,
+          height: attachment.height,
           kind: inferStoredMediaKind(attachment.mediaUrl) ?? 'attachment',
           mediaUrl: attachment.mediaUrl,
-          ownerIdentifier: channelOwnerIdentifier,
+          mimeType: attachment.mimeType,
+          ownerIdentifier: this.getSubscriptionPostAttachmentOwnerIdentifier(post),
+          primaryLabel: 'Пост в канале',
           size: attachment.size,
+          storageSubjectId: postSubject.id,
+          storageSubjectKind: postSubject.kind,
+          width: attachment.width,
         })
       }
 
       for (const comment of post.threadComments ?? []) {
         const commentAttachment = sanitizeMessageAttachment(comment.attachment)
         if (!commentAttachment) continue
+        const commentOwnerIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
+        const commentSubject = this.getUserStorageSubject(commentOwnerIdentifier)
         references.push({
+          createdAt: comment.createdAt,
+          fileName: commentAttachment.fileName,
+          height: commentAttachment.height,
           kind: inferStoredMediaKind(commentAttachment.mediaUrl) ?? 'attachment',
           mediaUrl: commentAttachment.mediaUrl,
-          ownerIdentifier: normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier,
+          mimeType: commentAttachment.mimeType,
+          ownerIdentifier: commentOwnerIdentifier,
+          primaryLabel: 'Комментарий в канале',
           size: commentAttachment.size,
+          storageSubjectId: commentSubject.id,
+          storageSubjectKind: commentSubject.kind,
+          width: commentAttachment.width,
+        })
+      }
+    }
+
+    for (const ticket of this.database.supportTickets) {
+      const attachment = sanitizeMessageAttachment(ticket.attachment)
+      if (attachment) {
+        const ticketSubject = this.getUserStorageSubject(ticket.ownerIdentifier)
+        references.push({
+          createdAt: ticket.createdAt,
+          fileName: attachment.fileName,
+          height: attachment.height,
+          kind: inferStoredMediaKind(attachment.mediaUrl) ?? 'attachment',
+          mediaUrl: attachment.mediaUrl,
+          mimeType: attachment.mimeType,
+          ownerIdentifier: ticket.ownerIdentifier,
+          primaryLabel: 'Обращение в поддержку',
+          size: attachment.size,
+          storageSubjectId: ticketSubject.id,
+          storageSubjectKind: ticketSubject.kind,
+          width: attachment.width,
+        })
+      }
+
+      for (const comment of compactThreadComments(ticket.comments)) {
+        const commentAttachment = sanitizeMessageAttachment(comment.attachment)
+        if (!commentAttachment) continue
+        const commentOwnerIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || ticket.ownerIdentifier
+        const commentSubject = this.getUserStorageSubject(commentOwnerIdentifier)
+        references.push({
+          createdAt: comment.createdAt,
+          fileName: commentAttachment.fileName,
+          height: commentAttachment.height,
+          kind: inferStoredMediaKind(commentAttachment.mediaUrl) ?? 'attachment',
+          mediaUrl: commentAttachment.mediaUrl,
+          mimeType: commentAttachment.mimeType,
+          ownerIdentifier: commentOwnerIdentifier,
+          primaryLabel: 'Комментарий в поддержке',
+          size: commentAttachment.size,
+          storageSubjectId: commentSubject.id,
+          storageSubjectKind: commentSubject.kind,
+          width: commentAttachment.width,
         })
       }
     }
@@ -9778,6 +15252,258 @@ export class TinychokStore {
         size: pendingSize ?? 0,
       }
     })
+  }
+
+  private buildPrimaryStorageInventoryForSubject(subject: StorageSubjectDescriptor): UserStorageInventoryItem[] {
+    const itemsByMediaUrl = new Map<string, UserStorageInventoryItem>()
+
+    for (const reference of this.collectOwnedMediaReferences()) {
+      if (reference.storageSubjectKind !== subject.kind || reference.storageSubjectId !== subject.id) continue
+      if (reference.kind !== 'attachment' && reference.kind !== 'user-gif') continue
+      // Storage manager must only show actively user-manageable media, never retention-only direct archives.
+      if (reference.archiveReason) continue
+      if (reference.archivedAt) continue
+
+      const inventoryKind = reference.kind === 'user-gif' ? 'gif' : 'attachment'
+      const existing = itemsByMediaUrl.get(reference.mediaUrl)
+      if (!existing) {
+        itemsByMediaUrl.set(reference.mediaUrl, {
+          createdAt: reference.createdAt ?? new Date(0).toISOString(),
+          fileName: reference.fileName,
+          height: reference.height,
+          id: this.buildUserStorageItemId(inventoryKind, reference.mediaUrl),
+          kind: inventoryKind,
+          mediaUrl: reference.mediaUrl,
+          mimeType: reference.mimeType,
+          primaryLabel: reference.primaryLabel,
+          size: reference.size,
+          usageCount: 1,
+          width: reference.width,
+        })
+        continue
+      }
+
+      // Storage manager works with unique media objects, not per-message rows:
+      // the same file reused in multiple bubbles must still render as one deletable tile.
+      existing.usageCount += 1
+      if (Date.parse(reference.createdAt ?? '') > Date.parse(existing.createdAt)) {
+        existing.createdAt = reference.createdAt ?? existing.createdAt
+        existing.fileName = reference.fileName
+        existing.height = reference.height
+        existing.mimeType = reference.mimeType
+        existing.primaryLabel = reference.primaryLabel
+        existing.width = reference.width
+      }
+    }
+
+    return [...itemsByMediaUrl.values()].sort((left, right) => {
+      return Date.parse(right.createdAt) - Date.parse(left.createdAt)
+    })
+  }
+
+  private buildArchiveStorageInventoryForSubject(subject: StorageSubjectDescriptor): StorageArchiveInventoryItem[] {
+    const itemsByMediaUrl = new Map<string, StorageArchiveInventoryItem>()
+
+    for (const item of this.database.archivedMedia) {
+      if (item.storageSubjectKind !== subject.kind || item.storageSubjectId !== subject.id) continue
+      const existing = itemsByMediaUrl.get(item.mediaUrl)
+      if (!existing) {
+        itemsByMediaUrl.set(item.mediaUrl, {
+          ...item,
+          usageCount: 1,
+        })
+        continue
+      }
+
+      existing.usageCount += 1
+      if ((parseIsoDate(item.archivedAt) ?? 0) > (parseIsoDate(existing.archivedAt) ?? 0)) {
+        itemsByMediaUrl.set(item.mediaUrl, {
+          ...item,
+          usageCount: existing.usageCount,
+        })
+      }
+    }
+
+    return [...itemsByMediaUrl.values()].sort(
+      (left, right) => (parseIsoDate(right.archivedAt) ?? 0) - (parseIsoDate(left.archivedAt) ?? 0),
+    )
+  }
+
+  private collectAdminOwnedMediaExportItems(
+    subject: StorageSubjectDescriptor,
+    options?: { archiveOnly?: boolean; currentOnly?: boolean },
+  ): AdminOwnedMediaExportItem[] {
+    const itemsByMediaUrl = new Map<string, AdminOwnedMediaExportItem>()
+
+    for (const reference of this.collectOwnedMediaReferences()) {
+      if (reference.storageSubjectKind !== subject.kind || reference.storageSubjectId !== subject.id) continue
+      if (reference.kind !== 'attachment' && reference.kind !== 'user-gif') continue
+      if (options?.archiveOnly && !reference.archiveReason && !reference.archivedAt) continue
+      if (options?.currentOnly && (reference.archiveReason || reference.archivedAt)) continue
+
+      // Do not reuse the self-service storage screen data here: admin export must keep
+      // retention-only direct attachments that are intentionally hidden from user storage UI.
+      const normalizedKind: AdminOwnedMediaExportItem['kind'] =
+        reference.kind === 'user-gif' ? 'gif' : 'attachment'
+      const existing = itemsByMediaUrl.get(reference.mediaUrl)
+
+      if (!existing) {
+        itemsByMediaUrl.set(reference.mediaUrl, {
+          archiveReason: reference.archiveReason,
+          contexts: [{
+            archiveReason: reference.archiveReason,
+            createdAt: reference.createdAt,
+            primaryLabel: reference.primaryLabel,
+          }],
+          createdAt: reference.createdAt,
+        fileName: reference.fileName,
+        height: reference.height,
+        kind: normalizedKind,
+        mediaUrl: reference.mediaUrl,
+        mimeType: reference.mimeType,
+        ownerIdentifier: reference.ownerIdentifier ?? '',
+        primaryLabel: reference.primaryLabel,
+        retentionOnly: Boolean(reference.archiveReason),
+        size: reference.size,
+          storageKind: reference.kind,
+          usageCount: 1,
+          width: reference.width,
+        })
+        continue
+      }
+
+      existing.usageCount += 1
+      existing.contexts.push({
+        archiveReason: reference.archiveReason,
+        createdAt: reference.createdAt,
+        primaryLabel: reference.primaryLabel,
+      })
+      existing.retentionOnly = existing.retentionOnly && Boolean(reference.archiveReason)
+      if (reference.archiveReason) {
+        const joinedReasons = [existing.archiveReason, reference.archiveReason].filter(Boolean)
+        existing.archiveReason = [...new Set(joinedReasons)].join(', ') || undefined
+      }
+      if (reference.kind === 'user-gif') {
+        existing.kind = 'gif'
+        existing.storageKind = 'user-gif'
+      }
+      if (Date.parse(reference.createdAt ?? '') > Date.parse(existing.createdAt ?? '')) {
+        existing.createdAt = reference.createdAt ?? existing.createdAt
+        existing.fileName = reference.fileName
+        existing.height = reference.height
+        existing.mimeType = reference.mimeType
+        existing.primaryLabel = reference.primaryLabel
+        existing.size = reference.size
+        existing.width = reference.width
+      }
+    }
+
+    return [...itemsByMediaUrl.values()]
+      .map((item) => ({
+        ...item,
+        archiveReason: item.retentionOnly ? item.archiveReason : undefined,
+        contexts: [...item.contexts].sort(
+          (left, right) => (parseIsoDate(right.createdAt) ?? 0) - (parseIsoDate(left.createdAt) ?? 0),
+        ),
+      }))
+      .sort((left, right) => (parseIsoDate(right.createdAt) ?? 0) - (parseIsoDate(left.createdAt) ?? 0))
+  }
+
+  private collectAdminArchivedMediaExportItems(subject: StorageSubjectDescriptor): AdminOwnedMediaExportItem[] {
+    const itemsByMediaUrl = new Map<string, AdminOwnedMediaExportItem>()
+
+    for (const item of this.buildArchiveStorageInventoryForSubject(subject)) {
+      const storageKind: PersistedPendingMediaUpload['kind'] = item.kind === 'gif' ? 'user-gif' : 'attachment'
+      itemsByMediaUrl.set(item.mediaUrl, {
+        archiveReason: item.archiveReason,
+        archivedAt: item.archivedAt,
+        contexts: [{
+          archiveReason: item.archiveReason,
+          createdAt: item.archivedAt,
+          primaryLabel: item.primaryLabel,
+        }],
+        createdAt: item.archivedAt,
+        fileName: item.fileName,
+        height: item.height,
+        kind: item.kind,
+        mediaUrl: item.mediaUrl,
+        mimeType: item.mimeType,
+        ownerIdentifier: item.ownerIdentifier ?? '',
+        originalContext: item.originalContext,
+        primaryLabel: item.primaryLabel,
+        retentionOnly: item.archiveReason === 'retention-delete',
+        size: item.size,
+        storageKind,
+        usageCount: item.usageCount,
+        width: item.width,
+      })
+    }
+
+    for (const item of this.collectAdminOwnedMediaExportItems(subject, { archiveOnly: true })) {
+      const existing = itemsByMediaUrl.get(item.mediaUrl)
+      if (!existing) {
+        itemsByMediaUrl.set(item.mediaUrl, {
+          ...item,
+          archivedAt: item.archivedAt ?? item.createdAt,
+          originalContext: item.originalContext ?? item.primaryLabel,
+          retentionOnly: true,
+        })
+        continue
+      }
+
+      existing.retentionOnly = existing.retentionOnly || item.retentionOnly
+      existing.usageCount = Math.max(existing.usageCount, item.usageCount)
+      existing.contexts.push(...item.contexts)
+      if (!existing.archiveReason && item.archiveReason) {
+        existing.archiveReason = item.archiveReason
+      }
+    }
+
+    return [...itemsByMediaUrl.values()].sort(
+      (left, right) => (parseIsoDate(right.archivedAt ?? right.createdAt) ?? 0) - (parseIsoDate(left.archivedAt ?? left.createdAt) ?? 0),
+    )
+  }
+
+  private resolveAdminStorageSubject(
+    kind: StorageSubjectKind,
+    subjectId: string,
+  ): {
+    auditLabel: string
+    auditTargetId: string
+    auditTargetType: 'user' | 'group' | 'channel'
+    exportBaseName: string
+    subject: StorageSubjectDescriptor
+  } {
+    if (kind === 'user') {
+      const target = this.findAccountForAdmin(subjectId)
+      if (!target) {
+        throw new Error('Пользователь не найден.')
+      }
+      return {
+        auditLabel: buildAdminAuditAccountLabel(target),
+        auditTargetId: target.identifier,
+        auditTargetType: 'user',
+        exportBaseName: sanitizeExportFileName(target.displayName) || target.identifier,
+        subject: this.getUserStorageSubject(target.identifier),
+      }
+    }
+
+    if (kind === 'group') {
+      throw new Error('Хранилище групп отключено. Медиа группы хранится в личном хранилище автора.')
+    }
+
+    const normalizedHandle = sanitizeChannelDirectLink(subjectId) || subjectId.trim()
+    const channel = this.findManagedChannelByHandle(normalizedHandle)
+    if (!channel) {
+      throw new Error('Канал не найден.')
+    }
+    return {
+      auditLabel: `канал ${channel.title}`,
+      auditTargetId: normalizedHandle,
+      auditTargetType: 'channel',
+      exportBaseName: sanitizeExportFileName(channel.title) || normalizedHandle,
+      subject: this.getChannelStorageSubjectByHandle(normalizedHandle),
+    }
   }
 
   private clearPendingMediaUpload(mediaUrl?: string) {
@@ -9825,6 +15551,9 @@ export class TinychokStore {
     )
     if (isStillReferenced) return
 
+    const isStillArchived = this.database.archivedMedia.some((item) => item.mediaUrl === mediaUrl)
+    if (isStillArchived) return
+
     try {
       await deleteStoredMediaByUrl(mediaUrl, kind)
       this.database.pendingMediaUploads = this.database.pendingMediaUploads.filter(
@@ -9836,9 +15565,16 @@ export class TinychokStore {
     }
   }
 
-  private clearChallenge(identifier: string) {
+  private clearChallenge(identifier: string, purpose?: AuthChallengePurpose | AuthChallengePurpose[]) {
+    const allowedPurposes = purpose
+      ? Array.isArray(purpose)
+        ? purpose
+        : [purpose]
+      : null
     this.database.authChallenges = this.database.authChallenges.filter(
-      (challenge) => challenge.identifier !== identifier,
+      (challenge) =>
+        challenge.identifier !== identifier ||
+        (allowedPurposes !== null && !allowedPurposes.includes(challenge.purpose)),
     )
   }
 
@@ -9849,8 +15585,10 @@ export class TinychokStore {
     }
 
     const token = randomUUID()
+    const createdAt = new Date().toISOString()
     this.database.sessions.push({
-      createdAt: new Date().toISOString(),
+      createdAt,
+      expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
       identifier,
       token,
     })
@@ -9860,6 +15598,20 @@ export class TinychokStore {
     }
 
     return token
+  }
+
+  private getActiveSessionRecord(token: string) {
+    const session = this.database.sessions.find((candidate) => candidate.token === token)
+    if (!session) {
+      return null
+    }
+
+    const expiresAt = parseIsoDate(session.expiresAt)
+    if (expiresAt === null || expiresAt <= Date.now()) {
+      return null
+    }
+
+    return session
   }
 
   private getIpAccessLogsForIdentifier(identifier: string) {
@@ -9975,10 +15727,6 @@ export class TinychokStore {
     return account && !isAccountBlocked(account) ? account : null
   }
 
-  private hasActiveSession(identifier: string) {
-    return this.database.sessions.some((session) => session.identifier === identifier)
-  }
-
   private getNextOwnedId<T extends { id: number; ownerIdentifier: string }>(
     records: T[],
     ownerIdentifier: string,
@@ -10025,6 +15773,21 @@ export class TinychokStore {
     return (
       this.database.dialogs.find(
         (dialog) => dialog.ownerIdentifier === ownerIdentifier && dialog.id === dialogId,
+      ) ?? null
+    )
+  }
+
+  private findDialogByPhone(ownerIdentifier: string, phoneIdentifier: string) {
+    const normalizedPhoneIdentifier = normalizeIdentifier(phoneIdentifier)
+    if (!normalizedPhoneIdentifier) {
+      return null
+    }
+
+    return (
+      this.database.dialogs.find(
+        (dialog) =>
+          dialog.ownerIdentifier === ownerIdentifier &&
+          normalizeIdentifier(dialog.phone) === normalizedPhoneIdentifier,
       ) ?? null
     )
   }
@@ -10087,6 +15850,7 @@ export class TinychokStore {
       preview: buildManagedChannelFallbackPreview(sourceChannel),
       readers: 0,
       statusText: sourceChannel.statusText?.trim() || undefined,
+      subscribedAt: new Date().toISOString(),
       time: '',
       title: sourceChannel.title,
       unread: 0,
@@ -10102,7 +15866,7 @@ export class TinychokStore {
     sourceChannel: PersistedManagedChannel,
     text: string,
   ) {
-    this.ensureSubscriptionChannelCopyForOwner(sourceChannel, sourceChannel.ownerIdentifier)
+    this.ensureManagedChannelOwnerSubscriptionCopy(sourceChannel)
     const channelCopies = this.syncManagedChannelSubscriptionCopies(sourceChannel)
     const createdAt = new Date().toISOString()
     const time = formatNowTime()
@@ -10171,18 +15935,20 @@ export class TinychokStore {
   private upsertThreadState(
     ownerIdentifier: string,
     threadId: string,
-    nextState: Pick<PersistedThreadState, 'lastReadCommentCreatedAt' | 'subscription'>,
+    nextState: Pick<PersistedThreadState, 'lastReadCommentCreatedAt' | 'lastReadCommentId' | 'subscription'>,
   ) {
     const existingState = this.getThreadState(ownerIdentifier, threadId)
 
     if (existingState) {
       existingState.lastReadCommentCreatedAt = nextState.lastReadCommentCreatedAt
+      existingState.lastReadCommentId = nextState.lastReadCommentId
       existingState.subscription = nextState.subscription
       return existingState
     }
 
     const createdState: PersistedThreadState = {
       lastReadCommentCreatedAt: nextState.lastReadCommentCreatedAt,
+      lastReadCommentId: nextState.lastReadCommentId,
       ownerIdentifier,
       subscription: nextState.subscription,
       threadId,
@@ -10207,9 +15973,79 @@ export class TinychokStore {
       displayAuthor: formatAccountName(account) || account.identifier,
       id: 0,
       replyTo: undefined,
+      sourceContact: resolveContactSourceReferenceFromText(this.database, text),
       text,
       time: formatNowTime(),
     }
+  }
+
+  private buildSupportThreadId(ticketNumber: number) {
+    return `support:${ticketNumber}`
+  }
+
+  private findSupportTicketForOwner(ownerIdentifier: string, ticketId: number) {
+    return this.database.supportTickets.find(
+      (ticket) => ticket.ownerIdentifier === ownerIdentifier && ticket.id === ticketId,
+    ) ?? null
+  }
+
+  private findSupportTicketById(ticketId: number) {
+    return this.database.supportTickets.find((ticket) => ticket.id === ticketId) ?? null
+  }
+
+  private buildAdminSupportTicketSummary(ticket: PersistedSupportTicket): AdminSupportTicketSummary {
+    const owner = this.findAccount(ticket.ownerIdentifier)
+    const comments = compactThreadComments(ticket.comments)
+    const latestComment = comments.at(-1)
+    const latestActivityAt = latestComment?.createdAt ?? ticket.updatedAt
+    const latestResponderIdentifier = latestComment?.authorIdentifier
+    const latestResponder = latestResponderIdentifier ? this.findAccount(latestResponderIdentifier) : null
+
+    const displayStatus = getAdminSupportTicketDisplayStatus(ticket)
+
+    return {
+      commentCount: comments.length,
+      createdAt: ticket.createdAt,
+      id: ticket.id,
+      latestActivityAt,
+      needsReply: comments.length === 0 || !sanitizeStaffRole(latestResponder?.staffRole),
+      owner: buildAdminLinkedUserSummary(owner ?? undefined, ticket.ownerIdentifier),
+      rootText: ticket.text,
+      status: displayStatus,
+      ticketNumber: ticket.id,
+      unreadCount: comments.filter(
+        (comment) => normalizeIdentifier(comment.authorIdentifier ?? '') === ticket.ownerIdentifier,
+      ).length,
+    }
+  }
+
+  private appendCommentToSupportTicket(
+    ticket: PersistedSupportTicket,
+    authorAccount: Account,
+    text: string,
+    attachment?: Message['attachment'],
+    replyTo?: Message['replyTo'],
+    deliveryId?: string,
+  ) {
+    const nextComment = this.buildThreadComment(
+      authorAccount,
+      ticket.ownerIdentifier,
+      text,
+      attachment,
+      deliveryId,
+    )
+    const previousActivityAt = Date.parse(ticket.updatedAt ?? ticket.createdAt)
+    const nextCommentCreatedAt = Date.parse(nextComment.createdAt ?? '')
+    if (!Number.isNaN(previousActivityAt) && !Number.isNaN(nextCommentCreatedAt) && nextCommentCreatedAt <= previousActivityAt) {
+      nextComment.createdAt = new Date(previousActivityAt + 1).toISOString()
+    }
+    nextComment.replyTo = replyTo
+    const nextComments = [...ticket.comments]
+    nextComment.id = nextComments.reduce((maxId, comment) => Math.max(maxId, comment.id), 0) + 1
+    nextComments.push(nextComment)
+    ticket.comments = nextComments
+    ticket.updatedAt = nextComment.createdAt ?? new Date().toISOString()
+    return nextComment
   }
 
   private assignCommentToGroupThread(
@@ -10357,9 +16193,13 @@ export class TinychokStore {
     }
   }
 
-  private buildGroupParticipant(account: Account): GroupParticipant {
-    const online = this.hasActiveSession(account.identifier)
+  private buildGroupParticipant(account: Account, viewerIdentifier?: string): GroupParticipant {
+    const online = this.hasLivePresence(account.identifier)
     const archivedAccount = isPublicDeletedAccount(account)
+    // Presence for group members must follow the same viewer-aware invisibility contract as direct dialogs.
+    const visibleOnline = archivedAccount
+      ? false
+      : getViewerVisibleOnline(account, viewerIdentifier, online)
 
     return {
       accent: pickAccentForIdentifier(account.identifier),
@@ -10368,15 +16208,141 @@ export class TinychokStore {
       id: getStableParticipantId(account.identifier),
       identifier: account.identifier,
       nickname: archivedAccount ? '' : normalizeNickname(account.nickname ?? ''),
-      online: archivedAccount ? false : online,
+      online: archivedAccount ? false : visibleOnline,
       premium: archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt),
-      status: getUserVisibleStatus(account, online),
+      status: getUserVisibleStatus(account, visibleOnline),
       title: getUserVisibleDisplayName(account),
     }
   }
 
+  private buildGroupSystemEventActor(account: Account): GroupSystemEvent['actor'] {
+    return {
+      identifier: account.identifier,
+      premium: hasActivePremium(account.premium, account.premiumExpiresAt),
+      title: getUserVisibleDisplayName(account),
+    }
+  }
+
+  private appendGroupSystemEvent(
+    sharedId: string,
+    event: GroupSystemEvent,
+  ) {
+    const createdAt = new Date().toISOString()
+    const time = formatNowTime()
+    const text = getGroupSystemEventText(event)
+    const groupCopies = this.listGroupCopies(sharedId).filter((groupCopy) => !isArchivedGroup(groupCopy))
+
+    for (const groupCopy of groupCopies) {
+      this.database.groupMessages.push({
+        author: groupCopy.ownerIdentifier === event.actor.identifier ? 'me' : 'them',
+        createdAt,
+        groupId: groupCopy.id,
+        groupSystemEvent: event,
+        id: this.getNextGroupMessageId(groupCopy.ownerIdentifier, groupCopy.id),
+        ownerIdentifier: groupCopy.ownerIdentifier,
+        system: true,
+        text,
+        threadComments: [],
+        threadId: undefined,
+        time,
+      })
+
+      groupCopy.preview = text
+      groupCopy.time = time
+      groupCopy.unread =
+        groupCopy.ownerIdentifier === event.actor.identifier || groupCopy.muted
+          ? 0
+          : groupCopy.unread + 1
+    }
+  }
+
+  private hasGroupSystemEventForActor(
+    sharedId: string,
+    kind: GroupSystemEvent['kind'],
+    actorIdentifier: string,
+  ) {
+    const normalizedActorIdentifier = normalizeIdentifier(actorIdentifier)
+    if (!normalizedActorIdentifier) {
+      return false
+    }
+
+    const groupCopies = this.listGroupCopies(sharedId)
+    if (groupCopies.length === 0) {
+      return false
+    }
+
+    const groupKey = new Set(groupCopies.map((group) => `${group.ownerIdentifier}:${group.id}`))
+    return this.database.groupMessages.some((message) => {
+      if (!groupKey.has(`${message.ownerIdentifier}:${message.groupId}`)) {
+        return false
+      }
+
+      if (message.groupSystemEvent?.kind !== kind) {
+        return false
+      }
+
+      return (
+        normalizeStoredIdentifierReference(message.groupSystemEvent.actor.identifier) ===
+        normalizedActorIdentifier
+      )
+    })
+  }
+
   private cloneGroupParticipant(participant: GroupParticipant): GroupParticipant {
     return { ...participant }
+  }
+
+  private cloneGroupMessageForOwner(
+    sourceGroup: PersistedGroup,
+    sourceMessage: PersistedGroupMessage,
+    targetGroup: PersistedGroup,
+  ): PersistedGroupMessage {
+    const clonedMessage = structuredClone(sourceMessage) as PersistedGroupMessage
+    const resolvedAuthorIdentifier =
+      normalizeStoredIdentifierReference(clonedMessage.groupSystemEvent?.actor.identifier ?? '') ||
+      resolveGroupMessageAuthorIdentifier(sourceGroup, clonedMessage)
+    const authorIsTargetOwner = resolvedAuthorIdentifier === targetGroup.ownerIdentifier
+    const targetParticipant = targetGroup.participants.find(
+      (participant) =>
+        normalizeStoredIdentifierReference(participant.identifier ?? '') === resolvedAuthorIdentifier,
+    )
+
+    return {
+      ...clonedMessage,
+      author: authorIsTargetOwner ? 'me' : 'them',
+      displayAuthor: authorIsTargetOwner ? undefined : targetParticipant?.title ?? clonedMessage.displayAuthor,
+      groupId: targetGroup.id,
+      groupParticipantId: authorIsTargetOwner ? undefined : clonedMessage.groupParticipantId,
+      id: this.getNextGroupMessageId(targetGroup.ownerIdentifier, targetGroup.id),
+      ownerIdentifier: targetGroup.ownerIdentifier,
+      threadId: getGroupMessageThreadId(targetGroup, clonedMessage),
+    }
+  }
+
+  private seedGroupHistoryForOwnerCopy(
+    sourceGroup: PersistedGroup,
+    targetGroup: PersistedGroup,
+  ) {
+    const hasExistingMessages = this.database.groupMessages.some(
+      (message) =>
+        message.ownerIdentifier === targetGroup.ownerIdentifier &&
+        message.groupId === targetGroup.id,
+    )
+    if (hasExistingMessages) {
+      return
+    }
+
+    const sourceMessages = this.database.groupMessages.filter(
+      (message) =>
+        message.ownerIdentifier === sourceGroup.ownerIdentifier &&
+        message.groupId === sourceGroup.id,
+    )
+
+    for (const sourceMessage of sourceMessages) {
+      this.database.groupMessages.push(
+        this.cloneGroupMessageForOwner(sourceGroup, sourceMessage, targetGroup),
+      )
+    }
   }
 
   private getFirstLiveGroupParticipantIdentifier(groupCopies: PersistedGroup[], excludedIdentifier: string) {
@@ -10414,6 +16380,17 @@ export class TinychokStore {
     }
   }
 
+  private unarchiveManagedChannel(channel: PersistedManagedChannel) {
+    channel.archivedAt = undefined
+    channel.archiveReason = undefined
+    const normalizedHandle = sanitizeChannelDirectLink(channel.directLink) || channel.directLink
+    const relatedCopies = this.listSubscriptionChannelCopiesByHandle(normalizedHandle)
+    for (const channelCopy of relatedCopies) {
+      channelCopy.archivedAt = undefined
+      channelCopy.archiveReason = undefined
+    }
+  }
+
   private archiveGroupCopies(
     sharedId: string,
     reason: ArchiveReason,
@@ -10422,6 +16399,13 @@ export class TinychokStore {
     for (const group of this.listGroupCopies(sharedId)) {
       group.archivedAt = archivedAt
       group.archiveReason = reason
+    }
+  }
+
+  private unarchiveGroupCopies(sharedId: string) {
+    for (const group of this.listGroupCopies(sharedId)) {
+      group.archivedAt = undefined
+      group.archiveReason = undefined
     }
   }
 
@@ -10489,6 +16473,9 @@ export class TinychokStore {
       deleteDataToo: boolean
     },
   ) {
+    // Self-service account deletion follows a different policy from ordinary room deletion:
+    // channels become hidden owner archives; groups either transfer ownership to a live member
+    // or become orphaned-group archives if transfer is impossible.
     const touchedSharedIds = this.removeParticipantIdentifierFromGroupCopies(archivedIdentifier)
     this.removeParticipantIdentifierFromSubscriptionChannelCopies(archivedIdentifier)
     const managedChannels = this.database.managedChannels.filter(
@@ -10533,6 +16520,13 @@ export class TinychokStore {
       const nextOwnerIdentifier = this.getFirstLiveGroupParticipantIdentifier(copies, archivedIdentifier)
       if (nextOwnerIdentifier) {
         this.transferGroupOwnership(sharedId, nextOwnerIdentifier)
+        const nextOwnerAccount = this.findAccount(nextOwnerIdentifier)
+        if (nextOwnerAccount) {
+          this.appendGroupSystemEvent(sharedId, {
+            actor: this.buildGroupSystemEventActor(nextOwnerAccount),
+            kind: 'owner-transferred',
+          })
+        }
         transferredGroupsCount += 1
         continue
       }
@@ -10555,6 +16549,23 @@ export class TinychokStore {
     }
   }
 
+  private buildAuthoritativeGroupParticipants(sharedId: string) {
+    const participantsByIdentifier = new Map<string, GroupParticipant>()
+
+    for (const group of this.listGroupCopies(sharedId)) {
+      for (const participant of group.participants ?? []) {
+        const normalizedIdentifier = normalizeIdentifier(participant.identifier ?? '')
+        if (!normalizedIdentifier || participantsByIdentifier.has(normalizedIdentifier)) {
+          continue
+        }
+
+        participantsByIdentifier.set(normalizedIdentifier, this.cloneGroupParticipant(participant))
+      }
+    }
+
+    return [...participantsByIdentifier.values()]
+  }
+
   private ensureGroupCopyForOwner(
     sourceGroup: PersistedGroup,
     ownerIdentifier: string,
@@ -10574,9 +16585,11 @@ export class TinychokStore {
       )
       existingGroup.commentsEnabledForAll = Boolean(sourceGroup.commentsEnabledForAll)
       existingGroup.commentsEnabledForPremium = Boolean(sourceGroup.commentsEnabledForPremium)
+      existingGroup.showHistoryToNewMembers = sourceGroup.showHistoryToNewMembers !== false
       existingGroup.archivedAt = sourceGroup.archivedAt
       existingGroup.archiveReason = sourceGroup.archiveReason
       existingGroup.creatorIdentifier = sourceGroup.creatorIdentifier ?? sourceGroup.ownerIdentifier
+      existingGroup.description = sanitizeChannelDescription(sourceGroup.description ?? '')
       existingGroup.groupOwnerIdentifier = getCurrentGroupOwnerIdentifier(sourceGroup)
       existingGroup.handle = sourceGroup.handle
       existingGroup.isTestEntity = sourceGroup.isTestEntity
@@ -10595,9 +16608,11 @@ export class TinychokStore {
       commentBlacklistIdentifiers: sanitizeIdentifierList(sourceGroup.commentBlacklistIdentifiers),
       commentsEnabledForAll: Boolean(sourceGroup.commentsEnabledForAll),
       commentsEnabledForPremium: Boolean(sourceGroup.commentsEnabledForPremium),
+      showHistoryToNewMembers: sourceGroup.showHistoryToNewMembers !== false,
       archivedAt: sourceGroup.archivedAt,
       archiveReason: sourceGroup.archiveReason,
       creatorIdentifier: sourceGroup.creatorIdentifier ?? sourceGroup.ownerIdentifier,
+      description: sanitizeChannelDescription(sourceGroup.description ?? ''),
       groupOwnerIdentifier: getCurrentGroupOwnerIdentifier(sourceGroup),
       handle: sourceGroup.handle,
       id: this.getNextOwnedId(this.database.groups, ownerIdentifier),
@@ -10620,10 +16635,13 @@ export class TinychokStore {
   private buildGroupInviteSource(group: PersistedGroup): NonNullable<Message['sourceGroup']> {
     return {
       accent: group.accent,
+      archivedAt: shouldHideArchivedGroupForUsers(group) ? group.archivedAt : undefined,
+      archiveReason: shouldHideArchivedGroupForUsers(group) ? group.archiveReason : undefined,
       avatarImage: group.avatarImage,
       creatorIdentifier: group.creatorIdentifier ?? group.ownerIdentifier,
       groupOwnerIdentifier: getCurrentGroupOwnerIdentifier(group),
       handle: group.handle,
+      leadText: 'Пользователь приглашает вас в группу',
       sharedId: this.getSharedGroupId(group),
       title: group.title,
     }
@@ -10635,6 +16653,7 @@ export class TinychokStore {
       draft: channel.status === 'draft',
       handle: channel.directLink,
       leadText: 'Пользователь приглашает вас подписаться на канал:',
+      statusText: channel.statusText?.trim() || undefined,
       title: channel.title,
       visibility: channel.visibility,
     }
@@ -10666,8 +16685,14 @@ export class TinychokStore {
     )
   }
 
+  private ensureManagedChannelOwnerSubscriptionCopy(sourceChannel: PersistedManagedChannel) {
+    // Managed channel lifecycle invariant:
+    // every managed channel must always have a canonical owner subscription copy.
+    return this.ensureSubscriptionChannelCopyForOwner(sourceChannel, sourceChannel.ownerIdentifier)
+  }
+
   private syncManagedChannelSubscriptionCopies(sourceChannel: PersistedManagedChannel) {
-    return syncManagedChannelCopiesInDatabase(this.database, sourceChannel).copies
+    return syncManagedChannelCopiesInDatabase(this.database, this.livePresenceCountsByIdentifier, sourceChannel).copies
   }
 
   private revokeSubscriptionChannelAccess(handle: string, targetIdentifier: string) {
@@ -10698,6 +16723,246 @@ export class TinychokStore {
     )
 
     return true
+  }
+
+  private hasSubscriptionChannelCopyForOwner(handle: string, ownerIdentifier: string) {
+    const normalizedHandle = normalizeChannelHandleForComparison(handle)
+    return this.database.subscriptionChannels.some(
+      (channel) =>
+        channel.ownerIdentifier === ownerIdentifier &&
+        normalizeChannelHandleForComparison(channel.handle) === normalizedHandle,
+    )
+  }
+
+  private hasPendingChannelInvitation(handle: string, recipientIdentifier: string) {
+    const normalizedHandle = normalizeChannelHandleForComparison(handle)
+    const normalizedRecipient = normalizeIdentifier(recipientIdentifier)
+    if (!normalizedHandle || !normalizedRecipient) {
+      return false
+    }
+
+    return this.database.pendingChannelInvitations.some(
+      (invitation) =>
+        normalizeChannelHandleForComparison(invitation.channelHandle) === normalizedHandle &&
+        invitation.recipientIdentifier === normalizedRecipient,
+    )
+  }
+
+  private upsertPendingChannelInvitation(
+    handle: string,
+    senderIdentifier: string,
+    recipientIdentifier: string,
+  ) {
+    const normalizedHandle = normalizeChannelHandleForComparison(handle)
+    const normalizedSender = normalizeIdentifier(senderIdentifier)
+    const normalizedRecipient = normalizeIdentifier(recipientIdentifier)
+    if (!normalizedHandle || !normalizedSender || !normalizedRecipient) {
+      return
+    }
+
+    const existingInvitation = this.database.pendingChannelInvitations.find(
+      (invitation) =>
+        normalizeChannelHandleForComparison(invitation.channelHandle) === normalizedHandle &&
+        invitation.recipientIdentifier === normalizedRecipient,
+    )
+
+    if (existingInvitation) {
+      existingInvitation.channelHandle = normalizedHandle
+      existingInvitation.createdAt = new Date().toISOString()
+      existingInvitation.senderIdentifier = normalizedSender
+      return
+    }
+
+    this.database.pendingChannelInvitations.push({
+      channelHandle: normalizedHandle,
+      createdAt: new Date().toISOString(),
+      recipientIdentifier: normalizedRecipient,
+      senderIdentifier: normalizedSender,
+    })
+  }
+
+  private clearPendingChannelInvitation(handle: string, recipientIdentifier: string) {
+    const normalizedHandle = normalizeChannelHandleForComparison(handle)
+    const normalizedRecipient = normalizeIdentifier(recipientIdentifier)
+    if (!normalizedHandle || !normalizedRecipient) {
+      return
+    }
+
+    this.database.pendingChannelInvitations = this.database.pendingChannelInvitations.filter(
+      (invitation) =>
+        !(
+          normalizeChannelHandleForComparison(invitation.channelHandle) === normalizedHandle &&
+          invitation.recipientIdentifier === normalizedRecipient
+        ),
+    )
+  }
+
+  private reassignPendingChannelInvitationSender(handle: string, senderIdentifier: string) {
+    const normalizedHandle = normalizeChannelHandleForComparison(handle)
+    const normalizedSender = normalizeIdentifier(senderIdentifier)
+    if (!normalizedHandle || !normalizedSender) {
+      return
+    }
+
+    for (const invitation of this.database.pendingChannelInvitations) {
+      if (normalizeChannelHandleForComparison(invitation.channelHandle) !== normalizedHandle) {
+        continue
+      }
+
+      invitation.senderIdentifier = normalizedSender
+    }
+  }
+
+  private hasPendingGroupInvitation(sharedId: string, recipientIdentifier: string) {
+    const normalizedSharedId = sharedId.trim()
+    const normalizedRecipient = normalizeIdentifier(recipientIdentifier)
+    if (!normalizedSharedId || !normalizedRecipient) {
+      return false
+    }
+
+    return this.database.pendingGroupInvitations.some(
+      (invitation) =>
+        invitation.sharedId === normalizedSharedId &&
+        invitation.recipientIdentifier === normalizedRecipient,
+    )
+  }
+
+  private upsertPendingGroupInvitation(
+    sharedId: string,
+    senderIdentifier: string,
+    recipientIdentifier: string,
+  ) {
+    const normalizedSharedId = sharedId.trim()
+    const normalizedSender = normalizeIdentifier(senderIdentifier)
+    const normalizedRecipient = normalizeIdentifier(recipientIdentifier)
+    if (!normalizedSharedId || !normalizedSender || !normalizedRecipient) {
+      return
+    }
+
+    const existingInvitation = this.database.pendingGroupInvitations.find(
+      (invitation) =>
+        invitation.sharedId === normalizedSharedId &&
+        invitation.recipientIdentifier === normalizedRecipient,
+    )
+
+    if (existingInvitation) {
+      existingInvitation.createdAt = new Date().toISOString()
+      existingInvitation.senderIdentifier = normalizedSender
+      return
+    }
+
+    this.database.pendingGroupInvitations.push({
+      createdAt: new Date().toISOString(),
+      recipientIdentifier: normalizedRecipient,
+      senderIdentifier: normalizedSender,
+      sharedId: normalizedSharedId,
+    })
+  }
+
+  private clearPendingGroupInvitation(sharedId: string, recipientIdentifier: string) {
+    const normalizedSharedId = sharedId.trim()
+    const normalizedRecipient = normalizeIdentifier(recipientIdentifier)
+    if (!normalizedSharedId || !normalizedRecipient) {
+      return
+    }
+
+    this.database.pendingGroupInvitations = this.database.pendingGroupInvitations.filter(
+      (invitation) =>
+        !(invitation.sharedId === normalizedSharedId && invitation.recipientIdentifier === normalizedRecipient),
+    )
+  }
+
+  private hasHistoricalChannelInvite(handle: string, viewerIdentifier: string) {
+    const normalizedHandle = normalizeChannelHandleForComparison(handle)
+    const normalizedViewer = normalizeIdentifier(viewerIdentifier)
+    if (!normalizedHandle || !normalizedViewer) {
+      return false
+    }
+
+    return this.database.dialogMessages.some(
+      (message) =>
+        message.ownerIdentifier === normalizedViewer &&
+        normalizeChannelHandleForComparison(message.sourceChannel?.handle ?? '') === normalizedHandle,
+    )
+  }
+
+  private buildDeletedChannelTombstonePreview(
+    accountIdentifier: string,
+    sourceChannel: PersistedManagedChannel,
+  ): SubscriptionChannel {
+    const sourceHandle = sanitizeChannelDirectLink(sourceChannel.directLink) || sourceChannel.directLink
+    const archivedAt = sourceChannel.archivedAt ?? new Date().toISOString()
+
+    return {
+      accent: sourceChannel.avatarTone,
+      archivedAt,
+      archiveReason: 'owner-deleted',
+      avatarImage: '/icons/ghost.png',
+      commentBlacklistIdentifiers: [],
+      commentsEnabledForAll: false,
+      commentsEnabledForPremium: false,
+      creatorIdentifier: sourceChannel.ownerIdentifier === accountIdentifier ? sourceChannel.ownerIdentifier : undefined,
+      description: '',
+      draft: false,
+      handle: sourceHandle,
+      id: buildSyntheticNumericId(`deleted-channel:${sourceHandle}`),
+      muted: false,
+      participants: [],
+      posts: [],
+      preview: '',
+      readers: 0,
+      statusText: '',
+      time: '',
+      title: 'Канал удалён владельцем',
+      unread: 0,
+      visibility: sourceChannel.visibility,
+    }
+  }
+
+  private canAccessChannelPreview(sourceChannel: PersistedManagedChannel, viewerIdentifier: string) {
+    const normalizedViewerIdentifier = normalizeIdentifier(viewerIdentifier)
+    const normalizedOwnerIdentifier = normalizeIdentifier(sourceChannel.ownerIdentifier)
+    if (!normalizedViewerIdentifier) {
+      return false
+    }
+
+    if (normalizedViewerIdentifier === normalizedOwnerIdentifier) {
+      return true
+    }
+
+    if (sourceChannel.visibility === 'public') {
+      return true
+    }
+
+    // Preview access is the single source of truth for both invite-open and search-open:
+    // if this returns true, search may show the channel, but subscribe still requires
+    // the explicit subscribe mutation and must never happen on plain search tap.
+    return (
+      this.hasSubscriptionChannelCopyForOwner(sourceChannel.directLink, normalizedViewerIdentifier) ||
+      this.hasPendingChannelInvitation(sourceChannel.directLink, normalizedViewerIdentifier)
+    )
+  }
+
+  private canAccessDeletedChannelTombstone(sourceChannel: PersistedManagedChannel, viewerIdentifier: string) {
+    const normalizedViewerIdentifier = normalizeIdentifier(viewerIdentifier)
+    const normalizedOwnerIdentifier = normalizeIdentifier(sourceChannel.ownerIdentifier)
+    if (!normalizedViewerIdentifier) {
+      return false
+    }
+
+    if (normalizedViewerIdentifier === normalizedOwnerIdentifier) {
+      return true
+    }
+
+    return (
+      this.hasHistoricalChannelInvite(sourceChannel.directLink, normalizedViewerIdentifier) ||
+      this.database.subscriptionChannels.some(
+        (channel) =>
+          channel.ownerIdentifier === normalizedViewerIdentifier &&
+          normalizeChannelHandleForComparison(channel.handle) ===
+            normalizeChannelHandleForComparison(sourceChannel.directLink),
+      )
+    )
   }
 
   private deliverDirectChannelInvitation(
@@ -10742,6 +17007,48 @@ export class TinychokStore {
     this.syncDialogContactProfile(recipientDialog, sender)
   }
 
+  private deliverDirectGroupInvitation(
+    sender: Account,
+    recipient: Account,
+    group: PersistedGroup,
+  ) {
+    const senderDialog = this.ensureDialogForContact(sender.identifier, recipient)
+    const recipientDialog = this.ensureDialogForContact(recipient.identifier, sender)
+    const createdAt = new Date().toISOString()
+    const time = formatNowTime()
+    const sourceGroup = this.buildGroupInviteSource(group)
+
+    this.database.dialogMessages.push({
+      author: 'me',
+      createdAt,
+      dialogId: senderDialog.id,
+      id: this.getNextDialogMessageId(sender.identifier, senderDialog.id),
+      ownerIdentifier: sender.identifier,
+      sourceGroup,
+      text: '',
+      time,
+    })
+
+    this.database.dialogMessages.push({
+      author: 'them',
+      createdAt,
+      dialogId: recipientDialog.id,
+      id: this.getNextDialogMessageId(recipient.identifier, recipientDialog.id),
+      ownerIdentifier: recipient.identifier,
+      sourceGroup,
+      text: '',
+      time,
+    })
+
+    senderDialog.typing = false
+    senderDialog.unread = 0
+    senderDialog.status = 'только что был(а) здесь'
+    recipientDialog.typing = false
+    recipientDialog.unread = recipientDialog.muted ? 0 : recipientDialog.unread + 1
+    this.syncDialogContactProfile(senderDialog, recipient)
+    this.syncDialogContactProfile(recipientDialog, sender)
+  }
+
   private refreshDialogsForAccount(account: Account) {
     const affectedOwners = new Set<string>()
 
@@ -10757,41 +17064,36 @@ export class TinychokStore {
   }
 
   private syncDialogContactProfile(dialog: PersistedDialog, account: Account) {
-    const online = this.hasActiveSession(account.identifier)
-    const archivedAccount = isPublicDeletedAccount(account)
-
-    dialog.title = getUserVisibleDisplayName(account)
-    dialog.handle = buildAccountHandle(account)
-    dialog.phone = account.identifier
-    dialog.accent = pickAccentForIdentifier(account.identifier)
-    dialog.mood = archivedAccount ? 'Удалённый аккаунт' : account.status?.trim() || 'На связи'
-    dialog.status = getUserVisibleStatus(account, online)
-    dialog.online = archivedAccount ? false : online
-    dialog.lastSeen = archivedAccount || online ? undefined : 'был(а) недавно в сети'
-    dialog.premium = archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt)
+    syncPersistedDialogWithAccount(dialog, account, {
+      online: this.hasLivePresence(account.identifier),
+    })
   }
 
-  private ensureDialogForContact(ownerIdentifier: string, contactAccount: Account) {
-    const existingDialog = this.database.dialogs.find(
-      (dialog) =>
-        dialog.ownerIdentifier === ownerIdentifier &&
-        normalizeIdentifier(dialog.phone) === contactAccount.identifier,
-    )
+  private ensureDialogForContact(
+    ownerIdentifier: string,
+    contactAccount: Account,
+    options: { hidden?: boolean } = {},
+  ) {
+    const existingDialog = this.findDialogByPhone(ownerIdentifier, contactAccount.identifier)
+    const shouldHide = Boolean(options.hidden)
 
     if (existingDialog) {
       this.clearSeededDialogHistoryIfNeeded(existingDialog)
       this.syncDialogContactProfile(existingDialog, contactAccount)
+      existingDialog.hidden = shouldHide
       return existingDialog
     }
 
     const nextDialog: PersistedDialog = {
       accent: pickAccentForIdentifier(contactAccount.identifier),
+      avatarImage: contactAccount.avatarImage,
       handle: buildAccountHandle(contactAccount),
+      hidden: shouldHide,
       id: this.getNextOwnedId(this.database.dialogs, ownerIdentifier),
       lastSeen: undefined,
       mood: contactAccount.status?.trim() || 'На связи',
       muted: false,
-      online: this.hasActiveSession(contactAccount.identifier),
+      online: this.hasLivePresence(contactAccount.identifier),
       ownerIdentifier,
       phone: contactAccount.identifier,
       pinned: false,
@@ -10805,6 +17107,86 @@ export class TinychokStore {
     this.syncDialogContactProfile(nextDialog, contactAccount)
     this.database.dialogs.push(nextDialog)
     return nextDialog
+  }
+
+  private getContactLink(leftIdentifier: string, rightIdentifier: string) {
+    return findContactLink(this.database, leftIdentifier, rightIdentifier)
+  }
+
+  private getContactState(viewerIdentifier: string, peerIdentifier: string): ContactState {
+    return getContactStateForViewer(this.database, viewerIdentifier, peerIdentifier)
+  }
+
+  private upsertContactLink(
+    leftIdentifier: string,
+    rightIdentifier: string,
+    patch: Pick<ContactLink, 'requesterIdentifier' | 'status'> & {
+      blockedByIdentifier?: string
+    },
+  ) {
+    const pair = buildCanonicalContactPair(leftIdentifier, rightIdentifier)
+    const createdAt = new Date().toISOString()
+    const existing = this.getContactLink(pair.leftIdentifier, pair.rightIdentifier)
+
+    if (existing) {
+      existing.blockedByIdentifier = patch.blockedByIdentifier
+      existing.requesterIdentifier = normalizeIdentifier(patch.requesterIdentifier)
+      existing.status = patch.status
+      existing.updatedAt = createdAt
+      return existing
+    }
+
+    const link: ContactLink = {
+      blockedByIdentifier: patch.blockedByIdentifier,
+      createdAt,
+      leftIdentifier: pair.leftIdentifier,
+      requesterIdentifier: normalizeIdentifier(patch.requesterIdentifier),
+      rightIdentifier: pair.rightIdentifier,
+      status: patch.status,
+      updatedAt: createdAt,
+    }
+    this.database.contactLinks.push(link)
+    return link
+  }
+
+  private clearContactLink(leftIdentifier: string, rightIdentifier: string) {
+    const pair = buildCanonicalContactPair(leftIdentifier, rightIdentifier)
+    const previousLength = this.database.contactLinks.length
+    this.database.contactLinks = this.database.contactLinks.filter(
+      (link) =>
+        !(
+          link.leftIdentifier === pair.leftIdentifier &&
+          link.rightIdentifier === pair.rightIdentifier
+        ),
+    )
+    return previousLength !== this.database.contactLinks.length
+  }
+
+  private appendDirectSystemMessage(
+    ownerIdentifier: string,
+    dialog: PersistedDialog,
+    text: string,
+    options?: {
+      author?: 'me' | 'them'
+      incrementUnread?: boolean
+    },
+  ) {
+    const createdAt = new Date().toISOString()
+    const time = formatNowTime()
+    this.database.dialogMessages.push({
+      author: options?.author ?? 'them',
+      createdAt,
+      dialogId: dialog.id,
+      id: this.getNextDialogMessageId(ownerIdentifier, dialog.id),
+      ownerIdentifier,
+      system: true,
+      text,
+      time,
+    })
+
+    if (options?.incrementUnread) {
+      dialog.unread = dialog.muted ? 0 : dialog.unread + 1
+    }
   }
 
   private clearSeededDialogHistoryIfNeeded(dialog: PersistedDialog) {
@@ -10951,7 +17333,11 @@ function cloneThreadCommentRecord(comment: ThreadComment): ThreadComment {
   return {
     ...comment,
     attachment: comment.attachment ? { ...comment.attachment } : undefined,
+    attachmentRemovedNotice: comment.attachmentRemovedNotice
+      ? { ...comment.attachmentRemovedNotice }
+      : undefined,
     replyTo: comment.replyTo ? { ...comment.replyTo } : undefined,
+    sourceChannel: comment.sourceChannel ? { ...comment.sourceChannel } : undefined,
   }
 }
 
@@ -10962,13 +17348,17 @@ function clonePersistedSubscriptionPostForCopy(
 ): PersistedSubscriptionPost {
   return {
     attachment: post.attachment ? { ...post.attachment } : undefined,
+    attachmentRemovedNotice: post.attachmentRemovedNotice ? { ...post.attachmentRemovedNotice } : undefined,
     channelId: channelCopy.id,
     createdAt: post.createdAt,
     id: nextId,
     ownerIdentifier: channelCopy.ownerIdentifier,
     replyTo: post.replyTo ? { ...post.replyTo } : undefined,
+    sourceChannel: post.sourceChannel ? { ...post.sourceChannel } : undefined,
     system: Boolean(post.system),
     text: post.text,
+    threadArchivedAt: post.threadArchivedAt,
+    threadArchiveReason: post.threadArchiveReason,
     threadComments: (post.threadComments ?? []).map(cloneThreadCommentRecord),
     threadId: post.threadId?.trim() || getSubscriptionPostThreadId(channelCopy, post),
     time: post.time,
@@ -10977,6 +17367,7 @@ function clonePersistedSubscriptionPostForCopy(
 
 function syncManagedChannelCopiesInDatabase(
   database: Database,
+  livePresenceIdentifiers: LivePresenceLookup,
   sourceChannel: PersistedManagedChannel,
 ) {
   const normalizedHandle = sanitizeChannelDirectLink(sourceChannel.directLink) || sourceChannel.directLink
@@ -11024,6 +17415,7 @@ function syncManagedChannelCopiesInDatabase(
   const canonicalSignatures = new Set(
     canonicalPosts.map((post) => getPersistedSubscriptionPostSignature(post)),
   )
+  const fallbackSubscribedAt = new Date().toISOString()
   let didMutate = false
 
   for (const copy of copies) {
@@ -11086,6 +17478,20 @@ function syncManagedChannelCopiesInDatabase(
     }
     if (copy.readers !== subscriberCount) {
       copy.readers = subscriberCount
+      didMutate = true
+    }
+    if (!copy.subscribedAt?.trim()) {
+      copy.subscribedAt = fallbackSubscribedAt
+      didMutate = true
+    }
+    const nextParticipants = buildDerivedSubscriptionParticipants(
+      database,
+      livePresenceIdentifiers,
+      copy.ownerIdentifier,
+      normalizedHandle,
+    )
+    if (JSON.stringify(copy.participants ?? []) !== JSON.stringify(nextParticipants)) {
+      copy.participants = nextParticipants
       didMutate = true
     }
 
@@ -11620,11 +18026,39 @@ function applyProductionFixtureCleanup(database: Database) {
     didMutate = true
   }
 
+  const nextAuthCodeSendAttempts = database.authCodeSendAttempts.filter(
+    (attempt) => !testAccountIdentifiers.has(attempt.identifier),
+  )
+  if (nextAuthCodeSendAttempts.length !== database.authCodeSendAttempts.length) {
+    database.authCodeSendAttempts = nextAuthCodeSendAttempts
+    didMutate = true
+  }
+
   const nextAuthChallenges = database.authChallenges.filter(
     (challenge) => !testAccountIdentifiers.has(challenge.identifier),
   )
   if (nextAuthChallenges.length !== database.authChallenges.length) {
     database.authChallenges = nextAuthChallenges
+    didMutate = true
+  }
+
+  const nextPendingChannelInvitations = database.pendingChannelInvitations.filter(
+    (invitation) =>
+      !testAccountIdentifiers.has(invitation.senderIdentifier) &&
+      !testAccountIdentifiers.has(invitation.recipientIdentifier),
+  )
+  if (nextPendingChannelInvitations.length !== database.pendingChannelInvitations.length) {
+    database.pendingChannelInvitations = nextPendingChannelInvitations
+    didMutate = true
+  }
+
+  const nextPendingGroupInvitations = database.pendingGroupInvitations.filter(
+    (invitation) =>
+      !testAccountIdentifiers.has(invitation.senderIdentifier) &&
+      !testAccountIdentifiers.has(invitation.recipientIdentifier),
+  )
+  if (nextPendingGroupInvitations.length !== database.pendingGroupInvitations.length) {
+    database.pendingGroupInvitations = nextPendingGroupInvitations
     didMutate = true
   }
 
@@ -11891,26 +18325,121 @@ function normalizeDeletedAccountResidue(database: Database) {
     }
   }
 
+  const nextPendingChannelInvitations = database.pendingChannelInvitations.filter(
+    (invitation) =>
+      !deletedIdentifiers.has(normalizeStoredIdentifierReference(invitation.senderIdentifier)) &&
+      !deletedIdentifiers.has(normalizeStoredIdentifierReference(invitation.recipientIdentifier)),
+  )
+
+  if (nextPendingChannelInvitations.length !== database.pendingChannelInvitations.length) {
+    database.pendingChannelInvitations = nextPendingChannelInvitations
+    didMutate = true
+  }
+
+  const nextPendingGroupInvitations = database.pendingGroupInvitations.filter(
+    (invitation) =>
+      !deletedIdentifiers.has(normalizeStoredIdentifierReference(invitation.senderIdentifier)) &&
+      !deletedIdentifiers.has(normalizeStoredIdentifierReference(invitation.recipientIdentifier)),
+  )
+
+  if (nextPendingGroupInvitations.length !== database.pendingGroupInvitations.length) {
+    database.pendingGroupInvitations = nextPendingGroupInvitations
+    didMutate = true
+  }
+
   return {
     database,
     needsPersistenceRewrite: didMutate,
   }
 }
 
+function ensureAcceptedContactLinksForLegacyDialogs(database: Database) {
+  let didMutate = false
+  const dialogOwnersByPair = new Map<string, Set<string>>()
+  const messagePresenceByPair = new Map<string, boolean>()
+  const dialogMessageKeys = new Set(
+    database.dialogMessages.map((message) => `${message.ownerIdentifier}:${message.dialogId}`),
+  )
+
+  for (const dialog of database.dialogs) {
+    // Hidden direct copies represent intentionally removed contacts and must not auto-resurrect
+    // accepted contact links during legacy normalization.
+    if (dialog.hidden) {
+      continue
+    }
+
+    const ownerIdentifier = normalizeStoredIdentifierReference(dialog.ownerIdentifier)
+    const peerIdentifier = normalizeStoredIdentifierReference(dialog.phone)
+    if (!ownerIdentifier || !peerIdentifier || ownerIdentifier === peerIdentifier) {
+      continue
+    }
+
+    const ownerAccount = database.accounts.find((account) => account.identifier === ownerIdentifier)
+    const peerAccount = database.accounts.find((account) => account.identifier === peerIdentifier)
+    if (!ownerAccount || !peerAccount || isPublicDeletedAccount(ownerAccount) || isPublicDeletedAccount(peerAccount)) {
+      continue
+    }
+
+    const pair = buildCanonicalContactPair(ownerIdentifier, peerIdentifier)
+    const pairKey = `${pair.leftIdentifier}:${pair.rightIdentifier}`
+    const owners = dialogOwnersByPair.get(pairKey) ?? new Set<string>()
+    owners.add(ownerIdentifier)
+    dialogOwnersByPair.set(pairKey, owners)
+
+    if (dialogMessageKeys.has(`${dialog.ownerIdentifier}:${dialog.id}`)) {
+      messagePresenceByPair.set(pairKey, true)
+    }
+  }
+
+  for (const [pairKey, owners] of dialogOwnersByPair.entries()) {
+    if (owners.size < 2 && !messagePresenceByPair.get(pairKey)) {
+      continue
+    }
+
+    const [leftIdentifier, rightIdentifier] = pairKey.split(':')
+    if (!leftIdentifier || !rightIdentifier) {
+      continue
+    }
+
+    const existingLink = findContactLink(database, leftIdentifier, rightIdentifier)
+    if (existingLink) {
+      continue
+    }
+
+    const createdAt = new Date().toISOString()
+    database.contactLinks.push({
+      createdAt,
+      leftIdentifier,
+      requesterIdentifier: leftIdentifier,
+      rightIdentifier,
+      status: 'accepted',
+      updatedAt: createdAt,
+    })
+    didMutate = true
+  }
+
+  return didMutate
+}
+
 function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewrite: boolean) {
   const fixtureState =
+    runtimeConfig.environment === 'development'
+      ? applyNonProductionFixtures(database)
+      : { database, needsPersistenceRewrite: false }
+  const cleanupState =
     runtimeConfig.environment === 'production'
-      ? { database, needsPersistenceRewrite: false }
-      : applyNonProductionFixtures(database)
-  const nextState = applyProductionFixtureCleanup(fixtureState.database)
+      ? applyProductionFixtureCleanup(fixtureState.database)
+      : { database: fixtureState.database, needsPersistenceRewrite: false }
   const prunedLegacyMockResidue =
-    runtimeConfig.environment === 'production'
-      ? { database: nextState.database, needsPersistenceRewrite: false }
-      : pruneLegacyNonProductionMockResidue(nextState.database)
+    runtimeConfig.environment === 'development'
+      ? pruneLegacyNonProductionMockResidue(cleanupState.database)
+      : { database: cleanupState.database, needsPersistenceRewrite: false }
   const normalizedDeletedResidue = normalizeDeletedAccountResidue(prunedLegacyMockResidue.database)
   const repairedDialogIdCollisions = repairPersistedDialogIdCollisions(prunedLegacyMockResidue.database)
   const normalizedDuplicateDialogs = normalizePersistedDuplicateDialogs(prunedLegacyMockResidue.database)
+  const normalizedPersistedDialogs = normalizePersistedDialogs(prunedLegacyMockResidue.database)
   const dedupePersistedMessages = dedupePersistedMessagesByDeliveryId(prunedLegacyMockResidue.database)
+  const ensuredAcceptedLegacyContactLinks = ensureAcceptedContactLinksForLegacyDialogs(prunedLegacyMockResidue.database)
   const ensuredManagedChannelOwnerCopies = ensureManagedChannelOwnerCopies(prunedLegacyMockResidue.database)
   const repairedSubscriptionChannelIdentities = repairSubscriptionChannelIdentityConflicts(prunedLegacyMockResidue.database)
   const dedupeSubscriptionPosts = dedupePersistedSubscriptionPosts(prunedLegacyMockResidue.database)
@@ -11924,11 +18453,13 @@ function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewri
       normalizedDeletedResidue.needsPersistenceRewrite ||
       repairedDialogIdCollisions ||
       normalizedDuplicateDialogs ||
+      normalizedPersistedDialogs ||
       dedupePersistedMessages ||
+      ensuredAcceptedLegacyContactLinks ||
       ensuredManagedChannelOwnerCopies ||
       repairedSubscriptionChannelIdentities ||
       dedupeSubscriptionPosts ||
-      nextState.needsPersistenceRewrite,
+      cleanupState.needsPersistenceRewrite,
   }
 }
 
@@ -12083,6 +18614,7 @@ function normalizePersistedDuplicateDialogs(database: Database) {
       .find((value): value is number => typeof value === 'number')
 
     canonicalDialog.phone = normalizeIdentifier(canonicalDialog.phone) || canonicalDialog.phone
+    canonicalDialog.hidden = sortedDialogs.every((dialog) => Boolean(dialog.hidden))
     canonicalDialog.muted = sortedDialogs.some((dialog) => Boolean(dialog.muted))
     canonicalDialog.pinned = sortedDialogs.some((dialog) => Boolean(dialog.pinned))
     canonicalDialog.pinnedMessageId = pinnedMessageId
@@ -12126,10 +18658,52 @@ function normalizePersistedDuplicateDialogs(database: Database) {
   return didMutate
 }
 
+function normalizePersistedDialogs(database: Database) {
+  let didMutate = false
+  const accountsByIdentifier = new Map(
+    database.accounts.map((account) => [normalizeStoredIdentifierReference(account.identifier), account] as const),
+  )
+  const onlineIdentifiers = new Set(
+    database.sessions
+      .map((session) => normalizeStoredIdentifierReference(session.identifier))
+      .filter(Boolean),
+  )
+
+  for (const dialog of database.dialogs) {
+    if (dialog.hidden !== undefined && typeof dialog.hidden !== 'boolean') {
+      dialog.hidden = Boolean(dialog.hidden)
+      didMutate = true
+    }
+
+    const normalizedPhone = normalizeStoredIdentifierReference(dialog.phone)
+    if (normalizedPhone && dialog.phone !== normalizedPhone) {
+      dialog.phone = normalizedPhone
+      didMutate = true
+    }
+
+    const account = accountsByIdentifier.get(normalizedPhone)
+    if (!account) {
+      continue
+    }
+
+    if (
+      syncPersistedDialogWithAccount(dialog, account, {
+        online: onlineIdentifiers.has(account.identifier),
+      })
+    ) {
+      didMutate = true
+    }
+  }
+
+  return didMutate
+}
+
 function ensureManagedChannelOwnerCopies(database: Database) {
   let didMutate = false
 
   for (const channel of database.managedChannels) {
+    // Backfill legacy data into the same invariant enforced at runtime:
+    // every managed channel keeps a canonical owner subscription copy.
     const normalizedHandle = sanitizeChannelDirectLink(channel.directLink) || channel.directLink
     const existingCopy = database.subscriptionChannels.find(
       (subscriptionChannel) =>
@@ -12201,6 +18775,7 @@ function ensureManagedChannelOwnerCopies(database: Database) {
       participants: [],
       preview: buildManagedChannelFallbackPreview(channel),
       readers: 0,
+      subscribedAt: new Date().toISOString(),
       time: '',
       title: channel.title,
       unread: 0,
@@ -12210,7 +18785,7 @@ function ensureManagedChannelOwnerCopies(database: Database) {
   }
 
   for (const channel of database.managedChannels) {
-    const syncState = syncManagedChannelCopiesInDatabase(database, channel)
+    const syncState = syncManagedChannelCopiesInDatabase(database, new Set<string>(), channel)
     if (syncState.didMutate) {
       didMutate = true
     }
@@ -12298,6 +18873,7 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
       accounts: (normalized.accounts ?? []).map((account) => ({
         ...account,
         accountId: account.accountId?.trim() || randomUUID(),
+        archiveUnlimited: Boolean(account.archiveUnlimited),
         archivedOriginalIdentifier: normalizeIdentifier(account.archivedOriginalIdentifier ?? '') || undefined,
         archivedProfile: account.archivedProfile
           ? {
@@ -12323,7 +18899,14 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         passwordHash: account.passwordHash?.trim() || undefined,
         passwordSetAt: account.passwordSetAt || undefined,
         publicDeleted: Boolean(account.publicDeleted),
+        retainedArchiveStorageQuotaBytes: normalizeRetainedArchiveStorageQuotaBytes(account),
+        retainedStorageQuotaBytes: normalizeRetainedStorageQuotaBytes(account),
         staffRole: sanitizeStaffRole(account.staffRole),
+        statusHistory: normalizeAccountStatusHistory(
+          account.statusHistory,
+          account.createdAt,
+          account.status ?? '',
+        ),
       })),
       adminAuditLogs: (normalized.adminAuditLogs ?? []).filter(
         (entry): entry is AdminAuditLogRecord => Boolean(sanitizeStaffRole(entry.actorRole)),
@@ -12336,6 +18919,15 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         notes: report.notes ?? [],
         status: report.status === 'closed' ? 'closed' : 'open',
       })),
+      authCodeSendAttempts: (normalized.authCodeSendAttempts ?? [])
+        .map((attempt): AuthCodeSendAttempt => ({
+          createdAt: attempt.createdAt,
+          entryPoint: attempt.entryPoint === 'admin' ? 'admin' : 'user',
+          flow: attempt.flow === 'password-reset' ? 'password-reset' : 'default',
+          identifier: normalizeIdentifier(attempt.identifier),
+          ip: sanitizeIpAddress(attempt.ip) ?? undefined,
+        }))
+        .filter((attempt) => Boolean(attempt.identifier && parseIsoDate(attempt.createdAt) !== null)),
       authChallenges: (normalized.authChallenges ?? []).map((challenge) => ({
         ...challenge,
         purpose:
@@ -12345,11 +18937,42 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
             ? challenge.purpose
             : 'registration',
       })),
+      contactLinks: (normalized.contactLinks ?? [])
+        .map((link): ContactLink => {
+          const pair = buildCanonicalContactPair(link.leftIdentifier, link.rightIdentifier)
+          return {
+            blockedByIdentifier: normalizeIdentifier(link.blockedByIdentifier ?? '') || undefined,
+            createdAt: link.createdAt,
+            leftIdentifier: pair.leftIdentifier,
+            requesterIdentifier: normalizeIdentifier(link.requesterIdentifier),
+            rightIdentifier: pair.rightIdentifier,
+            status:
+              link.status === 'accepted' || link.status === 'blocked'
+                ? link.status
+                : 'pending',
+            updatedAt: link.updatedAt || link.createdAt,
+          }
+        })
+        .filter(
+          (link) =>
+            Boolean(
+              link.leftIdentifier &&
+              link.rightIdentifier &&
+              link.requesterIdentifier &&
+              link.leftIdentifier !== link.rightIdentifier &&
+              parseIsoDate(link.createdAt) !== null &&
+              parseIsoDate(link.updatedAt) !== null,
+            ),
+        ),
       contactReports: normalized.contactReports ?? [],
       dialogs: normalized.dialogs ?? [],
       dialogMessages: normalized.dialogMessages ?? [],
       groupMessages: normalized.groupMessages ?? [],
-      groups: normalized.groups ?? [],
+      groups: (normalized.groups ?? []).map((group) => ({
+        ...group,
+        archiveUnlimited: Boolean(group.archiveUnlimited),
+        description: sanitizeChannelDescription(group.description ?? ''),
+      })),
       ipAccessLogs: (normalized.ipAccessLogs ?? []).map((entry) => ({
         ...entry,
         eventType: entry.eventType === 'ip-change' ? 'ip-change' : 'login',
@@ -12370,10 +18993,63 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
 
         return {
           ...channel,
+          archiveUnlimited: Boolean(channel.archiveUnlimited),
           description: normalizedStatusText ? normalizedDescription : '',
           statusText: legacyStatusText,
         }
       }),
+      archivedMedia: (normalized.archivedMedia ?? [])
+        .map((item): PersistedArchivedMediaRecord => ({
+          archivedAt: item.archivedAt || new Date().toISOString(),
+          archiveReason: item.archiveReason === 'manual-delete' ? 'manual-delete' : item.archiveReason === 'retention-delete' ? 'retention-delete' : 'storage-quota',
+          fileName: item.fileName?.trim() || 'media',
+          height: item.height ? Math.max(1, Math.floor(item.height)) : undefined,
+          id: item.id?.trim() || randomUUID(),
+          kind: item.kind === 'gif' ? 'gif' : 'attachment',
+          mediaUrl: item.mediaUrl?.trim() || '',
+          mimeType: item.mimeType?.trim() || 'application/octet-stream',
+          originalContext: item.originalContext?.trim() || item.primaryLabel?.trim() || 'Архивное медиа',
+          ownerIdentifier: normalizeIdentifier(item.ownerIdentifier ?? '') || undefined,
+          primaryLabel: item.primaryLabel?.trim() || item.originalContext?.trim() || 'Архивное медиа',
+          restoreTargets: sanitizeArchivedMediaRestoreTargets(item.restoreTargets),
+          size: Math.max(0, Math.floor(item.size ?? 0)),
+          storageSubjectId: item.storageSubjectId?.trim() || '',
+          storageSubjectKind: item.storageSubjectKind === 'group' ? 'group' : item.storageSubjectKind === 'channel' ? 'channel' : 'user',
+          width: item.width ? Math.max(1, Math.floor(item.width)) : undefined,
+        }))
+        .filter((item) => Boolean(item.mediaUrl && item.storageSubjectId && item.size > 0)),
+      pendingChannelInvitations: (normalized.pendingChannelInvitations ?? [])
+        .map((invitation): PendingChannelInvitation => ({
+          channelHandle: normalizeChannelHandleForComparison(invitation.channelHandle),
+          createdAt: invitation.createdAt,
+          recipientIdentifier: normalizeIdentifier(invitation.recipientIdentifier),
+          senderIdentifier: normalizeIdentifier(invitation.senderIdentifier),
+        }))
+        .filter(
+          (invitation) =>
+            Boolean(
+              invitation.channelHandle &&
+              invitation.recipientIdentifier &&
+              invitation.senderIdentifier &&
+              parseIsoDate(invitation.createdAt) !== null,
+            ),
+        ),
+      pendingGroupInvitations: (normalized.pendingGroupInvitations ?? [])
+        .map((invitation): PendingGroupInvitation => ({
+          createdAt: invitation.createdAt,
+          recipientIdentifier: normalizeIdentifier(invitation.recipientIdentifier),
+          senderIdentifier: normalizeIdentifier(invitation.senderIdentifier),
+          sharedId: invitation.sharedId?.trim() || '',
+        }))
+        .filter(
+          (invitation) =>
+            Boolean(
+              invitation.sharedId &&
+              invitation.recipientIdentifier &&
+              invitation.senderIdentifier &&
+              parseIsoDate(invitation.createdAt) !== null,
+            ),
+        ),
       pendingMediaUploads: (normalized.pendingMediaUploads ?? []).map((upload) => ({
         ...upload,
         linked: Boolean(upload.linked),
@@ -12386,11 +19062,85 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         ip: sanitizeIpAddress(attempt.ip) ?? '',
         lastFailedAt: attempt.lastFailedAt,
       })).filter((attempt) => Boolean(attempt.identifier && attempt.ip && attempt.lastFailedAt)),
-      sessions: normalized.sessions ?? [],
+      sessions: (normalized.sessions ?? [])
+        .map((session): SessionRecord => {
+          const createdAt = session.createdAt
+          const fallbackBaseTimestamp = parseIsoDate(createdAt) ?? Date.now()
+          const normalizedExpiresAt =
+            parseIsoDate(session.expiresAt) !== null
+              ? session.expiresAt
+              : new Date(fallbackBaseTimestamp + SESSION_TTL_MS).toISOString()
+
+          return {
+            createdAt,
+            expiresAt: normalizedExpiresAt,
+            identifier: normalizeIdentifier(session.identifier),
+            token: session.token,
+          }
+        })
+        .filter(
+          (session) =>
+            Boolean(
+              session.identifier &&
+              session.token &&
+              parseIsoDate(session.createdAt) !== null &&
+              parseIsoDate(session.expiresAt) !== null,
+            ),
+        ),
       subscriptionChannelReports: normalized.subscriptionChannelReports ?? [],
       subscriptionChannels: normalized.subscriptionChannels ?? [],
       subscriptionPosts: normalized.subscriptionPosts ?? [],
-      threadStates: normalized.threadStates ?? [],
+      supportTickets: (normalized.supportTickets ?? [])
+        .map((ticket): PersistedSupportTicket => ({
+          attachment: sanitizeMessageAttachment(ticket.attachment),
+          attachmentRemovedNotice: sanitizeAttachmentRemovedNotice(ticket.attachmentRemovedNotice),
+          comments: compactThreadComments(ticket.comments),
+          createdAt: ticket.createdAt,
+          deliveryId: ticket.deliveryId?.trim() || undefined,
+          id: Math.max(0, Math.floor(ticket.id ?? 0)),
+          openedByStaffAt: ticket.openedByStaffAt,
+          ownerIdentifier: normalizeIdentifier(ticket.ownerIdentifier),
+          replyTo: sanitizeReplyTarget(ticket.replyTo),
+          status: sanitizeSupportTicketStatus(ticket.status),
+          text: sanitizeThreadCommentText(ticket.text ?? ''),
+          threadId: ticket.threadId?.trim() || `support:${Math.max(0, Math.floor(ticket.id ?? 0))}`,
+          time: ticket.time?.trim() || formatNowTime(),
+          updatedAt: ticket.updatedAt,
+        }))
+        .filter((ticket) =>
+          Boolean(
+            ticket.ownerIdentifier &&
+            ticket.threadId &&
+            parseIsoDate(ticket.createdAt) !== null &&
+            parseIsoDate(ticket.updatedAt) !== null &&
+            (ticket.text || ticket.attachment),
+          ),
+        ),
+      threadStates: (normalized.threadStates ?? [])
+        .map((threadState): PersistedThreadState => ({
+          lastReadCommentCreatedAt: threadState.lastReadCommentCreatedAt || undefined,
+          lastReadCommentId:
+            typeof threadState.lastReadCommentId === 'number'
+              ? Math.max(0, Math.floor(threadState.lastReadCommentId))
+              : undefined,
+          ownerIdentifier: normalizeIdentifier(threadState.ownerIdentifier),
+          subscription:
+            threadState.subscription === 'subscribed' || threadState.subscription === 'unsubscribed'
+              ? threadState.subscription
+              : 'implicit',
+          threadId: threadState.threadId?.trim() || '',
+        }))
+        .filter((threadState) => Boolean(threadState.ownerIdentifier && threadState.threadId)),
+      nextSupportTicketNumber: Math.max(
+        0,
+        Math.floor(
+          normalized.nextSupportTicketNumber ??
+            ((normalized.supportTickets ?? []).reduce(
+              (maxTicketId, ticket) => Math.max(maxTicketId, Math.max(0, Math.floor(ticket.id ?? 0))),
+              -1,
+            ) + 1),
+        ),
+      ),
     } satisfies Database,
     false,
   )

@@ -1,18 +1,29 @@
-import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import { Fragment, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { ChannelMessageSource, Message } from '../app/types'
 import {
+  formatChannelAvatarLabel,
   formatAttachmentImageDimensions,
   formatAttachmentSize,
   formatMessageAuthor,
   isImageMimeType,
+  isVideoMimeType,
+  parseMessageTextSegments,
+  stripMessageFormattingMarkup,
 } from '../app/utils'
 
 type BubbleMessageContentProps = {
-  message: Pick<Message, 'attachment' | 'replyTo' | 'sourceGroup' | 'text'>
+  attachmentLayout?: 'default' | 'thread-source-thumbnail' | 'thread-source-card'
+  message: Pick<
+    Message,
+    'attachment' | 'attachmentRemovedNotice' | 'replyTo' | 'sourceContact' | 'sourceGroup' | 'text'
+  >
   imageOverlay?: ReactNode
   linkedChannel?: ChannelMessageSource | null
   onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
+  onOpenExternalLink?: (url: string) => void
   onOpenLinkedChannel?: () => void
+  onOpenSourceContact?: () => void
+  onOpenSourceGroup?: () => void
   replyChatTitle?: string
   showReplyInline?: boolean
 }
@@ -20,6 +31,13 @@ type BubbleMessageContentProps = {
 type BubbleImageOverlayMetaProps = {
   deliveryIndicatorSrc?: string | null
   time: string
+}
+
+export function shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc: string | null | undefined) {
+  return (
+    deliveryIndicatorSrc === '/icons/check-mark-50.png' ||
+    deliveryIndicatorSrc === '/icons/double-tick-50.png'
+  )
 }
 
 type ForwardedChannelHeaderProps = {
@@ -56,10 +74,15 @@ export function ForwardedChannelHeader({
             className="avatar bubble-forwarded-source-avatar"
             style={{ backgroundColor: sourceChannel.accent ?? '#8c5738' }}
           >
-            {sourceChannel.title.slice(0, 1)}
+            {formatChannelAvatarLabel(sourceChannel.title)}
           </span>
           <span className="bubble-forwarded-source-copy">
-            <span className="bubble-forwarded-source-title">{sourceChannel.title}</span>
+            <span className="bubble-forwarded-source-copy-text">
+              <span className="bubble-forwarded-source-title">{sourceChannel.title}</span>
+              {sourceChannel.statusText ? (
+                <span className="bubble-forwarded-source-status">{sourceChannel.statusText}</span>
+              ) : null}
+            </span>
             <span className="chat-star bubble-forwarded-source-icon" aria-hidden="true">
               <img src="/icons/news100.svg" alt="" />
             </span>
@@ -71,10 +94,15 @@ export function ForwardedChannelHeader({
             className="avatar bubble-forwarded-source-avatar"
             style={{ backgroundColor: sourceChannel.accent ?? '#8c5738' }}
           >
-            {sourceChannel.title.slice(0, 1)}
+            {formatChannelAvatarLabel(sourceChannel.title)}
           </span>
           <span className="bubble-forwarded-source-copy">
-            <span className="bubble-forwarded-source-title">{sourceChannel.title}</span>
+            <span className="bubble-forwarded-source-copy-text">
+              <span className="bubble-forwarded-source-title">{sourceChannel.title}</span>
+              {sourceChannel.statusText ? (
+                <span className="bubble-forwarded-source-status">{sourceChannel.statusText}</span>
+              ) : null}
+            </span>
             <span className="chat-star bubble-forwarded-source-icon" aria-hidden="true">
               <img src="/icons/news100.svg" alt="" />
             </span>
@@ -82,6 +110,132 @@ export function ForwardedChannelHeader({
         </div>
       )}
     </>
+  )
+}
+
+type ForwardedGroupHeaderProps = {
+  sourceGroup: NonNullable<Message['sourceGroup']>
+  onClick?: () => void
+}
+
+export function ForwardedGroupHeader({
+  sourceGroup,
+  onClick,
+}: ForwardedGroupHeaderProps) {
+  const leadText = sourceGroup.leadText?.trim() || 'Пользователь приглашает вас в группу'
+  const deletedHint = sourceGroup.archivedAt ? 'Группа удалена' : ''
+  const sourceClassName = 'bubble-forwarded-source bubble-forwarded-source-button bubble-forwarded-source-invite'
+  const passiveSourceClassName = 'bubble-forwarded-source bubble-forwarded-source-invite'
+
+  const avatarNode = (
+    <span
+      className="avatar bubble-forwarded-source-avatar"
+      style={{ backgroundColor: sourceGroup.accent ?? '#8c5738' }}
+    >
+      {sourceGroup.avatarImage ? (
+        <img src={sourceGroup.avatarImage} alt="" className="channel-avatar-image" />
+      ) : (
+        formatChannelAvatarLabel(sourceGroup.title)
+      )}
+    </span>
+  )
+
+  const copyNode = (
+    <span className="bubble-forwarded-source-copy">
+      <span className="bubble-forwarded-source-copy-text">
+        <span className="bubble-forwarded-source-title">{sourceGroup.title}</span>
+        {deletedHint ? (
+          <span className="bubble-forwarded-source-status bubble-forwarded-source-warning">{deletedHint}</span>
+        ) : null}
+      </span>
+      <span className="chat-star bubble-forwarded-source-icon" aria-hidden="true">
+        <img src="/icons/group100.png" alt="" />
+      </span>
+    </span>
+  )
+
+  return (
+    <>
+      <p className="bubble-forwarded-source-lead">{leadText}</p>
+      {onClick ? (
+        <button
+          type="button"
+          className={sourceClassName}
+          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+            event.stopPropagation()
+            onClick()
+          }}
+        >
+          {avatarNode}
+          {copyNode}
+        </button>
+      ) : (
+        <div className={passiveSourceClassName}>
+          {avatarNode}
+          {copyNode}
+        </div>
+      )}
+    </>
+  )
+}
+
+type ForwardedContactHeaderProps = {
+  sourceContact: NonNullable<Message['sourceContact']>
+  onClick?: () => void
+}
+
+export function ForwardedContactHeader({
+  sourceContact,
+  onClick,
+}: ForwardedContactHeaderProps) {
+  const sourceClassName = 'bubble-forwarded-source bubble-forwarded-source-button bubble-forwarded-source-invite'
+  const passiveSourceClassName = 'bubble-forwarded-source bubble-forwarded-source-invite'
+  const avatarFallback = sourceContact.title.trim().slice(0, 1).toUpperCase() || '@'
+
+  const avatarNode = (
+    <span
+      className="avatar bubble-forwarded-source-avatar"
+      style={{ backgroundColor: sourceContact.accent ?? '#8c5738' }}
+    >
+      {sourceContact.avatarImage ? (
+        <img src={sourceContact.avatarImage} alt="" className="channel-avatar-image" />
+      ) : (
+        avatarFallback
+      )}
+    </span>
+  )
+
+  const copyNode = (
+    <span className="bubble-forwarded-source-copy">
+      <span className="bubble-forwarded-source-copy-text">
+        <span className="bubble-forwarded-source-title">{sourceContact.title}</span>
+        {sourceContact.status ? (
+          <span className="bubble-forwarded-source-status">{sourceContact.status}</span>
+        ) : null}
+      </span>
+      <span className="chat-star bubble-forwarded-source-icon" aria-hidden="true">
+        <img src="/icons/contacts100.svg" alt="" />
+      </span>
+    </span>
+  )
+
+  return onClick ? (
+    <button
+      type="button"
+      className={sourceClassName}
+      onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation()
+        onClick()
+      }}
+    >
+      {avatarNode}
+      {copyNode}
+    </button>
+  ) : (
+    <div className={passiveSourceClassName}>
+      {avatarNode}
+      {copyNode}
+    </div>
   )
 }
 
@@ -94,7 +248,11 @@ export function BubbleImageOverlayMeta({
       <span className="bubble-attachment-image-time">{time}</span>
       {deliveryIndicatorSrc ? (
         <img
-          className="bubble-attachment-image-indicator"
+          className={
+            shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
+              ? 'bubble-attachment-image-indicator bubble-attachment-image-indicator-light'
+              : 'bubble-attachment-image-indicator'
+          }
           src={deliveryIndicatorSrc}
           alt=""
           aria-hidden="true"
@@ -104,21 +262,123 @@ export function BubbleImageOverlayMeta({
   )
 }
 
+type BubbleRichTextProps = {
+  text: string
+  onOpenExternalLink?: (url: string) => void
+}
+
+function BubbleRichText({
+  text,
+  onOpenExternalLink,
+}: BubbleRichTextProps) {
+  const lines = text.split('\n')
+
+  function applyFormatting(
+    node: ReactNode,
+    style: { bold: boolean, italic: boolean, strike: boolean, underline: boolean },
+    key: string,
+  ) {
+    let result = node
+
+    if (style.bold) {
+      result = <strong key={`${key}-bold`}>{result}</strong>
+    }
+
+    if (style.italic) {
+      result = <em key={`${key}-italic`}>{result}</em>
+    }
+
+    if (style.underline) {
+      result = (
+        <span key={`${key}-underline`} className="bubble-text-format-underline">
+          {result}
+        </span>
+      )
+    }
+
+    if (style.strike) {
+      result = (
+        <span key={`${key}-strike`} className="bubble-text-format-strike">
+          {result}
+        </span>
+      )
+    }
+
+    return result
+  }
+
+  return (
+    <p>
+      {lines.map((line, lineIndex) => (
+        <Fragment key={`line-${lineIndex}`}>
+          {lineIndex > 0 ? <br /> : null}
+          {parseMessageTextSegments(line).map((segment, segmentIndex) => {
+            const segmentKey = `${segment.kind}-${lineIndex}-${segmentIndex}`
+            if (segment.kind === 'text') {
+              return applyFormatting(segment.value, segment.style, segmentKey)
+            }
+
+            return applyFormatting(
+              <span
+                key={segmentKey}
+                className="bubble-text-link"
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onOpenExternalLink?.(segment.href)
+                }}
+                onMouseDown={(event) => {
+                  event.stopPropagation()
+                }}
+                title={segment.href}
+              >
+                {segment.value}
+              </span>,
+              segment.style,
+              segmentKey,
+            )
+          })}
+        </Fragment>
+      ))}
+    </p>
+  )
+}
+
 export function BubbleMessageContent({
+  attachmentLayout = 'default',
   imageOverlay,
   linkedChannel,
   message,
   onOpenAttachment,
+  onOpenExternalLink,
   onOpenLinkedChannel,
+  onOpenSourceContact,
+  onOpenSourceGroup,
   replyChatTitle,
   showReplyInline = true,
 }: BubbleMessageContentProps) {
-  const hasBodyBelowAttachment = Boolean(linkedChannel || message.sourceGroup || message.text.trim())
+  const trimmedText = message.text.trim()
+  const isVideoAttachment = Boolean(
+    message.attachment && isVideoMimeType(message.attachment.mimeType),
+  )
+  const shouldRenderContactBodyText =
+    Boolean(trimmedText) &&
+    Boolean(message.sourceContact) &&
+    trimmedText !== message.sourceContact?.handle?.trim()
+  const hasBodyBelowAttachment = Boolean(
+    linkedChannel || message.sourceContact || message.sourceGroup || trimmedText || message.attachmentRemovedNotice,
+  )
   const attachmentNode = message.attachment ? (
     isImageMimeType(message.attachment.mimeType) ? (
       <div
         className={`bubble-attachment bubble-attachment-photo bubble-attachment-button${
           hasBodyBelowAttachment ? ' has-body-below' : ' image-only'
+        }${
+          attachmentLayout === 'thread-source-thumbnail'
+            ? ' bubble-attachment-photo-thread-source-thumbnail'
+            : attachmentLayout === 'thread-source-card'
+              ? ' bubble-attachment-photo-thread-source-card'
+              : ''
         }`}
         onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
           event.stopPropagation()
@@ -128,19 +388,27 @@ export function BubbleMessageContent({
         <img
           src={message.attachment.mediaUrl}
           alt={message.attachment.fileName}
-          className="bubble-attachment-image"
+          className={`bubble-attachment-image${
+            attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
+          }${
+            attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
+          }`}
         />
         {imageOverlay}
       </div>
     ) : (
       <div
-        className="bubble-attachment bubble-attachment-link"
+        className={`bubble-attachment bubble-attachment-link${
+          isVideoAttachment ? ' bubble-attachment-video' : ''
+        }`}
         onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
           event.stopPropagation()
           onOpenAttachment?.(message.attachment!)
         }}
       >
-        <span className="bubble-attachment-badge">Файл</span>
+        <span className={`bubble-attachment-badge${isVideoAttachment ? ' bubble-attachment-badge-video' : ''}`}>
+          {isVideoAttachment ? 'Видео' : 'Файл'}
+        </span>
         <div className="bubble-attachment-copy">
           <strong>{message.attachment.fileName}</strong>
           <span>
@@ -165,33 +433,26 @@ export function BubbleMessageContent({
                 ? 'Вы'
                 : 'Собеседник'}
           </span>
-          <p>{message.replyTo.text}</p>
+          <p>{stripMessageFormattingMarkup(message.replyTo.text)}</p>
         </div>
       ) : null}
       {attachmentNode}
       {linkedChannel ? (
         <ForwardedChannelHeader sourceChannel={linkedChannel} onClick={onOpenLinkedChannel} />
       ) : message.sourceGroup ? (
-        <div className="bubble-forwarded-source bubble-forwarded-source-group">
-          <span
-            className="avatar bubble-forwarded-source-avatar"
-            style={{ backgroundColor: message.sourceGroup.accent ?? '#8c5738' }}
-          >
-            {message.sourceGroup.avatarImage ? (
-              <img src={message.sourceGroup.avatarImage} alt="" className="channel-avatar-image" />
-            ) : (
-              message.sourceGroup.title.slice(0, 1)
-            )}
-          </span>
-          <span className="bubble-forwarded-source-copy">
-            <span className="bubble-forwarded-source-title">{message.sourceGroup.title}</span>
-            <span className="chat-star bubble-forwarded-source-icon" aria-hidden="true">
-              <img src="/icons/group100.png" alt="" />
-            </span>
-          </span>
-        </div>
-      ) : message.text.trim() ? (
-        <p>{message.text}</p>
+        <ForwardedGroupHeader sourceGroup={message.sourceGroup} onClick={onOpenSourceGroup} />
+      ) : message.sourceContact ? (
+        <>
+          <ForwardedContactHeader sourceContact={message.sourceContact} onClick={onOpenSourceContact} />
+          {shouldRenderContactBodyText ? (
+            <BubbleRichText text={message.text} onOpenExternalLink={onOpenExternalLink} />
+          ) : null}
+        </>
+      ) : trimmedText ? (
+        <BubbleRichText text={message.text} onOpenExternalLink={onOpenExternalLink} />
+      ) : null}
+      {message.attachmentRemovedNotice ? (
+        <p className="bubble-attachment-removed-note">{message.attachmentRemovedNotice.text}</p>
       ) : null}
     </>
   )
@@ -222,17 +483,25 @@ export function ReplyReferenceBlock({
 
   if (onClick) {
     return (
-      <button type="button" className={className} onClick={onClick} title={replyTo.text}>
+      <button
+        type="button"
+        className={className}
+        onClick={onClick}
+        title={stripMessageFormattingMarkup(replyTo.text)}
+      >
         <span className="bubble-reply-reference-label">{authorLabel}</span>
-        <span className="bubble-reply-reference-copy">{replyTo.text}</span>
+        <span className="bubble-reply-reference-copy">{stripMessageFormattingMarkup(replyTo.text)}</span>
       </button>
     )
   }
 
   return (
-    <div className={mine ? 'bubble-reply-reference mine' : 'bubble-reply-reference'} title={replyTo.text}>
+    <div
+      className={mine ? 'bubble-reply-reference mine' : 'bubble-reply-reference'}
+      title={stripMessageFormattingMarkup(replyTo.text)}
+    >
       <span className="bubble-reply-reference-label">{authorLabel}</span>
-      <span className="bubble-reply-reference-copy">{replyTo.text}</span>
+      <span className="bubble-reply-reference-copy">{stripMessageFormattingMarkup(replyTo.text)}</span>
     </div>
   )
 }

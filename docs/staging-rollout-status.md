@@ -11,23 +11,240 @@
 - backend работает как `systemd` service `tinychok-staging.service`
 - user frontend и admin frontend отдаются как статические Vite-сборки через `nginx`
 - backend и frontend используют один staging state store
+- `readyz.storage.layout` должен явно показывать текущий runtime storage layout:
+  - `state-store` для legacy режима
+  - `hybrid-normalized` для нового postgres slim-state + text tables режима
 
 ## Access Model
 
-- frontend staging закрыт через `nginx basic auth`
+- frontend staging по умолчанию закрыт через `nginx basic auth`
 - admin staging тоже должен быть закрыт через `nginx basic auth`
 - backend staging дополнительно ограничен allowlist-ом телефонов через `TINYCHOK_ALLOWED_TEST_PHONES`
 - эти два уровня нельзя ослаблять ради UI-фиксов, upload flow или realtime
+- критичный anti-regression контракт:
+  - staging frontend нельзя выкатывать из результата plain `npm run build`
+  - только `npm run build:staging`
+  - иначе frontend теряет `api.staging` / `wss://api.staging` и начинает ходить в same-origin `/api`
+  - это снова открывает basic-auth popup в Chrome и выглядит как "staging перестал пускать"
 
 Подробности guard-а лежат в [docs/staging-access-guard.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-access-guard.md).
 
+### Temporary Review Exception
+
+- с `2026-04-07` public frontend `https://staging.tinychok.ru` временно открыт без user `basic auth`, чтобы отдать сайт на внешний review без логин/пароль prompt
+- это временное исключение, а не новый staging-контракт
+- `https://admin.staging.tinychok.ru` остаётся за `basic auth`
+- backend allowlist и SmartCaptcha не отключались
+- после окончания review окно нужно закрыть обратно:
+  - раскомментировать `auth_basic` и `auth_basic_user_file` в `/etc/nginx/sites-available/tinychok-staging-web`
+  - `sudo nginx -t`
+  - `sudo systemctl reload nginx`
+
 ## What Staging Must Validate
+
+### Staging Auth Loop Guard
+
+- в обычном guard-режиме staging root с `tinychok / 1111` должен открываться без повторного endless basic-auth prompt
+- smoke-check после каждой frontend выкладки:
+  - `npm run build:staging`
+  - в обычном guard-режиме: `curl -u tinychok:1111 https://staging.tinychok.ru/api/client-config`
+  - во временном review-режиме c `2026-04-07`: `curl https://staging.tinychok.ru/api/client-config`
+  - expected result = JSON runtime config, а не `index.html`
+  - `curl https://staging.tinychok.ru/api/bootstrap`
+  - expected result = обычный JSON `401` от backend при отсутствии bearer token, а не `nginx` basic-auth HTML
+- если `staging.tinychok.ru/api/client-config` отдаёт HTML:
+  - это значит, что web-host снова начал fallback-ить `/api/*` в `index.html`
+  - staging build/deploy нужно считать сломанным
+- если frontend уже загрузился, но Chrome снова открывает окно логина:
+  - первым делом проверять access log на `401` по `/api/bootstrap`, `/api/client-config`, `/icons/*`
+  - это почти всегда означает wrong staging dist or broken `/api` proxy contract
+- если в интерфейсе внезапно пропадает иконка без кодовой правки JSX:
+  - первым делом проверять права на исходный asset в `public/icons/*`
+  - staging static icons должны быть world-readable (`0644`), иначе `nginx` не сможет их отдать после rsync/deploy
+  - типичный симптом = broken image только у одной кнопки при полностью рабочем остальном frontend
+
+### Staging Analytics Guard
+
+- staging analytics считаются release-blocking runtime-контрактом:
+  - `analytics.enabled` должен быть `true`
+  - `analytics.provider` должен быть `log`
+  - `metricaCounterId` должен быть положительным числом
+- это нужно проверять не только по env template, но и по живому `GET https://api.staging.tinychok.ru/api/client-config`
+- deploy staging должен падать, если runtime config внезапно отдаёт:
+  - `analytics.enabled=false`
+  - `provider=disabled`
+  - `metricaCounterId=null`
+- staging runtime также должен падать, если counter id отличается от ожидаемого staging значения `108249405`
+- причина такого падения обычно не в frontend, а в перетёртом `/etc/tinychok/tinychok-staging.env`
+- обязательные analytics keys для staging env:
+  - `TINYCHOK_ANALYTICS_ENABLED=true`
+  - `TINYCHOK_ANALYTICS_PROVIDER=log`
+  - `TINYCHOK_ANALYTICS_FLUSH_INTERVAL_MS=5000`
+  - `TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20`
+  - `TINYCHOK_YANDEX_METRICA_COUNTER_ID=<real counter id>`
+- после каждой env-правки или restart smoke-check:
+  - `curl -s https://api.staging.tinychok.ru/api/client-config`
+  - expected result = JSON with positive `analytics.metricaCounterId`
+  - открыть staging с `?analytics_debug=1` и убедиться, что в console есть `pageview` / `event`
+- единый список release-blocking runtime-контрактов лежит в [docs/release-contracts.md](/Users/devisjones/Documents/New%20project/tinychok/docs/release-contracts.md)
+
+### Tariff Limit Smoke Checks
+
+- лимит создания групп нельзя считать выкаченным только потому, что:
+  - `npm test` зелёный
+  - `dist-server/index.js` содержит нужные строки
+  - `systemctl status` показывает свежий restart
+- обязательный smoke-check для этой зоны:
+  - взять free test-account, у которого уже больше `5` активных групп
+  - сделать живой `POST /api/groups`
+  - expected result = `400` с продуктовой ошибкой про лимит, а не `200`
+- staging уже ловил operational-баг, когда:
+  - новый код с лимитом был на VM
+  - локальный debug через `TinychokStore` правильно резал создание
+  - но публичный `api.staging.tinychok.ru` всё ещё отвечал старым поведением до жёсткого restart
+- если live API smoke-check не совпадает с локальным store-debug на VM, rollout нужно считать недокатившимся и повторять:
+  - `npm run build:staging`
+  - `sudo systemctl restart tinychok-staging`
+  - `sudo rsync -av --delete dist/ /var/www/tinychok-staging/`
+  - повторный прямой `POST /api/groups`
+
+### PostgreSQL Runtime Layout Guard
+
+- staging postgres runtime больше не должен раздувать один giant `app_runtime_state.payload` history-heavy и high-churn данными
+- при новом layout backend хранит slim state в `app_runtime_state`, а вынесенные коллекции кладёт в отдельные таблицы:
+  - `app_runtime_state_dialog_messages`
+  - `app_runtime_state_group_messages`
+  - `app_runtime_state_groups`
+  - `app_runtime_state_subscription_channels`
+  - `app_runtime_state_subscription_posts`
+  - `app_runtime_state_support_tickets`
+  - `app_runtime_state_thread_states`
+  - `app_runtime_state_ip_access_logs`
+  - `app_runtime_state_admin_audit_logs`
+  - `app_runtime_state_archived_media`
+  - `app_runtime_state_pending_group_invitations`
+  - `app_runtime_state_pending_channel_invitations`
+  - `app_runtime_state_pending_media_uploads`
+  - `app_runtime_state_account_status_histories`
+- rollout этого storage-step нельзя считать безопасным, если backend не умеет per-collection bootstrap из старого slim payload:
+  - пустая новая hybrid-таблица не должна перетирать данные legacy payload
+  - после первого успешного persist backend обязан переписать эти коллекции в новые таблицы
+- обязательный smoke-check после restart:
+  - `curl -s https://api.staging.tinychok.ru/readyz`
+  - expected result includes `"layout":"hybrid-normalized"` inside `storage`
+- если `readyz` всё ещё показывает `state-store`, rollout нужно считать недокатившимся даже при зелёных `healthz` и `npm test`
+
+#### Staging Full Hybrid Cutover — 2026-04-08
+
+- полный hybrid rollout на живом staging уже выполнен и подтверждён вручную
+- перед cutover был снят backup postgres:
+  - `/home/devis/backups/tinychok-pre-full-hybrid-20260408-123059.dump`
+- для безопасной сверки на staging временно поднята restore-таблица:
+  - `app_runtime_state_restore`
+- после rollout slim `app_runtime_state.payload` уже пустой для hybrid-коллекций, а source of truth живёт в отдельных таблицах
+- сверенные restore/live counts после cutover:
+  - `groups`: `19 -> 19`
+  - `subscription_channels`: `20 -> 20`
+  - `thread_states`: `17 -> 17`
+  - `admin_audit_logs`: `156 -> 156`
+  - `archived_media`: `28 -> 28`
+  - `pending_group_invitations`: `19 -> 19`
+  - `pending_channel_invitations`: `1 -> 1`
+  - `pending_media_uploads`: `72 -> 72`
+  - `account_status_histories`: `3 -> 3`
+  - `ip_access_logs`: `52 -> 54`
+- `ip_access_logs` выросли на `+2` уже после cutover, это считается healthy-признаком: новые live events пишутся в новую hybrid-таблицу
+- live bootstrap после cutover подтверждён реальными staging сессиями:
+  - `+79673215453` → `chats=3`, `groups=7`, `subscriptionChannels=1`, `threadInbox=4`, `supportTickets=6`
+  - `+79673215451` → `chats=3`, `groups=7`, `subscriptionChannels=5`, `threadInbox=2`, `supportTickets=6`
+- до prod rollout не удалять:
+  - backup dump `/home/devis/backups/tinychok-pre-full-hybrid-20260408-123059.dump`
+  - restore-таблицу `app_runtime_state_restore`
+- prod rollout нужно считать завершённым только после трёх подтверждений:
+  - `readyz.storage.layout = hybrid-normalized`
+  - slim payload пустой для hybrid-коллекций
+  - живой bootstrap хотя бы двух разных аккаунтов отдаёт непустые пользовательские данные
+
+### Legal Pages And Checkout Documents
+
+- `user-agreement.html`, `privacy-policy.html`, `premium-terms.html` и `contacts.html` считаются release-blocking public pages
+- на staging нужно проверять:
+  - legal pages открываются как отдельные static routes
+  - `Скачать` и `Открыть PDF` ведут в соответствующий публичный PDF
+  - support email = `tinychok.help@yandex.com`
+  - operator requisites совпадают с `Контакты и реквизиты`
+  - в `Контактах и реквизитах` нет отдельного блока `Для YooKassa`
+  - `Пользовательское соглашение` и `Политика` используют дату `31.03.2026`
+  - `Условия Premium` используют дату `31.03.2026`
+- premium checkout smoke:
+  - на экране покупки premium есть ссылка на `Условия Premium`
+  - под CTA есть короткий текст согласия `Нажимая «Купить»...` со ссылкой на `Условия Premium`
+  - `Условия Premium` и `premium-terms.pdf` отражают текущие тарифы `199 ₽ / 30 дней` и `1390 ₽ / 365 дней`
+  - `Условия Premium` явно говорят, что premium — это цифровой доступ без физической доставки
+- любые изменения публичных legal pages требуют:
+  - обновить HTML/text source
+  - обновить PDF asset
+  - прогнать static regression tests
+  - перепроверить staging public URLs вручную
 
 ### Core Messaging
 
 - bootstrap snapshot загружается без ошибок
 - websocket подключается к staging API
 - direct / group / channel открываются с актуальным хвостом истории
+- внешний linkify-flow считается release-blocking UI-контрактом:
+  - raw `http://` и `https://` в текстах сообщений/комментариев отображаются ссылками
+  - bare domains без протокола не становятся ссылками
+  - tap по ссылке открывает warning-modal, а не message-actions menu
+  - modal обязан предупреждать о внешнем переходе и советовать не переходить по ссылкам от малоизвестных аккаунтов
+  - `Перейти` открывает URL через новый tab с безопасным `noopener,noreferrer`
+  - `@контакты`, `@каналы`, invite/source cards остаются на старой in-app логике
+- контактные заявки — release-blocking контракт:
+  - pending request не создаёт чат у получателя
+  - pending request не создаёт обычный видимый чат у инициатора
+  - `Контакты` делятся на `Заявки`, `Отправленные запросы` и `Контакты`
+  - верхнее меню `Контактов` использует отдельный трёхвкладочный switch `Все / Новые заявки / Отправленные заявки`
+  - второй и третий tabs в этом switch рендерятся иконками `handshake.png` и `man-raising-hand.png`, а не текстом
+  - badge у верхних tabs `Контактов` рендерятся внутри кнопки справа от иконки, а не в углу
+  - badge у верхних tabs `Контактов` прижимаются к правому краю кнопки, а иконка не сдвигается
+  - этот switch не должен переиспользовать `quickFilters` из `Диалогов`
+  - `Заявки` показывают только входящие pending requests
+  - `Отправленные запросы` показывают только исходящие pending requests и скрываются, если список пуст
+  - во вкладке `Все` секция `Заявки` скрыта, если входящих pending requests нет
+  - tap по входящей заявке открывает общую direct-room с историей
+  - у входящей request-card иконка `handshake` работает как отдельная быстрая кнопка `Подтвердить контакт`
+  - tap по исходящей заявке открывает ту же hidden direct-room с историей
+  - открытие request-room из `Контактов` не должно переводить пользователя в `Диалоги`
+  - `pending-incoming` решается только в комнате через полноширинные composer actions
+  - `pending-outgoing` решается только в комнате через нейтральную полноширинную кнопку `Отменить заявку`
+  - входящие request cards используют `handshake.png`
+  - исходящие request cards используют `man-raising-hand.png`
+  - empty-state секции `Заявки` = только технадпись `Заявок пока нет`, без белой chat-card
+  - direct dialog existence не равно accepted contact
+  - обычная direct-доставка разрешена только для `accepted` contact link
+  - client-side contacts flow изолирован от общего chat-list UI и не должен возвращаться в разрозненные ветки `App.tsx`
+  - accept создаёт system message `Контакт установлен` и unread/notification у инициатора
+  - cancel убирает карточку у получателя из `Заявки`, у инициатора из `Отправленные запросы` и возвращает CTA `Отправить запрос`
+  - нижняя кнопка `Контакты` считает только входящие заявки
+  - при `Тихо` visual badge у `Контактов` скрываются и на нижней кнопке, и на верхних tabs
+  - счётчик вкладки `Отправленные заявки` не должен влиять на bottom-nav badge
+  - верхние фильтры `Диалогов` используют inline badge внутри кнопки, а не corner badge
+  - delete contact hides both sides but keeps per-side direct history
+  - former contact reopens through search with request CTA until accept
+  - hidden former contact must still appear in search results for both sides
+  - repeated delete -> search -> reopen -> accept cycles must keep working without creating a fresh empty dialog
+- read-state invariant — критичная проверка:
+  - если direct / group / channel открыт и видим пользователю, новые входящие должны сразу считаться прочитанными
+  - после выхода из комнаты badge не должен показывать уже прочитанные вживую сообщения
+- group join history smoke:
+  - default group setting = новые участники видят историю группы до вступления
+  - если в настройках группы выключить `Отображать историю группы новым пользователям`, следующий приглашённый участник не должен видеть старые сообщения, отправленные до его вступления
+- автоскролл вниз в room feed — критичная проверка:
+  - opening room must land on the latest item
+  - own send must always land on the latest item
+  - incoming should auto-scroll only when already near bottom
+  - prepend older history must preserve viewport
+  - runtime DOM tests для room feed обязательны; static source-contract tests сами по себе недостаточны
 - скролл вверх догружает старые страницы истории
 - day divider показывает корректную дату
 
@@ -36,11 +253,98 @@
 - у тредов работают unread badge и inbox
 - подписка и отписка треда меняют visibility в inbox
 - комментарии не теряются после reload
+- тред с `0 комментариев` не должен сам появляться в inbox, если пользователь на него явно не подписывался
+- простое открытие и чтение треда должно снимать unread до `0` без требования отправить свой комментарий
+- server-side read marker треда не должен опираться только на timestamp:
+  - same-millisecond комментарии не должны оставлять зависшее `unread = 1`
+- пока тред открыт и видим пользователю, список тредов не должен дёргаться из-за stale unread-сортировки
+- admin archive smoke:
+  - в admin detail треда есть `Архивировать тред` / `Разархивировать тред`
+  - после архивации тред исчезает из user thread inbox и не открывается пользователю как comments-room
+  - корневое сообщение при этом остаётся в основной группе/канале
+  - после разархивации тот же тред и его комментарии возвращаются без пересоздания
+
+### Support Chat
+
+- `Написать в поддержку` открывается только из `Настроек`
+- support-room не появляется в обычных `Диалогах`
+- support-scene, direct dialog и thread room должны держать один и тот же plain-text composer contract
+- placeholder copy может отличаться по контексту, но textarea geometry и toolbar/buttons contract должны совпадать
+- mobile smoke для этой зоны обязателен:
+  - на `390px` composer должен полностью помещаться в viewport без horizontal overflow
+- отправка root message создаёт `Тикет #N`
+- первый тикет в чистом state получает номер `0`
+- новый тикет стартует со статусом `Открыт`
+- в admin queue новый тикет до первого открытия карточки показывается как `Новое`
+- после открытия карточки admin status автоматически становится `Открыт`
+- сразу второй root-ticket отправить нельзя: показывается cooldown `10 минут`
+- во время cooldown новый тикет создать нельзя, но в тред существующего тикета можно дописать комментарий
+- support-scene должен сам переключаться в cooldown-card сразу после успешной отправки root-ticket
+- сырой текст `Новую задачу для поддержки пока рано открывать.` не должен рендериться как user-facing ошибка
+- ответы поддержки приходят не в общий feed, а только в комментарии соответствующего тикета
+- unread ответ поддержки даёт badge/dot на кнопке `Написать в поддержку`
+- unread ответ поддержки также дублируется на нижней кнопке `Настройки`
+- badge на support-кнопке должен сидеть внутри самой кнопки, без уезжающей точки в углу profile-scene
+- открытие треда тикета снимает unread
+- tap по всей карточке тикета открывает его thread-room, не только нижняя полоска комментариев
+- user-side root ticket и support-thread показывают status-pill
+- `Решён` у пользователя виден зелёной плашкой
+- комментарий пользователя в тикет не меняет status автоматически
+- админский ответ в `Поддержка` обязан отправляться вместе с выбранным статусом
+- порядок support queue в админке:
+  - `Открыт`
+  - `Переоткрыт`
+  - `Нужно подтверждение`
+  - `Решён`
 
 ### Media
 
 - фото прикладываются и отправляются через новый draft flow
 - fullscreen image viewer открывается по tap
+- video file-flow тоже считается live user-facing контрактом:
+  - `MP4 / MOV / WEBM / M4V` должны определяться как видео
+  - видео должно открываться и воспроизводиться внутри Tinychok, а не только скачиваться
+  - video draft-preview и bubble copy должны отличаться от обычного файла
+- если новый файл не помещается в quota, backend сначала автоматически снимает самые старые ранее отправленные вложения пользователя
+- auto-cleanup не должен удалять сообщение целиком:
+  - в пузыре должна остаться viewer-aware заметка:
+    - владелец: `Вложение удалено автоматически, потому что в вашем хранилище закончилось место.`
+    - читатель: `Вложение удалено автоматически, потому что у собеседника закончилось место в хранилище.`
+- composer preview должен заранее предупреждать:
+  - premium расширяет хранилище
+  - без premium старые отправленные фото и файлы могут быть удалены автоматически
+- `Хранилище` в настройках открывает отдельный storage-screen
+- в storage-screen попадают только message attachments, support/thread attachments и GIF library
+- аватарки профиля, группы и канала считаются внешним хранилищем Tinychok и не попадают ни в storage-screen, ни в пользовательскую квоту
+- группа больше не имеет собственного storage-subject
+- корневые group attachments и group thread attachments считаются в личном хранилище автора
+- channel storage сохраняется как отдельная сущность, а primary quota канала поднята до `500 MB`
+- если premium истёк, а пользователь раньше уже получил premium storage, квота назад не сжимается:
+  - primary quota остаётся premium-sized
+  - archive quota тоже остаётся premium-sized
+- если auto-cleanup уже отправил вложения пользователя в архив, а потом quota выросла и свободного места снова хватает:
+  - backend должен попытаться вернуть такие auto-archived вложения обратно в исходные сообщения / посты / комментарии
+  - это особенно важно проверить после покупки premium поверх уже переполненного storage
+- ручное удаление из storage-screen не должно давать пустой bubble:
+  - владелец видит, что вложение удалено им из хранилища
+  - читатель видит, что вложение удалено владельцем из хранилища
+- публичная privacy policy синхронизирована с этой механикой:
+  - вложения могут удаляться автоматически при достижении лимита пользовательского хранилища
+  - сообщение / пост / комментарий при этом может сохраниться без самого вложения
+  - временное сохранение в backup/archive системах описывается отдельно и не означает бессрочное хранение
+- `PUT /api/snapshot` больше не доверяет клиенту чувствительные session/account поля:
+  - premium / premiumExpiresAt / retained storage quota / avatarImage / privacy/security state не принимаются из snapshot
+  - snapshot сохраняет только безопасные room UI flags
+- все send-path с attachment теперь проходят через единый ownership guard:
+  - чужой `mediaUrl`
+  - незарегистрированный `mediaUrl`
+  - mismatch по `fileName / mimeType / size`
+  должны отклоняться сервером с явной ошибкой
+- после успешной отправки attachment во всех surface upload обязан становиться `linked`
+- orphan cleanup по TTL больше не должен удалять реально используемые вложения из group / support / channel / thread из-за пропущенного `linked=true`
+- root-message в открытом треде канала должен оставаться компактным:
+  - большие image attachments в `Комментарии` рендерятся как маленькое preview
+  - support-thread и channel-thread надо проверять отдельно, потому что это разные UI-ветки
 - GIF работают через premium-вкладку picker-а
 - GIF library умеет:
   - локальный upload `.gif`
@@ -50,27 +354,132 @@
   - удаление GIF из личной библиотеки
   - добавление GIF себе из fullscreen viewer
 - аватарки профиля, группы и канала обновляются через единый crop/resize pipeline
+- `/avatar-upload-rules.html` явно говорит, что аватарка является пользовательским контентом под ответственность автора
+- правила аватарок прямо разрешают Tinychok удалить аватарку без уведомления и заблокировать аккаунт за тяжёлое или повторное нарушение
+- текущий backend-check для аватарок ограничен форматом, размером и сигнатурой файла; auto-detect запрещённого визуального контента не заявлен
+- в admin staff может:
+  - просмотреть аватарку с указанием причины
+  - удалить или скрыть media
+  - заблокировать пользователя
 
 ### Ownership And Moderation Surface
 
 - владелец канала видит список подписчиков
 - `Удалить подписчика` и `В чёрный список` работают
 - invite flow канала отправляет корректное сообщение-приглашение
+- invite flow группы тоже идёт через личку:
+  - create/invite не должны автодобавлять участника
+  - tap по invite-card должен вступать в группу и сразу открывать room
+  - после self-leave тот же invite должен снова пускать пользователя в группу
+  - owner snapshot после self-leave сразу теряет ушедшего участника
+  - обычный join должен публиковать `К группе присоединился ...`
+  - popup `Пригласить в группу` показывает уже состоящих участников неактивными строками и рендерит `Этот контакт уже состоит в группе.` inline под конкретным контактом
+  - обычный self-leave должен публиковать `... покинул группу`
+  - owner transfer должен публиковать `У группы новый организатор: ...`
+  - quiet join -> системной надписи нет
+  - quiet leave -> системной надписи нет
+  - owner transfer -> видно `У группы новый организатор: ...` даже если новый организатор в `Тихо`
 - create-flow канала стартует с пустыми полями:
   - `Название канала`
   - `Статус канала`
   - `Описание канала`
 - после создания канала владелец сразу открывает room этого канала, а в истории уже есть системный элемент `Канал создан`
 - `Описание канала` открывается из menu popup и показывает аватар, название, создателя и полный description
+- старый invite удалённого владельцем канала должен открывать tombstone-room:
+  - title `Канал удалён владельцем`
+  - ghost avatar
+  - пустая история
+  - без возможности подписаться
+- передача канала должна:
+  - подтверждаться текущим паролем владельца, а не SMS
+  - менять владельца server-side без удаления/архивации канала
+  - сохранять канал и историю видимыми для подписчиков
+- admin archive smoke для канала:
+  - в admin detail канала есть `Архивировать канал` / `Разархивировать канал`
+  - после архивации канал исчезает у владельца и подписчиков из обычных snapshot lists
+  - старые посты не удаляются server-side и возвращаются после разархивации
+  - public preview/search для архивированного канала не должны открываться обычному пользователю
+- до отдельного возврата фичи `Передача канала` скрыта из пользовательского UI на staging
 - новый подписчик канала должен видеть всю историческую ленту канала, включая посты до подписки и системный элемент `Канал создан`
+- владелец канала сразу после subscribe должен видеть нового подписчика в `participants` и увеличенный `readers`, в том числе для legacy-каналов после backfill owner-copy
+- search smoke для каналов:
+  - поиск каналов показывает отдельную секцию `Каналы`
+  - tap по неподписанному каналу из поиска открывает preview, а не оформляет автоподписку
+  - после self-unsubscribe канал всё ещё находится по названию или `@handle`, если preview-access не отозван
+  - уже подписанный канал из поиска открывается сразу как обычная room
+- у группы есть отдельное поле `Идеалогия группы` и одноимённый popup из menu
+- архивную группу невладелец должен иметь возможность покинуть
 - если комментарии в канале были выключены после уже существующих комментариев, старые комментарии должны сохраняться, а новые — блокироваться
 
 ### Reliability
 
 - удалённые сообщения, посты и комментарии не возвращаются после повторного входа в комнату
 - stale client snapshot не может восстановить удалённый timeline
+- user-facing delete не должен физически purge-ить managed entity из server runtime state:
+  - channel/group/account переходят в archive/tombstone policy
+  - historical invite links продолжают резолвиться либо в live entity, либо в tombstone state
+- deletion contract для staging smoke:
+  - `Удалить группу` владельцем => группа исчезает из обычных user lists у всех участников
+  - `orphaned-group` => архивная группа остаётся видимой и её можно покинуть
+  - `Удалить канал` владельцем => канал исчезает из обычных lists, но старый invite открывает tombstone
+  - self-leave из группы => участник исчезает у владельца и может вернуться по старому invite
+- channels UI smoke:
+  - в `Управление каналами` нет отдельного eyebrow `Каналы`
+  - если каналов нет, header показывает `Пока нет каналов. Создайте свой первый канал.`
+  - transfer-channel modal/action не доступны пользователю
 - profile settings сохраняются без transport-level сбоев за reverse proxy
 - browser notifications не должны приходить в режиме `Тихо`
+- quiet-settings сцена считается release-blocking контрактом:
+  - `quietModeSettings` должен нормализоваться к дефолтам
+  - первые пять чек-боксов управляют только visual badges и browser notifications по категориям
+  - unread продолжает копиться и не должен сбрасываться этой настройкой
+  - `Авто-режим невидимки` управляет только авто-включением invisibility при нажатии `Тихо`
+  - при non-premium первые пять чек-боксов визуально включены и locked
+  - `Авто-режим невидимки` в non-premium сцене визуально выключен и locked
+  - `Настройки режима "Тихо"` должны открываться отдельной settings-scene, а не popup-слоем
+  - кнопка `Настройки режима "Тихо"` должна жить в профиле над нижним settings action-row
+  - quiet browser-notification filtering режется по категориям `dialogs/channels/groups/threads`
+  - quiet contact-request badge filtering режется отдельно через `quietModeSettings.contactRequests`
+- `Режим невидимки` считается release-blocking presence-контрактом:
+  - это отдельный server-side premium-флаг `invisibilityEnabled`
+  - это одна из главных premium/quiet-механик, её нельзя возвращать к derived-only условию `Тихо + premium`
+  - кнопка `Тихо` для premium-пользователя при каждом новом включении автоматически включает `Невидимку`
+  - если `Невидимка` была auto-enabled самим `Тихо`, выход из `Тихо` обязан автоматически выключать её обратно
+  - если `Невидимка` была включена вручную в настройках, выход из `Тихо` не должен её выключать
+  - внутренний provenance-флаг допустим только для памяти об auto-enabled origin и не должен превращаться в отдельный пользовательский режим
+  - `Невидимку` можно вручную выключить в настройках, не отключая сам `Тихо`
+  - в настройках под `Выключить браузерные уведомления` должен быть отдельный блок `Режим невидимки` с crown-иконкой
+  - сам пользователь видит серый ring-dot в левой шапке аккаунта и в шапке профиля
+  - другие пользователи должны видеть такой аккаунт полностью как офлайн
+  - direct room header не должен показывать `В сети`
+  - списки диалогов, контактов и участники групп не должны показывать зелёную точку
+  - если такой пользователь читает direct-сообщение, у него локально должен очищаться unread, но отправитель не должен получать `readAt`
+  - тап по `Режиму невидимки` без premium должен вести в premium-экран
+  - `Тихо` без premium не должен скрывать online presence
+  - regressions по presence и direct read-receipts обязательны при каждой правке quiet-mode / premium / snapshot materialization
+- обычный `В сети` тоже держим как release-blocking контракт:
+  - live online должен зависеть только от websocket/realtime presence
+  - persisted `sessions` и retention cleanup не могут сами по себе держать пользователя online
+  - `logout` должен проходить через `/api/logout` и сразу гасить presence, если это был последний live socket
+  - smoke на staging: открыть аккаунт A и B, увидеть `В сети`, закрыть вкладку или нажать `Выйти` на A и убедиться, что у B статус быстро уходит в `был(а) недавно в сети`
+- quiet-mode contract для групп считается критичным:
+  - server-side `quietModeEnabled` подавляет group join/leave system events
+  - `Выключить звуки` не влияет на stealth join/leave
+  - suppression не должна ломать membership, preview, unread или pending invite lifecycle
+  - re-invite после self-leave должен работать и не может блокироваться title-based membership check
+- direct contact request smoke:
+  - первый direct room без контакта показывает CTA `Отправить запрос на контакт`
+  - после отправки у инициатора нет обычного чата в списках, но есть карточка в `Контакты -> Отправленные запросы`
+  - outgoing request room открывается по тапу на карточку и показывает нейтральную кнопку `Отменить заявку` и дружелюбный коричневый статус отправки
+  - у получателя нет чата, но есть badge и карточка в `Контакты -> Заявки`
+  - tap по карточке заявки открывает общую room с историей и кнопками `Подтвердить / Отклонить / Заблокировать`
+  - cancel убирает заявку у обеих сторон и возвращает CTA у инициатора
+  - accept создаёт chat у обоих и system message `Контакт установлен`
+  - reject возвращает CTA у инициатора
+  - block показывает инициатору `Пользователь заблокировал контакт с вами`
+  - delete contact убирает direct chat у обеих сторон из списков
+  - reopen удалённого контакта через search показывает старую историю и CTA на новый запрос
+  - incoming request после такого reopen не создаёт visible chat у получателя до accept
 - исторические данные старше `3 лет` режутся серверным retention cleanup; это не должно ломать живые аккаунты, текущие профили и активные пароли
 
 ### Admin Panel
@@ -99,6 +508,17 @@ npm run bootstrap:staff -- <identifier> owner
 - groups в admin должны отображаться один раз на группу, а не по числу участников
 - threads в admin должны отображаться один раз на корневое сообщение треда, а не по числу комментариев
 - dashboard обязан брать метрики из тех же canonical aggregate-источников, что и detail screens, иначе staff увидит рассинхрон между `Сводкой` и самим разделом
+- group detail обязан иметь archive-toggle:
+  - `Архивировать группу` для живой группы
+  - `Разархивировать группу` для архивной группы
+- channel detail обязан иметь archive-toggle:
+  - `Архивировать канал` для живого канала
+  - `Разархивировать канал` для архивного канала
+- thread detail обязан иметь archive-toggle:
+  - `Архивировать тред` для живого треда
+  - `Разархивировать тред` для архивного треда
+- archive-toggle в admin нельзя считать рабочим только по смене плашки `АРХИВ`:
+  - после toggle staging smoke-check обязан подтвердить, что affected user snapshots реально обновились через broadcast
 
 ## Standard Deploy Flow
 
@@ -107,8 +527,11 @@ cd /home/devis/tinychok
 git fetch origin
 git checkout codex/staging-deploy
 git pull --ff-only origin codex/staging-deploy
+git status --short
 npm ci
-npm run build
+npm test
+npm run audit:release
+npm run build:staging
 sudo systemctl restart tinychok-staging
 sudo rsync -av --delete dist/ /var/www/tinychok-staging/
 ```
@@ -119,6 +542,25 @@ sudo rsync -av --delete dist/ /var/www/tinychok-staging/
 cd /home/devis/tinychok
 bash scripts/deploy-staging.sh
 ```
+
+- `scripts/deploy-staging.sh` теперь обязан retry-ить `verify-release-runtime.mjs` после restart:
+  - краткий `502` от `healthz` в первые секунды после `systemctl restart` считается startup-race, а не повод оставлять rollout в полудеплое
+- тот же deploy-скрипт теперь обязан падать на:
+  - грязном worktree без commit-backed состояния
+  - `npm audit --audit-level=high`
+
+### Verified Staging Checkpoint — 2026-04-08
+
+- локально и на VM полные gates снова зелёные:
+  - `npm test`
+  - `npm run audit:release`
+  - `npm run build:staging`
+- после live deploy staging снаружи подтверждён по URL:
+  - `https://api.staging.tinychok.ru/healthz` → `{"status":"ok"}`
+  - `https://api.staging.tinychok.ru/readyz` → `storage.layout = hybrid-normalized`
+  - `https://api.staging.tinychok.ru/api/client-config` → `analytics.enabled=true`, `provider=log`, `metricaCounterId=108249405`
+  - `https://staging.tinychok.ru` реально отдаёт `assets/main-D-NEgpe-.js`
+  - dist bootstrap больше не монолитный: runtime URLs подтверждаются через split assets, а не через один giant main chunk
 
 ## Minimal Post-Deploy Check
 
@@ -178,6 +620,9 @@ curl -s https://api.staging.tinychok.ru/healthz
 
 - login на staging под allowlist номером
 - login по паролю на существующем аккаунте
+- открыть длинный direct, получить новое входящее в уже открытый room, выйти из комнаты:
+  - unread badge не должен появляться на уже прочитанном сообщении
+- то же для group / channel room
 - forgot-password через SMS reset и установка нового пароля
 - регистрация нового аккаунта без premium по умолчанию
 - смена пароля из `Настройки -> Управление`
@@ -196,8 +641,32 @@ curl -s https://api.staging.tinychok.ru/healthz
   - следующий порог -> `30 минут`
   - следующий порог -> `24 часа`
 - direct message send
+- delete history for everyone in direct dialogs:
+  - очищает комнату у обеих сторон
+  - server-side история не удаляется физически, а архивируется
+  - history endpoint после этого тоже пустой у обеих сторон
+  - ошибка server-side delete-for-everyone не должна приводить к локальному fake-success у инициатора
+- delete single message for everyone in direct dialogs:
+  - это release-blocking проверка
+  - на своём сообщении видны `Удалить у меня` и `Удалить у всех`
+  - на входящем сообщении `Удалить у всех` не должно отображаться
+  - если backend всё же получает такой запрос для входящего сообщения, он должен отказать без удаления у обеих сторон
+  - `Удалить у меня` и `Удалить переписку у меня` в direct остаются локальным hide в UI, но сервер хранит retention-архив для admin/legal export
+  - admin/legal export должен собираться из canonical direct transcript по обеим копиям, а не из single-owner copy
 - group message send
+- group system events:
+  - normal join => видно `К группе присоединился ...`
+  - quiet join => системной надписи нет
+  - normal leave => видно `... покинул группу`
+  - quiet leave => системной надписи нет
+  - owner transfer => видно `У группы новый организатор: ...`
+  - если у актёра есть premium, у system event видна crown-иконка
 - channel post send
+- room feed autoscroll:
+  - open long direct / group / channel / thread => сразу на последнем элементе
+  - own send => сразу на последнем элементе
+  - incoming while near bottom => остаёмся у актуального низа
+  - incoming while reading older history => не должно срывать вниз
 - channel create flow:
   - пустые placeholders
   - отдельные `statusText` и `description`
@@ -214,6 +683,10 @@ curl -s https://api.staging.tinychok.ru/healthz
 - GIF search, delete и add-to-library из viewer
 - avatar update
 - storage quota warning / block
+- session expiry now applies equally to HTTP bootstrap and websocket realtime
+- password change / reset revokes every other session and should kick old devices out immediately
+- duplicate retries with the same `clientDeliveryId` no longer create duplicate messages / tickets / comments
+- websocket reconnect must not briefly flip `В сети` to offline when an older socket closes after a newer one is already live
 - browser notification prompt / enable / disable / quiet-mode suppress
 - admin login под staff account
 - dashboard cards в admin:
@@ -224,6 +697,9 @@ curl -s https://api.staging.tinychok.ru/healthz
   - каналы
   - треды
 - `Пользователи`: search, block / unblock, premium toggle, avatar view
+- `Пользователи`: user list без inline-статуса; текущий статус показывается только в detail-panel
+- `Пользователи`: из detail-panel скачивается CSV всей истории статусов пользователя с датами установки
+- `Пользователи`: IP-история тоже вынесена в отдельную detail-card с той же icon-button выгрузкой CSV
 - `Пользователи`: owner-only `Логи IP` CSV по пользователю с reason и optional period
 - `Пользователи`: owner-only legal export ZIP по пользователю с reason, optional period и optional media
 - `Жалобы`: unread badge, open / close, note trail, блокировка пользователя
@@ -233,6 +709,8 @@ curl -s https://api.staging.tinychok.ru/healthz
   - `Delete` скрывает из UI и физически удаляет media-object
 - `Медиа`: timestamp sort, download, hide / delete
 - `Каналы` / `Группы` / `Треды`: одна строка на одну каноническую сущность без fan-out дублей
+- `Группы`: из detail-card рядом с `Участников` скачивается CSV со всеми участниками
+- `Каналы`: из detail-card рядом с `Читателей` скачивается CSV со всеми подписчиками
 - `Диалоги`: выбор двух пользователей и CSV export одного канонического диалога
 - `Аудит лог`: actor filter, period filter, CSV export и запись admin-действий
 - owner-only legal export:
@@ -240,6 +718,10 @@ curl -s https://api.staging.tinychok.ru/healthz
   - архив включает `ip/ip-log.csv` и `ip/ip-log.json`
   - `from/to` режет `dialogs`, `groups`, `channels`, `threads`, `reports`, `audit` и `ip`
   - пишет `admin.legal-export.download` в audit log
+  - large export идёт через блокирующий popup с progress bar
+  - repeated click не должен стартовать несколько параллельных архивов
+  - после server-side `100%` UI должен показывать отдельную фазу передачи архива браузеру, а не зависать на полном баре
+  - `Отмена` должна реально прерывать подготовку архива
 - owner-only IP CSV export:
   - скачивается без server error
   - пишет `admin.ip-logs.download` в audit log

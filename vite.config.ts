@@ -1,6 +1,9 @@
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const viteConfigDir = dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -24,11 +27,12 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        avatarUploadRules: resolve(__dirname, 'avatar-upload-rules.html'),
-        contacts: resolve(__dirname, 'contacts.html'),
-        main: resolve(__dirname, 'index.html'),
-        privacyPolicy: resolve(__dirname, 'privacy-policy.html'),
-        userAgreement: resolve(__dirname, 'user-agreement.html'),
+        avatarUploadRules: resolve(viteConfigDir, 'avatar-upload-rules.html'),
+        contacts: resolve(viteConfigDir, 'contacts.html'),
+        main: resolve(viteConfigDir, 'index.html'),
+        premiumTerms: resolve(viteConfigDir, 'premium-terms.html'),
+        privacyPolicy: resolve(viteConfigDir, 'privacy-policy.html'),
+        userAgreement: resolve(viteConfigDir, 'user-agreement.html'),
       },
     },
   },

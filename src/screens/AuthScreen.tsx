@@ -8,6 +8,7 @@ type AuthScreenProps = {
   authCodeFlow: 'password-reset' | 'password-setup' | 'registration'
   authError: string
   authExistingAccount: Pick<Account, 'displayName' | 'surname'> | null
+  authPhoneBlockedNotice: boolean
   authStep: AuthStep
   captchaBusy: boolean
   captchaContainerRef: RefObject<HTMLDivElement | null>
@@ -34,6 +35,7 @@ export function AuthScreen({
   authCodeFlow,
   authError,
   authExistingAccount,
+  authPhoneBlockedNotice,
   authStep,
   captchaBusy,
   captchaContainerRef,
@@ -63,6 +65,7 @@ export function AuthScreen({
   const isPhoneStep = authStep === 'phone'
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [passwordConfirmVisible, setPasswordConfirmVisible] = useState(false)
+  const showInlineBlockedNotice = isPhoneStep && authPhoneBlockedNotice
 
   function renderPasswordField({
     autoComplete,
@@ -278,7 +281,16 @@ export function AuthScreen({
 
           {authError ? <p className="auth-error">{authError}</p> : null}
 
-          {captchaPlacement && captchaProvider === 'smartcaptcha' ? (
+          {showInlineBlockedNotice ? (
+            <div className="auth-code-note auth-blocked-note">
+              <strong>Аккаунт заблокирован по решению администрации.</strong>
+              <p className="auth-blocked-note-copy">
+                Если вы считаете ограничение неправильным, обратитесь в поддержку.
+              </p>
+            </div>
+          ) : null}
+
+          {!showInlineBlockedNotice && captchaPlacement && captchaProvider === 'smartcaptcha' ? (
             <div className="auth-captcha">
               <div ref={captchaContainerRef} className="auth-captcha-widget" aria-hidden="true" />
               <p className="auth-captcha-note">
@@ -289,9 +301,11 @@ export function AuthScreen({
             </div>
           ) : null}
 
-          <button type="submit" className="send-button auth-submit" disabled={captchaBusy}>
-            {submitLabel}
-          </button>
+          {!showInlineBlockedNotice ? (
+            <button type="submit" className="send-button auth-submit" disabled={captchaBusy}>
+              {submitLabel}
+            </button>
+          ) : null}
 
           {isPhoneStep ? (
             <p className="auth-submit-note">
@@ -303,10 +317,6 @@ export function AuthScreen({
               <a className="auth-submit-note-link" href="/privacy-policy.html">
                 Политикой обработки персональных данных
               </a>
-              ,{' '}
-              <a className="auth-submit-note-link" href="/contacts.html">
-                Контактами и реквизитами
-              </a>
               .
             </p>
           ) : null}
@@ -314,13 +324,18 @@ export function AuthScreen({
       </section>
 
       <footer className="auth-support-footer">
-        <span className="auth-support-label">Не получается войти в Тайничок?</span>
-        <a
-          className="auth-support-link"
-          href="mailto:tinychok.help@yandex.com"
-          onClick={onSupportEmailClick}
-        >
-          tinychok.help@yandex.com
+        <div className="auth-support-row">
+          <span className="auth-support-label">Не получается войти в Тайничок?</span>
+          <a
+            className="auth-support-link"
+            href="mailto:tinychok.help@yandex.com"
+            onClick={onSupportEmailClick}
+          >
+            tinychok.help@yandex.com
+          </a>
+        </div>
+        <a className="auth-support-meta-link" href="/contacts.html">
+          Контакты и реквизиты
         </a>
       </footer>
     </main>
