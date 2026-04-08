@@ -711,6 +711,30 @@ test('group settings and admin no longer expose group storage, while channel sto
   assert.match(releaseDoc, /channel post attachments остаются в storage канала с квотой `500 MB`/u)
 })
 
+test('group settings keep avatar change wired through the existing group avatar picker flow', () => {
+  const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
+  const groupSettingsFlowSource = readFileSync(join(process.cwd(), 'src/app/useGroupSettingsFlow.ts'), 'utf8')
+
+  assert.match(groupSettingsFlowSource, /export type GroupSettingsDraft = Pick<[\s\S]*\| 'avatarImage'/u)
+  assert.match(groupSettingsFlowSource, /avatarImage: group\.avatarImage,/u)
+  assert.match(
+    groupSettingsFlowSource,
+    /\(groupSettingsDraft\.avatarImage \|\| undefined\) !== \(activeGroup\.avatarImage \|\| undefined\)/u,
+  )
+  assert.match(groupSettingsFlowSource, /avatarImage: groupSettingsDraft\.avatarImage,/u)
+  assert.match(appSource, /type GroupAvatarPickerTarget =[\s\S]*\| \{ scope: 'existing'; groupId: number \}/u)
+  assert.match(appSource, /setGroupSettingsAvatarDraft/u)
+  assert.match(appSource, /updateGroupSettingsDraft\(\{ avatarImage: nextDraft\.previewUrl \}\)/u)
+  assert.match(appSource, /onClick=\{\(\) => openGroupAvatarPicker\(\{ scope: 'create' \}\)\}/u)
+  assert.match(
+    appSource,
+    /onClick=\{\(\) => openGroupAvatarPicker\(\{ groupId: activeGroup\.id, scope: 'existing' \}\)\}/u,
+  )
+  assert.match(appSource, /<span className="settings-label">Аватарка группы<\/span>/u)
+  assert.match(appSource, /groupSettingsDraft\?\.avatarImage \? \(/u)
+  assert.match(appSource, /Можно загрузить JPG, PNG либо WebP до 5 МБ\./u)
+})
+
 test('owner-only admin storage exports stay wired to password-confirmed ZIP download and archive controls', () => {
   const adminAppSource = readFileSync(join(process.cwd(), 'src/AdminApp.tsx'), 'utf8')
   const backendSource = readFileSync(join(process.cwd(), 'src/app/backend.ts'), 'utf8')

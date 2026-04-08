@@ -641,6 +641,9 @@
   - это отдельное длинное поле `description`
   - оно не смешивается с preview последнего сообщения
 - owner-only пункт `Настройки группы` в room actions menu идёт с leading icon `edit100.png`
+- `Настройки группы` держат existing avatar path:
+  - live preview текущей аватарки
+  - `Сменить` открывает тот же group avatar picker, что и create-flow
 - архивную группу невладелец всё ещё может покинуть через `Покинуть группу`, даже если группа уже read-only
 - group membership events считаются критичным server-authoritative контрактом:
   - обычный join публикует системное сообщение `К группе присоединился Имя Фамилия`

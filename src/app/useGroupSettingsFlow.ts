@@ -5,6 +5,7 @@ import { sanitizeChannelTitle } from './utils'
 
 export type GroupSettingsDraft = Pick<
   GroupPreview,
+  | 'avatarImage'
   | 'title'
   | 'description'
   | 'showHistoryToNewMembers'
@@ -16,6 +17,7 @@ export type GroupSettingsLeaveAction = 'close' | 'management'
 
 function buildGroupSettingsDraft(group: GroupPreview): GroupSettingsDraft {
   return {
+    avatarImage: group.avatarImage,
     commentsEnabledForAll: Boolean(group.commentsEnabledForAll),
     commentsEnabledForPremium: Boolean(group.commentsEnabledForPremium),
     description: group.description ?? '',
@@ -73,6 +75,7 @@ export function useGroupSettingsFlow({
       activeGroup !== null &&
       groupSettingsDraft !== null &&
       (
+        (groupSettingsDraft.avatarImage || undefined) !== (activeGroup.avatarImage || undefined) ||
         sanitizeChannelTitle(groupSettingsDraft.title) !== activeGroup.title ||
         (groupSettingsDraft.description ?? '') !== (activeGroup.description ?? '') ||
         Boolean(groupSettingsDraft.showHistoryToNewMembers !== false) !==
@@ -177,6 +180,7 @@ export function useGroupSettingsFlow({
       await applyGroupSettingsPatch(
         activeGroup.id,
         {
+          avatarImage: groupSettingsDraft.avatarImage,
           commentsEnabledForAll: groupSettingsDraft.commentsEnabledForAll,
           commentsEnabledForPremium: groupSettingsDraft.commentsEnabledForPremium,
           description: groupSettingsDraft.description ?? '',

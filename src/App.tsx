@@ -725,6 +725,10 @@ type ChannelAvatarPickerTarget =
   | { scope: 'create' }
   | { scope: 'existing'; channelId: number }
 
+type GroupAvatarPickerTarget =
+  | { scope: 'create' }
+  | { scope: 'existing'; groupId: number }
+
 type ChannelAvatarDraft = {
   kind: 'stock' | 'upload' | 'uploaded'
   label: string
@@ -1374,8 +1378,8 @@ function App() {
   const [blacklistManagerTarget, setBlacklistManagerTarget] = useState<BlacklistManagerTarget | null>(null)
   const [blacklistAddMode, setBlacklistAddMode] = useState(false)
   const [blacklistSearchQuery, setBlacklistSearchQuery] = useState('')
-  const [groupAvatarPickerOpen, setGroupAvatarPickerOpen] = useState(false)
   const [groupAvatarPickerDraft, setGroupAvatarPickerDraft] = useState<ChannelAvatarDraft | null>(null)
+  const [groupSettingsAvatarDraft, setGroupSettingsAvatarDraft] = useState<ChannelAvatarDraft | null>(null)
   const [groupAvatarPickerError, setGroupAvatarPickerError] = useState('')
   const [, setGroupAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
   const [groupAvatarPickerBusy, setGroupAvatarPickerBusy] = useState(false)
@@ -1385,6 +1389,9 @@ function App() {
   const [profileAvatarPickerBusy, setProfileAvatarPickerBusy] = useState(false)
   const [, setProfileAvatarPickerMode] = useState<'none' | 'stock' | 'device'>('none')
   const [channelAvatarPickerTarget, setChannelAvatarPickerTarget] = useState<ChannelAvatarPickerTarget | null>(
+    null,
+  )
+  const [groupAvatarPickerTarget, setGroupAvatarPickerTarget] = useState<GroupAvatarPickerTarget | null>(
     null,
   )
   const [channelAvatarPickerDraft, setChannelAvatarPickerDraft] = useState<ChannelAvatarDraft | null>(null)
@@ -1598,6 +1605,23 @@ function App() {
     setGroupManagementOpen,
     setGroupTransferOwnerOpen,
   })
+
+  useEffect(() => {
+    if (groupSettingsOpen) return
+
+    setGroupSettingsAvatarDraft((currentDraft) => {
+      if (!currentDraft) {
+        return currentDraft
+      }
+
+      const draftStillUsedByGroup = groups.some((group) => group.avatarImage === currentDraft.previewUrl)
+      if (!draftStillUsedByGroup) {
+        releaseChannelAvatarDraft(currentDraft)
+      }
+
+      return null
+    })
+  }, [groupSettingsOpen, groups])
   const {
     activeGroupMessageId,
     activeSubscriptionPostId,
@@ -6787,6 +6811,51 @@ function App() {
     )
   }
 
+  function getCurrentGroupAvatarPreview() {
+    if (!groupAvatarPickerTarget) return null
+
+    if (groupAvatarPickerDraft) {
+      return groupAvatarPickerDraft.previewUrl
+    }
+
+    if (groupAvatarPickerTarget.scope === 'create') {
+      return creatingGroupAvatarDraft?.previewUrl ?? null
+    }
+
+    return (
+      groupSettingsAvatarDraft?.previewUrl ??
+      groupSettingsDraft?.avatarImage ??
+      groups.find((group) => group.id === groupAvatarPickerTarget.groupId)?.avatarImage ??
+      null
+    )
+  }
+
+  function getCurrentGroupAvatarTone() {
+    if (!groupAvatarPickerTarget) return creatingGroupAccent
+
+    if (groupAvatarPickerTarget.scope === 'create') {
+      return creatingGroupAccent
+    }
+
+    return groups.find((group) => group.id === groupAvatarPickerTarget.groupId)?.accent ?? creatingGroupAccent
+  }
+
+  function getCurrentGroupAvatarTitle() {
+    if (!groupAvatarPickerTarget) {
+      return creatingGroupTitle.trim() || buildDefaultGroupTitle(session)
+    }
+
+    if (groupAvatarPickerTarget.scope === 'create') {
+      return creatingGroupTitle.trim() || buildDefaultGroupTitle(session)
+    }
+
+    return (
+      groupSettingsDraft?.title.trim() ||
+      groups.find((group) => group.id === groupAvatarPickerTarget.groupId)?.title ||
+      'Группа'
+    )
+  }
+
   function closeChannelAvatarPicker(options?: { preserveCurrentDraft?: boolean }) {
     channelAvatarSelectionTokenRef.current += 1
 
@@ -6864,8 +6933,9 @@ function App() {
     setCreatingGroupBusy(false)
     setCreatingGroupError('')
     setCreatingGroupSelectionHint('')
-    setGroupAvatarPickerOpen(false)
+    setGroupAvatarPickerTarget(null)
     setGroupAvatarPickerDraft(null)
+    setGroupSettingsAvatarDraft(null)
     setGroupAvatarPickerError('')
     setGroupAvatarPickerMode('device')
     setGroupAvatarPickerBusy(false)
@@ -6898,8 +6968,9 @@ function App() {
     setCreatingGroupBusy(false)
     setCreatingGroupError('')
     setCreatingGroupSelectionHint('')
-    setGroupAvatarPickerOpen(false)
+    setGroupAvatarPickerTarget(null)
     setGroupAvatarPickerDraft(null)
+    setGroupSettingsAvatarDraft(null)
     setGroupAvatarPickerError('')
     setGroupAvatarPickerMode('device')
     setGroupAvatarPickerBusy(false)
@@ -6909,13 +6980,19 @@ function App() {
     }
   }
 
-  function openGroupAvatarPicker() {
+  function openGroupAvatarPicker(target: GroupAvatarPickerTarget) {
     groupAvatarSelectionTokenRef.current += 1
-    setGroupAvatarPickerOpen(true)
-    setGroupAvatarPickerDraft(creatingGroupAvatarDraft)
+    setGroupAvatarPickerTarget(target)
     setGroupAvatarPickerError('')
     setGroupAvatarPickerMode('device')
     setGroupAvatarPickerBusy(false)
+
+    if (target.scope === 'create') {
+      setGroupAvatarPickerDraft(creatingGroupAvatarDraft)
+      return
+    }
+
+    setGroupAvatarPickerDraft(groupSettingsAvatarDraft)
   }
 
   function closeGroupAvatarPicker(options?: { preserveCurrentDraft?: boolean }) {
@@ -6923,14 +7000,20 @@ function App() {
 
     if (!options?.preserveCurrentDraft) {
       const shouldPreserveSavedDraft =
-        groupAvatarPickerDraft !== null && groupAvatarPickerDraft === creatingGroupAvatarDraft
+        groupAvatarPickerDraft !== null &&
+        (
+          (groupAvatarPickerTarget?.scope === 'create' &&
+            groupAvatarPickerDraft === creatingGroupAvatarDraft) ||
+          (groupAvatarPickerTarget?.scope === 'existing' &&
+            groupAvatarPickerDraft === groupSettingsAvatarDraft)
+        )
 
       if (!shouldPreserveSavedDraft) {
         releaseChannelAvatarDraft(groupAvatarPickerDraft)
       }
     }
 
-    setGroupAvatarPickerOpen(false)
+    setGroupAvatarPickerTarget(null)
     setGroupAvatarPickerDraft(null)
     setGroupAvatarPickerError('')
     setGroupAvatarPickerMode('device')
@@ -6972,7 +7055,11 @@ function App() {
         }
 
         const shouldPreserveSavedDraft =
-          currentDraft !== null && currentDraft === creatingGroupAvatarDraft
+          currentDraft !== null &&
+          (
+            currentDraft === creatingGroupAvatarDraft ||
+            currentDraft === groupSettingsAvatarDraft
+          )
 
         if (!shouldPreserveSavedDraft) {
           releaseChannelAvatarDraft(currentDraft)
@@ -6993,15 +7080,81 @@ function App() {
     event.target.value = ''
   }
 
-  function applyGroupAvatarSelection() {
-    if (!groupAvatarPickerDraft) return
+  async function applyGroupAvatarSelection() {
+    if (!groupAvatarPickerTarget || !groupAvatarPickerDraft) return
 
-    if (creatingGroupAvatarDraft && creatingGroupAvatarDraft !== groupAvatarPickerDraft) {
-      releaseChannelAvatarDraft(creatingGroupAvatarDraft)
+    setGroupAvatarPickerBusy(true)
+    setGroupAvatarPickerError('')
+
+    try {
+      let nextDraft = groupAvatarPickerDraft
+
+      if (groupAvatarPickerDraft.kind === 'upload') {
+        if (!groupAvatarPickerDraft.file) {
+          throw new Error('Сначала выберите изображение для загрузки.')
+        }
+
+        if (backendReady && session?.sessionToken) {
+          const uploadedMedia = await uploadMediaFile(
+            session.sessionToken,
+            groupAvatarPickerDraft.file,
+            'group-avatar',
+          )
+
+          releaseChannelAvatarDraft(groupAvatarPickerDraft)
+          nextDraft = {
+            kind: 'uploaded',
+            attachment: {
+              fileName: uploadedMedia.fileName,
+              mediaUrl: uploadedMedia.mediaUrl,
+              mimeType: uploadedMedia.mimeType,
+              size: uploadedMedia.size,
+            },
+            label: groupAvatarPickerDraft.label,
+            previewUrl: uploadedMedia.mediaUrl,
+          }
+        } else {
+          nextDraft = {
+            kind: 'uploaded',
+            attachment: groupAvatarPickerDraft.file
+              ? {
+                  fileName: groupAvatarPickerDraft.file.name,
+                  mediaUrl: groupAvatarPickerDraft.previewUrl,
+                  mimeType: groupAvatarPickerDraft.file.type,
+                  size: groupAvatarPickerDraft.file.size,
+                }
+              : groupAvatarPickerDraft.attachment,
+            label: groupAvatarPickerDraft.label,
+            previewUrl: groupAvatarPickerDraft.previewUrl,
+          }
+        }
+      }
+
+      if (groupAvatarPickerTarget.scope === 'create') {
+        if (creatingGroupAvatarDraft && creatingGroupAvatarDraft !== groupAvatarPickerDraft) {
+          releaseChannelAvatarDraft(creatingGroupAvatarDraft)
+        }
+
+        setCreatingGroupAvatarDraft(nextDraft)
+      } else {
+        setGroupSettingsAvatarDraft((currentDraft) => {
+          if (currentDraft && currentDraft !== groupAvatarPickerDraft) {
+            releaseChannelAvatarDraft(currentDraft)
+          }
+
+          return nextDraft
+        })
+        updateGroupSettingsDraft({ avatarImage: nextDraft.previewUrl })
+      }
+
+      closeGroupAvatarPicker({ preserveCurrentDraft: true })
+    } catch (error) {
+      console.error('Failed to apply group avatar selection', error)
+      setGroupAvatarPickerError(
+        error instanceof Error ? error.message : 'Не удалось применить аватарку группы.',
+      )
+      setGroupAvatarPickerBusy(false)
     }
-
-    setCreatingGroupAvatarDraft(groupAvatarPickerDraft)
-    closeGroupAvatarPicker({ preserveCurrentDraft: true })
   }
 
   function toggleGroupCreateMember(chatId: number) {
@@ -18943,7 +19096,7 @@ function App() {
                     <button
                       type="button"
                       className="soft-button"
-                      onClick={openGroupAvatarPicker}
+                      onClick={() => openGroupAvatarPicker({ scope: 'create' })}
                     >
                       Выбрать
                     </button>
@@ -19120,7 +19273,7 @@ function App() {
           </div>
         </>
       ) : null}
-      {groupAvatarPickerOpen ? (
+      {groupAvatarPickerTarget ? (
         <>
           <button
             type="button"
@@ -19135,20 +19288,20 @@ function App() {
             <div className="channel-avatar-picker-preview-card">
               <span
                 className="channel-avatar channel-avatar-picker-preview"
-                style={{ backgroundColor: creatingGroupAccent }}
+                style={{ backgroundColor: getCurrentGroupAvatarTone() }}
               >
-                {groupAvatarPickerDraft?.previewUrl ?? creatingGroupAvatarDraft?.previewUrl ? (
+                {getCurrentGroupAvatarPreview() ? (
                   <img
-                    src={groupAvatarPickerDraft?.previewUrl ?? creatingGroupAvatarDraft?.previewUrl}
+                    src={getCurrentGroupAvatarPreview()!}
                     alt=""
                     className="channel-avatar-image"
                   />
                 ) : (
-                  formatChannelAvatarLabel(creatingGroupTitle || buildDefaultGroupTitle(session))
+                  formatChannelAvatarLabel(getCurrentGroupAvatarTitle())
                 )}
               </span>
               <div className="channel-avatar-picker-preview-copy">
-                <strong>{creatingGroupTitle.trim() || buildDefaultGroupTitle(session)}</strong>
+                <strong>{getCurrentGroupAvatarTitle()}</strong>
                 <span>Так будет выглядеть обработанная квадратная аватарка.</span>
                 {groupAvatarPickerDraft?.label ? <span>{groupAvatarPickerDraft.label}</span> : null}
               </div>
@@ -19294,6 +19447,32 @@ function App() {
           <div className="room-confirm room-group-create">
             <p className="room-confirm-copy">Настройки группы</p>
             <div className="channels-fields">
+              <article className="settings-item">
+                <span className="settings-label">Аватарка группы</span>
+                <div className="channel-avatar-settings">
+                  <span className="channel-avatar channel-avatar-large" style={{ backgroundColor: activeGroup.accent }}>
+                    {groupSettingsDraft?.avatarImage ? (
+                      <img src={groupSettingsDraft.avatarImage} alt="" className="channel-avatar-image" />
+                    ) : (
+                      formatChannelAvatarLabel(
+                        groupSettingsDraft?.title.trim() || activeGroup.title,
+                      )
+                    )}
+                  </span>
+                  <div className="channel-avatar-copy">
+                    <p className="settings-text">
+                      Можно загрузить JPG, PNG либо WebP до 5 МБ.
+                    </p>
+                    <button
+                      type="button"
+                      className="soft-button"
+                      onClick={() => openGroupAvatarPicker({ groupId: activeGroup.id, scope: 'existing' })}
+                    >
+                      Сменить
+                    </button>
+                  </div>
+                </div>
+              </article>
               <article className="settings-item">
                 <span className="settings-label">Название группы</span>
                 <input

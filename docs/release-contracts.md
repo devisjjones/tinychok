@@ -233,6 +233,9 @@
 - в owner-only popup menu для room action `Настройки группы` и `Настройки канала` должны рендериться с leading icon `edit100.png`
 - иконка относится именно к settings action и не должна заменяться отдельным badge, вынесенным за пределы строки кнопки
 - non-owner menu paths этот icon contract не получают
+- `Настройки группы` не могут оставаться create-only по avatar flow:
+  - в самой settings-scene должен быть live preview аватарки группы
+  - должен быть доступен `Сменить`, открывающий тот же group avatar picker уже для existing group
 
 ### 11.2. Snapshot Trust Boundary
 
