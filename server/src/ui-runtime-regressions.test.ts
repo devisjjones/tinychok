@@ -4532,6 +4532,20 @@ test('owned groups and channels show the edit badge in the left rail and room he
   assert.match(appSource, /\/icons\/edit100\.png/u)
 })
 
+test('owner room menus show edit icon before group and channel settings actions', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+
+  assert.match(
+    appSource,
+    /className="message-menu-item message-menu-item-with-icon"[\s\S]*<img src="\/icons\/edit100\.png" alt="" aria-hidden="true" \/>[\s\S]*<span>Настройки канала<\/span>/u,
+  )
+  assert.match(
+    appSource,
+    /className="message-menu-item message-menu-item-with-icon"[\s\S]*<img src="\/icons\/edit100\.png" alt="" aria-hidden="true" \/>[\s\S]*<span>Настройки группы<\/span>/u,
+  )
+})
+
 test('switching rooms from the left rail clears any stale thread target before opening the new entity', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')

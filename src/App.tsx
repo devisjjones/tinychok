@@ -13401,13 +13401,14 @@ function App() {
             {isCurrentSubscriptionChannelOwner && ownedCurrentManagedChannel && !currentSubscriptionChannelArchived ? (
               <button
                 type="button"
-                className="message-menu-item"
+                className="message-menu-item message-menu-item-with-icon"
                 onClick={() => {
                   closeChannelActions()
                   openChannelDetailView(ownedCurrentManagedChannel.id)
                 }}
               >
-                Настройки канала
+                <img src="/icons/edit100.png" alt="" aria-hidden="true" />
+                <span>Настройки канала</span>
               </button>
             ) : null}
             <button
@@ -14200,8 +14201,13 @@ function App() {
             style={groupActionsMenuStyle}
           >
             {isActiveGroupCreator && !activeGroupArchived ? (
-              <button type="button" className="message-menu-item" onClick={openGroupSettingsDialog}>
-                Настройки группы
+              <button
+                type="button"
+                className="message-menu-item message-menu-item-with-icon"
+                onClick={openGroupSettingsDialog}
+              >
+                <img src="/icons/edit100.png" alt="" aria-hidden="true" />
+                <span>Настройки группы</span>
               </button>
             ) : null}
             <button
