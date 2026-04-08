@@ -462,6 +462,14 @@
   - image-only preview тоже обязан занимать компактный card-layout без гигантского пустого whitespace
 - радиусы thumbnail внутри root-card обязаны совпадать с радиусами самой плашки, чтобы углы bubble не торчали из-под изображения
 - scrolling comments должны клипаться по нижней границе source-card без пустой полосы между root-card и первым комментарием
+- group bubbles и thread comments не должны рендерить отдельную self-label строку `Вы`:
+  - own-author читается по цвету и выравниванию bubble
+  - лишняя строка `Вы` считается регрессией по высоте и плотности ленты
+- вертикальный ритм group bubbles и thread comments должен оставаться compact:
+  - зазор между bubble cards = tight, на уровне плотности карточек в левом rail
+  - time-row не должен оставлять лишний пустой block под текстом
+- bubble с открываемыми комментариями и нижняя `thread-pill` должны визуально сливаться в один block:
+  - нижние углы bubble не должны возвращаться после рефакторинга обёрток
 - если root-message в треде снова начинает занимать почти всю ширину/высоту comments-room, это release-blocking UI regression
 
 ### 12.1. Thread Inbox Unread Contract

@@ -237,7 +237,7 @@ export function GroupRoom({
 
   function renderGroupMediaAuthor(message: Message, participant: GroupParticipant | null) {
     if (message.author === 'me') {
-      return <span className="bubble-meta">Вы</span>
+      return null
     }
 
     if (participant) {
@@ -355,7 +355,7 @@ export function GroupRoom({
           </button>
         </header>
 
-        <div className="message-feed" ref={messageFeedRef}>
+        <div className="message-feed group-room-feed" ref={messageFeedRef}>
           {visibleMessages.map((message, index) => {
             const previousMessage = index > 0 ? visibleMessages[index - 1] : null
             const messageDayKey = getConversationDayKey(message.createdAt)
@@ -383,8 +383,9 @@ export function GroupRoom({
               !message.sourceChannel &&
               !message.sourceContact &&
               !message.sourceGroup
+            const groupMediaAuthor = renderGroupMediaAuthor(message, groupParticipant)
             const shouldRenderExternalGroupAuthor =
-              message.author !== 'me' && !isImageOnlyBubble && !isGroupCaptionedImageBubble
+              Boolean(groupMediaAuthor) && !isImageOnlyBubble && !isGroupCaptionedImageBubble
             const bubbleClassNames = ['bubble', 'bubble-button']
 
             if (message.author === 'me') {
@@ -458,16 +459,18 @@ export function GroupRoom({
                             mine={message.author === 'me'}
                             onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
                           >
-                            <button
-                              type="button"
-                              className="bubble-media-header bubble-media-header-button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                onMessageSelect(event.currentTarget, message)
-                              }}
-                            >
-                              {renderGroupMediaAuthor(message, groupParticipant)}
-                            </button>
+                            {groupMediaAuthor ? (
+                              <button
+                                type="button"
+                                className="bubble-media-header bubble-media-header-button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onMessageSelect(event.currentTarget, message)
+                                }}
+                              >
+                                {groupMediaAuthor}
+                              </button>
+                            ) : null}
                             <BubbleMessageContent
                               imageOverlay={
                                 hasImageAttachment ? (
@@ -507,7 +510,7 @@ export function GroupRoom({
                           <div className={shouldRenderExternalGroupAuthor ? 'bubble-author-layout' : undefined}>
                             {shouldRenderExternalGroupAuthor ? (
                               <div className="bubble-author-strip">
-                                {renderGroupMediaAuthor(message, groupParticipant)}
+                                {groupMediaAuthor}
                               </div>
                             ) : null}
                             <button
@@ -517,9 +520,9 @@ export function GroupRoom({
                               className={bubbleClassNames.join(' ')}
                               onClick={(event) => onMessageSelect(event.currentTarget, message)}
                             >
-                              {isGroupCaptionedImageBubble ? (
+                              {isGroupCaptionedImageBubble && groupMediaAuthor ? (
                                 <div className="bubble-media-header bubble-media-header-captioned">
-                                  {renderGroupMediaAuthor(message, groupParticipant)}
+                                  {groupMediaAuthor}
                                 </div>
                               ) : null}
                               {message.sourceChannel ? (

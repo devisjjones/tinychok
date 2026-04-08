@@ -259,6 +259,14 @@
   - фикс support-thread preview не гарантирует корректный layout channel-thread preview
 - большие image attachments в root-message треда должны ужиматься до маленького preview, по которому можно открыть full attachment
 - scrolling comments должны клипаться по нижней границе source-card без пустой полосы
+- own group bubbles и thread comments не должны рисовать отдельную строку `Вы`:
+  - self-author читается по цвету / выравниванию bubble
+  - возврат строки `Вы` почти всегда означает регресс по вертикальной плотности
+- group feed и comments-room держат compact spacing:
+  - межбабловый gap должен быть tight, а не воздухом на пол-экрана
+  - time-row не должен оставлять жирный пустой хвост под текстом
+- bubble с `thread-pill` ниже должен оставаться единым блоком:
+  - нижние углы bubble не должны снова скругляться из-за новой wrapper-иерархии
 - staff archive для треда — отдельный moderation-контур:
   - archive reason = `admin-archived`
   - archived thread пропадает из user thread inbox

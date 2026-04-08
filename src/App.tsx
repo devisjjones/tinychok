@@ -12984,6 +12984,31 @@ function App() {
               )
               const isImageOnlyBubble = hasImageAttachment && comment.text.trim().length === 0
               const replyReference = comment.replyTo
+              const commentAuthorNode = !mine ? (
+                participant ? (
+                  <div className="bubble-sender">
+                    <span className="bubble-sender-avatar-stack">
+                      <span
+                        className="avatar bubble-sender-avatar"
+                        style={{ backgroundColor: participant.accent }}
+                      >
+                        {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
+                      </span>
+                      {participant.online ? (
+                        <span className="bubble-sender-presence-dot" aria-label="В сети" />
+                      ) : null}
+                    </span>
+                    <span className="bubble-sender-name">{participant.title}</span>
+                    {participant.premium ? (
+                      <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+                        <img src="/icons/crown64.png" alt="" />
+                      </span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
+                )
+              ) : null
 
               return (
                 <AttachedReplyBubble
@@ -13010,31 +13035,7 @@ function App() {
                           )
                         }}
                       >
-                        {mine ? (
-                          <span className="bubble-meta">Вы</span>
-                        ) : participant ? (
-                          <div className="bubble-sender">
-                            <span className="bubble-sender-avatar-stack">
-                              <span
-                                className="avatar bubble-sender-avatar"
-                                style={{ backgroundColor: participant.accent }}
-                              >
-                                {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
-                              </span>
-                              {participant.online ? (
-                                <span className="bubble-sender-presence-dot" aria-label="В сети" />
-                              ) : null}
-                            </span>
-                            <span className="bubble-sender-name">{participant.title}</span>
-                            {participant.premium ? (
-                              <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
-                                <img src="/icons/crown64.png" alt="" />
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
-                        )}
+                        {commentAuthorNode}
                         <BubbleMessageContent
                           imageOverlay={
                             hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
@@ -13072,31 +13073,7 @@ function App() {
                           )
                         }}
                       >
-                        {mine ? (
-                          <span className="bubble-meta">Вы</span>
-                        ) : participant ? (
-                          <div className="bubble-sender">
-                            <span className="bubble-sender-avatar-stack">
-                              <span
-                                className="avatar bubble-sender-avatar"
-                                style={{ backgroundColor: participant.accent }}
-                              >
-                                {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
-                              </span>
-                              {participant.online ? (
-                                <span className="bubble-sender-presence-dot" aria-label="В сети" />
-                              ) : null}
-                            </span>
-                            <span className="bubble-sender-name">{participant.title}</span>
-                            {participant.premium ? (
-                              <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
-                                <img src="/icons/crown64.png" alt="" />
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
-                        )}
+                        {commentAuthorNode}
                         <BubbleMessageContent
                           imageOverlay={
                             hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined

@@ -3311,7 +3311,19 @@
 }
 
 .threaded-bubble.has-thread .threaded-bubble-main > .bubble,
+.threaded-bubble.has-thread .threaded-bubble-main > .bubble-author-layout > .bubble,
+.threaded-bubble.has-thread .threaded-bubble-main > .bubble-author-layout > .media-bubble-row > .bubble,
 .threaded-bubble.has-thread .threaded-bubble-main > .bubble-stack > .bubble-stack-main > .bubble {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.threaded-bubble.has-thread
+  .threaded-bubble-main
+  > .bubble-stack
+  > .bubble-stack-main
+  > .bubble-author-layout
+  > .bubble {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
@@ -4960,6 +4972,27 @@
   font-size: 0.8rem;
   line-height: 14px;
   opacity: 0.72;
+}
+
+.group-room-feed,
+.room-thread-feed {
+  gap: 3px;
+}
+
+.group-room-feed .bubble:not(.media-only-bubble),
+.room-thread-feed .bubble:not(.media-only-bubble) {
+  padding-top: 14px;
+  padding-bottom: 12px;
+}
+
+.group-room-feed .bubble:not(.media-only-bubble) time,
+.room-thread-feed .bubble:not(.media-only-bubble) time {
+  margin-top: 5px;
+}
+
+.group-room-feed .bubble:not(.media-only-bubble) .bubble-delivery-indicator,
+.room-thread-feed .bubble:not(.media-only-bubble) .bubble-delivery-indicator {
+  bottom: 12px;
 }
 
 .bubble.has-delivery-indicator time {

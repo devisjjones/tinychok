@@ -1933,7 +1933,8 @@ test('standard group text bubbles render the author strip above the bubble inste
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(groupRoomSource, /const shouldRenderExternalGroupAuthor =/u)
-  assert.match(groupRoomSource, /message\.author !== 'me' && !isImageOnlyBubble && !isGroupCaptionedImageBubble/u)
+  assert.match(groupRoomSource, /const groupMediaAuthor = renderGroupMediaAuthor\(message, groupParticipant\)/u)
+  assert.match(groupRoomSource, /Boolean\(groupMediaAuthor\) && !isImageOnlyBubble && !isGroupCaptionedImageBubble/u)
   assert.match(groupRoomSource, /className=\{shouldRenderExternalGroupAuthor \? 'bubble-author-layout' : undefined\}/u)
   assert.match(groupRoomSource, /className="bubble-author-strip"/u)
   assert.match(groupRoomSource, /data-bubble-measure=\{shouldRenderExternalGroupAuthor \? 'true' : undefined\}/u)
@@ -1986,6 +1987,48 @@ test('threaded media bubbles keep the image flush with the comments pill without
   assert.match(
     appCss,
     /generic \.bubble\.mine rule lands later[\s\S]*reintroduce bottom rounding/u,
+  )
+})
+
+test('group and thread comment bubbles keep self labels implicit and stack with compact merged geometry', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const overlaySource = readFileSync(
+    join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'),
+    'utf8',
+  )
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(groupRoomSource, /function renderGroupMediaAuthor[\s\S]*if \(message\.author === 'me'\) \{\s*return null/u)
+  assert.doesNotMatch(
+    groupRoomSource,
+    /function renderGroupMediaAuthor[\s\S]*return <span className="bubble-meta">Вы<\/span>/u,
+  )
+  assert.match(groupRoomSource, /const groupMediaAuthor = renderGroupMediaAuthor\(message, groupParticipant\)/u)
+  assert.match(groupRoomSource, /groupMediaAuthor \? \(\s*<button[\s\S]*bubble-media-header bubble-media-header-button/u)
+  assert.match(groupRoomSource, /isGroupCaptionedImageBubble && groupMediaAuthor/u)
+  assert.match(groupRoomSource, /className="message-feed group-room-feed"/u)
+  assert.match(appSource, /const commentAuthorNode = !mine \?/u)
+  assert.match(appSource, /\{commentAuthorNode\}/u)
+  assert.match(overlaySource, /function renderGroupOverlayAuthor[\s\S]*if \(mine\) \{\s*return null/u)
+  assert.doesNotMatch(
+    overlaySource,
+    /function renderGroupOverlayAuthor[\s\S]*return <span className="bubble-meta">Вы<\/span>/u,
+  )
+  assert.match(appCss, /\.group-room-feed,\s*\.room-thread-feed \{\s*gap: 3px;/u)
+  assert.match(
+    appCss,
+    /\.group-room-feed \.bubble:not\(\.media-only-bubble\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.group-room-feed \.bubble:not\(\.media-only-bubble\) time,\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\) time \{\s*margin-top: 5px;/u,
+  )
+  assert.match(appCss, /\.threaded-bubble\.has-thread \.threaded-bubble-main > \.bubble-author-layout > \.bubble,/u)
+  assert.match(
+    appCss,
+    /\.threaded-bubble\.has-thread[\s\S]*> \.bubble-stack[\s\S]*> \.bubble-author-layout[\s\S]*border-bottom-right-radius: 0;/u,
   )
 })
 

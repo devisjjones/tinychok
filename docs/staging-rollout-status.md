@@ -258,6 +258,12 @@
 - server-side read marker треда не должен опираться только на timestamp:
   - same-millisecond комментарии не должны оставлять зависшее `unread = 1`
 - пока тред открыт и видим пользователю, список тредов не должен дёргаться из-за stale unread-сортировки
+- comments-room UI smoke:
+  - root card тянется до тех же краёв, что и header comments-room
+  - scrolling comments клипаются прямо по нижней границе root-card, без пустой полосы
+  - own group/comment bubbles не показывают отдельную строку `Вы`
+  - bubble text/time layout остаётся compact и не раздувает высоту карточки лишним whitespace
+  - bubble с комментариями и нижняя `thread-pill` визуально сливаются без возвращённого нижнего скругления у bubble
 - admin archive smoke:
   - в admin detail треда есть `Архивировать тред` / `Разархивировать тред`
   - после архивации тред исчезает из user thread inbox и не открывается пользователю как comments-room

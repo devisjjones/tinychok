@@ -101,7 +101,7 @@ function renderGroupOverlayAuthor(
   participant?: GroupParticipant | null,
 ) {
   if (mine) {
-    return <span className="bubble-meta">Вы</span>
+    return null
   }
 
   if (participant) {
@@ -161,6 +161,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       props.comment.attachment && isImageMimeType(props.comment.attachment.mimeType),
     )
     const isImageOnlyBubble = hasImageAttachment && props.comment.text.trim().length === 0
+    const authorNode = renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
 
     return (
       <div
@@ -169,11 +170,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         aria-hidden="true"
       >
         {isImageOnlyBubble ? (
-          <div className="bubble-media-header">
-            {renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)}
-          </div>
+          authorNode ? <div className="bubble-media-header">{authorNode}</div> : null
         ) : (
-          renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
+          authorNode
         )}
         <BubbleMessageContent
           imageOverlay={
@@ -217,6 +216,10 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     !props.message.sourceChannel &&
     !props.message.sourceContact &&
     !props.message.sourceGroup
+  const groupOverlayAuthorNode =
+    props.kind === 'group'
+      ? renderGroupOverlayAuthor(props.message.author === 'me', props.message.displayAuthor, props.participant)
+      : null
   const shouldRenderExternalGroupAuthor =
     props.kind === 'group' &&
     props.message.author !== 'me' &&
@@ -268,21 +271,11 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         ) : null
       ) : (
         isImageOnlyBubble ? (
-          <div className="bubble-media-header">
-            {renderGroupOverlayAuthor(
-              props.message.author === 'me',
-              props.message.displayAuthor,
-              props.participant,
-            )}
-          </div>
+          groupOverlayAuthorNode ? <div className="bubble-media-header">{groupOverlayAuthorNode}</div> : null
         ) : isGroupCaptionedImageBubble ? (
-          <div className="bubble-media-header bubble-media-header-captioned">
-            {renderGroupOverlayAuthor(
-              props.message.author === 'me',
-              props.message.displayAuthor,
-              props.participant,
-            )}
-          </div>
+          groupOverlayAuthorNode ? (
+            <div className="bubble-media-header bubble-media-header-captioned">{groupOverlayAuthorNode}</div>
+          ) : null
         ) : null
       )}
       {props.message.sourceChannel ? (
