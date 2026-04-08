@@ -3839,6 +3839,7 @@ function buildThreadInbox(
       )
 
       upsertThreadInboxItem({
+        avatarImage: group.avatarImage,
         commentCount: comments.length,
         groupAccent: group.accent,
         groupId: group.id,
@@ -3907,6 +3908,7 @@ function buildThreadInbox(
       )
 
       upsertThreadInboxItem({
+        avatarImage: channel.avatarImage,
         channelAccent: channel.accent,
         channelId: channel.id,
         channelTitle: channel.title,

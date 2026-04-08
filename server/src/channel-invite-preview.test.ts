@@ -1555,6 +1555,7 @@ test('root author gets unread thread inbox notifications for group replies witho
 
   const dialogResponse = await store.openDirectDialog(ownerToken, { identifier: invited.identifier })
   await store.createGroup(ownerToken, {
+    avatarImage: 'https://cdn.example.test/group-thread-avatar.png',
     memberDialogIds: [dialogResponse.dialogId],
     title: 'Тред root-author группы',
   })
@@ -1604,6 +1605,7 @@ test('root author gets unread thread inbox notifications for group replies witho
 
   assert.ok(ownerInboxItem)
   assert.equal(ownerInboxItem?.kind, 'group')
+  assert.equal(ownerInboxItem?.avatarImage, 'https://cdn.example.test/group-thread-avatar.png')
   assert.equal(ownerInboxItem?.unreadCount, 1)
 })
 
@@ -1659,6 +1661,7 @@ test('channel post owner gets unread thread inbox notifications for subscriber r
   const invitedToken = createSession(database, invited.identifier, 'channel-thread-root-invited')
 
   const createdChannel = await store.createManagedChannel(ownerToken, {
+    avatarImage: 'https://cdn.example.test/channel-thread-avatar.png',
     avatarTone: '#8c5738',
     commentsEnabledForAll: true,
     directLink: '@thread-root-owner-channel',
@@ -1694,6 +1697,7 @@ test('channel post owner gets unread thread inbox notifications for subscriber r
 
   assert.ok(ownerInboxItem)
   assert.equal(ownerInboxItem?.kind, 'channel')
+  assert.equal(ownerInboxItem?.avatarImage, 'https://cdn.example.test/channel-thread-avatar.png')
   assert.equal(ownerInboxItem?.unreadCount, 1)
 })
 

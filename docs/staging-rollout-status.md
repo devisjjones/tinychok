@@ -268,6 +268,7 @@
 - comments-room UI smoke:
   - root card тянется до тех же краёв, что и header comments-room
   - scrolling comments клипаются прямо по нижней границе root-card, без пустой полосы
+  - thread inbox card reuse-ит avatar группы/канала-источника; placeholder initials допустим только без `avatarImage`
   - own group/comment bubbles не показывают отдельную строку `Вы`
   - bubble text/time layout остаётся compact и не раздувает высоту карточки лишним whitespace
   - bubble с комментариями и нижняя `thread-pill` визуально сливаются без возвращённого нижнего скругления у bubble

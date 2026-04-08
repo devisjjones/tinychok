@@ -398,12 +398,21 @@ test('thread inbox keeps participants subscribed and protects unread counts from
 test('thread inbox renders dedicated thread cards instead of reusing group-like titles as the main heading', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const sharedTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'types.ts'), 'utf8')
+  const storeSource = readFileSync(join(repoRoot, 'server', 'src', 'store.ts'), 'utf8')
 
+  assert.match(sharedTypesSource, /export type GroupThreadInboxItem = \{[\s\S]*avatarImage\?: string/u)
+  assert.match(sharedTypesSource, /export type ChannelThreadInboxItem = \{[\s\S]*avatarImage\?: string/u)
+  assert.match(storeSource, /avatarImage: group\.avatarImage,[\s\S]*groupAccent: group\.accent/u)
+  assert.match(storeSource, /avatarImage: channel\.avatarImage,[\s\S]*channelAccent: channel\.accent/u)
   assert.match(appSource, /const formatThreadInboxTitle = \(item: ThreadInboxItem\) =>/u)
   assert.match(appSource, /const formatThreadInboxContextLabel = \(item: ThreadInboxItem\) =>/u)
+  assert.match(appSource, /const resolveThreadInboxAvatarImage = \(item: ThreadInboxItem\) =>/u)
   assert.match(appSource, /const formatThreadInboxPreview = \(item: ThreadInboxItem\) =>/u)
   assert.match(appSource, /<strong className="chat-name-text">\{formatThreadInboxTitle\(item\)\}<\/strong>/u)
   assert.match(appSource, /<span className="chat-handle">\{formatThreadInboxContextLabel\(item\)\}<\/span>/u)
+  assert.match(appSource, /const threadInboxAvatarImage = resolveThreadInboxAvatarImage\(item\)/u)
+  assert.match(appSource, /threadInboxAvatarImage \? \(\s*<img src=\{threadInboxAvatarImage\} alt="" className="channel-avatar-image" \/>\s*\)/u)
   assert.match(appSource, /\{formatThreadInboxPreview\(item\)\}/u)
 })
 

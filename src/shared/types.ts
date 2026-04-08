@@ -84,6 +84,7 @@ export type ThreadComment = {
 }
 
 export type GroupThreadInboxItem = {
+  avatarImage?: string
   kind: 'group'
   commentCount: number
   groupAccent: string
@@ -102,6 +103,7 @@ export type GroupThreadInboxItem = {
 }
 
 export type ChannelThreadInboxItem = {
+  avatarImage?: string
   kind: 'channel'
   channelAccent: string
   channelId: number

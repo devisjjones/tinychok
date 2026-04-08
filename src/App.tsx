@@ -2860,6 +2860,13 @@ function App() {
 
     return `${roomLabel} · ${activityLabel}`
   }
+  const resolveThreadInboxAvatarImage = (item: ThreadInboxItem) => {
+    if (item.kind === 'group') {
+      return groups.find((group) => group.id === item.groupId)?.avatarImage ?? item.avatarImage
+    }
+
+    return subscriptionChannels.find((channel) => channel.id === item.channelId)?.avatarImage ?? item.avatarImage
+  }
   const formatThreadInboxPreview = (item: ThreadInboxItem) => {
     const latestCommentText = item.latestCommentText.trim()
     if (!latestCommentText) {
@@ -5526,6 +5533,7 @@ function App() {
       const latestComment = comments.at(-1)
 
       return {
+        avatarImage: group.avatarImage,
         commentCount: comments.length,
         groupAccent: group.accent,
         groupId: group.id,
@@ -5552,6 +5560,7 @@ function App() {
     const latestComment = comments.at(-1)
 
     return {
+      avatarImage: channel.avatarImage,
       channelAccent: channel.accent,
       channelId: channel.id,
       channelTitle: channel.title,
@@ -15410,29 +15419,36 @@ function App() {
         ) : isThreadsTopListOpen ? (
           <div className="chat-list">
             {orderedThreadInbox.length > 0 ? (
-              orderedThreadInbox.map((item) => (
-                <button
-                  key={item.threadId}
-                  type="button"
-                  className={[
-                    'chat-card',
-                    'chat-card-compact',
-                    activeThreadId === item.threadId ? 'active' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  onClick={() => openThreadInboxItem(item)}
-                >
-                  <span
-                    className="avatar"
-                    style={{
-                      backgroundColor: item.kind === 'group' ? item.groupAccent : item.channelAccent,
-                    }}
+              orderedThreadInbox.map((item) => {
+                const threadInboxAvatarImage = resolveThreadInboxAvatarImage(item)
+
+                return (
+                  <button
+                    key={item.threadId}
+                    type="button"
+                    className={[
+                      'chat-card',
+                      'chat-card-compact',
+                      activeThreadId === item.threadId ? 'active' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={() => openThreadInboxItem(item)}
                   >
-                    {item.kind === 'group'
-                      ? formatChannelAvatarLabel(item.groupTitle)
-                      : formatChannelAvatarLabel(item.channelTitle)}
-                  </span>
+                    <span
+                      className="avatar"
+                      style={{
+                        backgroundColor: item.kind === 'group' ? item.groupAccent : item.channelAccent,
+                      }}
+                    >
+                      {threadInboxAvatarImage ? (
+                        <img src={threadInboxAvatarImage} alt="" className="channel-avatar-image" />
+                      ) : item.kind === 'group' ? (
+                        formatChannelAvatarLabel(item.groupTitle)
+                      ) : (
+                        formatChannelAvatarLabel(item.channelTitle)
+                      )}
+                    </span>
                     <span className="chat-copy">
                       <span className="chat-topline">
                         <span className="chat-name-row">
@@ -15465,8 +15481,9 @@ function App() {
                         {formatThreadInboxPreview(item)}
                       </span>
                     </span>
-                </button>
-              ))
+                  </button>
+                )
+              })
             ) : (
               <article className="chat-card search-card">
                 <span className="chat-copy">

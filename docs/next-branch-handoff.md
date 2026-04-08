@@ -486,6 +486,7 @@
   - groups
   - channels
   - thread inbox
+- thread inbox card reuse-ит `avatarImage` source room, а не synthetic initials, когда у группы/канала уже есть avatar
 - `Настройки режима "Тихо"` — отдельная settings-scene и release-blocking контракт
 - `quietModeSettings` хранится server-side в `Session/Account` и должен нормализоваться к дефолтам:
   - `dialogs=true`

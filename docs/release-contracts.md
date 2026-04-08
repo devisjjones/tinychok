@@ -490,6 +490,10 @@
   - при same-millisecond комментариях server-side mark-read обязан использовать identity последнего видимого комментария
   - сценарий `unread = 1` после простого чтения считается регрессией
 - пока тред открыт и видим пользователю, client/server не должны оставлять stale unread и не должны дёргать сортировку inbox так, будто unread всё ещё висит
+- thread inbox card обязана reuse-ить avatar источника:
+  - group-thread тянет avatar группы
+  - channel-thread тянет avatar канала
+  - initials допустимы только как fallback, когда `avatarImage` отсутствует
 
 ### 13. Admin Archive Contract For Groups And Threads
 
