@@ -2561,7 +2561,9 @@ function App() {
   const activeThreadInboxItem = activeThreadId
     ? threadInbox.find((item) => item.threadId === activeThreadId) ?? null
     : null
-  const activeThreadServerUnreadCount = activeThreadInboxItem?.unreadCount ?? 0
+  const activeThreadServerUnreadCount =
+    activeThreadInboxItem?.unreadCount ??
+    (threadTarget?.kind === 'support' ? activeSupportTicket?.unreadCount ?? 0 : 0)
   const activeThreadLatestActivityAt =
     activeThreadInboxItem?.latestActivityAt ??
     (threadTarget?.kind === 'group'
@@ -5581,6 +5583,23 @@ function App() {
     )
   }
 
+  function applyLocalSupportTicketRead(ticketId: number) {
+    const unreadCount = supportTickets.find((ticket) => ticket.id === ticketId)?.unreadCount ?? 0
+    if (unreadCount <= 0) return
+
+    setSupportTickets((currentTickets) =>
+      currentTickets.map((ticket) =>
+        ticket.id === ticketId
+          ? {
+              ...ticket,
+              unreadCount: 0,
+            }
+          : ticket,
+      ),
+    )
+    setSupportUnreadCount((currentUnreadCount) => Math.max(0, currentUnreadCount - unreadCount))
+  }
+
   function applyLocalThreadSubscription(
     target: {
       kind: 'group'
@@ -7327,7 +7346,9 @@ function App() {
       threadId: string
     },
   ) => {
-    if (target.kind !== 'support') {
+    if (target.kind === 'support') {
+      applyLocalSupportTicketRead(target.ticketId)
+    } else {
       applyLocalThreadRead(target.threadId)
     }
 
@@ -7350,7 +7371,7 @@ function App() {
     } catch (error) {
       console.error('Failed to mark thread as read', error)
     }
-  }, [applySnapshot, backendReady, session?.sessionToken])
+  }, [applySnapshot, backendReady, session?.sessionToken, supportTickets])
 
   useEffect(() => {
     if (!threadTarget || !activeThreadId || !documentVisible || activeThreadServerUnreadCount <= 0) {

@@ -298,6 +298,9 @@
 - staff/support отвечает из admin queue `Поддержка`, а пользователю reply приходит как unread comment внутри тикета
 - unread dot на кнопке `Написать в поддержку` в настройках считается release-blocking контрактом
 - тот же unread badge обязан зеркалиться и на нижнюю кнопку `Настройки`, чтобы ответ поддержки был виден до входа в support-scene
+- support-thread read-sync нельзя завязывать только на `threadInbox`:
+  - source of truth для открытого тикета = `supportTicket.unreadCount`
+  - opening support-thread должно локально и серверно сбрасывать unread даже без `threadInbox` item
 - badge на кнопке `Написать в поддержку` не должен использовать глобальный absolute-layout `badge`:
   - он должен оставаться внутри самой support-кнопки
   - отдельная мигающая точка в правом верхнем углу profile-scene считается регрессией

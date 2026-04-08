@@ -413,7 +413,10 @@ test('open thread read sync clears visible unread for an open thread and re-runs
 
   assert.match(appSource, /const activeThreadReadSyncKeyRef = useRef<string \| null>\(null\)/u)
   assert.match(appSource, /const activeThreadLatestActivityAt =/u)
-  assert.match(appSource, /const activeThreadServerUnreadCount = activeThreadInboxItem\?\.unreadCount \?\? 0/u)
+  assert.match(
+    appSource,
+    /const activeThreadServerUnreadCount =[\s\S]*activeThreadInboxItem\?\.unreadCount[\s\S]*threadTarget\?\.kind === 'support' \? activeSupportTicket\?\.unreadCount \?\? 0 : 0/u,
+  )
   assert.match(appSource, /const activeVisibleThreadId =[\s\S]*threadTarget && documentVisible && activeThreadId \? activeThreadId : null/u)
   assert.match(appSource, /const visibleThreadInbox = activeVisibleThreadId[\s\S]*item\.threadId === activeVisibleThreadId[\s\S]*unreadCount: 0/u)
   assert.match(appSource, /threadGroupMessage\?\.threadComments\?\.at\(-1\)\?\.createdAt \?\? threadGroupMessage\?\.createdAt/u)
@@ -2655,6 +2658,9 @@ test('support chat contract stays wired through app, store, admin surface and do
   assert.match(appSource, /if \(effectiveSupportTicketCooldownUntil\) \{\s*return\s*\}[\s\S]{0,220}resolveSupportCooldownUntilFromTickets\(supportTickets, supportCooldownNow\)/u)
   assert.match(appSource, /sendSupportTicketCommentRequest/u)
   assert.match(appSource, /markSupportTicketReadRequest/u)
+  assert.match(appSource, /function applyLocalSupportTicketRead\(ticketId: number\)/u)
+  assert.match(appSource, /setSupportUnreadCount\(\(currentUnreadCount\) => Math\.max\(0, currentUnreadCount - unreadCount\)\)/u)
+  assert.match(appSource, /target\.kind === 'support'[\s\S]{0,160}applyLocalSupportTicketRead\(target\.ticketId\)/u)
   assert.match(appSource, /openSupportTicketThread/u)
   assert.match(appSource, /opening a support ticket must only open its thread/u)
   assert.match(appSource, /Support room lives only inside settings/u)
