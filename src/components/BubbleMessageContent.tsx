@@ -33,10 +33,31 @@ type BubbleImageOverlayMetaProps = {
   time: string
 }
 
+type AttachmentRemovedNoticeBlockProps = {
+  notice: NonNullable<Message['attachmentRemovedNotice']>
+}
+
 export function shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc: string | null | undefined) {
   return (
     deliveryIndicatorSrc === '/icons/check-mark-50.png' ||
     deliveryIndicatorSrc === '/icons/double-tick-50.png'
+  )
+}
+
+function AttachmentRemovedNoticeBlock({ notice }: AttachmentRemovedNoticeBlockProps) {
+  const showPremiumUpsell = notice.reason === 'storage-quota' && notice.perspective === 'self'
+
+  if (!showPremiumUpsell) {
+    return <p className="bubble-attachment-removed-note">{notice.text}</p>
+  }
+
+  return (
+    <p className="bubble-attachment-removed-note bubble-attachment-removed-note-premium">
+      <span>{notice.text}</span>
+      <span className="bubble-attachment-removed-note-crown" aria-hidden="true">
+        <img src="/icons/crown64.png" alt="" />
+      </span>
+    </p>
   )
 }
 
@@ -452,7 +473,7 @@ export function BubbleMessageContent({
         <BubbleRichText text={message.text} onOpenExternalLink={onOpenExternalLink} />
       ) : null}
       {message.attachmentRemovedNotice ? (
-        <p className="bubble-attachment-removed-note">{message.attachmentRemovedNotice.text}</p>
+        <AttachmentRemovedNoticeBlock notice={message.attachmentRemovedNotice} />
       ) : null}
     </>
   )

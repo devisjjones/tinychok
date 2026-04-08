@@ -165,12 +165,16 @@ test('attachment storage cleanup copy stays wired into preview and bubble render
   assert.match(attachmentPreviewSource, /composer-attachment-storage-warning/u)
   assert.match(bubbleSource, /attachmentRemovedNotice/u)
   assert.match(bubbleSource, /bubble-attachment-removed-note/u)
+  assert.match(bubbleSource, /AttachmentRemovedNoticeBlock/u)
+  assert.match(bubbleSource, /notice\.reason === 'storage-quota' && notice\.perspective === 'self'/u)
+  assert.match(bubbleSource, /bubble-attachment-removed-note-crown/u)
   assert.match(sharedUtilsSource, /attachmentRemovedNotice/u)
   assert.match(sharedTypesSource, /export type AttachmentRemovedNotice/u)
+  assert.match(sharedTypesSource, /perspective\?: 'author' \| 'peer' \| 'self'/u)
   assert.match(storeSource, /buildStorageQuotaAttachmentRemovedNoticeText/u)
-  assert.match(storeSource, /у собеседника закончилось место в хранилище/u)
-  assert.match(storeSource, /у автора сообщения закончилось место в хранилище/u)
-  assert.match(storeSource, /в вашем хранилище закончилось место/u)
+  assert.match(storeSource, /return 'Вложение скрыто\.'/u)
+  assert.match(storeSource, /return 'Вложение скрыто\. У вас закончилось место\. Оформите подписку\.'/u)
+  assert.match(storeSource, /perspective =\s*notice\.perspective === 'author'/u)
   assert.match(storeSource, /reclaimStorageForAttachmentUpload/u)
   assert.match(storeSource, /oldest previously sent attachments first/u)
   assert.match(storeSource, /restoreTargets\?: PersistedArchivedMediaRestoreTarget\[\]/u)
@@ -185,6 +189,8 @@ test('attachment storage cleanup copy stays wired into preview and bubble render
   assert.match(appCss, /\.composer-attachment-premium-upsell-copy/u)
   assert.match(appCss, /\.composer-attachment-premium-crown-brown img/u)
   assert.match(appCss, /\.bubble-attachment-removed-note/u)
+  assert.match(appCss, /\.bubble-attachment-removed-note-premium/u)
+  assert.match(appCss, /\.bubble-attachment-removed-note-crown img/u)
 })
 
 test('video attachments stay on the file flow but open in an in-app player instead of a download-only card', () => {
@@ -813,9 +819,11 @@ test('thread source attachments stay compact previews instead of full-room media
   assert.match(appSource, /room-thread-source-bubble-thumbnail/u)
   assert.match(appCssSource, /\.room-thread-source > \.bubble-stack,/u)
   assert.match(appCssSource, /\.room-thread-source > \.bubble-stack\.channel \{/u)
-  assert.match(appCssSource, /width: 100%;/u)
+  assert.match(appCssSource, /width: calc\(100% \+ 36px\);/u)
+  assert.match(appCssSource, /margin: 0 -18px;/u)
   assert.match(appCssSource, /\.room-thread-source \.channel-post\.room-thread-source-bubble,/u)
   assert.match(appCssSource, /max-width: 100%;/u)
+  assert.match(appCssSource, /box-sizing: border-box;/u)
   assert.match(
     appCssSource,
     /\.room-thread-source > \.bubble-stack > \.bubble-stack-main > \.room-thread-source-bubble,\s*\.room-thread-source > \.room-thread-source-bubble \{/u,
@@ -845,6 +853,7 @@ test('thread source attachments stay compact previews instead of full-room media
   assert.match(appCssSource, /width: min\(124px, 100%\)/u)
   assert.match(appCssSource, /height: 102px;/u)
   assert.match(appCssSource, /\.bubble-attachment-image-overlay/u)
+  assert.match(appCssSource, /\.room-thread-feed \{\s*min-height: 0;\s*padding-top: 0;/u)
 })
 
 test('thread source image cards use dedicated full-width card layouts for captioned and image-only roots', () => {

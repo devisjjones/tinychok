@@ -142,7 +142,8 @@ test('attachment quota cleanup evicts the oldest sent file and leaves a visible 
   assert.equal(senderMessages[0]?.attachment, undefined)
   assert.equal(senderMessages[0]?.text, '')
   assert.equal(senderMessages[0]?.attachmentRemovedNotice?.reason, 'storage-quota')
-  assert.match(senderMessages[0]?.attachmentRemovedNotice?.text ?? '', /вашем хранилище закончилось место/u)
+  assert.equal(senderMessages[0]?.attachmentRemovedNotice?.perspective, 'self')
+  assert.match(senderMessages[0]?.attachmentRemovedNotice?.text ?? '', /Вложение скрыто\. У вас закончилось место\. Оформите подписку\./u)
   assert.equal(senderMessages[1]?.attachment?.mediaUrl, 'uploads/attachment/fresh-doc.pdf')
 
   const peerDialogId = store
@@ -156,7 +157,8 @@ test('attachment quota cleanup evicts the oldest sent file and leaves a visible 
   assert.equal(peerMessages[0]?.attachment, undefined)
   assert.equal(peerMessages[0]?.text, '')
   assert.equal(peerMessages[0]?.attachmentRemovedNotice?.reason, 'storage-quota')
-  assert.match(peerMessages[0]?.attachmentRemovedNotice?.text ?? '', /вашем хранилище закончилось место/u)
+  assert.equal(peerMessages[0]?.attachmentRemovedNotice?.perspective, 'self')
+  assert.match(peerMessages[0]?.attachmentRemovedNotice?.text ?? '', /Вложение скрыто\. У вас закончилось место\. Оформите подписку\./u)
 
   const usage = store.getStorageUsageByToken(senderToken)
   assert.equal(usage.usedBytes, 20 * 1024 * 1024)
@@ -166,7 +168,8 @@ test('attachment quota cleanup evicts the oldest sent file and leaves a visible 
   assert.ok(senderChat)
   assert.equal(senderChat.messages[0]?.attachment, undefined)
   assert.equal(senderChat.messages[0]?.attachmentRemovedNotice?.reason, 'storage-quota')
-  assert.match(senderChat.messages[0]?.attachmentRemovedNotice?.text ?? '', /вашем хранилище закончилось место/u)
+  assert.equal(senderChat.messages[0]?.attachmentRemovedNotice?.perspective, 'self')
+  assert.match(senderChat.messages[0]?.attachmentRemovedNotice?.text ?? '', /Вложение скрыто\. У вас закончилось место\. Оформите подписку\./u)
 
   const latestMessageId = senderChat.messages.at(-1)?.id ?? 0
   const senderHistory = store.getDirectDialogHistory(senderToken, opened.dialogId, latestMessageId)
@@ -176,7 +179,11 @@ test('attachment quota cleanup evicts the oldest sent file and leaves a visible 
   assert.ok(senderHistoryRemovedMessage)
   assert.equal(senderHistoryRemovedMessage.attachment, undefined)
   assert.equal(senderHistoryRemovedMessage.text, '')
-  assert.match(senderHistoryRemovedMessage.attachmentRemovedNotice?.text ?? '', /вашем хранилище закончилось место/u)
+  assert.equal(senderHistoryRemovedMessage.attachmentRemovedNotice?.perspective, 'self')
+  assert.match(
+    senderHistoryRemovedMessage.attachmentRemovedNotice?.text ?? '',
+    /Вложение скрыто\. У вас закончилось место\. Оформите подписку\./u,
+  )
 
   const peerSnapshot = store.getSnapshotByToken(peerToken)
   const peerChat = peerSnapshot?.chats.find((chat) => chat.id === peerDialogId)
@@ -186,7 +193,8 @@ test('attachment quota cleanup evicts the oldest sent file and leaves a visible 
   )
   assert.ok(peerSnapshotRemovedMessage)
   assert.equal(peerSnapshotRemovedMessage.attachment, undefined)
-  assert.match(peerSnapshotRemovedMessage.attachmentRemovedNotice?.text ?? '', /у собеседника закончилось место/u)
+  assert.equal(peerSnapshotRemovedMessage.attachmentRemovedNotice?.perspective, 'peer')
+  assert.equal(peerSnapshotRemovedMessage.attachmentRemovedNotice?.text, 'Вложение скрыто.')
 
   const peerLatestMessageId = peerChat.messages.at(-1)?.id ?? 0
   const peerHistory = store.getDirectDialogHistory(peerToken, peerDialogId, peerLatestMessageId)
@@ -196,7 +204,8 @@ test('attachment quota cleanup evicts the oldest sent file and leaves a visible 
   assert.ok(peerHistoryRemovedMessage)
   assert.equal(peerHistoryRemovedMessage.attachment, undefined)
   assert.equal(peerHistoryRemovedMessage.text, '')
-  assert.match(peerHistoryRemovedMessage.attachmentRemovedNotice?.text ?? '', /у собеседника закончилось место/u)
+  assert.equal(peerHistoryRemovedMessage.attachmentRemovedNotice?.perspective, 'peer')
+  assert.equal(peerHistoryRemovedMessage.attachmentRemovedNotice?.text, 'Вложение скрыто.')
 })
 
 test('linked historical uploads no longer pin storage usage after attachment cleanup', async () => {

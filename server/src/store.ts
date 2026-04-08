@@ -549,17 +549,15 @@ type AttachmentRemovedNoticePerspective = 'author' | 'peer' | 'self'
 function buildStorageQuotaAttachmentRemovedNoticeText(
   perspective: AttachmentRemovedNoticePerspective,
 ) {
-  // Keep owner/viewer copy distinct. Premium readers on the other side must not
-  // see a misleading "your storage is full" notice when the sender ran out of quota.
   if (perspective === 'peer') {
-    return 'Вложение удалено автоматически, потому что у собеседника закончилось место в хранилище.'
+    return 'Вложение скрыто.'
   }
 
   if (perspective === 'author') {
-    return 'Вложение удалено автоматически, потому что у автора сообщения закончилось место в хранилище.'
+    return 'Вложение скрыто.'
   }
 
-  return 'Вложение удалено автоматически, потому что в вашем хранилище закончилось место.'
+  return 'Вложение скрыто. У вас закончилось место. Оформите подписку.'
 }
 
 function buildStorageManualAttachmentRemovedNoticeText(
@@ -735,6 +733,10 @@ function sanitizeAttachmentRemovedNotice(
 
   const reason = notice.reason === 'storage-manual' ? notice.reason : 'storage-quota'
   const removedAt = notice.removedAt?.trim() || new Date().toISOString()
+  const perspective =
+    notice.perspective === 'author' || notice.perspective === 'peer' || notice.perspective === 'self'
+      ? notice.perspective
+      : undefined
   const text =
     notice.text?.replace(/\s+/g, ' ').trim().slice(0, 240) ||
     (reason === 'storage-manual'
@@ -742,6 +744,7 @@ function sanitizeAttachmentRemovedNotice(
       : buildStorageQuotaAttachmentRemovedNoticeText('self'))
 
   return {
+    perspective,
     reason,
     removedAt,
     text,
@@ -900,6 +903,7 @@ function materializeAttachmentRemovedNoticeForViewer(
   // viewer-aware so the owner and the reader understand whose storage action caused it.
   return {
     ...sanitizedNotice,
+    perspective,
     text: textBuilder(perspective),
   }
 }
@@ -14519,6 +14523,7 @@ export class TinychokStore {
   ): NonNullable<Message['attachmentRemovedNotice']> {
     const perspective = subject.kind === 'user' ? 'self' : 'author'
     return {
+      perspective,
       reason,
       removedAt: new Date().toISOString(),
       text:

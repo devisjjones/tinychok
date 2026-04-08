@@ -4495,6 +4495,27 @@
   color: rgba(125, 80, 52, 0.86);
 }
 
+.bubble-attachment-removed-note-premium {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 4px;
+}
+
+.bubble-attachment-removed-note-crown {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  transform: translateY(1px);
+}
+
+.bubble-attachment-removed-note-crown img {
+  width: 0.95em;
+  height: 0.95em;
+  object-fit: contain;
+}
+
 .composer-attachment-preview {
   position: relative;
   display: flex;
@@ -6427,21 +6448,23 @@
 
 .room-thread-source {
   display: grid;
-  gap: 10px;
-  padding: 0 0 8px;
+  gap: 0;
+  padding: 0;
   justify-items: stretch;
 }
 
 .room-thread-source > .bubble-stack,
 .room-thread-source > .bubble-stack.channel {
-  width: 100%;
-  max-width: 100%;
+  width: calc(100% + 36px);
+  max-width: calc(100% + 36px);
+  margin: 0 -18px;
 }
 
 .room-thread-source .channel-post.room-thread-source-bubble,
 .room-thread-source .channel-post.room-thread-source-bubble.media-only-bubble {
   width: 100%;
   max-width: 100%;
+  box-sizing: border-box;
 }
 
 .room-thread-source > .bubble-stack > .bubble-stack-main {
@@ -6454,6 +6477,13 @@
   width: 100%;
   max-width: 100%;
   justify-self: stretch;
+  box-sizing: border-box;
+}
+
+.room-thread-source > .room-thread-source-bubble {
+  width: calc(100% + 36px);
+  max-width: calc(100% + 36px);
+  margin: 0 -18px;
 }
 
 .room-thread-source > .bubble-stack > .bubble-stack-main > .room-thread-source-bubble > p,
@@ -6756,6 +6786,7 @@
 
 .room-thread-feed {
   min-height: 0;
+  padding-top: 0;
 }
 
 .room-thread-empty-copy {

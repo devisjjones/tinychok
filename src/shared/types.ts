@@ -12,6 +12,7 @@ export type MessageAttachment = {
 }
 
 export type AttachmentRemovedNotice = {
+  perspective?: 'author' | 'peer' | 'self'
   removedAt: string
   reason: 'storage-quota' | 'storage-manual'
   text: string
