@@ -3075,6 +3075,8 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(directRoomSource, /<RoomComposer/u)
   assert.match(groupRoomSource, /<textarea/u)
   assert.match(channelRoomSource, /<textarea/u)
+  assert.match(groupRoomSource, /rows=\{1\}/u)
+  assert.match(channelRoomSource, /rows=\{1\}/u)
   assert.match(appSource, /<RoomComposer/u)
   assert.match(roomComposerSource, /<textarea/u)
   assert.match(roomComposerSource, /rows=\{1\}/u)

@@ -668,6 +668,7 @@ export function GroupRoom({
                   <textarea
                     ref={draftInputRef}
                     placeholder={composerPlaceholder}
+                    rows={1}
                     value={draft}
                     onFocus={onComposerFocus}
                     onChange={(event) => onDraftChange(event.target.value)}

@@ -406,6 +406,7 @@ export function SubscriptionChannelRoom({
                   <textarea
                     ref={publisherInputRef}
                     placeholder={publisherPlaceholder}
+                    rows={1}
                     value={publisherDraft}
                     onChange={(event) => publisherOnDraftChange?.(event.target.value)}
                     onPaste={(event) => publisherOnComposerPaste?.(event)}
