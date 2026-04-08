@@ -335,6 +335,7 @@
 - допускается различаться только contextual copy placeholder-а и support wrapper modifier class
 - live staging smoke на `2026-04-08` подтвердил:
   - direct / support / thread совпадают по textarea styles и tool buttons contract
+  - idle textarea у общего composer держим визуально однострочной
   - mobile `390px` не даёт horizontal overflow у composer-а
 - rich-text toolbar с `B / I / U / S` и `contenteditable` откатили как регрессивный surface
 - если кто-то снова будет возвращать форматирование текста, нужно отдельно перепроверять:

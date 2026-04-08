@@ -5191,9 +5191,9 @@
 
 .composer textarea {
   resize: none;
-  min-height: 56px;
+  min-height: 48px;
   max-height: min(50dvh, 320px);
-  padding: 15px 148px 18px 16px;
+  padding: 11px 148px 11px 16px;
   border-radius: 18px;
   line-height: 1.45;
   overflow-y: auto;

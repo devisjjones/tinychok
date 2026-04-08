@@ -283,6 +283,7 @@
 - support-room не появляется в обычных `Диалогах`
 - support-scene, direct dialog и thread room должны держать один и тот же plain-text composer contract
 - placeholder copy может отличаться по контексту, но textarea geometry и toolbar/buttons contract должны совпадать
+- в idle state composer должен выглядеть как однострочное поле ввода
 - mobile smoke для этой зоны обязателен:
   - на `390px` composer должен полностью помещаться в viewport без horizontal overflow
 - отправка root message создаёт `Тикет #N`

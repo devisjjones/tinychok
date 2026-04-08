@@ -3080,6 +3080,8 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(sharedUtilsSource, /type ComposerTextInputElement = HTMLTextAreaElement \| HTMLDivElement/u)
   assert.match(sharedUtilsSource, /insertComposerTextAtCursor/u)
   assert.match(appCss, /\.composer textarea/u)
+  assert.match(appCss, /\.composer textarea\s*\{[\s\S]*min-height:\s*48px;/u)
+  assert.match(appCss, /\.composer textarea\s*\{[\s\S]*padding:\s*11px 148px 11px 16px;/u)
   assert.doesNotMatch(appCss, /\.composer-format-toolbar/u)
   assert.doesNotMatch(appCss, /\.composer-rich-input/u)
   assert.doesNotMatch(appCss, /\.composer-editor-surface/u)

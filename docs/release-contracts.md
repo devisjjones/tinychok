@@ -439,6 +439,7 @@
   - placeholder
   - support wrapper modifier class
 - textarea geometry, tool buttons и send-path layout не должны расходиться между direct / support / thread
+- idle textarea должна выглядеть как однострочное поле, а не как двухстрочный блок
 - mobile viewport тоже входит в контракт:
   - composer не должен давать horizontal overflow на `390px` ширине
 - rich-text toolbar с `B / I / U / S` и `contenteditable` не считается разрешённым user-facing surface, пока не будет возвращён без regressions в:
