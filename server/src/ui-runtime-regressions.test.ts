@@ -3077,6 +3077,7 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(channelRoomSource, /<textarea/u)
   assert.match(appSource, /<RoomComposer/u)
   assert.match(roomComposerSource, /<textarea/u)
+  assert.match(roomComposerSource, /rows=\{1\}/u)
   assert.match(sharedUtilsSource, /type ComposerTextInputElement = HTMLTextAreaElement \| HTMLDivElement/u)
   assert.match(sharedUtilsSource, /insertComposerTextAtCursor/u)
   assert.match(appCss, /\.composer textarea/u)

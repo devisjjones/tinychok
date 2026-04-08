@@ -136,6 +136,7 @@ export function RoomComposer({
             <textarea
               ref={draftInputRef}
               placeholder={placeholder}
+              rows={1}
               value={draft}
               onChange={(event) => onDraftChange(event.target.value)}
               onPaste={onComposerPaste}
