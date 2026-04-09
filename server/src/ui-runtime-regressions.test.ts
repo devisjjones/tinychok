@@ -1135,7 +1135,7 @@ test('thread source image cards use dedicated full-width card layouts for captio
   )
   assert.match(
     appCssSource,
-    /\.room-thread-source[\s\S]*\.room-thread-source-bubble\.room-thread-source-bubble-thumbnail-image-only-card[\s\S]*>\s*time[\s\S]*grid-column: 2;/u,
+    /\.room-thread-source[\s\S]*\.room-thread-source-bubble\.room-thread-source-bubble-thumbnail-image-only-card[\s\S]*>\s*time[\s\S]*grid-column: 3;[\s\S]*justify-self: end;/u,
   )
   assert.match(
     appCssSource,

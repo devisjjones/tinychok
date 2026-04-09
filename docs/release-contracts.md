@@ -137,6 +137,7 @@
   - secondary row не должна дублировать `Группа:` / `Канал:` и название сущности текстом
   - preview последнего комментария должен идти как `mini-avatar + : + text`, а не как текстовое `Имя: текст`
   - счётчик комментариев должен оставаться отдельной строкой на карточке
+  - image-only root/source card внутри открытого треда должен держать `time` у правого края карточки, а не сразу после thumbnail
 - group sender-strip contract:
   - author avatar/name над bubble должны быть ближе к своему bubble, чем к предыдущему сообщению
   - sender name и premium-crown должны выравниваться по нижней границе avatar, а не по vertical center

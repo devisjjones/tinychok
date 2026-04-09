@@ -209,6 +209,7 @@
 - в открытом thread room:
   - между root/source card и первым комментарием обязан оставаться gap `12px`
   - этот gap нельзя добиваться общим `padding-top` у `.room-thread-feed`, чтобы не возвращать пустую полоску под source card при скролле
+  - если root/source card состоит только из одного фото без подписи, `time` должно оставаться у правого края карточки, а не липнуть сразу после thumbnail
 - group sender-chain в живом room feed:
   - sender-strip показывается только на первом сообщении подряд идущей цепочки автора
   - same-author continuation идёт с gap `3px`

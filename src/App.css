@@ -6998,9 +6998,9 @@
   > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-image-only-card
   > time,
 .room-thread-source > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-image-only-card > time {
-  grid-column: 2;
+  grid-column: 3;
   align-self: center;
-  justify-self: start;
+  justify-self: end;
   margin-top: 0;
   white-space: nowrap;
   opacity: 0.72;

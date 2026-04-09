@@ -185,6 +185,7 @@
 - thread room root/source spacing contract:
   - между root/source card и первым комментарием нужен gap `12px`
   - не возвращать это через общий `padding-top` на `.room-thread-feed`, иначе снова появляется пустая полоска под root/source card
+  - у image-only root/source card `time` должно жить в правой колонке карточки, а не в центральной колонке сразу после картинки
 - selected message overlay contract:
   - для bubble с внешним sender-strip action anchor нельзя мерить только по inner bubble
   - overlay и оригинальное сообщение должны совпадать по геометрии
