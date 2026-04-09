@@ -5034,18 +5034,29 @@
 
 .composer-attachment-storage-warning-link {
   display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: rgba(255, 247, 240, 0.96);
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 3px;
+  border: 1px solid rgba(150, 78, 52, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 251, 245, 0.86);
+  color: rgba(99, 59, 40, 0.98);
   cursor: pointer;
   font: inherit;
+  font-weight: 600;
   text-decoration: underline;
   text-decoration-thickness: 0.06em;
   text-underline-offset: 0.12em;
-  text-shadow: 0 1px 2px rgba(125, 80, 52, 0.34);
+  text-decoration-color: rgba(99, 59, 40, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.composer-attachment-storage-warning-link:hover,
+.composer-attachment-storage-warning-link:focus-visible {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(150, 78, 52, 0.24);
+  color: rgba(83, 48, 33, 0.98);
 }
 
 .composer-attachment-storage-warning .composer-attachment-inline-premium {
@@ -5055,7 +5066,7 @@
 .composer-attachment-storage-warning .composer-attachment-premium-crown {
   width: 14px;
   height: 14px;
-  transform: translateY(1px);
+  transform: none;
 }
 
 .composer-attachment-preview-clear {

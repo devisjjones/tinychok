@@ -403,7 +403,7 @@
   - owner CTA `Оформите подписку.` должен быть светлым, подчёркнутым и по tap открывать premium screen, а не menu сообщения
 - composer preview должен заранее предупреждать:
   - без premium показывается copy `Место закончилось. Ваши прошлые фото и файлы будут скрыты. ...`
-  - `Премиум подписку` в warning является светлой подчёркнутой ссылкой и по tap открывает premium screen
+  - `Премиум подписку` в warning является контрастной подчёркнутой inline-cta и по tap открывает premium screen
 - `Хранилище` в настройках открывает отдельный storage-screen
 - в storage-screen попадают только message attachments, support/thread attachments и GIF library
 - аватарки профиля, группы и канала считаются внешним хранилищем Tinychok и не попадают ни в storage-screen, ни в пользовательскую квоту
