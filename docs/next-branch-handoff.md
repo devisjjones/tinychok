@@ -425,6 +425,7 @@
   - mobile rail не должен держать большие двойные боковые отступы; account header, filters, bottom-nav и contact cards должны занимать ширину ближе к viewport edges
   - mobile main-list shell должен оставаться fixed-height: нижний nav pinned к низу viewport, скролл уходит в `chat-list`, а не во весь shell
   - mobile main-list/main-room не должны прокручиваться как весь document: shell pinned к viewport, overscroll chaining наружу запрещён
+  - при regression на мобильном браузере проверять не только `.shell-main-list/.shell-main-room`, но и `html/body/#root`: document root тоже должен быть locked к viewport
   - stack `Имя / Фамилия / Статус / Никнейм` держит compact vertical spacing без больших пустых промежутков
   - на `<=420px` profile headline должен переопределяться после общего `.settings-heading h2`, иначе узкий mobile снова раздувает имя
   - settings profile autosize обязан стартовать от текущего computed mobile font-size, а не от desktop-константы `30.4px`

@@ -3928,6 +3928,7 @@ test('narrow mobile view keeps settings, room headers and admin panels from over
   assert.match(indexCss, /body\s*\{[\s\S]*-webkit-text-size-adjust:\s*100%;[\s\S]*text-size-adjust:\s*100%;/u)
   assert.match(indexCss, /body\s*\{[\s\S]*overflow-x:\s*hidden;/u)
   assert.match(indexCss, /#root\s*\{[\s\S]*max-width:\s*100%;[\s\S]*overflow-x:\s*hidden;/u)
+  assert.match(indexCss, /@media \(max-width: 960px\) \{[\s\S]*html,\s*[\s\S]*body,\s*[\s\S]*#root\s*\{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*min-height:\s*100vh;[\s\S]*min-height:\s*100dvh;[\s\S]*overflow:\s*hidden;[\s\S]*overscroll-behavior:\s*none;/u)
   assert.match(indexCss, /@media \(max-width: 560px\) \{[\s\S]*html,\s*[\s\S]*body\s*\{[\s\S]*-webkit-text-size-adjust:\s*none;[\s\S]*text-size-adjust:\s*none;[\s\S]*font-family:\s*[\s\S]*system-ui/u)
   assert.match(appCss, /\.account-headline h2\s*\{[\s\S]*overflow-wrap:\s*break-word;[\s\S]*word-break:\s*normal;/u)
   assert.match(appCss, /\.account-status-row p\s*\{[\s\S]*overflow-wrap:\s*break-word;[\s\S]*word-break:\s*normal;/u)

@@ -554,6 +554,7 @@
   - mobile rail не должен съедать лишнюю ширину двойными outer gutters: `shell` + `rail` + `chat-list` должны держать уменьшенные боковые отступы, чтобы header, filters, bottom-nav и contact cards тянулись ближе к краям viewport
   - mobile main-list shell не должен растягиваться по контенту: нижний nav закреплён у нижней границы viewport, а вертикально скроллится только `chat-list`
   - mobile main-list/main-room shell не должен поддаваться document scroll/overscroll: shell pinned к viewport, scroll chaining наружу запрещён
+  - mobile `html/body/#root` тоже locked к viewport: браузер не должен уметь утянуть вверх или вниз весь document поверх pinned shell
   - stack полей `Имя / Фамилия / Статус / Никнейм` должен держать compact vertical spacing без лишних пустот между input-блоками
   - узкий breakpoint `<=420px` не должен снова раздувать profile headline общим `.settings-heading h2`: у profile-scene должен оставаться свой более поздний mobile override
   - runtime autosize profile headline не должен стартовать с desktop `30.4px`, если mobile CSS уже задал меньший baseline: inline resize обязан уважать текущий computed font-size

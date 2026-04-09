@@ -64,6 +64,19 @@ textarea {
   width: 100%;
 }
 
+@media (max-width: 960px) {
+  html,
+  body,
+  #root {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}
+
 @media (max-width: 560px) {
   html,
   body {
