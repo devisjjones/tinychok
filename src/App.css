@@ -7592,6 +7592,12 @@
     overflow: hidden;
   }
 
+  .shell-main-list {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
   .shell-main-list .stage {
     display: none;
   }
@@ -7605,6 +7611,10 @@
     height: 100%;
     min-height: 0;
     width: 100%;
+  }
+
+  .shell-main-list .rail {
+    overflow: hidden;
   }
 
   .shell-main-room .stage {

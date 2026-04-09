@@ -3938,6 +3938,8 @@ test('narrow mobile view keeps settings, room headers and admin panels from over
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.filters\s*\{[\s\S]*padding:\s*7px 8px 8px;[\s\S]*margin-inline:\s*0;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.chat-list\s*\{[\s\S]*padding-inline:\s*4px;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.bottom-nav\s*\{[\s\S]*padding:\s*10px;[\s\S]*margin-inline:\s*0;/u)
+  assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list\s*\{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/u)
+  assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.rail\s*\{[\s\S]*overflow:\s*hidden;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.account-headline\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.account-name\s*\{[\s\S]*grid-template-columns:\s*auto minmax\(0, 1fr\);/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.chat-card\.chat-card-compact \.chat-topline\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/u)
