@@ -665,7 +665,7 @@ test('left rail lists use a shared today-vs-date formatter for activity labels',
   assert.doesNotMatch(appSource, /chat-topline-meta">\{item\.latestCommentTime\}/u)
 })
 
-test('group left-rail cards keep compact copy padding and enlarged avatars', () => {
+test('group and channel left-rail cards share avatar layout and group previews use author avatars', () => {
   const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
   const appCss = readFileSync(join(process.cwd(), 'src/App.css'), 'utf8')
   const handoffDoc = readFileSync(join(process.cwd(), 'docs', 'next-branch-handoff.md'), 'utf8')
@@ -674,14 +674,106 @@ test('group left-rail cards keep compact copy padding and enlarged avatars', () 
 
   assert.match(appSource, /'chat-card group-list-card active'/u)
   assert.match(appSource, /'chat-card group-list-card'/u)
-  assert.match(appCss, /\.chat-card\.group-list-card\s*\{[\s\S]*padding:\s*10px 14px 10px 8px;[\s\S]*gap:\s*12px;/u)
-  assert.match(appCss, /\.chat-card\.group-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;[\s\S]*margin-left:\s*-2px;/u)
+  assert.match(appSource, /const groupPreviewAuthor = resolveGroupPreviewAuthor\(group, session\)/u)
+  assert.match(appSource, /className="chat-preview group-preview-row"/u)
+  assert.match(appSource, /className="avatar group-preview-author-avatar"/u)
+  assert.doesNotMatch(appSource, /formatGroupLatestAuthor\(group\)/u)
+  assert.match(appCss, /\.chat-card\.channel-list-card,\s*[\r\n]+\s*\.chat-card\.group-list-card\s*\{[\s\S]*padding:\s*9px 14px 9px 10px;[\s\S]*gap:\s*12px;/u)
+  assert.match(appCss, /\.chat-card\.channel-list-card \.avatar,\s*[\r\n]+\s*\.chat-card\.group-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;/u)
   assert.match(appCss, /\.chat-card\.group-list-card \.chat-copy\s*\{[\s\S]*gap:\s*2px;/u)
+  assert.match(appCss, /\.chat-card\.group-list-card \.group-preview-row\s*\{[\s\S]*display:\s*flex;[\s\S]*align-items:\s*center;/u)
+  assert.match(appCss, /\.chat-card\.group-list-card \.group-preview-author-avatar\s*\{[\s\S]*width:\s*18px;[\s\S]*height:\s*18px;/u)
   assert.match(appCss, /\.chat-card\.group-list-card \.chat-handle,\s*[\r\n]+\s*\.chat-card\.group-list-card \.chat-preview\s*\{[\s\S]*line-height:\s*1\.2;/u)
-  assert.match(handoffDoc, /карточки групп в левом списке используют отдельный compact-контракт/u)
-  assert.match(rolloutDoc, /карточки групп в левом списке должны оставаться компактнее по вертикали/u)
-  assert.match(releaseDoc, /### 11\.1\.2\. Group Left Rail Card Contract/u)
-  assert.match(releaseDoc, /`group` cards в левом списке используют отдельный compact layout/u)
+  assert.match(handoffDoc, /карточки групп и каналов в левом списке используют общий avatar-layout/u)
+  assert.match(rolloutDoc, /карточки групп и каналов в левом списке должны держать одинаковую avatar-геометрию/u)
+  assert.match(releaseDoc, /### 11\.1\.2\. Group And Channel Left Rail Card Contract/u)
+  assert.match(releaseDoc, /group\/channel cards в левом списке должны использовать одинаковую avatar-геометрию/u)
+})
+
+test('group snapshots materialize participant avatar images for left-rail preview authors', () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79993330001', {
+    avatarImage: 'https://cdn.test/owner-avatar.webp',
+  })
+  owner.displayName = 'Владелец Группы'
+  const participant = createAccount('+79993330002', {
+    avatarImage: 'https://cdn.test/member-avatar.webp',
+  })
+  participant.displayName = 'Яркий Участник'
+
+  database.accounts.push(owner, participant)
+  const ownerToken = createSession(database, owner.identifier, 'group-owner')
+
+  database.groups.push({
+    accent: '#8c5738',
+    archiveReason: undefined,
+    archivedAt: undefined,
+    avatarImage: 'https://cdn.test/group-avatar.webp',
+    commentBlacklistIdentifiers: [],
+    commentsEnabledForAll: true,
+    commentsEnabledForPremium: false,
+    creatorIdentifier: owner.identifier,
+    description: '',
+    groupOwnerIdentifier: owner.identifier,
+    handle: '@preview-group',
+    id: 1,
+    isTestEntity: false,
+    latestActivityAt: '2026-04-09T09:00:00.000Z',
+    members: 2,
+    muted: false,
+    ownerIdentifier: owner.identifier,
+    participants: [
+      {
+        accent: '#8c5738',
+        id: 1,
+        identifier: owner.identifier,
+        title: owner.displayName,
+        status: 'На связи',
+      },
+      {
+        accent: '#3b82f6',
+        id: 2,
+        identifier: participant.identifier,
+        title: participant.displayName,
+        status: 'На связи',
+      },
+    ],
+    preview: '',
+    sharedId: 'group-preview-shared',
+    showHistoryToNewMembers: true,
+    time: '09:00',
+    title: 'Группа с превью',
+    unread: 0,
+  })
+
+  database.groupMessages.push({
+    author: 'them',
+    createdAt: '2026-04-09T09:00:00.000Z',
+    deliveryId: 'preview-author-message',
+    displayAuthor: participant.displayName,
+    groupId: 1,
+    groupParticipantId: 2,
+    id: 1,
+    ownerIdentifier: owner.identifier,
+    text: 'Последнее сообщение',
+    threadComments: [],
+    threadId: 'group:1:1',
+    time: '09:00',
+  })
+
+  const snapshot = store.getSnapshotByToken(ownerToken)
+  assert.ok(snapshot)
+
+  const materializedGroup = snapshot.groups.find((group) => group.id === 1) ?? null
+  assert.ok(materializedGroup)
+
+  const materializedParticipant =
+    materializedGroup?.participants.find((candidate) => candidate.id === 2) ?? null
+  assert.equal(materializedParticipant?.avatarImage, participant.avatarImage)
+  assert.equal(materializedParticipant?.title, participant.displayName)
+  assert.equal(materializedGroup?.messages.at(-1)?.groupParticipantId, 2)
+  assert.equal(materializedGroup?.messages.at(-1)?.displayAuthor, participant.displayName)
 })
 
 test('settings storage scene stays wired to user-manageable media only', () => {

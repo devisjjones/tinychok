@@ -221,6 +221,7 @@ export type GroupParticipant = {
   nickname?: string
   title: string
   accent: string
+  avatarImage?: string
   archivedAccount?: boolean
   online?: boolean
   premium?: boolean

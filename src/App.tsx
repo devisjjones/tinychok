@@ -227,7 +227,6 @@ import {
   formatContactStatus,
   formatSidebarActivityLabel,
   extendPremiumExpiry,
-  formatGroupLatestAuthor,
   formatGroupPreview,
   formatGroupTime,
   formatNowTime,
@@ -529,6 +528,7 @@ function loadBrowserNotificationsEnabledPreference() {
 function buildGroupParticipantFromChat(chat: Chat, participantId?: number): GroupParticipant {
   return {
     accent: chat.accent,
+    avatarImage: chat.avatarImage,
     favorite: chat.pinned,
     id: participantId ?? chat.id,
     identifier: chat.phone,
@@ -544,6 +544,7 @@ function buildFallbackGroupParticipant(title: string, participantId: number): Gr
   return {
     accent: '#cfb4a0',
     archivedAccount: false,
+    avatarImage: undefined,
     id: participantId,
     identifier: undefined,
     online: false,
@@ -563,6 +564,59 @@ function renderAccountAvatarContent(title: string, archivedAccount?: boolean, av
   }
 
   return title.slice(0, 1)
+}
+
+function resolveGroupPreviewAuthor(
+  group: GroupPreview,
+  session: Session | null,
+): Pick<GroupParticipant, 'accent' | 'avatarImage' | 'title'> | null {
+  const latestMessage = group.messages.at(-1)
+  if (!latestMessage || latestMessage.system) {
+    return null
+  }
+
+  if (latestMessage.author === 'me') {
+    const normalizedSessionIdentifier = normalizeIdentifier(session?.identifier ?? '')
+    const sessionParticipant =
+      normalizedSessionIdentifier
+        ? group.participants.find(
+            (participant) =>
+              normalizeIdentifier(participant.identifier ?? '') === normalizedSessionIdentifier,
+          ) ?? null
+        : null
+
+    return {
+      accent: sessionParticipant?.accent ?? group.accent,
+      avatarImage: session?.avatarImage ?? sessionParticipant?.avatarImage,
+      title: sessionParticipant?.title ?? (session ? formatSessionName(session) : 'Вы'),
+    }
+  }
+
+  const matchedParticipant =
+    (latestMessage.groupParticipantId !== undefined
+      ? group.participants.find((participant) => participant.id === latestMessage.groupParticipantId) ?? null
+      : null) ??
+    (latestMessage.displayAuthor
+      ? group.participants.find((participant) => participant.title === latestMessage.displayAuthor) ?? null
+      : null)
+
+  if (matchedParticipant) {
+    return {
+      accent: matchedParticipant.accent,
+      avatarImage: matchedParticipant.avatarImage,
+      title: matchedParticipant.title,
+    }
+  }
+
+  if (!latestMessage.displayAuthor) {
+    return null
+  }
+
+  return {
+    accent: '#cfb4a0',
+    avatarImage: undefined,
+    title: latestMessage.displayAuthor,
+  }
 }
 
 function hydrateGroupParticipants(group: GroupPreview, chats: Chat[]): GroupParticipant[] {
@@ -12193,6 +12247,7 @@ function App() {
       const nextGroupId = groups.reduce((maxId, group) => Math.max(maxId, group.id), 0) + 1
       const creatorParticipant: GroupParticipant = {
         accent: creatingGroupAccent,
+        avatarImage: session.avatarImage,
         id: getSyntheticChannelId(session.identifier),
         identifier: session.identifier,
         online: true,
@@ -15535,10 +15590,8 @@ function App() {
             </button>
             {orderedGroups.map((group) => (
               (() => {
-                const groupLatestAuthor = formatGroupLatestAuthor(group)
-                const groupMeta = groupLatestAuthor
-                  ? `${group.members} участников · ${groupLatestAuthor}`
-                  : `${group.members} участников`
+                const groupPreviewAuthor = resolveGroupPreviewAuthor(group, session)
+                const groupPreviewText = formatGroupPreview(group)
 
                 return (
                   <button
@@ -15587,8 +15640,26 @@ function App() {
                           <span className="chat-topline-meta">{formatGroupTime(group)}</span>
                         )}
                       </span>
-                      <span className="chat-handle">{groupMeta}</span>
-                      <span className="chat-preview">{formatGroupPreview(group)}</span>
+                      <span className="chat-handle">{`${group.members} участников`}</span>
+                      {groupPreviewAuthor && groupPreviewText ? (
+                        <span className="chat-preview group-preview-row">
+                          <span
+                            className="avatar group-preview-author-avatar"
+                            style={{ backgroundColor: groupPreviewAuthor.accent }}
+                            aria-hidden="true"
+                          >
+                            {renderAccountAvatarContent(
+                              groupPreviewAuthor.title,
+                              false,
+                              groupPreviewAuthor.avatarImage,
+                            )}
+                          </span>
+                          <span className="group-preview-author-separator">:</span>
+                          <span className="group-preview-text">{groupPreviewText}</span>
+                        </span>
+                      ) : (
+                        <span className="chat-preview">{groupPreviewText}</span>
+                      )}
                     </span>
                   </button>
                 )

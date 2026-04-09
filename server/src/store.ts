@@ -2736,6 +2736,7 @@ function materializeGroup(
     return [{
       ...participant,
       archivedAccount: false,
+      avatarImage: account?.avatarImage ?? participant.avatarImage,
       identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
       nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
       online: visibleOnline,
@@ -2952,6 +2953,7 @@ function materializeSubscriptionChannel(
         return [{
           ...participant,
           archivedAccount: false,
+          avatarImage: account?.avatarImage ?? participant.avatarImage,
           identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
           nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
           status: account?.status?.trim() || participant.status,
@@ -3445,6 +3447,7 @@ function buildDerivedSubscriptionParticipants(
 
       return [{
         accent: pickAccentForIdentifier(account.identifier),
+        avatarImage: account.avatarImage,
         archivedAccount,
         favorite: Boolean(matchingDialog?.pinned),
         id: getStableParticipantId(account.identifier),
@@ -3484,6 +3487,7 @@ function materializeSubscriptionParticipants(
       return [{
         ...participant,
         archivedAccount: false,
+        avatarImage: account?.avatarImage ?? participant.avatarImage,
         identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
         nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
         status: account?.status?.trim() || participant.status,
@@ -16210,6 +16214,7 @@ export class TinychokStore {
 
     return {
       accent: pickAccentForIdentifier(account.identifier),
+      avatarImage: account.avatarImage,
       archivedAccount,
       favorite: false,
       id: getStableParticipantId(account.identifier),
