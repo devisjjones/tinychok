@@ -2259,7 +2259,15 @@ test('group captioned media bubbles keep a dedicated author-safe layout in room 
   assert.match(overlaySource, /bubbleClassNames\.push\('group-captioned-media-bubble'\)/u)
   assert.match(overlaySource, /bubbleClassNames\.push\('group-captioned-media-bubble-with-header'\)/u)
   assert.match(overlaySource, /className="bubble-media-header bubble-media-header-captioned"/u)
+  assert.match(
+    appCss,
+    /\.bubble\.group-captioned-media-bubble \{\s*padding-top:\s*12px;/u,
+  )
   assert.match(appCss, /\.bubble\.group-captioned-media-bubble \.bubble-media-header/u)
+  assert.match(
+    appCss,
+    /\.bubble\.group-captioned-media-bubble \.bubble-media-header \{[\s\S]*padding:\s*0 0 8px;/u,
+  )
   assert.match(
     appCss,
     /\.bubble\.group-captioned-media-bubble-with-header \.bubble-attachment-photo\.has-body-below \{\s*margin:\s*0 -18px 12px;/u,

@@ -182,6 +182,7 @@
   - same-author bubble gap = `3px`
   - author-change block gap = `12px`
   - sender-strip стартует по той же левой линии, что и bubble под ним
+  - captioned media bubble должен держать компактный sender header над фото; не возвращать лишний верхний inset или раздутый white strip
 - thread room root/source spacing contract:
   - между root/source card и первым комментарием нужен gap `12px`
   - не возвращать это через общий `padding-top` на `.room-thread-feed`, иначе снова появляется пустая полоска под root/source card

@@ -216,6 +216,7 @@
   - same-author continuation идёт с gap `3px`
   - при смене автора gap возвращается к `12px`
   - sender-strip выровнен по левой линии bubble, без лишнего inset
+  - captioned media bubble не должен раздувать header-strip: у avatar/name над фото остаётся компактная высота без лишнего верхнего воздуха
 - selected message overlay в room feed:
   - если сообщение визуально включает sender-strip, selection anchor обязан мериться по полному видимому блоку, а не только по inner bubble
   - при нехватке места room feed может быть подскроллен, но overlay не должен дрейфовать отдельно от исходного сообщения

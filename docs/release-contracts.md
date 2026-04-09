@@ -143,6 +143,7 @@
 - group sender-strip contract:
   - author avatar/name над bubble должны быть ближе к своему bubble, чем к предыдущему сообщению
   - sender name и premium-crown должны выравниваться по нижней границе avatar, а не по vertical center
+  - captioned media bubble в группе не должен раздувать отдельную белую шапку сверху: верхний inset и нижний padding header-strip должны оставаться компактными
   - в group room sender-strip показывается только на первом сообщении новой author-chain
   - подряд идущие сообщения того же автора не должны повторно рендерить sender-strip
   - same-author gap в group room должен оставаться `3px`, а при смене автора возвращаться к `12px`

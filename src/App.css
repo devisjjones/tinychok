@@ -4202,11 +4202,15 @@
   box-shadow: 0 0 0 1.5px rgba(185, 124, 80, 0.96);
 }
 
+.bubble.group-captioned-media-bubble {
+  padding-top: 12px;
+}
+
 .bubble.group-captioned-media-bubble .bubble-media-header {
   display: flex;
   align-items: center;
   min-width: 0;
-  padding: 0 0 10px;
+  padding: 0 0 8px;
 }
 
 .bubble.group-captioned-media-bubble .bubble-media-header .bubble-meta,
