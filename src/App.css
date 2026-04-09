@@ -2417,6 +2417,10 @@
   gap: 10px;
 }
 
+.settings-profile-copy h2 {
+  margin: 0;
+}
+
 .settings-heading h2 {
   margin: 0;
   font-size: 2rem;
@@ -7541,12 +7545,27 @@
   .channels-heading,
   .channels-heading-main,
   .channel-avatar-settings,
-  .settings-profile-header,
   .channels-actions,
   .channel-privacy-row {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .settings-profile-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .settings-profile-avatar-stack {
+    width: auto;
+  }
+
+  .settings-profile-copy {
+    width: auto;
+    flex: 1 1 auto;
   }
 
   .channel-avatar-picker-popover {
@@ -7957,8 +7976,16 @@
     gap: 14px;
   }
 
+  .settings-profile-copy {
+    gap: 6px;
+  }
+
+  .settings-profile-copy h2 {
+    font-size: clamp(1.32rem, 6.2vw, 1.56rem);
+    line-height: 0.92;
+  }
+
   .settings-profile-copy,
-  .settings-profile-avatar-stack,
   .settings-item,
   .settings-actions,
   .storage-usage-header,
@@ -7966,6 +7993,10 @@
   .premium-title-row,
   .premium-actions {
     width: 100%;
+  }
+
+  .settings-profile-avatar-stack {
+    width: auto;
   }
 
   .storage-usage-header,
@@ -7984,6 +8015,36 @@
   .storage-usage-header strong {
     font-size: 0.94rem;
     line-height: 1.3;
+  }
+
+  .settings-stack-profile {
+    gap: 2px;
+  }
+
+  .settings-item-profile-field {
+    gap: 3px;
+  }
+
+  .settings-item-profile-field .settings-label {
+    padding-top: 2px;
+  }
+
+  .settings-item-profile-field .settings-input,
+  .settings-item-profile-field .settings-handle {
+    min-height: 56px;
+    border-radius: 18px;
+  }
+
+  .settings-item-profile-field .settings-input {
+    padding: 14px 16px;
+  }
+
+  .settings-item-profile-field .settings-handle {
+    padding: 0 16px;
+  }
+
+  .settings-item-profile-section-start {
+    margin-top: 8px;
   }
 
   .settings-storage-file-card strong,

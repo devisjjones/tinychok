@@ -2877,6 +2877,9 @@ test('profile settings fields keep lightweight label-and-input layout instead of
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  const releaseDoc = readFileSync(join(repoRoot, 'docs', 'release-contracts.md'), 'utf8')
+  const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
+  const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
 
   assert.match(appSource, /settings-stack settings-stack-profile/u)
   assert.match(appSource, /settings-item settings-item-profile-field/u)
@@ -2888,8 +2891,15 @@ test('profile settings fields keep lightweight label-and-input layout instead of
   assert.match(appCss, /\.settings-item-profile-field \.settings-input,\s*\n\.settings-item-profile-field \.settings-handle\s*\{/u)
   assert.match(appCss, /\.settings-item-profile-field \.handle-input\s*\{/u)
   assert.match(appCss, /\.settings-item-profile-section-start\s*\{/u)
+  assert.match(appCss, /\.settings-profile-copy h2\s*\{/u)
+  assert.match(appCss, /\.settings-profile-header\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*auto minmax\(0, 1fr\)/u)
+  assert.match(appCss, /\.settings-stack-profile\s*\{\s*gap:\s*2px;/u)
+  assert.match(appCss, /\.settings-item-profile-field \.settings-input,\s*\n\s*\.settings-item-profile-field \.settings-handle\s*\{\s*min-height:\s*56px;/u)
   assert.match(appCss, /\.settings-action-card-subtle\s*\{/u)
   assert.match(appCss, /\.settings-quiet-settings-button\s*\{/u)
+  assert.match(releaseDoc, /profile-scene на узком mobile не должен ронять avatar и display name в две отдельные вертикальные колонки/u)
+  assert.match(rolloutDoc, /profile settings mobile smoke/u)
+  assert.match(handoffDoc, /profile-scene mobile contract/u)
 })
 
 test('support chat contract stays wired through app, store, admin surface and docs', () => {

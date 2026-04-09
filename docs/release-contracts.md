@@ -518,6 +518,10 @@
 - idle textarea должна выглядеть как однострочное поле там, где не включён intentional enlarged support-root variant
 - mobile viewport тоже входит в контракт:
   - composer не должен давать horizontal overflow на `390px` ширине
+- profile-scene на узком mobile не должен ронять avatar и display name в две отдельные вертикальные колонки:
+  - avatar и profile-copy должны оставаться в одном row-layout
+  - mobile headline справа от avatar должен ужиматься, чтобы имя помещалось в header-block
+  - stack полей `Имя / Фамилия / Статус / Никнейм` должен держать compact vertical spacing без лишних пустот между input-блоками
 - rich-text toolbar с `B / I / U / S` и `contenteditable` не считается разрешённым user-facing surface, пока не будет возвращён без regressions в:
   - direct
   - group

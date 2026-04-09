@@ -498,6 +498,10 @@
   - если каналов нет, header показывает `Пока нет каналов. Создайте свой первый канал.`
   - transfer-channel modal/action не доступны пользователю
 - profile settings сохраняются без transport-level сбоев за reverse proxy
+- profile settings mobile smoke:
+  - на `390px` avatar и display name остаются в одном header-row
+  - display name не должен падать под avatar только из-за mobile media-rule
+  - gap между `Имя / Фамилия / Статус / Никнейм` должен оставаться compact
 - browser notifications не должны приходить в режиме `Тихо`
 - quiet-settings сцена считается release-blocking контрактом:
   - `quietModeSettings` должен нормализоваться к дефолтам
