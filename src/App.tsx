@@ -3180,22 +3180,30 @@ function App() {
     }
 
     return sessionHasPremium
-      ? 'У вас закончилось место в хранилище. Старые отправленные фото и файлы будут удалены автоматически, чтобы освободить хранилище.'
+      ? 'Место закончилось. Ваши прошлые фото и файлы будут скрыты.'
       : (
         <>
-          {'У вас закончилось место в хранилище. Старые отправленные фото и файлы будут удалены автоматически. '}
-          <span className="composer-attachment-premium-upsell-copy">
+          <span>{'Место закончилось. Ваши прошлые фото и файлы будут скрыты. Оформите '}</span>
+          <button
+            type="button"
+            className="composer-attachment-storage-warning-link"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              openPremiumUpsell()
+            }}
+          >
             <span className="composer-attachment-inline-premium">
-              <span>Премиум</span>
+              <span>Премиум подписку</span>
               <span
-                className="premium-crown composer-attachment-premium-crown composer-attachment-premium-crown-brown"
+                className="premium-crown composer-attachment-premium-crown"
                 aria-hidden="true"
               >
                 <img src="/icons/crown64.png" alt="" />
               </span>
             </span>
-            <span>{' расширяет хранилище и помогает этого избежать.'}</span>
-          </span>
+          </button>
+          <span>{' чтобы избежать удаления файлов.'}</span>
         </>
       )
   }

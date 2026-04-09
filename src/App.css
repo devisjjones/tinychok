@@ -5025,8 +5025,20 @@
   vertical-align: baseline;
 }
 
-.composer-attachment-premium-upsell-copy {
-  display: inline;
+.composer-attachment-storage-warning-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 247, 240, 0.96);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.12em;
+  text-shadow: 0 1px 2px rgba(125, 80, 52, 0.34);
 }
 
 .composer-attachment-storage-warning .composer-attachment-inline-premium {
@@ -5037,11 +5049,6 @@
   width: 14px;
   height: 14px;
   transform: translateY(1px);
-}
-
-.composer-attachment-premium-crown-brown img {
-  filter: brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
-    brightness(93%) contrast(90%);
 }
 
 .composer-attachment-preview-clear {
