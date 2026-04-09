@@ -310,6 +310,11 @@
   - с увеличенным textarea для стартового описания проблемы
 - в support root-scene и support-thread нельзя показывать emoji/GIF и file-attach:
   - допустимо только photo-attach
+- textarea contract для этой зоны:
+  - support-root textarea растёт по мере ввода новых строк
+  - после достижения cap textarea скроллится внутренне и не забирает под себя всю высоту сцены
+  - action buttons в idle state центрируются по высоте support-root textarea
+  - после роста textarea action buttons прибиваются к правому нижнему углу
 - в idle state обычный composer остаётся однострочным; enlarged support-root textarea этим не считается
 - mobile smoke для этой зоны обязателен:
   - на `390px` composer должен полностью помещаться в viewport без horizontal overflow

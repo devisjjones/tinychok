@@ -93,3 +93,57 @@ export function scrollFeedChildIntoView(
 
   return true
 }
+
+function resolveComposerTextareaMaxHeight(
+  textarea: HTMLTextAreaElement,
+  minHeight: number,
+) {
+  if (typeof window === 'undefined') return minHeight
+
+  const computedStyle = window.getComputedStyle(textarea)
+  const cssMaxHeight = Number.parseFloat(computedStyle.maxHeight)
+  if (Number.isFinite(cssMaxHeight)) {
+    return Math.max(minHeight, cssMaxHeight)
+  }
+
+  const nearestScene = textarea.closest<HTMLElement>(
+    '.settings-stack-support, .room-thread, .room, .stage, .settings-stack',
+  )
+  if (nearestScene?.clientHeight) {
+    return Math.max(minHeight, nearestScene.clientHeight * 0.5)
+  }
+
+  return Math.max(minHeight, window.innerHeight * 0.5)
+}
+
+export function resizeComposerTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea || typeof window === 'undefined') {
+    return {
+      expanded: false,
+      height: 0,
+      maxHeight: 0,
+      minHeight: 0,
+      overflowY: 'hidden' as const,
+    }
+  }
+
+  const computedStyle = window.getComputedStyle(textarea)
+  const minHeight = Number.parseFloat(computedStyle.minHeight) || textarea.clientHeight || 48
+  const maxHeight = resolveComposerTextareaMaxHeight(textarea, minHeight)
+
+  textarea.style.height = '0px'
+  const contentHeight = Math.max(minHeight, textarea.scrollHeight)
+  const nextHeight = Math.max(minHeight, Math.min(contentHeight, maxHeight))
+  const overflowY = contentHeight > maxHeight + 1 ? 'auto' : 'hidden'
+
+  textarea.style.height = `${nextHeight}px`
+  textarea.style.overflowY = overflowY
+
+  return {
+    expanded: nextHeight > minHeight + 1,
+    height: nextHeight,
+    maxHeight,
+    minHeight,
+    overflowY,
+  }
+}

@@ -363,6 +363,12 @@
   - support root-scene использует enlarged textarea без внешней white wrapper-card
   - support root-scene и support-thread скрывают emoji/GIF UI
   - support root-scene и support-thread разрешают только photo-attach, без file-attach path
+- runtime autosize больше нельзя держать только на CSS `min-height`:
+  - `src/app/utils.ts#resizeComposerTextarea` является общим helper для direct / group / channel / thread / support
+  - textarea растёт до своего cap, потом включает внутренний scroll
+- enlarged support-root toolbar держит отдельный stateful layout:
+  - idle -> кнопки центрированы по высоте textarea
+  - expanded / has-attachment -> кнопки прибиты к правому нижнему углу
 - live staging smoke на `2026-04-08` подтвердил:
   - direct / generic thread держат общий compact textarea contract
   - idle textarea у общего composer держим визуально однострочной

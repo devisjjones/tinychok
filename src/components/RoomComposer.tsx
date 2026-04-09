@@ -6,8 +6,9 @@ import type {
   ReactNode,
   RefObject,
 } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
-import { insertComposerTextAtCursor } from '../app/utils'
+import { insertComposerTextAtCursor, resizeComposerTextarea } from '../app/utils'
 import type { ReplyTarget, UserGifLibraryItem } from '../app/types'
 import { ComposerAttachmentPicker } from './ComposerAttachmentPicker'
 import { ComposerAttachmentPreview } from './ComposerAttachmentPreview'
@@ -88,7 +89,26 @@ export function RoomComposer({
   topContent = null,
   bottomContent = null,
 }: RoomComposerProps) {
+  const [composerExpanded, setComposerExpanded] = useState(false)
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
+
+  useLayoutEffect(() => {
+    const textarea = draftInputRef.current
+    if (!textarea) return
+
+    const syncTextareaSize = () => {
+      const { expanded } = resizeComposerTextarea(textarea)
+      setComposerExpanded(expanded)
+    }
+
+    syncTextareaSize()
+    if (typeof window === 'undefined') return
+
+    window.addEventListener('resize', syncTextareaSize)
+    return () => {
+      window.removeEventListener('resize', syncTextareaSize)
+    }
+  }, [draft, draftInputRef])
 
   return (
     <form
@@ -118,7 +138,9 @@ export function RoomComposer({
           </div>
         ) : null}
         <div className="composer-entry">
-          <div className="composer-field">
+          <div
+            className={`composer-field${attachmentDraft ? ' composer-field-has-attachment' : ''}${composerExpanded ? ' composer-field-expanded' : ''}`}
+          >
             {attachmentDraft ? (
               <ComposerAttachmentPreview
                 attachmentDraft={attachmentDraft}

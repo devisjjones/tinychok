@@ -5343,7 +5343,7 @@
   padding: 11px 148px 11px 16px;
   border-radius: 18px;
   line-height: 1.45;
-  overflow-y: auto;
+  overflow-y: hidden;
 }
 
 .composer-tools {
@@ -6339,9 +6339,21 @@
   border-radius: 28px;
 }
 
+.settings-support-composer .composer-field:not(.composer-field-expanded):not(.composer-field-has-attachment) .composer-tools {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.settings-support-composer .composer-field.composer-field-expanded .composer-tools,
+.settings-support-composer .composer-field.composer-field-has-attachment .composer-tools {
+  top: auto;
+  bottom: 14px;
+  transform: none;
+}
+
 .settings-support-composer .composer-tools {
   right: 14px;
-  bottom: 14px;
 }
 
 .settings-support-ticket-list {
@@ -7497,6 +7509,10 @@
   .settings-support-composer textarea {
     min-height: 124px;
     padding: 16px 76px 16px 18px;
+  }
+
+  .settings-support-composer .composer-tools {
+    right: 14px;
   }
 
   .composer {

@@ -492,6 +492,13 @@
   - root support-scene использует увеличенный textarea вместо стандартного компактного idle-height
   - support root-scene и support-thread не показывают emoji/GIF UI
   - support root-scene и support-thread не должны давать file-attach path; допустимо только photo-attach
+- runtime autoresize textarea теперь считается release-blocking контрактом, а не cosmetic detail:
+  - direct, group, channel, thread и support используют общий runtime resize helper
+  - textarea растёт по мере ввода новых строк, пока не упирается в свой cap
+  - после достижения cap textarea обязана скроллиться внутренне, не растягивая комнату дальше
+- enlarged support-root textarea держит отдельный toolbar contract:
+  - в idle состоянии action buttons центрируются по высоте textarea
+  - после роста textarea или при наличии attachment action buttons обязаны липнуть к правому нижнему углу
 - idle textarea должна выглядеть как однострочное поле там, где не включён intentional enlarged support-root variant
 - mobile viewport тоже входит в контракт:
   - composer не должен давать horizontal overflow на `390px` ширине

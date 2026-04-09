@@ -1,5 +1,5 @@
 import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { Fragment, useEffect, useRef } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import type {
   ChannelMessageSource,
@@ -17,6 +17,7 @@ import {
   isImageMimeType,
   isStandaloneEmojiMessageText,
   isVideoMimeType,
+  resizeComposerTextarea,
   scrollFeedChildIntoView,
   stripMessageFormattingMarkup,
   shouldShowDeliveryCaption,
@@ -195,6 +196,23 @@ export function GroupRoom({
         ? 'Добавьте подпись к видео...'
         : 'Добавьте подпись к файлу...'
     : 'Напиши сообщение в группу...'
+
+  useLayoutEffect(() => {
+    const textarea = draftInputRef.current
+    if (!textarea) return
+
+    const syncTextareaSize = () => {
+      resizeComposerTextarea(textarea)
+    }
+
+    syncTextareaSize()
+    if (typeof window === 'undefined') return
+
+    window.addEventListener('resize', syncTextareaSize)
+    return () => {
+      window.removeEventListener('resize', syncTextareaSize)
+    }
+  }, [draft])
 
   async function submitComposer() {
     await Promise.resolve(onSubmit())

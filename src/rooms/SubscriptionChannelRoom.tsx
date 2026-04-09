@@ -1,5 +1,5 @@
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { Fragment, useEffect, useRef } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import {
   formatChannelAvatarLabel,
@@ -8,6 +8,7 @@ import {
   insertComposerTextAtCursor,
   isImageMimeType,
   isVideoMimeType,
+  resizeComposerTextarea,
   scrollFeedChildIntoView,
   shouldSubmitComposerWithEnter,
 } from '../app/utils'
@@ -131,6 +132,23 @@ export function SubscriptionChannelRoom({
         ? 'Добавьте подпись к видео...'
         : 'Добавьте подпись к файлу...'
     : 'Напишите сообщение в канал...'
+
+  useLayoutEffect(() => {
+    const textarea = publisherInputRef.current
+    if (!textarea) return
+
+    const syncTextareaSize = () => {
+      resizeComposerTextarea(textarea)
+    }
+
+    syncTextareaSize()
+    if (typeof window === 'undefined') return
+
+    window.addEventListener('resize', syncTextareaSize)
+    return () => {
+      window.removeEventListener('resize', syncTextareaSize)
+    }
+  }, [publisherDraft])
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (!publisher || (!publisherDraft.trim() && !publisherAttachmentDraft) || !publisherCanSubmit) return
