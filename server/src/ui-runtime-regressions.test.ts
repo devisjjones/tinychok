@@ -471,6 +471,11 @@ test('thread inbox keeps participants subscribed and protects unread counts from
     storeSource,
     /const latestComment = findLatestThreadComment\(compactThreadComments\(target\.post\.threadComments\)\)[\s\S]*buildThreadReadMarker\(latestComment, target\.post\.createdAt\)/u,
   )
+  assert.match(storeSource, /for \(const ticket of this\.database\.supportTickets\) \{[\s\S]*retainedThreadIds\.add\(ticket\.threadId\)/u)
+  assert.match(
+    storeSource,
+    /const nextThreadStates = this\.database\.threadStates\.filter\(\(state\) => retainedThreadIds\.has\(state\.threadId\)\)[\s\S]*didMutate = true/u,
+  )
 })
 
 test('thread inbox cards keep source badges on the avatar and render latest-comment previews with mini author avatars', () => {

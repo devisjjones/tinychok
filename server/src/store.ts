@@ -14071,7 +14071,16 @@ export class TinychokStore {
         retainedThreadIds.add(post.threadId)
       }
     }
-    this.database.threadStates = this.database.threadStates.filter((state) => retainedThreadIds.has(state.threadId))
+    for (const ticket of this.database.supportTickets) {
+      if (ticket.threadId) {
+        retainedThreadIds.add(ticket.threadId)
+      }
+    }
+    const nextThreadStates = this.database.threadStates.filter((state) => retainedThreadIds.has(state.threadId))
+    if (nextThreadStates.length !== this.database.threadStates.length) {
+      this.database.threadStates = nextThreadStates
+      didMutate = true
+    }
 
     for (const account of this.database.accounts) {
       const existingDialogIds = new Set(

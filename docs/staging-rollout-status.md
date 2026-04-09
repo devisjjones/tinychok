@@ -315,6 +315,7 @@
 - support-thread unread нужно проверять отдельно от `threadInbox`:
   - открытие тикета в `Настройки -> Поддержка` должно слать живой `POST /api/support/tickets/:ticketId/read`
   - badge у тикета и badge на `Написать в поддержку` должны сбрасываться после открытия треда
+  - retention cleanup не должен вычищать `app_runtime_state_thread_states` для `support:%`, иначе unread поддержки возвращается после hard refresh
 - простое открытие и чтение треда должно снимать unread до `0` без требования отправить свой комментарий
 - server-side read marker треда не должен опираться только на timestamp:
   - same-millisecond комментарии не должны оставлять зависшее `unread = 1`

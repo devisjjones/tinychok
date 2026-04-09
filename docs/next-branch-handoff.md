@@ -362,6 +362,7 @@
 - support-thread read-sync нельзя завязывать только на `threadInbox`:
   - source of truth для открытого тикета = `supportTicket.unreadCount`
   - opening support-thread должно локально и серверно сбрасывать unread даже без `threadInbox` item
+  - retention cleanup обязан сохранять `threadStates` для `support:%`, иначе прочитанные support replies снова всплывают после hard refresh
 - badge на кнопке `Написать в поддержку` не должен использовать глобальный absolute-layout `badge`:
   - он должен оставаться внутри самой support-кнопки
   - отдельная мигающая точка в правом верхнем углу profile-scene считается регрессией

@@ -158,6 +158,8 @@
   - unread staff reply должен быть виден и на кнопке `Написать в поддержку`, и на launcher-кнопке `Настройки`
   - tap по всей карточке тикета должен открывать его thread-room
   - открытый support-thread обязан сбрасывать unread по самому `supportTicket.unreadCount`, даже если у него нет записи в общем `threadInbox`
+  - server retention cleanup не должен вычищать `threadStates` для `support:%`:
+    иначе уже прочитанные ответы поддержки снова возвращаются как unread после hard refresh
   - после создания тикета support composer обязан сразу переходить в cooldown-card с пояснением
   - countdown может оставаться только внутренней логикой cooldown; отдельный видимый таймер пользователю не показывать
   - сырой backend-text cooldown нельзя показывать как финальный user-facing error

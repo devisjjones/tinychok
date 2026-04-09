@@ -187,6 +187,47 @@ test('support replies stay in ticket comments and unread resets after opening th
   assert.equal(readResponse.snapshot.supportTickets[0]?.unreadCount, 0)
 })
 
+test('support read markers survive retention cleanup and hard-refresh snapshots', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const user = createAccount('+79991110104')
+  const supportStaff = createAccount('+79991110105', { staffRole: 'support' })
+  database.accounts.push(user, supportStaff)
+  const userToken = createSession(database, user.identifier, 'support-cleanup-user')
+  const supportToken = createSession(database, supportStaff.identifier, 'support-cleanup-staff')
+
+  const ticketResponse = await store.sendSupportTicket(userToken, {
+    text: 'Проверяем, что read marker не сотрётся cleanup-ом',
+  })
+  const ticketId = ticketResponse.snapshot.supportTickets[0]?.id
+  assert.equal(ticketId, 0)
+
+  await store.adminReplySupportTicket(supportToken, ticketId!, {
+    status: 'open',
+    text: 'Ответ поддержки, который раньше возвращал stale unread после refresh',
+  })
+
+  const readResponse = await store.markSupportTicketRead(userToken, ticketId!)
+  assert.equal(readResponse.snapshot.supportUnreadCount, 0)
+  assert.equal(readResponse.snapshot.supportTickets[0]?.unreadCount, 0)
+  assert.equal(
+    database.threadStates.filter((state) => state.ownerIdentifier === user.identifier && state.threadId === 'support:0')
+      .length,
+    1,
+  )
+
+  await store.cleanupExpiredRetentionData()
+
+  const refreshedSnapshot = store.getSnapshotByToken(userToken)
+  assert.equal(refreshedSnapshot?.supportUnreadCount, 0)
+  assert.equal(refreshedSnapshot?.supportTickets[0]?.unreadCount, 0)
+  assert.equal(
+    database.threadStates.filter((state) => state.ownerIdentifier === user.identifier && state.threadId === 'support:0')
+      .length,
+    1,
+  )
+})
+
 test('admin support ticket list sorts by support status priority before freshness', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
