@@ -217,6 +217,7 @@
 - group sender-chain в живом room feed:
   - sender-strip показывается только на первом сообщении подряд идущей цепочки автора
   - thread comments повторяют тот же sender-strip contract и не держат имя/аватар внутри самого bubble
+  - group root/source card внутри открытого треда тоже держит sender-strip снаружи bubble для текстового сообщения
   - same-author continuation идёт с gap `3px`
   - при смене автора gap возвращается к `12px`
   - sender-strip выровнен по левой линии bubble, без лишнего inset

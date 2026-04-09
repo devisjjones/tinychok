@@ -150,6 +150,7 @@
   - captioned media bubble в группе не должен раздувать отдельную белую шапку сверху: верхний inset и нижний padding header-strip должны оставаться компактными
   - в group room sender-strip показывается только на первом сообщении новой author-chain
   - thread comments используют тот же внешний sender-strip contract: имя/аватар живут над bubble, а не внутри bubble-body
+  - group root/source card внутри треда тоже использует внешний sender-strip contract для текстовых bubble, а не вшивает имя/аватар в bubble-body
   - подряд идущие сообщения того же автора не должны повторно рендерить sender-strip
   - same-author gap в group room должен оставаться `3px`, а при смене автора возвращаться к `12px`
   - sender-strip должен стартовать по той же левой линии, что и bubble под ним, без дополнительного horizontal inset

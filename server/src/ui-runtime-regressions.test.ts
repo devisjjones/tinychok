@@ -1078,8 +1078,13 @@ test('thread source attachments stay compact previews instead of full-room media
   assert.match(appSource, /attachmentLayout=\{/u)
   assert.match(appSource, /usesThumbnailImageLayout\s*\?\s*'thread-source-thumbnail'/u)
   assert.match(appSource, /room-thread-source-bubble-thumbnail/u)
+  assert.match(appSource, /const threadSourceAuthorNode =/u)
+  assert.match(appSource, /renderThreadAuthorNode\(\s*threadGroupMessageParticipant/u)
+  assert.match(appSource, /className="bubble-author-layout room-thread-source-author-layout"/u)
   assert.match(appCssSource, /\.room-thread-source > \.bubble-stack,/u)
   assert.match(appCssSource, /\.room-thread-source > \.bubble-stack\.channel \{/u)
+  assert.match(appCssSource, /\.room-thread-source > \.room-thread-source-author-layout \{/u)
+  assert.match(appCssSource, /\.room-thread-source > \.room-thread-source-author-layout > \.bubble-author-strip \{/u)
   assert.match(appCssSource, /width: calc\(100% \+ 36px\);/u)
   assert.match(appCssSource, /margin: 0 -18px;/u)
   assert.match(
@@ -1091,7 +1096,7 @@ test('thread source attachments stay compact previews instead of full-room media
   assert.match(appCssSource, /box-sizing: border-box;/u)
   assert.match(
     appCssSource,
-    /\.room-thread-source > \.bubble-stack > \.bubble-stack-main > \.room-thread-source-bubble,\s*\.room-thread-source > \.room-thread-source-bubble \{/u,
+    /\.room-thread-source > \.bubble-stack > \.bubble-stack-main > \.room-thread-source-bubble,\s*\.room-thread-source > \.room-thread-source-author-layout > \.bubble-stack > \.bubble-stack-main > \.room-thread-source-bubble,\s*\.room-thread-source > \.room-thread-source-bubble \{/u,
   )
   assert.match(appCssSource, /justify-self: stretch;/u)
   assert.match(appCssSource, /border-top-left-radius: 0;/u)
@@ -2344,7 +2349,7 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   assert.doesNotMatch(channelRoomSource, /className="message-feed direct-room-feed"/u)
   assert.match(appSource, /const shouldRenderCommentAuthorNode = shouldRenderIncomingAuthorStrip\(/u)
   assert.match(appSource, /const threadCommentRowClassName = shouldUseCommentAuthorBreakSpacing/u)
-  assert.match(appSource, /const commentAuthorNode = !mine && shouldRenderCommentAuthorNode \?/u)
+  assert.match(appSource, /const commentAuthorNode =[\s\S]*renderThreadAuthorNode\(participant, comment\.displayAuthor \?\? 'Участник'\)/u)
   assert.match(appSource, /\{commentAuthorNode\}/u)
   assert.match(appSource, /className=\{threadCommentRowClassName\}/u)
   assert.match(overlaySource, /function renderGroupOverlayAuthor[\s\S]*if \(mine\) \{\s*return null/u)

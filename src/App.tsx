@@ -2346,6 +2346,35 @@ function App() {
     return matchingChat ? buildGroupParticipantFromChat(matchingChat) : null
   }
 
+  function renderThreadAuthorNode(
+    participant: GroupParticipant | null,
+    fallbackTitle?: string | null,
+  ) {
+    if (participant) {
+      return (
+        <div className="bubble-sender">
+          <span className="bubble-sender-avatar-stack">
+            <span className="avatar bubble-sender-avatar" style={{ backgroundColor: participant.accent }}>
+              {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
+            </span>
+            {participant.online ? (
+              <span className="bubble-sender-presence-dot" aria-label="В сети" />
+            ) : null}
+          </span>
+          <span className="bubble-sender-name">{participant.title}</span>
+          {participant.premium ? (
+            <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
+              <img src="/icons/crown64.png" alt="" />
+            </span>
+          ) : null}
+        </div>
+      )
+    }
+
+    if (!fallbackTitle) return null
+    return <span className="bubble-meta">{fallbackTitle}</span>
+  }
+
   function handleThreadComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
       threadBusy ||
@@ -2612,6 +2641,13 @@ function App() {
         activeGroup.messages.find((message) => message.id === threadTarget.messageId) ??
         null
       : null
+  const activeThreadGroup =
+    threadTarget?.kind === 'group'
+      ? (activeGroup?.id === threadTarget.groupId
+          ? activeGroup
+          : groups.find((group) => group.id === threadTarget.groupId) ?? null)
+      : null
+  const threadGroupMessageParticipant = resolveGroupParticipant(activeThreadGroup, threadGroupMessage)
   const threadChannelPost =
     threadTarget?.kind === 'channel' && currentSubscriptionChannel?.id === threadTarget.channelId
       ? visibleSubscriptionPosts.find((post) => post.id === threadTarget.postId) ??
@@ -13132,15 +13168,71 @@ function App() {
                 !threadGroupMessage.attachmentRemovedNotice
               const usesThumbnailImageLayout =
                 hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout
-
-              return (
-            <AttachedReplyBubble
-              mine={threadGroupMessage.author === 'me'}
-              replyTo={threadGroupMessage.replyTo}
-              bubble={
+              const threadSourceAuthorNode =
+                threadGroupMessage.author === 'me'
+                  ? null
+                  : renderThreadAuthorNode(
+                      threadGroupMessageParticipant,
+                      threadGroupMessage.displayAuthor ?? 'Участник',
+                    )
+              const hasCaptionedSourceHeader = usesCaptionedImageCardLayout && Boolean(threadSourceAuthorNode)
+              const shouldRenderExternalThreadSourceAuthor =
+                Boolean(threadSourceAuthorNode) && !isImageOnlyBubble && !usesCaptionedImageCardLayout
+              const threadSourceBubble = isImageOnlyBubble ? (
+                <MediaOnlyBubbleRow
+                  bubbleClassName={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
+                  mine={threadGroupMessage.author === 'me'}
+                  semantic="article"
+                >
+                  {threadSourceAuthorNode ? (
+                    <div className="bubble-media-header bubble-media-header-captioned">
+                      {threadSourceAuthorNode}
+                    </div>
+                  ) : null}
+                  <BubbleMessageContent
+                    attachmentLayout={
+                      usesCaptionedImageCardLayout || usesImageOnlyCardLayout
+                        ? 'thread-source-card'
+                        : usesThumbnailImageLayout
+                          ? 'thread-source-thumbnail'
+                          : undefined
+                    }
+                    imageOverlay={
+                      hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout ? (
+                        <BubbleImageOverlayMeta time={threadSourceTime} />
+                      ) : undefined
+                    }
+                    linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
+                    message={{
+                      ...threadGroupMessage,
+                      text: threadSourceText,
+                    }}
+                    onOpenAttachment={openMediaViewer}
+                    onOpenExternalLink={requestOpenExternalLink}
+                    onOpenPremiumUpsell={openPremiumUpsell}
+                    onOpenSourceContact={
+                      threadGroupMessage.sourceContact
+                        ? () =>
+                            openSourceContact(
+                              threadGroupMessage.sourceContact as NonNullable<Message['sourceContact']>,
+                            )
+                        : undefined
+                    }
+                    showReplyInline={false}
+                  />
+                  {!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout ? (
+                    <time>{threadSourceTime}</time>
+                  ) : null}
+                </MediaOnlyBubbleRow>
+              ) : (
                 <article
                   className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
                 >
+                  {hasCaptionedSourceHeader ? (
+                    <div className="bubble-media-header bubble-media-header-captioned">
+                      {threadSourceAuthorNode}
+                    </div>
+                  ) : null}
                   <BubbleMessageContent
                     attachmentLayout={
                       usesCaptionedImageCardLayout || usesImageOnlyCardLayout
@@ -13176,8 +13268,22 @@ function App() {
                     <time>{threadSourceTime}</time>
                   ) : null}
                 </article>
-              }
-            />
+              )
+              const threadSourceBubbleWithReply = (
+                <AttachedReplyBubble
+                  mine={threadGroupMessage.author === 'me'}
+                  replyTo={threadGroupMessage.replyTo}
+                  bubble={threadSourceBubble}
+                />
+              )
+
+              return shouldRenderExternalThreadSourceAuthor ? (
+                <div className="bubble-author-layout room-thread-source-author-layout">
+                  <div className="bubble-author-strip">{threadSourceAuthorNode}</div>
+                  {threadSourceBubbleWithReply}
+                </div>
+              ) : (
+                threadSourceBubbleWithReply
               )
             })()
           ) : threadTarget.kind === 'channel' && threadChannelPost ? (
@@ -13327,31 +13433,10 @@ function App() {
               )
               const isImageOnlyBubble = hasImageAttachment && comment.text.trim().length === 0
               const replyReference = comment.replyTo
-              const commentAuthorNode = !mine && shouldRenderCommentAuthorNode ? (
-                participant ? (
-                  <div className="bubble-sender">
-                    <span className="bubble-sender-avatar-stack">
-                      <span
-                        className="avatar bubble-sender-avatar"
-                        style={{ backgroundColor: participant.accent }}
-                      >
-                        {renderAccountAvatarContent(participant.title, participant.archivedAccount)}
-                      </span>
-                      {participant.online ? (
-                        <span className="bubble-sender-presence-dot" aria-label="В сети" />
-                      ) : null}
-                    </span>
-                    <span className="bubble-sender-name">{participant.title}</span>
-                    {participant.premium ? (
-                      <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
-                        <img src="/icons/crown64.png" alt="" />
-                      </span>
-                    ) : null}
-                  </div>
-                ) : (
-                  <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
-                )
-              ) : null
+              const commentAuthorNode =
+                !mine && shouldRenderCommentAuthorNode
+                  ? renderThreadAuthorNode(participant, comment.displayAuthor ?? 'Участник')
+                  : null
               const shouldRenderExternalCommentAuthor = Boolean(commentAuthorNode) && !isImageOnlyBubble
               const threadCommentRowClassName = shouldUseCommentAuthorBreakSpacing
                 ? 'thread-comment-row thread-comment-row-author-break'

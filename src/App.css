@@ -6924,6 +6924,24 @@
   margin: 0 -18px;
 }
 
+.room-thread-source > .room-thread-source-author-layout {
+  width: calc(100% + 36px);
+  max-width: calc(100% + 36px);
+  margin: 0 -18px;
+  gap: 3px;
+}
+
+.room-thread-source > .room-thread-source-author-layout > .bubble-author-strip {
+  padding: 0 18px;
+}
+
+.room-thread-source > .room-thread-source-author-layout > .bubble-stack,
+.room-thread-source > .room-thread-source-author-layout > .bubble-stack.channel {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
 .room-thread-source .channel-post.room-thread-source-bubble,
 .room-thread-source .channel-post.room-thread-source-bubble.media-only-bubble {
   width: 100%;
@@ -6931,12 +6949,14 @@
   box-sizing: border-box;
 }
 
-.room-thread-source > .bubble-stack > .bubble-stack-main {
+.room-thread-source > .bubble-stack > .bubble-stack-main,
+.room-thread-source > .room-thread-source-author-layout > .bubble-stack > .bubble-stack-main {
   width: 100%;
   max-width: 100%;
 }
 
 .room-thread-source > .bubble-stack > .bubble-stack-main > .room-thread-source-bubble,
+.room-thread-source > .room-thread-source-author-layout > .bubble-stack > .bubble-stack-main > .room-thread-source-bubble,
 .room-thread-source > .room-thread-source-bubble {
   width: 100%;
   max-width: 100%;
