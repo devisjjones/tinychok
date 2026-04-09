@@ -247,6 +247,7 @@
 - standalone emoji path:
   - direct-room и group-room умеют отдельный bubbleless render только для top-level messages, где текст = один emoji-grapheme и нет attachment/source/forward chrome
   - этот path не должен растекаться в channel posts, thread comments, reply previews и thread source cards
+  - glyph-slot под emoji должен быть выше самого glyph примерно на высоту двух строк обычного текста, чтобы incoming sender-strip не лип к смайлу
   - если у group root-message появляется первый комментарий, bubbleless path нужно отключать и возвращать обычный bubbled block
   - selected message overlay обязан повторять тот же bubbleless layout, без возврата фона и старых paddings
 

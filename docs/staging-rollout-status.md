@@ -226,6 +226,7 @@
 - standalone emoji contract:
   - top-level direct/group message из одного emoji без вложений и без source/forward chrome идёт без фонового bubble
   - emoji увеличен, а time/delivery meta остаётся бледной отдельной строкой
+  - glyph-slot под emoji резервирует примерно две строки обычного текста, чтобы sender-strip в группе не наезжал сверху
   - channel posts, thread comments и reply/thread previews этот bubbleless path не используют
   - если group root-message получает первый комментарий, он должен вернуться к обычному bubbled виду
 - карточки групп и каналов в левом списке должны держать одинаковую avatar-геометрию:

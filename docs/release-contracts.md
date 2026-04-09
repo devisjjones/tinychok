@@ -297,6 +297,7 @@
 
 - top-level direct-room и group-room message без вложений, без source/forward chrome и с текстом ровно в один emoji-grapheme рендерится без фонового bubble
 - такой emoji визуально увеличен примерно в `2x`, а time/delivery meta остаётся отдельной бледной строкой рядом с ним
+- под увеличенный emoji резервируется glyph-slot примерно в две строки обычного текста, чтобы incoming group sender-strip не слипался со смайлом
 - этот contract не распространяется на:
   - subscription channel posts
   - thread comments

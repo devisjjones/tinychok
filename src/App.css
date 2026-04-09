@@ -4115,8 +4115,10 @@
 }
 
 .bubble.emoji-only-message .emoji-only-message-glyph {
-  display: block;
-  font-size: 2.25rem;
+  display: flex;
+  align-items: center;
+  min-height: 3rem;
+  font-size: 2.5rem;
   line-height: 1;
 }
 

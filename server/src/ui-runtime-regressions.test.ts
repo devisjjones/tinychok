@@ -2397,7 +2397,10 @@ test('standalone emoji messages stay bubbleless only in direct and unthreaded gr
   assert.match(overlaySource, /<EmojiOnlyMessageContent/u)
   assert.doesNotMatch(channelRoomSource, /emoji-only-message/u)
   assert.match(appCss, /\.bubble\.emoji-only-message \{\s*display: inline-flex;/u)
-  assert.match(appCss, /\.bubble\.emoji-only-message \.emoji-only-message-glyph \{\s*display: block;\s*font-size: 2\.25rem;/u)
+  assert.match(
+    appCss,
+    /\.bubble\.emoji-only-message \.emoji-only-message-glyph \{\s*display: flex;\s*align-items: center;\s*min-height: 3rem;\s*font-size: 2\.5rem;/u,
+  )
   assert.match(appCss, /\.bubble\.emoji-only-message \.emoji-only-message-meta \{\s*display: inline-flex;/u)
   assert.match(appCss, /\.bubble\.emoji-only-message\.bubble-button\.selected,\s*\.bubble-overlay\.bubble-button\.selected\.emoji-only-message \{/u)
 })
