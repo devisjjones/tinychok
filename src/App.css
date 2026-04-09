@@ -7197,6 +7197,41 @@
   border-radius: 0 0 0 24px;
 }
 
+.room-thread-source
+  > .bubble-stack
+  > .bubble-stack-main
+  > .room-thread-source-bubble:not(.mine).room-thread-source-bubble-thumbnail-image-only-card
+  .bubble-attachment-photo-thread-source-card,
+.room-thread-source
+  > .room-thread-source-bubble:not(.mine).room-thread-source-bubble-thumbnail-image-only-card
+  .bubble-attachment-photo-thread-source-card,
+.room-thread-source
+  > .bubble-stack
+  > .bubble-stack-main
+  > .room-thread-source-bubble:not(.mine).room-thread-source-bubble-thumbnail-captioned
+  .bubble-attachment-photo-thread-source-card,
+.room-thread-source
+  > .room-thread-source-bubble:not(.mine).room-thread-source-bubble-thumbnail-captioned
+  .bubble-attachment-photo-thread-source-card,
+.room-thread-source
+  > .bubble-stack
+  > .bubble-stack-main
+  > .room-thread-source-bubble:not(.mine).room-thread-source-bubble-thumbnail-image-only-card
+  .bubble-attachment-image-thread-source-card,
+.room-thread-source
+  > .room-thread-source-bubble:not(.mine).room-thread-source-bubble-thumbnail-image-only-card
+  .bubble-attachment-image-thread-source-card,
+.room-thread-source
+  > .bubble-stack
+  > .bubble-stack-main
+  > .room-thread-source-bubble:not(.mine).room-thread-source-bubble-thumbnail-captioned
+  .bubble-attachment-image-thread-source-card,
+.room-thread-source
+  > .room-thread-source-bubble:not(.mine).room-thread-source-bubble-thumbnail-captioned
+  .bubble-attachment-image-thread-source-card {
+  border-radius: 0 0 0 24px;
+}
+
 .room-thread-feed {
   min-height: 0;
   padding-top: 0;

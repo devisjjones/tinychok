@@ -1164,6 +1164,10 @@ test('thread source image cards use dedicated full-width card layouts for captio
     appCssSource,
     /\.room-thread-source[\s\S]*\.room-thread-source-bubble\.room-thread-source-bubble-thumbnail-captioned[\s\S]*\.bubble-attachment-image-thread-source-card[\s\S]*border-radius: 0 0 0 24px;/u,
   )
+  assert.match(
+    appCssSource,
+    /\.room-thread-source[\s\S]*\.room-thread-source-bubble:not\(\.mine\)\.room-thread-source-bubble-thumbnail-image-only-card[\s\S]*\.bubble-attachment-image-thread-source-card[\s\S]*border-radius: 0 0 0 24px;/u,
+  )
 })
 
 test('direct chat snapshots propagate contact avatar updates', async () => {
