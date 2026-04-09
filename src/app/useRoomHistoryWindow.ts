@@ -57,6 +57,21 @@ export function mergeTimelineItems<T extends TimelineItem>(olderItems: T[], rece
   return [...itemsById.values()].sort(compareTimelineItems)
 }
 
+export function mergeVisibleTimelineItems<T extends TimelineItem>(olderItems: T[], recentItems: T[]) {
+  if (olderItems.length === 0) {
+    return recentItems
+  }
+
+  if (recentItems.length === 0) {
+    return olderItems
+  }
+
+  const recentIds = new Set(recentItems.map((item) => item.id))
+  const visibleOlderItems = olderItems.filter((item) => !recentIds.has(item.id))
+
+  return [...visibleOlderItems, ...recentItems]
+}
+
 export function useRoomHistoryWindow<T extends TimelineItem>(options: {
   feedRef: RefObject<HTMLDivElement | null>
   hasOlderHistory: boolean
@@ -92,7 +107,7 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
   const hasMoreRef = useRef(hasOlderHistory)
   const visibleItems = useMemo(() => {
     const olderItems = historyState.roomKey === roomKey ? historyState.olderItems : []
-    return mergeTimelineItems(olderItems, items)
+    return mergeVisibleTimelineItems(olderItems, items)
   }, [historyState.olderItems, historyState.roomKey, items, roomKey])
   const visibleItemsRef = useRef(visibleItems)
   const loadOlderPromiseRef = useRef<Promise<boolean> | null>(null)

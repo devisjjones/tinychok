@@ -252,6 +252,7 @@
 - optimistic direct/group send contract:
   - pending bubble с hourglass не должен прыгать вверх по ленте до server ack
   - при равном `createdAt` confirmed items должны оставаться раньше optimistic local ids `< 0`
+  - visible room slice не должен глобально пересортировывать уже собранный room tail по timestamp, иначе клиентский pending может временно подняться выше свежего confirmed tail и потом упасть обратно после ack
 - incoming group sender-strip над bubble не должен зависать посередине между сообщениями:
   - strip привязан к своему bubble, а не к предыдущему
   - имя и crown выровнены по нижней границе avatar

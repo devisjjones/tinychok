@@ -206,6 +206,7 @@
 - optimistic send в direct/group:
   - pending bubble с hourglass не должен подскакивать выше подтверждённого хвоста и потом прыгать вниз после ack
   - при равном `createdAt` confirmed tail items всё равно должны оставаться раньше optimistic local ids `< 0`
+  - even при более поздних server-created timestamps у уже подтверждённого хвоста visible room order должен сохранять локально собранный pending tail последним, а не пересортировывать его вверх по сырому `createdAt`
 - spacing между bubble в room feeds:
   - direct, group и thread = `3px`
   - channel posts сохраняют более крупный gap и не должны выглядеть как обычный chat stream

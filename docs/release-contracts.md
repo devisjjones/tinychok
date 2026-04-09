@@ -133,6 +133,7 @@
   - в открытом thread room между root/source card и первым комментарием должен быть отдельный gap `12px`, как между сообщениями разных авторов
 - optimistic direct/group send contract:
   - локальное pending-сообщение с hourglass не должно появляться выше уже подтверждённого хвоста ленты
+  - visible room slice не должен заново пересортировывать уже собранный local tail по одному `createdAt`, если server-created timestamps у последних confirmed сообщений уже стали позже клиентского pending timestamp
   - если `createdAt` совпал, confirmed items всё равно должны оставаться раньше optimistic local ids `< 0`
   - server ack не должен визуально переставлять только что отправленное сообщение на 1-2 строки вниз
 - thread inbox card contract:
