@@ -222,6 +222,7 @@
   - при смене автора gap возвращается к `12px`
   - sender-strip выровнен по левой линии bubble, без лишнего inset
   - captioned media bubble не должен раздувать header-strip: у avatar/name над фото остаётся компактная высота без лишнего верхнего воздуха
+  - media-only photo bubble тоже держит компактный white sender-header: без лишнего верхнего и нижнего воздуха над фото
 - selected message overlay в room feed:
   - если сообщение визуально включает sender-strip, selection anchor обязан мериться по полному видимому блоку, а не только по inner bubble
   - при нехватке места room feed может быть подскроллен, но overlay не должен дрейфовать отдельно от исходного сообщения
@@ -297,6 +298,7 @@
 - group media smoke:
   - photo/video bubble с подписью не должен показывать accent strip над media
   - top spacing над media допустим только если в bubble реально виден author header
+  - media-only photo bubble не должен держать раздутую белую sender-плашку над фото
   - selected overlay bubble при long-press / tap не должен становиться выше базового bubble в ленте
 - автоскролл вниз в room feed — критичная проверка:
   - opening room must land on the latest item

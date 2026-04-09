@@ -2200,6 +2200,7 @@ test('group media bubbles keep a compact author header in both room and selected
   assert.match(appCss, /\.bubble\.media-only-bubble \.bubble-media-header/u)
   assert.match(appCss, /\.bubble\.media-only-bubble \.bubble-media-header-button/u)
   assert.match(appCss, /\.bubble\.media-only-bubble\.mine \.bubble-media-header/u)
+  assert.match(appCss, /\.bubble\.media-only-bubble \.bubble-media-header \{[\s\S]*padding:\s*8px 14px;/u)
 })
 
 test('standard group text bubbles render the author strip above the bubble instead of inside it', () => {

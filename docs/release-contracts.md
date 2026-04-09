@@ -148,6 +148,7 @@
   - author avatar/name над bubble должны быть ближе к своему bubble, чем к предыдущему сообщению
   - sender name и premium-crown должны выравниваться по нижней границе avatar, а не по vertical center
   - captioned media bubble в группе не должен раздувать отдельную белую шапку сверху: верхний inset и нижний padding header-strip должны оставаться компактными
+  - media-only bubble в группе тоже не должен держать раздутый white sender-header над фото: vertical padding у avatar/name strip должен оставаться компактным
   - в group room sender-strip показывается только на первом сообщении новой author-chain
   - thread comments используют тот же внешний sender-strip contract: имя/аватар живут над bubble, а не внутри bubble-body
   - group root/source card внутри треда тоже использует внешний sender-strip contract для текстовых bubble, а не вшивает имя/аватар в bubble-body
