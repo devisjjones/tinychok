@@ -153,6 +153,9 @@
 - ошибка delete-for-everyone не должна приводить к локальному fake-success у инициатора
 - direct self-delete is retention-safe and admin/legal exports use a canonical transcript
 - `Удалить у меня` в direct не должно снова становиться физическим purge сервера: запись скрывается из обычного UI, но остаётся recoverable для admin/legal до retention cutoff
+- owner storage exports не должны смешивать разные продукты хранения:
+  - `Выгрузка активного хранилища` и `Выгрузка архивного хранилища` не должны пересекаться по одному `mediaUrl`
+  - retention-only direct attachments после `Удалить у меня` остаются только в canonical admin/legal export, а не в archive storage export
 - этот контракт должен держаться:
   - runtime-тестами store
   - source-contract регрессиями UI

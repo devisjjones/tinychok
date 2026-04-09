@@ -550,7 +550,7 @@ test('double local delete in direct keeps server-retained history but frees user
   assert.match(dialogExport.csv, /delete-message-me/u)
 })
 
-test('owner media export includes gif and retention-only direct attachments but excludes avatars', async () => {
+test('owner storage exports keep current media separate from retention-only direct attachments and exclude avatars', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
   const left = createAccount('+799901000821')
@@ -645,24 +645,89 @@ test('owner media export includes gif and retention-only direct attachments but 
   const archiveCsv = strFromU8(archiveZip['manifest/media.csv'])
 
   assert.equal(
-    archiveManifest.some(
-      (entry: { archiveReason?: string; fileName: string; retentionOnly: boolean }) =>
-        entry.fileName === 'retention-export.png' &&
-        entry.retentionOnly === true &&
-        entry.archiveReason === 'delete-message-me',
-    ),
+    archiveManifest.some((entry: { fileName: string }) => entry.fileName === 'retention-export.png'),
+    false,
+  )
+  assert.doesNotMatch(currentCsv, /retention-export\.png/u)
+  assert.doesNotMatch(archiveCsv, /retention-export\.png/u)
+  assert.doesNotMatch(archiveCsv, /delete-message-me/u)
+})
+
+test('archive storage export does not duplicate a direct attachment that is still active in current storage', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const left = createAccount('+799901000831')
+  const right = createAccount('+799901000832')
+  const staff = createAccount('+799901000833')
+  staff.staffRole = 'owner'
+  staff.passwordHash = await hashPassword('owner-secret')
+
+  database.accounts.push(left, right, staff)
+  const leftToken = createSession(database, left.identifier, 'active-current-left')
+  const rightToken = createSession(database, right.identifier, 'active-current-right')
+  const staffToken = createSession(database, staff.identifier, 'active-current-staff')
+
+  const mediaUrl = '/uploads/attachments/archive-overlap.png'
+  database.pendingMediaUploads.push({
+    createdAt: '2026-04-03T08:00:00.000Z',
+    fileName: 'archive-overlap.png',
+    kind: 'attachment',
+    linked: true,
+    mediaUrl,
+    mimeType: 'image/png',
+    ownerIdentifier: left.identifier,
+    size: 2048,
+    storageKey: 'archive-overlap',
+  })
+
+  const opened = await store.openDirectDialog(leftToken, { identifier: right.identifier })
+  await store.sendContactRequest(leftToken, { identifier: right.identifier })
+  await store.acceptContactRequest(rightToken, left.identifier)
+  await store.sendDirectMessage(leftToken, opened.dialogId, {
+    attachment: {
+      fileName: 'archive-overlap.png',
+      mediaUrl,
+      mimeType: 'image/png',
+      size: 2048,
+    },
+    text: 'Archive overlap',
+  })
+
+  const rightChatBefore = store.getSnapshotByToken(rightToken)?.chats.find((chat) => chat.phone === left.identifier)
+  const rightIncomingMessage = rightChatBefore?.messages.find((message) => message.text === 'Archive overlap')
+  assert.ok(rightChatBefore)
+  assert.ok(rightIncomingMessage)
+
+  await store.deleteDialogMessage(rightToken, rightChatBefore!.id, rightIncomingMessage!.id)
+
+  assert.equal(database.archivedMedia.length, 0)
+
+  const currentExport = await store.adminExportCurrentStorage(staffToken, {
+    currentPassword: 'owner-secret',
+    reason: 'archive-overlap-current',
+    subjectId: left.identifier,
+    subjectKind: 'user',
+  })
+  const currentZip = unzipSync(new Uint8Array(currentExport.buffer))
+  const currentManifest = JSON.parse(strFromU8(currentZip['manifest/media.json']))
+
+  const archiveExport = await store.adminExportStorageArchive(staffToken, {
+    currentPassword: 'owner-secret',
+    reason: 'archive-overlap-archive',
+    subjectId: left.identifier,
+    subjectKind: 'user',
+  })
+  const archiveZip = unzipSync(new Uint8Array(archiveExport.buffer))
+  const archiveManifest = JSON.parse(strFromU8(archiveZip['manifest/media.json']))
+
+  assert.equal(
+    currentManifest.some((entry: { mediaUrl: string }) => entry.mediaUrl === mediaUrl),
     true,
   )
   assert.equal(
-    archiveManifest.some(
-      (entry: { exportError?: string; fileName: string }) =>
-        entry.fileName === 'retention-export.png' && Boolean(entry.exportError),
-    ),
-    true,
+    archiveManifest.some((entry: { mediaUrl: string }) => entry.mediaUrl === mediaUrl),
+    false,
   )
-  assert.doesNotMatch(currentCsv, /retention-export\.png/u)
-  assert.match(archiveCsv, /Retention only/u)
-  assert.match(archiveCsv, /delete-message-me/u)
 })
 
 test('legacy two-sided direct dialogs auto-upgrade to accepted contacts', () => {

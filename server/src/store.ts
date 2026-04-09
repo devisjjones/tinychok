@@ -15376,8 +15376,8 @@ export class TinychokStore {
       if (options?.archiveOnly && !reference.archiveReason && !reference.archivedAt) continue
       if (options?.currentOnly && (reference.archiveReason || reference.archivedAt)) continue
 
-      // Do not reuse the self-service storage screen data here: admin export must keep
-      // retention-only direct attachments that are intentionally hidden from user storage UI.
+      // Do not reuse the self-service storage screen data here: current/admin inventory
+      // still needs canonical live references, not just what the self-service tiles show.
       const normalizedKind: AdminOwnedMediaExportItem['kind'] =
         reference.kind === 'user-gif' ? 'gif' : 'attachment'
       const existing = itemsByMediaUrl.get(reference.mediaUrl)
@@ -15474,25 +15474,9 @@ export class TinychokStore {
       })
     }
 
-    for (const item of this.collectAdminOwnedMediaExportItems(subject, { archiveOnly: true })) {
-      const existing = itemsByMediaUrl.get(item.mediaUrl)
-      if (!existing) {
-        itemsByMediaUrl.set(item.mediaUrl, {
-          ...item,
-          archivedAt: item.archivedAt ?? item.createdAt,
-          originalContext: item.originalContext ?? item.primaryLabel,
-          retentionOnly: true,
-        })
-        continue
-      }
-
-      existing.retentionOnly = existing.retentionOnly || item.retentionOnly
-      existing.usageCount = Math.max(existing.usageCount, item.usageCount)
-      existing.contexts.push(...item.contexts)
-      if (!existing.archiveReason && item.archiveReason) {
-        existing.archiveReason = item.archiveReason
-      }
-    }
+    // Archive export must reflect only the real archive storage inventory.
+    // Retention-only direct rows stay recoverable through canonical admin/legal exports,
+    // but must not leak into archive storage export or duplicate live primary media there.
 
     return [...itemsByMediaUrl.values()].sort(
       (left, right) => (parseIsoDate(right.archivedAt ?? right.createdAt) ?? 0) - (parseIsoDate(left.archivedAt ?? left.createdAt) ?? 0),

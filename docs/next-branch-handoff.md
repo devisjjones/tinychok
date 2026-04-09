@@ -1127,6 +1127,9 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - если такой запрос всё же ушёл на backend, сервер обязан отказать и не архивировать ни одну копию
   - локальный direct self-delete теперь retention-safe: `Удалить у меня` и `Удалить переписку у меня` архивируют owner-copy вместо физического purge
   - admin/legal export и dialog summary должны смотреть на canonical transcript по обеим копиям, иначе локальный self-delete превращается в обход server retention
+  - owner storage exports при этом не должны смешивать current/archive surfaces:
+    - active storage export и archive storage export должны быть disjoint по `mediaUrl`
+    - retention-only direct attachments остаются только в admin/legal path, а не в archive storage export
 - admin login под owner/moderator/support
 - dashboard cards в `Сводке` без дубликатов по каналам / группам / тредам
 - user search, block/unblock, premium toggle и avatar view в admin

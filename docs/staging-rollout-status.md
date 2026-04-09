@@ -723,6 +723,9 @@ curl -s https://api.staging.tinychok.ru/healthz
   - если backend всё же получает такой запрос для входящего сообщения, он должен отказать без удаления у обеих сторон
   - `Удалить у меня` и `Удалить переписку у меня` в direct остаются локальным hide в UI, но сервер хранит retention-архив для admin/legal export
   - admin/legal export должен собираться из canonical direct transcript по обеим копиям, а не из single-owner copy
+  - storage exports должны оставаться disjoint:
+    - `Выгрузка активного хранилища` не пересекается по `mediaUrl` с `Выгрузкой архивного хранилища`
+    - retention-only direct attachments не должны протекать в archive storage export
 - group message send
 - group system events:
   - normal join => видно `К группе присоединился ...`
