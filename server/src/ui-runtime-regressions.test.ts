@@ -4070,12 +4070,38 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
     appCss,
     /html\[data-theme='dark'\] \.channel-avatar-picker-popover,[\s\S]*\.message-menu,[\s\S]*\.composer-attachment-popover/u,
   )
+  assert.match(appCss, /html\[data-theme='dark'\] \.room-confirm\s*\{/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.room-confirm-button-primary,[\s\S]*\.send-button,[\s\S]*\.composer-attachment-rename-save,[\s\S]*\.premium-submit/u,
+  )
   assert.match(appCss, /html\[data-theme='dark'\] \.premium-card-monthly,\s*[\s\S]*\.premium-card-annual/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.composer-attachment-preview,\s*[\s\S]*\.composer-reply/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.settings-checkbox input\s*\{[\s\S]*accent-color:\s*#7f8490;/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.filter\s*\{[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.08\);/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.chat-card\.active,\s*[\s\S]*\.room-participant-action,\s*[\s\S]*\.room-participant-role/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.search input,[\s\S]*\.composer textarea,[\s\S]*\.room-forward-note-input,[\s\S]*\.room-transfer-search input,[\s\S]*\.settings-input,[\s\S]*\.settings-handle/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.room-mobile-back-icon,[\s\S]*\.room-menu-icon,[\s\S]*\.room-crown img,[\s\S]*\.bubble-sender-crown img,[\s\S]*filter:\s*var\(--icon-filter\);/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.room-thread-source > \.bubble-stack > \.bubble-stack-main > \.room-thread-source-bubble,[\s\S]*\.room-thread-source > \.room-thread-source-bubble/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.avatar:not\(:has\(img\)\),[\s\S]*\.channel-avatar:not\(:has\(img\)\)\s*\{[\s\S]*background-color:\s*#535763/u,
+  )
   assert.match(releaseDoc, /persisted user setting `darkThemeEnabled`/u)
+  assert.match(releaseDoc, /confirm dialogs, filters, share\/subscriber popups, thread root cards and inputs must stay on gray dark-surfaces/iu)
   assert.match(rolloutDoc, /persisted dark-theme toggle/iu)
+  assert.match(rolloutDoc, /share\/subscriber dialogs, thread root source cards, confirm popups and composer inputs must not leak light surfaces in dark mode/iu)
   assert.match(handoffDoc, /`data-theme` contract/iu)
+  assert.match(handoffDoc, /light popups, brown cards, dark-on-dark icons or pale placeholder avatars are regressions in dark mode/iu)
 
   const store = createStore()
   const database = getStoreDatabase(store)

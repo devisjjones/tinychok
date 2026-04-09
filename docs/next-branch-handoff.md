@@ -445,6 +445,8 @@
     - `darkThemeEnabled` должен храниться в session/account snapshot
     - profile toggle `Тёмная тема` обязан переживать refresh и relogin
     - если кто-то снова вернёт brown panel/menu/card surfaces в dark mode, это считать регрессией
+    - light popups, brown cards, dark-on-dark icons or pale placeholder avatars are regressions in dark mode
+    - особенно проверять `room-confirm`, `room-forward-item`, `room-participants`, `room-thread-source`, `filters`, `chat-card.active`, `composer textarea` и `send-button`
 - rich-text toolbar с `B / I / U / S` и `contenteditable` откатили как регрессивный surface
 - если кто-то снова будет возвращать форматирование текста, нужно отдельно перепроверять:
   - direct

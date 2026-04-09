@@ -535,6 +535,9 @@
 - persisted dark-theme toggle считается частью release-blocking profile contract:
   - setting `darkThemeEnabled` должен приходить из snapshot и переживать hard refresh / relogin
   - live UI должен переключать root `data-theme` contract, а dark mode не должен оставлять brown panel/menu/card surfaces
+  - share/subscriber dialogs, thread root source cards, confirm popups and composer inputs must not leak light surfaces in dark mode
+  - placeholder avatars without uploaded photos must darken in dark mode, but uploaded avatars must stay visually unchanged
+  - menu/star/crown/edit/send/filter icons must switch to the light icon treatment on dark surfaces
 - profile settings mobile smoke:
   - на `390px` avatar и display name остаются в одном header-row
   - display name не должен падать под avatar только из-за mobile media-rule

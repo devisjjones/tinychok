@@ -9113,3 +9113,281 @@ html[data-theme='dark'] .composer-attachment-rename-backdrop,
 html[data-theme='dark'] .room-confirm-scrim {
   background: rgba(0, 0, 0, 0.36);
 }
+
+html[data-theme='dark'] .room-confirm {
+  background: rgba(18, 19, 22, 0.98);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.36);
+}
+
+html[data-theme='dark'] .room-confirm-button {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .room-confirm-button:hover {
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.24);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme='dark'] .room-confirm-button-primary,
+html[data-theme='dark'] .send-button,
+html[data-theme='dark'] .composer-attachment-rename-save,
+html[data-theme='dark'] .premium-submit {
+  background: var(--surface-bubble-mine);
+  color: var(--surface-bubble-mine-ink);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme='dark'] .room-confirm-button.disabled,
+html[data-theme='dark'] .room-confirm-button:disabled,
+html[data-theme='dark'] .send-button.disabled,
+html[data-theme='dark'] .send-button:disabled,
+html[data-theme='dark'] .composer-attachment-rename-save:disabled,
+html[data-theme='dark'] .premium-submit:disabled {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(239, 240, 243, 0.46);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .room-confirm-danger {
+  background: rgba(119, 66, 72, 0.34);
+  color: #f2d6d7;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .settings-item,
+html[data-theme='dark'] .settings-support-ticket-item,
+html[data-theme='dark'] .settings-support-ticket-bubble,
+html[data-theme='dark'] .room-forward-item,
+html[data-theme='dark'] .room-forward-item-existing-member,
+html[data-theme='dark'] .group-create-member-item.active,
+html[data-theme='dark'] .browser-notification-banner,
+html[data-theme='dark'] .conversation-day-divider span,
+html[data-theme='dark'] .group-system-message,
+html[data-theme='dark'] .direct-system-message-label,
+html[data-theme='dark'] .filters,
+html[data-theme='dark'] .chat-card.active,
+html[data-theme='dark'] .room-participant-action,
+html[data-theme='dark'] .room-participant-role {
+  background: rgba(36, 37, 43, 0.94);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.2);
+}
+
+html[data-theme='dark'] .filter {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .filter.active {
+  background: rgba(116, 120, 130, 0.92);
+  color: #f7f8fb;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme='dark'] .filter-badge,
+html[data-theme='dark'] .filter-badge.filter-badge-light {
+  background: rgba(164, 91, 78, 0.92);
+  color: #fff7f4;
+}
+
+html[data-theme='dark'] .filters::before {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.1) 0 12px,
+      transparent 12px 21px
+    );
+}
+
+html[data-theme='dark'] .conversation-day-divider::before,
+html[data-theme='dark'] .conversation-day-divider::after {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .room-forward-item-status,
+html[data-theme='dark'] .room-participant-status,
+html[data-theme='dark'] .direct-system-message-label,
+html[data-theme='dark'] .group-system-message,
+html[data-theme='dark'] .conversation-day-divider span,
+html[data-theme='dark'] .room-channel-status,
+html[data-theme='dark'] .room-channel-status a,
+html[data-theme='dark'] .chat-card.active .chat-topline-meta,
+html[data-theme='dark'] .chat-card.active .chat-preview,
+html[data-theme='dark'] .chat-card.active .chat-handle,
+html[data-theme='dark'] .browser-notification-banner-copy span,
+html[data-theme='dark'] .browser-notification-banner-dismiss {
+  color: #bcc1ca;
+}
+
+html[data-theme='dark'] .room-forward-section-title,
+html[data-theme='dark'] .room-forward-section-title.contacts-section-title,
+html[data-theme='dark'] .search-group-title,
+html[data-theme='dark'] .settings-quiet-section-title,
+html[data-theme='dark'] .settings-support-ticket-section-title,
+html[data-theme='dark'] .settings-label,
+html[data-theme='dark'] .contacts-empty-note,
+html[data-theme='dark'] .channel-avatar-picker-copy .settings-text,
+html[data-theme='dark'] .room-id,
+html[data-theme='dark'] .room-id a {
+  color: var(--muted);
+}
+
+html[data-theme='dark'] .room-id a,
+html[data-theme='dark'] .room-channel-status a {
+  text-decoration-color: rgba(255, 255, 255, 0.22);
+}
+
+html[data-theme='dark'] .search input,
+html[data-theme='dark'] .composer textarea,
+html[data-theme='dark'] .room-forward-note-input,
+html[data-theme='dark'] .room-transfer-search input,
+html[data-theme='dark'] .channel-status-input,
+html[data-theme='dark'] .channel-description-input,
+html[data-theme='dark'] .settings-input,
+html[data-theme='dark'] .settings-handle,
+html[data-theme='dark'] .composer-attachment-rename-input,
+html[data-theme='dark'] .settings-item-profile-field .settings-input,
+html[data-theme='dark'] .settings-item-profile-field .settings-handle {
+  background: var(--surface-bubble-mine);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+}
+
+html[data-theme='dark'] .search input::placeholder,
+html[data-theme='dark'] .composer textarea::placeholder,
+html[data-theme='dark'] .room-forward-note-input::placeholder,
+html[data-theme='dark'] .room-transfer-search input::placeholder,
+html[data-theme='dark'] .channel-status-input::placeholder,
+html[data-theme='dark'] .channel-description-input::placeholder,
+html[data-theme='dark'] .settings-input::placeholder,
+html[data-theme='dark'] .composer-attachment-rename-input::placeholder {
+  color: rgba(239, 240, 243, 0.52);
+}
+
+html[data-theme='dark'] .search input:focus,
+html[data-theme='dark'] .composer textarea:focus,
+html[data-theme='dark'] .room-forward-note-input:focus,
+html[data-theme='dark'] .room-transfer-search input:focus,
+html[data-theme='dark'] .settings-input:focus,
+html[data-theme='dark'] .composer-attachment-rename-input:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+html[data-theme='dark'] .room-mobile-back,
+html[data-theme='dark'] .quiet-toggle,
+html[data-theme='dark'] .room-star,
+html[data-theme='dark'] .room-menu-button,
+html[data-theme='dark'] .room-group-actions-toggle,
+html[data-theme='dark'] .settings-action-card-subtle,
+html[data-theme='dark'] .settings-quiet-upsell-button {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme='dark'] .quiet-toggle.active,
+html[data-theme='dark'] .room-star.active,
+html[data-theme='dark'] .filter.active,
+html[data-theme='dark'] .room-group-actions-toggle.active {
+  background: rgba(116, 120, 130, 0.92);
+}
+
+html[data-theme='dark'] .filter-icon,
+html[data-theme='dark'] .contacts-filter-icon,
+html[data-theme='dark'] .room-mobile-back-icon,
+html[data-theme='dark'] .quiet-toggle img,
+html[data-theme='dark'] .room-star img,
+html[data-theme='dark'] .room-menu-icon,
+html[data-theme='dark'] .settings-action-card-icon img,
+html[data-theme='dark'] .room-owner-edit-badge img,
+html[data-theme='dark'] .chat-owner-edit-badge img,
+html[data-theme='dark'] .chat-crown img,
+html[data-theme='dark'] .room-crown img,
+html[data-theme='dark'] .group-muted-indicator img,
+html[data-theme='dark'] .group-system-message-crown img,
+html[data-theme='dark'] .bubble-sender-crown img,
+html[data-theme='dark'] .bubble-attachment-removed-note-crown img,
+html[data-theme='dark'] .room-participant-action img,
+html[data-theme='dark'] .browser-notification-banner-icon,
+html[data-theme='dark'] .composer-send-icon img,
+html[data-theme='dark'] .composer-attachment-preview-clear-icon,
+html[data-theme='dark'] .group-create-limit-upsell .premium-crown img,
+html[data-theme='dark'] .settings-invisibility-crown img,
+html[data-theme='dark'] .composer-attachment-premium-crown img,
+html[data-theme='dark'] .premium-crown img {
+  filter: var(--icon-filter);
+}
+
+html[data-theme='dark'] .filter.active .filter-icon,
+html[data-theme='dark'] .quiet-toggle.active img,
+html[data-theme='dark'] .room-star.active img {
+  filter: var(--icon-filter-active);
+}
+
+html[data-theme='dark'] .room-thread-source > .bubble-stack > .bubble-stack-main > .room-thread-source-bubble,
+html[data-theme='dark'] .room-thread-source > .room-thread-source-bubble {
+  background: var(--surface-card-soft);
+  color: var(--ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 16px 34px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme='dark'] .room-thread-source .room-thread-source-bubble .bubble-text-link,
+html[data-theme='dark'] .room-thread-source .room-thread-source-bubble .bubble-attachment-removed-note-link {
+  color: #d9dce2;
+  text-decoration-color: rgba(239, 240, 243, 0.38);
+}
+
+html[data-theme='dark']
+  .room-thread-source
+  > .bubble-stack
+  > .bubble-stack-main
+  > .room-thread-source-bubble
+  > time,
+html[data-theme='dark'] .room-thread-source > .room-thread-source-bubble > time {
+  color: #bcc1ca;
+}
+
+html[data-theme='dark'] .room-thread-source .room-thread-source-bubble .bubble-reply,
+html[data-theme='dark'] .room-thread-source .room-thread-source-bubble .bubble-reply-reference {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .room-management-actions .room-forward-item.room-confirm-danger,
+html[data-theme='dark'] .room-participant-role-blacklisted {
+  background: rgba(119, 66, 72, 0.34);
+  color: #f2d6d7;
+}
+
+html[data-theme='dark'] .room-participant-role-archived {
+  background: rgba(84, 88, 98, 0.54);
+  color: #d6d9df;
+}
+
+html[data-theme='dark'] .bubble.mine.has-delivery-issue,
+html[data-theme='dark'] .bubble.mine.delivery-failed {
+  background: var(--surface-bubble-mine);
+}
+
+html[data-theme='dark'] .bubble.mine.has-delivery-issue time,
+html[data-theme='dark'] .bubble.mine.delivery-failed time {
+  color: rgba(239, 240, 243, 0.72);
+}
+
+html[data-theme='dark'] .group-create-member-checkbox {
+  accent-color: #7f8490;
+}
+
+html[data-theme='dark'] .avatar:not(:has(img)),
+html[data-theme='dark'] .channel-avatar:not(:has(img)) {
+  background-color: #535763 !important;
+  color: #f7f7f8;
+}

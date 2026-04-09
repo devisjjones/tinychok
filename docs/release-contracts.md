@@ -591,6 +591,9 @@
   - toggle `Тёмная тема` сохраняется через обычный `updateSession` flow и переживает refresh / relogin
   - root `html/body` обязаны получать `data-theme="dark"` или `data-theme="light"` от live session draft
   - dark theme должен переводить интерфейс в серые dark-surfaces; brown-only panel/menu/card surfaces в dark mode считаются регрессией
+  - confirm dialogs, filters, share/subscriber popups, thread root cards and inputs must stay on gray dark-surfaces; white modal carryover in dark mode is a regression
+  - monochrome icons in dark mode must use the light icon treatment; black-on-black crowns, stars, menu/edit/send icons are regressions
+  - placeholder avatars without uploaded images must switch to a darker neutral background in dark mode; uploaded avatars stay untouched
 - rich-text toolbar с `B / I / U / S` и `contenteditable` не считается разрешённым user-facing surface, пока не будет возвращён без regressions в:
   - direct
   - group
