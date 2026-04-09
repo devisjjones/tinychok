@@ -2180,21 +2180,30 @@ test('standard group text bubbles render the author strip above the bubble inste
   )
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
+  assert.match(groupRoomSource, /shouldRenderIncomingAuthorStrip/u)
+  assert.match(groupRoomSource, /shouldUseAuthorChainBreakSpacing/u)
+  assert.match(groupRoomSource, /const previousMessageInChain =/u)
+  assert.match(groupRoomSource, /const shouldRenderGroupAuthorStrip = shouldRenderIncomingAuthorStrip\(/u)
+  assert.match(groupRoomSource, /const groupMessageRowClassName = shouldUseGroupAuthorBreakSpacing/u)
   assert.match(groupRoomSource, /const shouldRenderExternalGroupAuthor =/u)
-  assert.match(groupRoomSource, /const groupMediaAuthor = renderGroupMediaAuthor\(message, groupParticipant\)/u)
+  assert.match(
+    groupRoomSource,
+    /const groupMediaAuthor = shouldRenderGroupAuthorStrip[\s\S]*renderGroupMediaAuthor\(message, groupParticipant\)/u,
+  )
   assert.match(groupRoomSource, /Boolean\(groupMediaAuthor\) && !isImageOnlyBubble && !isGroupCaptionedImageBubble/u)
   assert.match(groupRoomSource, /const messageBubbleButton = \(/u)
   assert.match(groupRoomSource, /return shouldRenderExternalGroupAuthor \? \(/u)
   assert.match(groupRoomSource, /<div className="bubble-author-layout">/u)
   assert.match(groupRoomSource, /className="bubble-author-strip"/u)
+  assert.match(groupRoomSource, /<div className=\{groupMessageRowClassName\}>/u)
   assert.match(groupRoomSource, /data-bubble-measure=\{shouldRenderExternalGroupAuthor \? 'true' : undefined\}/u)
   assert.match(overlaySource, /const shouldRenderExternalGroupAuthor =/u)
   assert.match(overlaySource, /className="bubble-author-layout bubble-overlay-author-layout"/u)
   assert.match(appCss, /\.bubble-author-layout/u)
   assert.match(appCss, /\.group-room-feed \.bubble-author-layout \{/u)
   assert.match(appCss, /gap:\s*3px;/u)
-  assert.match(appCss, /padding-top:\s*6px;/u)
-  assert.match(appCss, /\.bubble-author-strip/u)
+  assert.match(appCss, /padding-top:\s*0;/u)
+  assert.match(appCss, /\.bubble-author-strip \{[\s\S]*padding:\s*0;/u)
   assert.match(appCss, /\.bubble-sender \{[\s\S]*align-items:\s*flex-end;/u)
   assert.match(appCss, /\.bubble-sender-name \{[\s\S]*line-height:\s*1;/u)
   assert.match(appCss, /\.bubble-sender-crown \{[\s\S]*align-items:\s*flex-end;/u)
@@ -2272,14 +2281,21 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
     groupRoomSource,
     /function renderGroupMediaAuthor[\s\S]*return <span className="bubble-meta">Вы<\/span>/u,
   )
-  assert.match(groupRoomSource, /const groupMediaAuthor = renderGroupMediaAuthor\(message, groupParticipant\)/u)
+  assert.match(
+    groupRoomSource,
+    /const groupMediaAuthor = shouldRenderGroupAuthorStrip[\s\S]*renderGroupMediaAuthor\(message, groupParticipant\)/u,
+  )
   assert.match(groupRoomSource, /groupMediaAuthor \? \(\s*<button[\s\S]*bubble-media-header bubble-media-header-button/u)
   assert.match(groupRoomSource, /isGroupCaptionedImageBubble && groupMediaAuthor/u)
   assert.match(groupRoomSource, /className="message-feed group-room-feed"/u)
+  assert.match(groupRoomSource, /group-message-row group-message-row-author-break/u)
   assert.match(channelRoomSource, /className="message-feed"/u)
   assert.doesNotMatch(channelRoomSource, /className="message-feed direct-room-feed"/u)
-  assert.match(appSource, /const commentAuthorNode = !mine \?/u)
+  assert.match(appSource, /const shouldRenderCommentAuthorNode = shouldRenderIncomingAuthorStrip\(/u)
+  assert.match(appSource, /const threadCommentRowClassName = shouldUseCommentAuthorBreakSpacing/u)
+  assert.match(appSource, /const commentAuthorNode = !mine && shouldRenderCommentAuthorNode \?/u)
   assert.match(appSource, /\{commentAuthorNode\}/u)
+  assert.match(appSource, /className=\{threadCommentRowClassName\}/u)
   assert.match(overlaySource, /function renderGroupOverlayAuthor[\s\S]*if \(mine\) \{\s*return null/u)
   assert.doesNotMatch(
     overlaySource,
@@ -2288,6 +2304,7 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   assert.match(overlaySource, /const compactOverlayClassName = ' bubble-overlay-compact'/u)
   assert.match(overlaySource, /bubbleClassNames\.push\('bubble-overlay-compact'\)/u)
   assert.match(appCss, /\.direct-room-feed,\s*\.group-room-feed,\s*\.room-thread-feed \{\s*gap: 3px;/u)
+  assert.match(appCss, /\.group-message-row-author-break,\s*\.thread-comment-row-author-break \{\s*margin-top: 9px;/u)
   assert.match(
     appCss,
     /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,

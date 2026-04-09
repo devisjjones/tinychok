@@ -4293,13 +4293,13 @@
 
 .group-room-feed .bubble-author-layout {
   gap: 3px;
-  padding-top: 6px;
+  padding-top: 0;
 }
 
 .bubble-author-strip {
   min-width: 0;
   max-width: 100%;
-  padding: 0 18px;
+  padding: 0;
 }
 
 .bubble-author-strip > .bubble-meta,
@@ -5247,6 +5247,18 @@
 .group-room-feed,
 .room-thread-feed {
   gap: 3px;
+}
+
+.group-message-row,
+.thread-comment-row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.group-message-row-author-break,
+.thread-comment-row-author-break {
+  margin-top: 9px;
 }
 
 .group-room-feed .bubble:not(.media-only-bubble):not(.emoji-only-message),

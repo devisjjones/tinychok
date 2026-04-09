@@ -206,6 +206,11 @@
 - spacing между bubble в room feeds:
   - direct, group и thread = `3px`
   - channel posts сохраняют более крупный gap и не должны выглядеть как обычный chat stream
+- group sender-chain в живом room feed:
+  - sender-strip показывается только на первом сообщении подряд идущей цепочки автора
+  - same-author continuation идёт с gap `3px`
+  - при смене автора gap возвращается к `12px`
+  - sender-strip выровнен по левой линии bubble, без лишнего inset
 - standalone emoji contract:
   - top-level direct/group message из одного emoji без вложений и без source/forward chrome идёт без фонового bubble
   - emoji увеличен, а time/delivery meta остаётся бледной отдельной строкой

@@ -66,6 +66,10 @@ import {
   setComposerAttachmentSendOriginal,
   type ComposerAttachmentDraft,
 } from './app/composerAttachments'
+import {
+  shouldRenderIncomingAuthorStrip,
+  shouldUseAuthorChainBreakSpacing,
+} from './app/messageAuthorChains'
 import { useBlacklistFlow } from './app/useBlacklistFlow'
 import { useGroupSettingsFlow } from './app/useGroupSettingsFlow'
 import { useRoomHistoryWindow } from './app/useRoomHistoryWindow'
@@ -13316,9 +13320,18 @@ function App() {
 
         <div className="message-feed room-thread-feed" ref={messageFeedRef}>
           {activeThreadComments.length > 0 ? (
-            activeThreadComments.map((comment) => {
+            activeThreadComments.map((comment, index) => {
+              const previousComment = index > 0 ? activeThreadComments[index - 1] : null
               const participant = resolveThreadCommentParticipant(comment)
               const mine = comment.author === 'me'
+              const shouldRenderCommentAuthorNode = shouldRenderIncomingAuthorStrip(
+                comment,
+                previousComment,
+              )
+              const shouldUseCommentAuthorBreakSpacing = shouldUseAuthorChainBreakSpacing(
+                comment,
+                previousComment,
+              )
               const hasImageAttachment = Boolean(
                 comment.attachment &&
                 (
@@ -13328,7 +13341,7 @@ function App() {
               )
               const isImageOnlyBubble = hasImageAttachment && comment.text.trim().length === 0
               const replyReference = comment.replyTo
-              const commentAuthorNode = !mine ? (
+              const commentAuthorNode = !mine && shouldRenderCommentAuthorNode ? (
                 participant ? (
                   <div className="bubble-sender">
                     <span className="bubble-sender-avatar-stack">
@@ -13353,101 +13366,105 @@ function App() {
                   <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
                 )
               ) : null
+              const threadCommentRowClassName = shouldUseCommentAuthorBreakSpacing
+                ? 'thread-comment-row thread-comment-row-author-break'
+                : 'thread-comment-row'
 
               return (
-                <AttachedReplyBubble
-                  key={`thread-comment-${comment.id}`}
-                  mine={mine}
-                  onReplyClick={
-                    replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
-                      ? () => scrollToThreadComment(replyReference.id)
-                      : undefined
-                  }
-                  replyTo={replyReference}
-                  bubble={
-                    isImageOnlyBubble ? (
-                      <MediaOnlyBubbleRow
-                        actionLabel="Открыть действия комментария"
-                        bubbleAttributes={{ 'data-thread-comment-id': comment.id }}
-                        bubbleClassName={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
-                        mine={mine}
-                        onOpenActions={(anchorElement) => {
-                          scheduleActionAnchor(
-                            anchorElement,
-                            mine ? 'end' : 'start',
-                            (anchor) => openThreadFlowCommentActions(comment.id, anchor),
-                          )
-                        }}
-                      >
-                        {commentAuthorNode}
-                        <BubbleMessageContent
-                          imageOverlay={
-                            hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
-                          }
-                          message={{
-                            attachment: comment.attachment,
-                            replyTo: comment.replyTo,
-                            sourceContact: comment.sourceContact,
-                            sourceGroup: undefined,
-                            text: comment.text,
+                <div key={`thread-comment-${comment.id}`} className={threadCommentRowClassName}>
+                  <AttachedReplyBubble
+                    mine={mine}
+                    onReplyClick={
+                      replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
+                        ? () => scrollToThreadComment(replyReference.id)
+                        : undefined
+                    }
+                    replyTo={replyReference}
+                    bubble={
+                      isImageOnlyBubble ? (
+                        <MediaOnlyBubbleRow
+                          actionLabel="Открыть действия комментария"
+                          bubbleAttributes={{ 'data-thread-comment-id': comment.id }}
+                          bubbleClassName={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+                          mine={mine}
+                          onOpenActions={(anchorElement) => {
+                            scheduleActionAnchor(
+                              anchorElement,
+                              mine ? 'end' : 'start',
+                              (anchor) => openThreadFlowCommentActions(comment.id, anchor),
+                            )
                           }}
-                          onOpenAttachment={openMediaViewer}
-                          onOpenExternalLink={requestOpenExternalLink}
-                          onOpenPremiumUpsell={openPremiumUpsell}
-                          onOpenSourceContact={
-                            comment.sourceContact
-                              ? () =>
-                                  openSourceContact(
-                                    comment.sourceContact as NonNullable<Message['sourceContact']>,
-                                  )
-                              : undefined
-                          }
-                          showReplyInline={false}
-                        />
-                      </MediaOnlyBubbleRow>
-                    ) : (
-                      <button
-                        type="button"
-                        data-thread-comment-id={comment.id}
-                        className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
-                        onClick={(event) => {
-                          scheduleActionAnchor(
-                            event.currentTarget,
-                            mine ? 'end' : 'start',
-                            (anchor) => openThreadFlowCommentActions(comment.id, anchor),
-                          )
-                        }}
-                      >
-                        {commentAuthorNode}
-                        <BubbleMessageContent
-                          imageOverlay={
-                            hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
-                          }
-                          message={{
-                            attachment: comment.attachment,
-                            replyTo: comment.replyTo,
-                            sourceContact: comment.sourceContact,
-                            sourceGroup: undefined,
-                            text: comment.text,
+                        >
+                          {commentAuthorNode}
+                          <BubbleMessageContent
+                            imageOverlay={
+                              hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
+                            }
+                            message={{
+                              attachment: comment.attachment,
+                              replyTo: comment.replyTo,
+                              sourceContact: comment.sourceContact,
+                              sourceGroup: undefined,
+                              text: comment.text,
+                            }}
+                            onOpenAttachment={openMediaViewer}
+                            onOpenExternalLink={requestOpenExternalLink}
+                            onOpenPremiumUpsell={openPremiumUpsell}
+                            onOpenSourceContact={
+                              comment.sourceContact
+                                ? () =>
+                                    openSourceContact(
+                                      comment.sourceContact as NonNullable<Message['sourceContact']>,
+                                    )
+                                : undefined
+                            }
+                            showReplyInline={false}
+                          />
+                        </MediaOnlyBubbleRow>
+                      ) : (
+                        <button
+                          type="button"
+                          data-thread-comment-id={comment.id}
+                          className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+                          onClick={(event) => {
+                            scheduleActionAnchor(
+                              event.currentTarget,
+                              mine ? 'end' : 'start',
+                              (anchor) => openThreadFlowCommentActions(comment.id, anchor),
+                            )
                           }}
-                          onOpenAttachment={openMediaViewer}
-                          onOpenExternalLink={requestOpenExternalLink}
-                          onOpenPremiumUpsell={openPremiumUpsell}
-                          onOpenSourceContact={
-                            comment.sourceContact
-                              ? () =>
-                                  openSourceContact(
-                                    comment.sourceContact as NonNullable<Message['sourceContact']>,
-                                  )
-                              : undefined
-                          }
-                          showReplyInline={false}
-                        />
-                        {!hasImageAttachment ? <time>{comment.time}</time> : null}
-                      </button>
-                    )
-                  }
-                />
+                        >
+                          {commentAuthorNode}
+                          <BubbleMessageContent
+                            imageOverlay={
+                              hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
+                            }
+                            message={{
+                              attachment: comment.attachment,
+                              replyTo: comment.replyTo,
+                              sourceContact: comment.sourceContact,
+                              sourceGroup: undefined,
+                              text: comment.text,
+                            }}
+                            onOpenAttachment={openMediaViewer}
+                            onOpenExternalLink={requestOpenExternalLink}
+                            onOpenPremiumUpsell={openPremiumUpsell}
+                            onOpenSourceContact={
+                              comment.sourceContact
+                                ? () =>
+                                    openSourceContact(
+                                      comment.sourceContact as NonNullable<Message['sourceContact']>,
+                                    )
+                                : undefined
+                            }
+                            showReplyInline={false}
+                          />
+                          {!hasImageAttachment ? <time>{comment.time}</time> : null}
+                        </button>
+                      )
+                    }
+                  />
+                </div>
               )
             })
           ) : null}

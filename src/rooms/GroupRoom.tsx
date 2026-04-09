@@ -1,6 +1,10 @@
 import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
+import {
+  shouldRenderIncomingAuthorStrip,
+  shouldUseAuthorChainBreakSpacing,
+} from '../app/messageAuthorChains'
 import type {
   ChannelMessageSource,
   GroupParticipant,
@@ -381,17 +385,19 @@ export function GroupRoom({
             const previousMessage = index > 0 ? visibleMessages[index - 1] : null
             const messageDayKey = getConversationDayKey(message.createdAt)
             const previousMessageDayKey = previousMessage ? getConversationDayKey(previousMessage.createdAt) : null
+            const previousMessageInChain =
+              previousMessage && previousMessageDayKey === messageDayKey ? previousMessage : null
             const groupParticipant = resolveGroupParticipant(message)
-          const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
-          const messageDeliveryIssue =
-            message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
-          const hasImageAttachment = Boolean(
-            message.attachment &&
-            (isImageMimeType(message.attachment.mimeType) || isVideoMimeType(message.attachment.mimeType)),
-          )
-          const messagePending = messageDeliveryIssue === 'pending'
-          const messageFailed = messageDeliveryIssue === 'failed'
-          const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
+            const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
+            const messageDeliveryIssue =
+              message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
+            const hasImageAttachment = Boolean(
+              message.attachment &&
+              (isImageMimeType(message.attachment.mimeType) || isVideoMimeType(message.attachment.mimeType)),
+            )
+            const messagePending = messageDeliveryIssue === 'pending'
+            const messageFailed = messageDeliveryIssue === 'failed'
+            const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
             const showDeliveryIndicator = message.author === 'me'
             const isImageOnlyBubble =
               hasImageAttachment &&
@@ -418,10 +424,23 @@ export function GroupRoom({
               !message.sourceChannel &&
               !message.sourceContact &&
               !message.sourceGroup
-            const groupMediaAuthor = renderGroupMediaAuthor(message, groupParticipant)
+            const shouldRenderGroupAuthorStrip = shouldRenderIncomingAuthorStrip(
+              message,
+              previousMessageInChain,
+            )
+            const shouldUseGroupAuthorBreakSpacing = shouldUseAuthorChainBreakSpacing(
+              message,
+              previousMessageInChain,
+            )
+            const groupMediaAuthor = shouldRenderGroupAuthorStrip
+              ? renderGroupMediaAuthor(message, groupParticipant)
+              : null
             const hasGroupCaptionedMediaHeader = isGroupCaptionedImageBubble && Boolean(groupMediaAuthor)
             const shouldRenderExternalGroupAuthor =
               Boolean(groupMediaAuthor) && !isImageOnlyBubble && !isGroupCaptionedImageBubble
+            const groupMessageRowClassName = shouldUseGroupAuthorBreakSpacing
+              ? 'group-message-row group-message-row-author-break'
+              : 'group-message-row'
             const bubbleClassNames = ['bubble', 'bubble-button']
 
             if (message.author === 'me') {
@@ -481,198 +500,204 @@ export function GroupRoom({
                     <time>{message.time}</time>
                   </div>
                 ) : (
-                  <ThreadedBubble
-                    isMine={message.author === 'me'}
-                    threadCount={message.threadComments?.length ?? 0}
-                    onOpenThread={() => onOpenThread(message.id)}
-                    bubble={
-                    <AttachedReplyBubble
-                      mine={message.author === 'me'}
-                      onReplyClick={
-                        replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
-                          ? () => jumpToMessage(replyReference.id)
-                          : undefined
-                      }
-                      replyTo={replyReference}
+                  <div className={groupMessageRowClassName}>
+                    <ThreadedBubble
+                      isMine={message.author === 'me'}
+                      threadCount={message.threadComments?.length ?? 0}
+                      onOpenThread={() => onOpenThread(message.id)}
                       bubble={
-                        isImageOnlyBubble ? (
-                          <MediaOnlyBubbleRow
-                            actionLabel="Открыть действия сообщения"
-                            bubbleAttributes={{ 'data-group-message-id': message.id }}
-                            bubbleClassName={bubbleClassNames.join(' ')}
-                            mine={message.author === 'me'}
-                            onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
-                          >
-                            {groupMediaAuthor ? (
-                              <button
-                                type="button"
-                                className="bubble-media-header bubble-media-header-button"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  onMessageSelect(event.currentTarget, message)
-                                }}
+                        <AttachedReplyBubble
+                          mine={message.author === 'me'}
+                          onReplyClick={
+                            replyReference && Number.isInteger(replyReference.id) && replyReference.id > 0
+                              ? () => jumpToMessage(replyReference.id)
+                              : undefined
+                          }
+                          replyTo={replyReference}
+                          bubble={
+                            isImageOnlyBubble ? (
+                              <MediaOnlyBubbleRow
+                                actionLabel="Открыть действия сообщения"
+                                bubbleAttributes={{ 'data-group-message-id': message.id }}
+                                bubbleClassName={bubbleClassNames.join(' ')}
+                                mine={message.author === 'me'}
+                                onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
                               >
-                                {groupMediaAuthor}
-                              </button>
-                            ) : null}
-                            <BubbleMessageContent
-                              imageOverlay={
-                                hasImageAttachment ? (
-                                  <BubbleImageOverlayMeta
-                                    deliveryIndicatorSrc={
-                                      showDeliveryIndicator
-                                        ? messageFailed
-                                          ? '/icons/warning-48.png'
-                                          : messagePending
-                                            ? '/icons/hourglass-48.png'
-                                            : '/icons/double-tick-50.png'
-                                        : null
-                                    }
-                                    time={message.time}
-                                  />
-                                ) : undefined
-                              }
-                              linkedChannel={linkedChannel}
-                              message={message}
-                              onOpenAttachment={onOpenAttachment}
-                              onOpenExternalLink={onOpenExternalLink}
-                              onOpenLinkedChannel={
-                                linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                              }
-                              onOpenPremiumUpsell={onOpenPremiumUpsell}
-                              onOpenSourceContact={
-                                message.sourceContact
-                                  ? () =>
-                                      onOpenSourceContact(
-                                        message.sourceContact as NonNullable<Message['sourceContact']>,
-                                      )
-                                  : undefined
-                              }
-                              showReplyInline={false}
-                            />
-                          </MediaOnlyBubbleRow>
-                        ) : (
-                          (() => {
-                            const messageBubbleButton = (
-                              <button
-                                type="button"
-                                data-bubble-measure={shouldRenderExternalGroupAuthor ? 'true' : undefined}
-                                data-group-message-id={message.id}
-                                className={bubbleClassNames.join(' ')}
-                                onClick={(event) => onMessageSelect(event.currentTarget, message)}
-                              >
-                                {isGroupCaptionedImageBubble && groupMediaAuthor ? (
-                                  <div className="bubble-media-header bubble-media-header-captioned">
+                                {groupMediaAuthor ? (
+                                  <button
+                                    type="button"
+                                    className="bubble-media-header bubble-media-header-button"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      onMessageSelect(event.currentTarget, message)
+                                    }}
+                                  >
                                     {groupMediaAuthor}
-                                  </div>
+                                  </button>
                                 ) : null}
-                                {message.sourceChannel ? (
-                                  <>
-                                    <ForwardedChannelHeader
-                                      sourceChannel={message.sourceChannel}
-                                      onClick={() => onOpenSourceChannel(message)}
-                                    />
-                                    {!message.sourceChannel.leadText ? (
-                                      <span className="bubble-meta">Переслано</span>
-                                    ) : null}
-                                  </>
-                                ) : null}
-                                {isStandaloneEmojiOnlyMessage ? (
-                                  <EmojiOnlyMessageContent
-                                    deliveryIndicatorSrc={
-                                      showDeliveryIndicator
-                                        ? messageFailed
-                                          ? '/icons/warning-48.png'
-                                          : messagePending
-                                            ? '/icons/hourglass-48.png'
-                                            : '/icons/double-tick-50.png'
-                                        : null
-                                    }
-                                    emoji={standaloneEmojiGlyph}
-                                    time={message.time}
-                                  />
-                                ) : (
-                                  <>
-                                    <BubbleMessageContent
-                                      imageOverlay={
-                                        hasImageAttachment ? (
-                                          <BubbleImageOverlayMeta
-                                            deliveryIndicatorSrc={
-                                              showDeliveryIndicator
-                                                ? messageFailed
-                                                  ? '/icons/warning-48.png'
-                                                  : messagePending
-                                                    ? '/icons/hourglass-48.png'
-                                                    : '/icons/double-tick-50.png'
-                                                : null
-                                            }
-                                            time={message.time}
-                                          />
-                                        ) : undefined
-                                      }
-                                      linkedChannel={linkedChannel}
-                                      message={message}
-                                      onOpenAttachment={onOpenAttachment}
-                                      onOpenExternalLink={onOpenExternalLink}
-                                      onOpenLinkedChannel={
-                                        linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                                      }
-                                      onOpenPremiumUpsell={onOpenPremiumUpsell}
-                                      onOpenSourceContact={
-                                        message.sourceContact
-                                          ? () =>
-                                              onOpenSourceContact(
-                                                message.sourceContact as NonNullable<Message['sourceContact']>,
-                                              )
-                                          : undefined
-                                      }
-                                      showReplyInline={false}
-                                    />
-                                    {!hasImageAttachment ? <time>{message.time}</time> : null}
-                                    {!hasImageAttachment && showDeliveryCaption ? (
-                                      <span className="bubble-delivery-caption">Сообщение не отправлено</span>
-                                    ) : null}
-                                    {!hasImageAttachment && showDeliveryIndicator ? (
-                                      (() => {
-                                        const deliveryIndicatorSrc = messageFailed
-                                          ? '/icons/warning-48.png'
-                                          : messagePending
-                                            ? '/icons/hourglass-48.png'
-                                            : '/icons/double-tick-50.png'
-
-                                        return (
-                                          <img
-                                            className={
-                                              shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
-                                                ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
-                                                : 'bubble-delivery-indicator'
-                                            }
-                                            src={deliveryIndicatorSrc}
-                                            alt=""
-                                            aria-hidden="true"
-                                          />
-                                        )
-                                      })()
-                                    ) : null}
-                                  </>
-                                )}
-                              </button>
-                            )
-
-                            return shouldRenderExternalGroupAuthor ? (
-                              <div className="bubble-author-layout">
-                                <div className="bubble-author-strip">{groupMediaAuthor}</div>
-                                {messageBubbleButton}
-                              </div>
+                                <BubbleMessageContent
+                                  imageOverlay={
+                                    hasImageAttachment ? (
+                                      <BubbleImageOverlayMeta
+                                        deliveryIndicatorSrc={
+                                          showDeliveryIndicator
+                                            ? messageFailed
+                                              ? '/icons/warning-48.png'
+                                              : messagePending
+                                                ? '/icons/hourglass-48.png'
+                                                : '/icons/double-tick-50.png'
+                                            : null
+                                        }
+                                        time={message.time}
+                                      />
+                                    ) : undefined
+                                  }
+                                  linkedChannel={linkedChannel}
+                                  message={message}
+                                  onOpenAttachment={onOpenAttachment}
+                                  onOpenExternalLink={onOpenExternalLink}
+                                  onOpenLinkedChannel={
+                                    linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                                  }
+                                  onOpenPremiumUpsell={onOpenPremiumUpsell}
+                                  onOpenSourceContact={
+                                    message.sourceContact
+                                      ? () =>
+                                          onOpenSourceContact(
+                                            message.sourceContact as NonNullable<Message['sourceContact']>,
+                                          )
+                                      : undefined
+                                  }
+                                  showReplyInline={false}
+                                />
+                              </MediaOnlyBubbleRow>
                             ) : (
-                              messageBubbleButton
+                              (() => {
+                                const messageBubbleButton = (
+                                  <button
+                                    type="button"
+                                    data-bubble-measure={shouldRenderExternalGroupAuthor ? 'true' : undefined}
+                                    data-group-message-id={message.id}
+                                    className={bubbleClassNames.join(' ')}
+                                    onClick={(event) => onMessageSelect(event.currentTarget, message)}
+                                  >
+                                    {isGroupCaptionedImageBubble && groupMediaAuthor ? (
+                                      <div className="bubble-media-header bubble-media-header-captioned">
+                                        {groupMediaAuthor}
+                                      </div>
+                                    ) : null}
+                                    {message.sourceChannel ? (
+                                      <>
+                                        <ForwardedChannelHeader
+                                          sourceChannel={message.sourceChannel}
+                                          onClick={() => onOpenSourceChannel(message)}
+                                        />
+                                        {!message.sourceChannel.leadText ? (
+                                          <span className="bubble-meta">Переслано</span>
+                                        ) : null}
+                                      </>
+                                    ) : null}
+                                    {isStandaloneEmojiOnlyMessage ? (
+                                      <EmojiOnlyMessageContent
+                                        deliveryIndicatorSrc={
+                                          showDeliveryIndicator
+                                            ? messageFailed
+                                              ? '/icons/warning-48.png'
+                                              : messagePending
+                                                ? '/icons/hourglass-48.png'
+                                                : '/icons/double-tick-50.png'
+                                            : null
+                                        }
+                                        emoji={standaloneEmojiGlyph}
+                                        time={message.time}
+                                      />
+                                    ) : (
+                                      <>
+                                        <BubbleMessageContent
+                                          imageOverlay={
+                                            hasImageAttachment ? (
+                                              <BubbleImageOverlayMeta
+                                                deliveryIndicatorSrc={
+                                                  showDeliveryIndicator
+                                                    ? messageFailed
+                                                      ? '/icons/warning-48.png'
+                                                      : messagePending
+                                                        ? '/icons/hourglass-48.png'
+                                                        : '/icons/double-tick-50.png'
+                                                    : null
+                                                }
+                                                time={message.time}
+                                              />
+                                            ) : undefined
+                                          }
+                                          linkedChannel={linkedChannel}
+                                          message={message}
+                                          onOpenAttachment={onOpenAttachment}
+                                          onOpenExternalLink={onOpenExternalLink}
+                                          onOpenLinkedChannel={
+                                            linkedChannel
+                                              ? () => onOpenLinkedChannel(linkedChannel)
+                                              : undefined
+                                          }
+                                          onOpenPremiumUpsell={onOpenPremiumUpsell}
+                                          onOpenSourceContact={
+                                            message.sourceContact
+                                              ? () =>
+                                                  onOpenSourceContact(
+                                                    message.sourceContact as NonNullable<
+                                                      Message['sourceContact']
+                                                    >,
+                                                  )
+                                              : undefined
+                                          }
+                                          showReplyInline={false}
+                                        />
+                                        {!hasImageAttachment ? <time>{message.time}</time> : null}
+                                        {!hasImageAttachment && showDeliveryCaption ? (
+                                          <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                                        ) : null}
+                                        {!hasImageAttachment && showDeliveryIndicator ? (
+                                          (() => {
+                                            const deliveryIndicatorSrc = messageFailed
+                                              ? '/icons/warning-48.png'
+                                              : messagePending
+                                                ? '/icons/hourglass-48.png'
+                                                : '/icons/double-tick-50.png'
+
+                                            return (
+                                              <img
+                                                className={
+                                                  shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
+                                                    ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
+                                                    : 'bubble-delivery-indicator'
+                                                }
+                                                src={deliveryIndicatorSrc}
+                                                alt=""
+                                                aria-hidden="true"
+                                              />
+                                            )
+                                          })()
+                                        ) : null}
+                                      </>
+                                    )}
+                                  </button>
+                                )
+
+                                return shouldRenderExternalGroupAuthor ? (
+                                  <div className="bubble-author-layout">
+                                    <div className="bubble-author-strip">{groupMediaAuthor}</div>
+                                    {messageBubbleButton}
+                                  </div>
+                                ) : (
+                                  messageBubbleButton
+                                )
+                              })()
                             )
-                          })()
-                        )
+                          }
+                        />
                       }
                     />
-                    }
-                  />
+                  </div>
                 )}
               </Fragment>
             )

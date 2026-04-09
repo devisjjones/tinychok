@@ -176,6 +176,12 @@
 - static source-contract tests недостаточны для room feed mechanics:
   - автоскролл и read-state комнаты должны быть покрыты runtime DOM tests
   - зелёные только helper/static tests не считаются достаточной защитой от регресса
+- group room sender-chain contract:
+  - sender-strip рендерится только у первого сообщения новой цепочки автора
+  - continuation того же автора не должен повторно показывать avatar/name/crown
+  - same-author bubble gap = `3px`
+  - author-change block gap = `12px`
+  - sender-strip стартует по той же левой линии, что и bubble под ним
 
 ### PostgreSQL Runtime Layout
 
