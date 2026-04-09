@@ -5049,6 +5049,7 @@
   opacity: 0.72;
 }
 
+.direct-room-feed,
 .group-room-feed,
 .room-thread-feed {
   gap: 3px;

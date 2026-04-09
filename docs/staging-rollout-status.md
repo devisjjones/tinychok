@@ -195,6 +195,9 @@
 - bootstrap snapshot загружается без ошибок
 - websocket подключается к staging API
 - direct / group / channel открываются с актуальным хвостом истории
+- spacing между bubble в room feeds:
+  - direct, group и thread = `3px`
+  - channel posts сохраняют более крупный gap и не должны выглядеть как обычный chat stream
 - карточки групп в левом списке должны оставаться компактнее по вертикали:
   - без лишнего воздуха сверху и снизу
   - с увеличенной group-avatar, которая визуально сидит ближе к левому краю

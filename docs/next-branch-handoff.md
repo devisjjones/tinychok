@@ -214,6 +214,9 @@
   - default = `on`
   - при `on` новый участник получает backfill старых group messages в свой owner-copy в момент `joinGroupBySharedId`
   - при `off` новый участник видит только сообщения с момента вступления и не должен получать старый preview/history backfill
+- room feed spacing split:
+  - direct-room, group-room и thread-room используют compact bubble gap `3px`
+  - subscription channel room intentionally не использует этот compact gap, чтобы posts оставались отдельными units of attention
 
 ### Left Rail Group Cards
 

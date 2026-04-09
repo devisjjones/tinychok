@@ -381,7 +381,7 @@ export function DirectChatRoom({
         </div>
       ) : null}
 
-      <div className="message-feed" ref={messageFeedRef}>
+      <div className="message-feed direct-room-feed" ref={messageFeedRef}>
         {effectiveVisibleMessages.map((message, index) => {
           const previousMessage = index > 0 ? effectiveVisibleMessages[index - 1] : null
           const messageDayKey = getConversationDayKey(message.createdAt)

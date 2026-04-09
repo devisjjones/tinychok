@@ -2134,9 +2134,11 @@ test('threaded media bubbles keep the image flush with the comments pill without
   )
 })
 
-test('group and thread comment bubbles keep self labels implicit and stack with compact merged geometry', () => {
+test('direct, group and thread feeds keep compact bubble spacing while channel posts stay roomier', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
   const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const channelRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'SubscriptionChannelRoom.tsx'), 'utf8')
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
   const overlaySource = readFileSync(
     join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'),
@@ -2144,6 +2146,7 @@ test('group and thread comment bubbles keep self labels implicit and stack with 
   )
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
+  assert.match(directRoomSource, /className="message-feed direct-room-feed"/u)
   assert.match(groupRoomSource, /function renderGroupMediaAuthor[\s\S]*if \(message\.author === 'me'\) \{\s*return null/u)
   assert.doesNotMatch(
     groupRoomSource,
@@ -2153,6 +2156,8 @@ test('group and thread comment bubbles keep self labels implicit and stack with 
   assert.match(groupRoomSource, /groupMediaAuthor \? \(\s*<button[\s\S]*bubble-media-header bubble-media-header-button/u)
   assert.match(groupRoomSource, /isGroupCaptionedImageBubble && groupMediaAuthor/u)
   assert.match(groupRoomSource, /className="message-feed group-room-feed"/u)
+  assert.match(channelRoomSource, /className="message-feed"/u)
+  assert.doesNotMatch(channelRoomSource, /className="message-feed direct-room-feed"/u)
   assert.match(appSource, /const commentAuthorNode = !mine \?/u)
   assert.match(appSource, /\{commentAuthorNode\}/u)
   assert.match(overlaySource, /function renderGroupOverlayAuthor[\s\S]*if \(mine\) \{\s*return null/u)
@@ -2162,7 +2167,7 @@ test('group and thread comment bubbles keep self labels implicit and stack with 
   )
   assert.match(overlaySource, /const compactOverlayClassName = ' bubble-overlay-compact'/u)
   assert.match(overlaySource, /bubbleClassNames\.push\('bubble-overlay-compact'\)/u)
-  assert.match(appCss, /\.group-room-feed,\s*\.room-thread-feed \{\s*gap: 3px;/u)
+  assert.match(appCss, /\.direct-room-feed,\s*\.group-room-feed,\s*\.room-thread-feed \{\s*gap: 3px;/u)
   assert.match(
     appCss,
     /\.group-room-feed \.bubble:not\(\.media-only-bubble\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,
