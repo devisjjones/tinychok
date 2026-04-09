@@ -101,6 +101,7 @@
   - взять free test-account, у которого уже больше `5` активных групп
   - сделать живой `POST /api/groups`
   - expected result = `400` с продуктовой ошибкой про лимит, а не `200`
+  - открыть create-group modal у free-аккаунта и проверить, что CTA `Открыть премиум` держит crown inline-centered, без vertical drift и без прилипания к тексту
 - staging уже ловил operational-баг, когда:
   - новый код с лимитом был на VM
   - локальный debug через `TinychokStore` правильно резал создание

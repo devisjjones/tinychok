@@ -2679,6 +2679,23 @@
 
 .group-create-limit-upsell {
   align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.group-create-limit-upsell .premium-crown {
+  align-self: center;
+}
+
+.group-create-limit-upsell .premium-crown img {
+  width: 16px;
+  height: 16px;
+}
+
+.group-create-limit-upsell > span:last-child {
+  line-height: 1;
 }
 
 .settings-inline-link {

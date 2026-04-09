@@ -3298,6 +3298,7 @@ test('sticky premium storage retention stays explicit in source and docs', () =>
 test('premium screen and create-group modal keep tariff group-count copy wired', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
   const constantsSource = readFileSync(join(repoRoot, 'src', 'shared', 'constants.ts'), 'utf8')
   const storeSource = readFileSync(join(repoRoot, 'server', 'src', 'store.ts'), 'utf8')
 
@@ -3307,6 +3308,9 @@ test('premium screen and create-group modal keep tariff group-count copy wired',
   assert.match(appSource, /На бесплатном аккаунте можно создать до/u)
   assert.match(appSource, /С премиумом можно создать до/u)
   assert.match(appSource, /Открыть премиум/u)
+  assert.match(appCss, /\.group-create-limit-upsell\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*align-items:\s*center;[\s\S]*gap:\s*10px;/u)
+  assert.match(appCss, /\.group-create-limit-upsell \.premium-crown img\s*\{[\s\S]*width:\s*16px;[\s\S]*height:\s*16px;/u)
+  assert.match(appCss, /\.group-create-limit-upsell > span:last-child\s*\{[\s\S]*line-height:\s*1;/u)
   assert.match(appSource, /defaultGroupsPerUserLimit/u)
   assert.match(appSource, /getGroupCreationLimitError/u)
   assert.match(appSource, /group\.viewerIsOwner !== undefined/u)

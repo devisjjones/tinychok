@@ -483,6 +483,9 @@
 - в лимит входят только активные группы владельца
 - `owner-deleted` и `self-service-data-hidden` группы в лимит не входят
 - premium page и create-group modal должны оставаться синхронными с теми же числами `5 / 20`
+- CTA `Открыть премиум` внутри create-group modal держит отдельный inline-layout contract:
+  - crown не должна уезжать вверх
+  - crown не должна прилипать к первой букве текста
 - staging уже ловил operational баг, где VM имела новый код, но публичный API ещё отвечал старым поведением до жёсткого restart
 - поэтому после deploy для этой зоны обязателен live API smoke-check, а не только тесты и grep по bundle
 
