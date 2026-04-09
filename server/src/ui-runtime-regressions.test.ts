@@ -2224,7 +2224,7 @@ test('standard group text bubbles render the author strip above the bubble inste
   assert.match(overlaySource, /const shouldRenderExternalGroupAuthor =/u)
   assert.match(overlaySource, /className="bubble-author-layout bubble-overlay-author-layout"/u)
   assert.match(appCss, /\.bubble-author-layout/u)
-  assert.match(appCss, /\.group-room-feed \.bubble-author-layout \{/u)
+  assert.match(appCss, /\.group-room-feed \.bubble-author-layout,\s*\.room-thread-feed \.bubble-author-layout \{/u)
   assert.match(appCss, /gap:\s*3px;/u)
   assert.match(appCss, /padding-top:\s*0;/u)
   assert.match(appCss, /\.bubble-author-strip \{[\s\S]*padding:\s*0;/u)
@@ -2352,10 +2352,25 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
     overlaySource,
     /function renderGroupOverlayAuthor[\s\S]*return <span className="bubble-meta">Вы<\/span>/u,
   )
+  assert.match(appSource, /const shouldRenderExternalCommentAuthor = Boolean\(commentAuthorNode\) && !isImageOnlyBubble/u)
+  assert.match(appSource, /data-bubble-measure=\{shouldRenderExternalCommentAuthor \? 'true' : undefined\}/u)
+  assert.match(
+    appSource,
+    /return shouldRenderExternalCommentAuthor \? \(\s*<div className="bubble-author-layout">\s*<div className="bubble-author-strip">\{commentAuthorNode\}<\/div>\s*\{threadCommentBubbleButton\}/u,
+  )
+  assert.match(
+    overlaySource,
+    /const shouldRenderExternalAuthor = Boolean\(authorNode\) && !isImageOnlyBubble/u,
+  )
+  assert.match(
+    overlaySource,
+    /return shouldRenderExternalAuthor \? \(\s*<div\s*className="bubble-author-layout bubble-overlay-author-layout"/u,
+  )
   assert.match(overlaySource, /const compactOverlayClassName = ' bubble-overlay-compact'/u)
   assert.match(overlaySource, /bubbleClassNames\.push\('bubble-overlay-compact'\)/u)
   assert.match(appCss, /\.direct-room-feed,\s*\.group-room-feed,\s*\.room-thread-feed \{\s*gap: 3px;/u)
   assert.match(appCss, /\.group-message-row-author-break,\s*\.thread-comment-row-author-break \{\s*margin-top: 9px;/u)
+  assert.match(appCss, /\.group-room-feed \.bubble-author-layout,\s*\.room-thread-feed \.bubble-author-layout \{\s*gap: 3px;\s*padding-top: 0;/u)
   assert.match(
     appCss,
     /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,

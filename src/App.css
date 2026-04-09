@@ -4294,7 +4294,8 @@
   max-width: 100%;
 }
 
-.group-room-feed .bubble-author-layout {
+.group-room-feed .bubble-author-layout,
+.room-thread-feed .bubble-author-layout {
   gap: 3px;
   padding-top: 0;
 }

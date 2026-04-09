@@ -13352,6 +13352,7 @@ function App() {
                   <span className="bubble-meta">{comment.displayAuthor ?? 'Участник'}</span>
                 )
               ) : null
+              const shouldRenderExternalCommentAuthor = Boolean(commentAuthorNode) && !isImageOnlyBubble
               const threadCommentRowClassName = shouldUseCommentAuthorBreakSpacing
                 ? 'thread-comment-row thread-comment-row-author-break'
                 : 'thread-comment-row'
@@ -13381,7 +13382,22 @@ function App() {
                             )
                           }}
                         >
-                          {commentAuthorNode}
+                          {commentAuthorNode ? (
+                            <button
+                              type="button"
+                              className="bubble-media-header bubble-media-header-button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                scheduleActionAnchor(
+                                  event.currentTarget,
+                                  mine ? 'end' : 'start',
+                                  (anchor) => openThreadFlowCommentActions(comment.id, anchor),
+                                )
+                              }}
+                            >
+                              {commentAuthorNode}
+                            </button>
+                          ) : null}
                           <BubbleMessageContent
                             imageOverlay={
                               hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
@@ -13408,45 +13424,58 @@ function App() {
                           />
                         </MediaOnlyBubbleRow>
                       ) : (
-                        <button
-                          type="button"
-                          data-thread-comment-id={comment.id}
-                          className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
-                          onClick={(event) => {
-                            scheduleActionAnchor(
-                              event.currentTarget,
-                              mine ? 'end' : 'start',
-                              (anchor) => openThreadFlowCommentActions(comment.id, anchor),
-                            )
-                          }}
-                        >
-                          {commentAuthorNode}
-                          <BubbleMessageContent
-                            imageOverlay={
-                              hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
-                            }
-                            message={{
-                              attachment: comment.attachment,
-                              replyTo: comment.replyTo,
-                              sourceContact: comment.sourceContact,
-                              sourceGroup: undefined,
-                              text: comment.text,
-                            }}
-                            onOpenAttachment={openMediaViewer}
-                            onOpenExternalLink={requestOpenExternalLink}
-                            onOpenPremiumUpsell={openPremiumUpsell}
-                            onOpenSourceContact={
-                              comment.sourceContact
-                                ? () =>
-                                    openSourceContact(
-                                      comment.sourceContact as NonNullable<Message['sourceContact']>,
-                                    )
-                                : undefined
-                            }
-                            showReplyInline={false}
-                          />
-                          {!hasImageAttachment ? <time>{comment.time}</time> : null}
-                        </button>
+                        (() => {
+                          const threadCommentBubbleButton = (
+                            <button
+                              type="button"
+                              data-bubble-measure={shouldRenderExternalCommentAuthor ? 'true' : undefined}
+                              data-thread-comment-id={comment.id}
+                              className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+                              onClick={(event) => {
+                                scheduleActionAnchor(
+                                  event.currentTarget,
+                                  mine ? 'end' : 'start',
+                                  (anchor) => openThreadFlowCommentActions(comment.id, anchor),
+                                )
+                              }}
+                            >
+                              <BubbleMessageContent
+                                imageOverlay={
+                                  hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
+                                }
+                                message={{
+                                  attachment: comment.attachment,
+                                  replyTo: comment.replyTo,
+                                  sourceContact: comment.sourceContact,
+                                  sourceGroup: undefined,
+                                  text: comment.text,
+                                }}
+                                onOpenAttachment={openMediaViewer}
+                                onOpenExternalLink={requestOpenExternalLink}
+                                onOpenPremiumUpsell={openPremiumUpsell}
+                                onOpenSourceContact={
+                                  comment.sourceContact
+                                    ? () =>
+                                        openSourceContact(
+                                          comment.sourceContact as NonNullable<Message['sourceContact']>,
+                                        )
+                                    : undefined
+                                }
+                                showReplyInline={false}
+                              />
+                              {!hasImageAttachment ? <time>{comment.time}</time> : null}
+                            </button>
+                          )
+
+                          return shouldRenderExternalCommentAuthor ? (
+                            <div className="bubble-author-layout">
+                              <div className="bubble-author-strip">{commentAuthorNode}</div>
+                              {threadCommentBubbleButton}
+                            </div>
+                          ) : (
+                            threadCommentBubbleButton
+                          )
+                        })()
                       )
                     }
                   />

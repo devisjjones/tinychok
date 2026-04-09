@@ -176,19 +176,17 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     )
     const isImageOnlyBubble = hasImageAttachment && props.comment.text.trim().length === 0
     const authorNode = renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
+    const shouldRenderExternalAuthor = Boolean(authorNode) && !isImageOnlyBubble
     const compactOverlayClassName = ' bubble-overlay-compact'
-
-    return (
+    const bubbleNode = (
       <div
         className={`bubble bubble-overlay bubble-button selected${compactOverlayClassName}${props.mine ? ' mine' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
-        style={getOverlayPosition(props.anchor)}
+        style={shouldRenderExternalAuthor ? undefined : getOverlayPosition(props.anchor)}
         aria-hidden="true"
       >
         {isImageOnlyBubble ? (
           authorNode ? <div className="bubble-media-header">{authorNode}</div> : null
-        ) : (
-          authorNode
-        )}
+        ) : null}
         <BubbleMessageContent
           imageOverlay={
             hasImageAttachment ? (
@@ -209,6 +207,19 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         />
         {!hasImageAttachment ? <time>{props.comment.time}</time> : null}
       </div>
+    )
+
+    return shouldRenderExternalAuthor ? (
+      <div
+        className="bubble-author-layout bubble-overlay-author-layout"
+        style={getOverlayPosition(props.anchor)}
+        aria-hidden="true"
+      >
+        <div className="bubble-author-strip">{authorNode}</div>
+        {bubbleNode}
+      </div>
+    ) : (
+      bubbleNode
     )
   }
 

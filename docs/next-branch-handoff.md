@@ -178,6 +178,7 @@
   - зелёные только helper/static tests не считаются достаточной защитой от регресса
 - group room sender-chain contract:
   - sender-strip рендерится только у первого сообщения новой цепочки автора
+  - thread comments держат тот же внешний sender-strip и не вшивают имя/аватар в bubble-body
   - continuation того же автора не должен повторно показывать avatar/name/crown
   - same-author bubble gap = `3px`
   - author-change block gap = `12px`
