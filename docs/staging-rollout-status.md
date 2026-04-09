@@ -203,6 +203,9 @@
 - bootstrap snapshot загружается без ошибок
 - websocket подключается к staging API
 - direct / group / channel открываются с актуальным хвостом истории
+- optimistic send в direct/group:
+  - pending bubble с hourglass не должен подскакивать выше подтверждённого хвоста и потом прыгать вниз после ack
+  - при равном `createdAt` confirmed tail items всё равно должны оставаться раньше optimistic local ids `< 0`
 - spacing между bubble в room feeds:
   - direct, group и thread = `3px`
   - channel posts сохраняют более крупный gap и не должны выглядеть как обычный chat stream

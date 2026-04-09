@@ -10,18 +10,41 @@ type HistoryPageResult<T> = {
   items: T[]
 }
 
-function compareTimelineItems(left: TimelineItem, right: TimelineItem) {
-  const leftTimestamp = left.createdAt ? Date.parse(left.createdAt) : Number.NEGATIVE_INFINITY
-  const rightTimestamp = right.createdAt ? Date.parse(right.createdAt) : Number.NEGATIVE_INFINITY
+function resolveTimelineTimestamp(item: TimelineItem) {
+  const timestamp = item.createdAt ? Date.parse(item.createdAt) : Number.NEGATIVE_INFINITY
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY
+}
+
+function compareTimelineItemIds(leftId: number, rightId: number) {
+  const leftOptimistic = leftId < 0
+  const rightOptimistic = rightId < 0
+
+  if (leftOptimistic !== rightOptimistic) {
+    return leftOptimistic ? 1 : -1
+  }
+
+  if (leftOptimistic && rightOptimistic) {
+    return rightId - leftId
+  }
+
+  return leftId - rightId
+}
+
+export function compareTimelineItems(left: TimelineItem, right: TimelineItem) {
+  const leftTimestamp = resolveTimelineTimestamp(left)
+  const rightTimestamp = resolveTimelineTimestamp(right)
 
   if (leftTimestamp === rightTimestamp) {
-    return left.id - right.id
+    // Optimistic room messages use negative local ids. When the timestamp matches the confirmed
+    // tail, they still belong after already-confirmed items; otherwise the pending bubble renders
+    // too high and then "jumps" down once the server ack replaces it.
+    return compareTimelineItemIds(left.id, right.id)
   }
 
   return leftTimestamp - rightTimestamp
 }
 
-function mergeTimelineItems<T extends TimelineItem>(olderItems: T[], recentItems: T[]) {
+export function mergeTimelineItems<T extends TimelineItem>(olderItems: T[], recentItems: T[]) {
   const itemsById = new Map<number, T>()
 
   olderItems.forEach((item) => {

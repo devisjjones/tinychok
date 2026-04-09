@@ -131,6 +131,10 @@
   - direct, group и thread bubble feeds должны держать compact gap `3px`
   - subscription channel posts не должны автоматически наследовать этот compact gap и остаются более воздушными
   - в открытом thread room между root/source card и первым комментарием должен быть отдельный gap `12px`, как между сообщениями разных авторов
+- optimistic direct/group send contract:
+  - локальное pending-сообщение с hourglass не должно появляться выше уже подтверждённого хвоста ленты
+  - если `createdAt` совпал, confirmed items всё равно должны оставаться раньше optimistic local ids `< 0`
+  - server ack не должен визуально переставлять только что отправленное сообщение на 1-2 строки вниз
 - thread inbox card contract:
   - avatar root-message треда должен быть прижат к верхней линии карточки, а не болтаться по vertical center
   - у avatar должен быть нижний-right badge источника треда (`group` / `channel`) с mask-обводкой, чтобы иконка не сливалась с картинкой

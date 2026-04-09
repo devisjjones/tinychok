@@ -238,6 +238,9 @@
 - room feed spacing split:
   - direct-room, group-room и thread-room используют compact bubble gap `3px`
   - subscription channel room intentionally не использует этот compact gap, чтобы posts оставались отдельными units of attention
+- optimistic direct/group send contract:
+  - pending bubble с hourglass не должен прыгать вверх по ленте до server ack
+  - при равном `createdAt` confirmed items должны оставаться раньше optimistic local ids `< 0`
 - incoming group sender-strip над bubble не должен зависать посередине между сообщениями:
   - strip привязан к своему bubble, а не к предыдущему
   - имя и crown выровнены по нижней границе avatar

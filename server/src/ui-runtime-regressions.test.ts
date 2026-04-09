@@ -3625,6 +3625,11 @@ test('room history window drops prepended older items after destructive empty re
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const historyWindowSource = readFileSync(join(repoRoot, 'src', 'app', 'useRoomHistoryWindow.ts'), 'utf8')
 
+  assert.match(historyWindowSource, /function compareTimelineItemIds\(leftId: number, rightId: number\)/u)
+  assert.match(historyWindowSource, /const leftOptimistic = leftId < 0/u)
+  assert.match(historyWindowSource, /return leftOptimistic \? 1 : -1/u)
+  assert.match(historyWindowSource, /return rightId - leftId/u)
+  assert.match(historyWindowSource, /pending bubble renders[\s\S]*"jumps" down once the server ack replaces it/u)
   assert.match(historyWindowSource, /items\.length > 0 \|\| currentState\.olderItems\.length === 0/u)
   assert.match(historyWindowSource, /previously prepended olderItems must be dropped too/u)
   assert.match(historyWindowSource, /olderItems: \[\]/u)
