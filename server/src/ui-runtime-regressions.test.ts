@@ -3792,6 +3792,7 @@ test('favicon and home-screen icon contract stays wired to the new logo assets',
 test('avatar upload rules keep moderation, removal and blocking contract explicit', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const appCssSource = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
   const avatarRulesPageSource = readFileSync(join(repoRoot, 'src', 'AvatarUploadRulesPage.tsx'), 'utf8')
   const adminSource = readFileSync(join(repoRoot, 'src', 'AdminApp.tsx'), 'utf8')
   const storeSource = readFileSync(join(repoRoot, 'server', 'src', 'store.ts'), 'utf8')
@@ -3800,6 +3801,10 @@ test('avatar upload rules keep moderation, removal and blocking contract explici
 
   assert.match(appSource, /href="\/avatar-upload-rules\.html"/u)
   assert.match(appSource, /Правила загрузки аватарки/u)
+  assert.match(
+    appCssSource,
+    /\.channel-title-popover-actions\.channel-avatar-picker-actions\s*\{[\s\S]*?justify-content:\s*space-between;/u,
+  )
   assert.match(avatarRulesPageSource, /const avatarUploadRulesUpdatedAt = '03 апреля 2026'/u)
   assert.match(avatarRulesPageSource, /Правила относятся к аватаркам пользователя, каналов и групп/u)
   assert.match(avatarRulesPageSource, /Аватарка считается пользовательским контентом/u)

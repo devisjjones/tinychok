@@ -77,6 +77,10 @@
   - все файлы в `public/icons/*`, на которые есть ссылки из `src`, должны существовать и быть world-readable (`0644` или эквивалент)
   - private perms вроде `0600` на `quiet.png`, `news_settings.png`, `glasses100.png` уже ломали staging и приводили к broken icons после rsync
   - regression tests теперь держат не только существование icon assets, но и наличие бита `other-read`
+- avatar picker actions для профиля, группы и канала используют общий row-контракт:
+  - `Отмена` должна быть прижата к левому краю
+  - `Применить` к правому
+  - generic `.channel-title-popover-actions` нельзя снова перетирать обратно в `justify-content:flex-end`
 
 ### Analytics Runtime Contract
 

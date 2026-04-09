@@ -2191,6 +2191,10 @@
   justify-content: flex-end;
 }
 
+.channel-title-popover-actions.channel-avatar-picker-actions {
+  justify-content: space-between;
+}
+
 .copy-hint {
   position: fixed;
   right: 32px;
