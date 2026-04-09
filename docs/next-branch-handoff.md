@@ -224,6 +224,8 @@
 - `group-captioned-media-bubble` не должен сам по себе обнулять верхний media inset
 - flush layout для media с подписью применяется только через дополнительный `group-captioned-media-bubble-with-header`, когда author header реально рендерится
 - это защищает own photo/video with caption от коричневой полосы над media
+- selected overlay для group bubble и thread-comment bubble должен получать тот же compact padding/time spacing, что и room feed
+- если fixed overlay живёт вне `.group-room-feed` / `.room-thread-feed`, компактную геометрию нужно переносить отдельным overlay class, а не рассчитывать на descendant CSS
 
 ### External Links
 

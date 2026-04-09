@@ -246,6 +246,7 @@
 - group media smoke:
   - photo/video bubble с подписью не должен показывать accent strip над media
   - top spacing над media допустим только если в bubble реально виден author header
+  - selected overlay bubble при long-press / tap не должен становиться выше базового bubble в ленте
 - автоскролл вниз в room feed — критичная проверка:
   - opening room must land on the latest item
   - own send must always land on the latest item

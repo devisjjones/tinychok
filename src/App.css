@@ -3943,6 +3943,19 @@
   max-width: 100%;
 }
 
+.bubble-overlay.bubble-overlay-compact:not(.media-only-bubble) {
+  padding-top: 14px;
+  padding-bottom: 12px;
+}
+
+.bubble-overlay.bubble-overlay-compact:not(.media-only-bubble) time {
+  margin-top: 5px;
+}
+
+.bubble-overlay.bubble-overlay-compact:not(.media-only-bubble) .bubble-delivery-indicator {
+  bottom: 12px;
+}
+
 .bubble.mine {
   align-self: flex-end;
   border-radius: 24px 24px 8px 24px;

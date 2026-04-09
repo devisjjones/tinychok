@@ -242,6 +242,8 @@
 - group photo/video bubble с подписью не должен показывать accent/background-strip над media
 - специальный top-flush layout разрешён только когда над media реально есть group author header
 - own media с подписью в группе не должен получать header-only spacing, если header не рендерится
+- selected overlay bubble в группе и в комментариях треда не должен возвращаться к старым vertical paddings:
+  - open context menu должен сохранять ту же compact высоту bubble, что и в самой ленте
 
 ### 11.2. Snapshot Trust Boundary
 

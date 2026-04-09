@@ -2143,6 +2143,8 @@ test('group and thread comment bubbles keep self labels implicit and stack with 
     overlaySource,
     /function renderGroupOverlayAuthor[\s\S]*return <span className="bubble-meta">Вы<\/span>/u,
   )
+  assert.match(overlaySource, /const compactOverlayClassName = ' bubble-overlay-compact'/u)
+  assert.match(overlaySource, /bubbleClassNames\.push\('bubble-overlay-compact'\)/u)
   assert.match(appCss, /\.group-room-feed,\s*\.room-thread-feed \{\s*gap: 3px;/u)
   assert.match(
     appCss,
@@ -2151,6 +2153,18 @@ test('group and thread comment bubbles keep self labels implicit and stack with 
   assert.match(
     appCss,
     /\.group-room-feed \.bubble:not\(\.media-only-bubble\) time,\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\) time \{\s*margin-top: 5px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\) time \{\s*margin-top: 5px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\) \.bubble-delivery-indicator \{\s*bottom: 12px;/u,
   )
   assert.match(appCss, /\.threaded-bubble\.has-thread \.threaded-bubble-main > \.bubble-author-layout > \.bubble,/u)
   assert.match(

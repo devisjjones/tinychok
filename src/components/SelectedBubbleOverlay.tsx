@@ -164,10 +164,11 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     )
     const isImageOnlyBubble = hasImageAttachment && props.comment.text.trim().length === 0
     const authorNode = renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
+    const compactOverlayClassName = ' bubble-overlay-compact'
 
     return (
       <div
-        className={`bubble bubble-overlay bubble-button selected${props.mine ? ' mine' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+        className={`bubble bubble-overlay bubble-button selected${compactOverlayClassName}${props.mine ? ' mine' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
         style={getOverlayPosition(props.anchor)}
         aria-hidden="true"
       >
@@ -261,6 +262,10 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
 
   if (hasGroupCaptionedMediaHeader) {
     bubbleClassNames.push('group-captioned-media-bubble-with-header')
+  }
+
+  if (props.kind === 'group') {
+    bubbleClassNames.push('bubble-overlay-compact')
   }
 
   const bubbleNode = (
