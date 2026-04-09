@@ -379,17 +379,6 @@ type ProfileSettingsDraft = Pick<
   'displayName' | 'surname' | 'nickname' | 'status' | 'avatarImage' | 'soundsDisabled'
 >
 
-function formatSupportCooldownLabel(remainingMs: number) {
-  const totalSeconds = Math.max(1, Math.ceil(remainingMs / 1000))
-  if (totalSeconds < 60) {
-    return `${totalSeconds} сек.`
-  }
-
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}:${String(seconds).padStart(2, '0')}`
-}
-
 function resolveSupportCooldownUntilFromTickets(
   supportTickets: Array<{ createdAt: string }>,
   now = Date.now(),
@@ -2837,9 +2826,6 @@ function App() {
     ? Math.max(0, Date.parse(effectiveSupportTicketCooldownUntil) - supportCooldownNow)
     : 0
   const supportCooldownActive = supportCooldownRemainingMs > 0
-  const supportCooldownLabel = supportCooldownActive
-    ? formatSupportCooldownLabel(supportCooldownRemainingMs)
-    : ''
   const storedQuietModeSettings = useMemo(
     () => normalizeQuietModeSettings(session?.quietModeSettings),
     [session?.quietModeSettings],
@@ -16552,7 +16538,6 @@ function App() {
                   <div ref={supportSceneTopRef} />
                   {supportCooldownActive ? (
                     <article className="settings-item settings-support-cooldown-card">
-                      <strong className="settings-support-cooldown-timer">{supportCooldownLabel}</strong>
                       <p className="settings-text">{supportCooldownCopy}</p>
                     </article>
                   ) : (
