@@ -330,6 +330,7 @@
   - bubble text/time layout остаётся compact и не раздувает высоту карточки лишним whitespace
   - короткий text bubble не должен получать отдельную вторую строку только из-за `time`
   - длинный text bubble держит `time` внутри самого bubble у правого нижнего края, а не выносит его в отдельный footer-row
+  - тот же inline-meta contract должен держаться и у text-only root/source card, а не только у самих комментариев
   - bubble с комментариями и нижняя `thread-pill` визуально сливаются без возвращённого нижнего скругления у bubble
 - admin archive smoke:
   - в admin detail треда есть `Архивировать тред` / `Разархивировать тред`

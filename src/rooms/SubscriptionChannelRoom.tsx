@@ -362,6 +362,11 @@ export function SubscriptionChannelRoom({
                                 imageOverlay={
                                   hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
                                 }
+                                inlineMeta={
+                                  shouldUseInlineTextMeta ? (
+                                    <BubbleTextInlineMeta time={post.time} />
+                                  ) : undefined
+                                }
                                 message={post}
                                 onOpenAttachment={onOpenAttachment}
                                 onOpenExternalLink={onOpenExternalLink}

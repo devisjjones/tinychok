@@ -5410,21 +5410,26 @@
 }
 
 .bubble-text-paragraph-with-inline-meta {
-  display: flow-root;
+  position: relative;
+  padding-right: 44px;
+  min-height: 14px;
 }
 
 .bubble-text-paragraph-with-inline-meta > .bubble-text-content {
   white-space: pre-wrap;
 }
 
+.bubble.has-delivery-indicator .bubble-text-paragraph-with-inline-meta {
+  padding-right: 64px;
+}
+
 .bubble .bubble-text-inline-meta {
-  float: right;
+  position: absolute;
+  right: 0;
+  bottom: 0;
   display: inline-flex;
   align-items: flex-end;
   gap: 4px;
-  margin-top: 0.42em;
-  margin-left: 10px;
-  padding-left: 6px;
   white-space: nowrap;
   font-size: 0.8rem;
   line-height: 14px;

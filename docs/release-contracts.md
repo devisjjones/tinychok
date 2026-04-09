@@ -316,6 +316,7 @@
   - group-room
   - subscription channel room
   - thread comments
+  - thread source cards
   - selected message overlay
   должны держать `time` внутри самого bubble, а не отдельным footer-row снаружи
 - короткое сообщение не должно раздуваться во вторую строку только потому, что рядом есть `time`

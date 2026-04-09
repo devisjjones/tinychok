@@ -13231,6 +13231,11 @@ function App() {
                         <BubbleImageOverlayMeta time={threadSourceTime} />
                       ) : undefined
                     }
+                    inlineMeta={
+                      usesInlineTimeLayout ? (
+                        <BubbleTextInlineMeta time={threadSourceTime} />
+                      ) : undefined
+                    }
                     linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
                     message={{
                       ...threadGroupMessage,
@@ -13249,7 +13254,7 @@ function App() {
                     }
                     showReplyInline={false}
                   />
-                  {!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout ? (
+                  {!usesInlineTimeLayout && (!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout) ? (
                     <time>{threadSourceTime}</time>
                   ) : null}
                 </MediaOnlyBubbleRow>
@@ -13275,6 +13280,11 @@ function App() {
                         <BubbleImageOverlayMeta time={threadSourceTime} />
                       ) : undefined
                     }
+                    inlineMeta={
+                      usesInlineTimeLayout ? (
+                        <BubbleTextInlineMeta time={threadSourceTime} />
+                      ) : undefined
+                    }
                     linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
                     message={{
                       ...threadGroupMessage,
@@ -13293,7 +13303,7 @@ function App() {
                     }
                     showReplyInline={false}
                   />
-                  {!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout ? (
+                  {!usesInlineTimeLayout && (!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout) ? (
                     <time>{threadSourceTime}</time>
                   ) : null}
                 </article>
@@ -13386,6 +13396,11 @@ function App() {
                         <BubbleImageOverlayMeta time={threadSourceTime} />
                       ) : undefined
                     }
+                    inlineMeta={
+                      usesInlineTimeLayout ? (
+                        <BubbleTextInlineMeta time={threadSourceTime} />
+                      ) : undefined
+                    }
                     message={{
                       ...threadChannelPost,
                       text: threadSourceText,
@@ -13403,7 +13418,7 @@ function App() {
                     }
                     showReplyInline={false}
                   />
-                  {!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout ? (
+                  {!usesInlineTimeLayout && (!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout) ? (
                     <time>{threadSourceTime}</time>
                   ) : null}
                 </article>
@@ -13422,6 +13437,11 @@ function App() {
                 </span>
               </div>
               <BubbleMessageContent
+                inlineMeta={
+                  !activeSupportTicket.attachment && threadSourceText.trim().length > 0 ? (
+                    <BubbleTextInlineMeta time={threadSourceTime} />
+                  ) : undefined
+                }
                 message={{
                   attachment: activeSupportTicket.attachment,
                   replyTo: activeSupportTicket.replyTo,
@@ -13434,7 +13454,9 @@ function App() {
                 onOpenPremiumUpsell={openPremiumUpsell}
                 showReplyInline={false}
               />
-              <time>{threadSourceTime}</time>
+              {activeSupportTicket.attachment || threadSourceText.trim().length === 0 ? (
+                <time>{threadSourceTime}</time>
+              ) : null}
             </article>
           ) : null}
         </div>
