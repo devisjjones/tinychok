@@ -15,13 +15,16 @@ import {
   getConversationDayKey,
   insertComposerTextAtCursor,
   isImageMimeType,
+  isStandaloneEmojiMessageText,
   isVideoMimeType,
   scrollFeedChildIntoView,
+  stripMessageFormattingMarkup,
   shouldShowDeliveryCaption,
   shouldSubmitComposerWithEnter,
 } from '../app/utils'
 import {
   BubbleMessageContent,
+  EmojiOnlyMessageContent,
   BubbleImageOverlayMeta,
   ForwardedChannelHeader,
   shouldUseLightDeliveryIndicatorTint,
@@ -377,6 +380,19 @@ export function GroupRoom({
               !linkedChannel &&
               !message.sourceChannel &&
               message.text.trim().length === 0
+            const isStandaloneEmojiOnlyMessage =
+              !hasImageAttachment &&
+              !linkedChannel &&
+              !message.sourceChannel &&
+              !message.sourceContact &&
+              !message.sourceGroup &&
+              !message.forwarded &&
+              !message.attachmentRemovedNotice &&
+              (message.threadComments?.length ?? 0) === 0 &&
+              isStandaloneEmojiMessageText(message.text)
+            const standaloneEmojiGlyph = isStandaloneEmojiOnlyMessage
+              ? stripMessageFormattingMarkup(message.text).trim()
+              : ''
             const isGroupCaptionedImageBubble =
               hasImageAttachment &&
               message.text.trim().length > 0 &&
@@ -398,19 +414,19 @@ export function GroupRoom({
               bubbleClassNames.push('selected')
             }
 
-            if (showDeliveryIndicator) {
+            if (showDeliveryIndicator && !isStandaloneEmojiOnlyMessage) {
               bubbleClassNames.push('has-delivery-indicator')
             }
 
-            if (messageDeliveryIssue) {
+            if (messageDeliveryIssue && !isStandaloneEmojiOnlyMessage) {
               bubbleClassNames.push('has-delivery-issue')
             }
 
-            if (showDeliveryCaption) {
+            if (showDeliveryCaption && !isStandaloneEmojiOnlyMessage) {
               bubbleClassNames.push('has-delivery-caption')
             }
 
-            if (messageFailed) {
+            if (messageFailed && !isStandaloneEmojiOnlyMessage) {
               bubbleClassNames.push('delivery-failed')
             }
 
@@ -428,6 +444,10 @@ export function GroupRoom({
 
             if (hasGroupCaptionedMediaHeader) {
               bubbleClassNames.push('group-captioned-media-bubble-with-header')
+            }
+
+            if (isStandaloneEmojiOnlyMessage) {
+              bubbleClassNames.push('emoji-only-message')
             }
 
             const replyReference = message.replyTo
@@ -539,67 +559,85 @@ export function GroupRoom({
                                     ) : null}
                                   </>
                                 ) : null}
-                                <BubbleMessageContent
-                                  imageOverlay={
-                                    hasImageAttachment ? (
-                                      <BubbleImageOverlayMeta
-                                        deliveryIndicatorSrc={
-                                          showDeliveryIndicator
-                                            ? messageFailed
-                                              ? '/icons/warning-48.png'
-                                              : messagePending
-                                                ? '/icons/hourglass-48.png'
-                                                : '/icons/double-tick-50.png'
-                                            : null
-                                        }
-                                        time={message.time}
-                                      />
-                                    ) : undefined
-                                  }
-                                  linkedChannel={linkedChannel}
-                                  message={message}
-                                  onOpenAttachment={onOpenAttachment}
-                                  onOpenExternalLink={onOpenExternalLink}
-                                  onOpenLinkedChannel={
-                                    linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                                  }
-                                  onOpenPremiumUpsell={onOpenPremiumUpsell}
-                                  onOpenSourceContact={
-                                    message.sourceContact
-                                      ? () =>
-                                          onOpenSourceContact(
-                                            message.sourceContact as NonNullable<Message['sourceContact']>,
-                                          )
-                                      : undefined
-                                  }
-                                  showReplyInline={false}
-                                />
-                                {!hasImageAttachment ? <time>{message.time}</time> : null}
-                                {!hasImageAttachment && showDeliveryCaption ? (
-                                  <span className="bubble-delivery-caption">Сообщение не отправлено</span>
-                                ) : null}
-                                {!hasImageAttachment && showDeliveryIndicator ? (
-                                  (() => {
-                                    const deliveryIndicatorSrc = messageFailed
-                                      ? '/icons/warning-48.png'
-                                      : messagePending
-                                        ? '/icons/hourglass-48.png'
-                                        : '/icons/double-tick-50.png'
+                                {isStandaloneEmojiOnlyMessage ? (
+                                  <EmojiOnlyMessageContent
+                                    deliveryIndicatorSrc={
+                                      showDeliveryIndicator
+                                        ? messageFailed
+                                          ? '/icons/warning-48.png'
+                                          : messagePending
+                                            ? '/icons/hourglass-48.png'
+                                            : '/icons/double-tick-50.png'
+                                        : null
+                                    }
+                                    emoji={standaloneEmojiGlyph}
+                                    time={message.time}
+                                  />
+                                ) : (
+                                  <>
+                                    <BubbleMessageContent
+                                      imageOverlay={
+                                        hasImageAttachment ? (
+                                          <BubbleImageOverlayMeta
+                                            deliveryIndicatorSrc={
+                                              showDeliveryIndicator
+                                                ? messageFailed
+                                                  ? '/icons/warning-48.png'
+                                                  : messagePending
+                                                    ? '/icons/hourglass-48.png'
+                                                    : '/icons/double-tick-50.png'
+                                                : null
+                                            }
+                                            time={message.time}
+                                          />
+                                        ) : undefined
+                                      }
+                                      linkedChannel={linkedChannel}
+                                      message={message}
+                                      onOpenAttachment={onOpenAttachment}
+                                      onOpenExternalLink={onOpenExternalLink}
+                                      onOpenLinkedChannel={
+                                        linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                                      }
+                                      onOpenPremiumUpsell={onOpenPremiumUpsell}
+                                      onOpenSourceContact={
+                                        message.sourceContact
+                                          ? () =>
+                                              onOpenSourceContact(
+                                                message.sourceContact as NonNullable<Message['sourceContact']>,
+                                              )
+                                          : undefined
+                                      }
+                                      showReplyInline={false}
+                                    />
+                                    {!hasImageAttachment ? <time>{message.time}</time> : null}
+                                    {!hasImageAttachment && showDeliveryCaption ? (
+                                      <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                                    ) : null}
+                                    {!hasImageAttachment && showDeliveryIndicator ? (
+                                      (() => {
+                                        const deliveryIndicatorSrc = messageFailed
+                                          ? '/icons/warning-48.png'
+                                          : messagePending
+                                            ? '/icons/hourglass-48.png'
+                                            : '/icons/double-tick-50.png'
 
-                                    return (
-                                      <img
-                                        className={
-                                          shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
-                                            ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
-                                            : 'bubble-delivery-indicator'
-                                        }
-                                        src={deliveryIndicatorSrc}
-                                        alt=""
-                                        aria-hidden="true"
-                                      />
-                                    )
-                                  })()
-                                ) : null}
+                                        return (
+                                          <img
+                                            className={
+                                              shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
+                                                ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
+                                                : 'bubble-delivery-indicator'
+                                            }
+                                            src={deliveryIndicatorSrc}
+                                            alt=""
+                                            aria-hidden="true"
+                                          />
+                                        )
+                                      })()
+                                    ) : null}
+                                  </>
+                                )}
                               </button>
                             )
 

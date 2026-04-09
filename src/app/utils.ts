@@ -37,6 +37,7 @@ export {
   hasActivePremium,
   insertComposerTextAtCursor,
   isImageMimeType,
+  isStandaloneEmojiMessageText,
   isVideoMimeType,
   isPhoneQuery,
   makeDraftChannel,

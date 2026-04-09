@@ -217,6 +217,11 @@
 - room feed spacing split:
   - direct-room, group-room и thread-room используют compact bubble gap `3px`
   - subscription channel room intentionally не использует этот compact gap, чтобы posts оставались отдельными units of attention
+- standalone emoji path:
+  - direct-room и group-room умеют отдельный bubbleless render только для top-level messages, где текст = один emoji-grapheme и нет attachment/source/forward chrome
+  - этот path не должен растекаться в channel posts, thread comments, reply previews и thread source cards
+  - если у group root-message появляется первый комментарий, bubbleless path нужно отключать и возвращать обычный bubbled block
+  - selected message overlay обязан повторять тот же bubbleless layout, без возврата фона и старых paddings
 
 ### Left Rail Group Cards
 

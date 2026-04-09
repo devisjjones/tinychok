@@ -2170,29 +2170,60 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   assert.match(appCss, /\.direct-room-feed,\s*\.group-room-feed,\s*\.room-thread-feed \{\s*gap: 3px;/u)
   assert.match(
     appCss,
-    /\.group-room-feed \.bubble:not\(\.media-only-bubble\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,
+    /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,
   )
   assert.match(
     appCss,
-    /\.group-room-feed \.bubble:not\(\.media-only-bubble\) time,\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\) time \{\s*margin-top: 5px;/u,
+    /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) time,\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) time \{\s*margin-top: 5px;/u,
   )
   assert.match(
     appCss,
-    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,
+    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,
   )
   assert.match(
     appCss,
-    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\) time \{\s*margin-top: 5px;/u,
+    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\):not\(\.emoji-only-message\) time \{\s*margin-top: 5px;/u,
   )
   assert.match(
     appCss,
-    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\) \.bubble-delivery-indicator \{\s*bottom: 12px;/u,
+    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-delivery-indicator \{\s*bottom: 12px;/u,
   )
   assert.match(appCss, /\.threaded-bubble\.has-thread \.threaded-bubble-main > \.bubble-author-layout > \.bubble,/u)
   assert.match(
     appCss,
     /\.threaded-bubble\.has-thread[\s\S]*> \.bubble-stack[\s\S]*> \.bubble-author-layout[\s\S]*border-bottom-right-radius: 0;/u,
   )
+})
+
+test('standalone emoji messages stay bubbleless only in direct and unthreaded group room feeds', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const sharedUtilsSource = readFileSync(join(repoRoot, 'src', 'shared', 'utils.ts'), 'utf8')
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const channelRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'SubscriptionChannelRoom.tsx'), 'utf8')
+  const overlaySource = readFileSync(join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(sharedUtilsSource, /export function isStandaloneEmojiMessageText\(text: string\)/u)
+  assert.match(sharedUtilsSource, /Intl\.Segmenter/u)
+  assert.match(sharedUtilsSource, /\\p\{Extended_Pictographic\}/u)
+  assert.match(bubbleSource, /export function EmojiOnlyMessageContent/u)
+  assert.match(bubbleSource, /emoji-only-message-glyph/u)
+  assert.match(directRoomSource, /const isStandaloneEmojiOnlyMessage =[\s\S]*isStandaloneEmojiMessageText\(message\.text\)/u)
+  assert.match(directRoomSource, /bubbleClassNames\.push\('emoji-only-message'\)/u)
+  assert.match(directRoomSource, /<EmojiOnlyMessageContent/u)
+  assert.match(groupRoomSource, /const isStandaloneEmojiOnlyMessage =[\s\S]*message\.threadComments\?\.length \?\? 0\) === 0[\s\S]*isStandaloneEmojiMessageText\(message\.text\)/u)
+  assert.match(groupRoomSource, /bubbleClassNames\.push\('emoji-only-message'\)/u)
+  assert.match(groupRoomSource, /<EmojiOnlyMessageContent/u)
+  assert.match(overlaySource, /const isStandaloneEmojiOnlyMessage =[\s\S]*isStandaloneEmojiMessageText\(props\.message\.text\)/u)
+  assert.match(overlaySource, /bubbleClassNames\.push\('emoji-only-message'\)/u)
+  assert.match(overlaySource, /<EmojiOnlyMessageContent/u)
+  assert.doesNotMatch(channelRoomSource, /emoji-only-message/u)
+  assert.match(appCss, /\.bubble\.emoji-only-message \{\s*display: inline-flex;/u)
+  assert.match(appCss, /\.bubble\.emoji-only-message \.emoji-only-message-glyph \{\s*display: block;\s*font-size: 2\.25rem;/u)
+  assert.match(appCss, /\.bubble\.emoji-only-message \.emoji-only-message-meta \{\s*display: inline-flex;/u)
+  assert.match(appCss, /\.bubble\.emoji-only-message\.bubble-button\.selected,\s*\.bubble-overlay\.bubble-button\.selected\.emoji-only-message \{/u)
 })
 
 test('contact cards have an explicit UI contract and open direct dialogs on tap', () => {

@@ -37,6 +37,12 @@ type BubbleImageOverlayMetaProps = {
   time: string
 }
 
+type EmojiOnlyMessageContentProps = {
+  deliveryIndicatorSrc?: string | null
+  emoji: string
+  time: string
+}
+
 type AttachmentRemovedNoticeBlockProps = {
   notice: NonNullable<Message['attachmentRemovedNotice']>
   onOpenPremiumUpsell?: () => void
@@ -342,6 +348,29 @@ export function BubbleImageOverlayMeta({
         />
       ) : null}
     </span>
+  )
+}
+
+export function EmojiOnlyMessageContent({
+  deliveryIndicatorSrc,
+  emoji,
+  time,
+}: EmojiOnlyMessageContentProps) {
+  return (
+    <>
+      <span className="emoji-only-message-glyph">{emoji}</span>
+      <span className="emoji-only-message-meta">
+        <time>{time}</time>
+        {deliveryIndicatorSrc ? (
+          <img
+            className="emoji-only-message-indicator"
+            src={deliveryIndicatorSrc}
+            alt=""
+            aria-hidden="true"
+          />
+        ) : null}
+      </span>
+    </>
   )
 }
 

@@ -1,8 +1,15 @@
 import type { ActionAnchor, ChannelPost, GroupParticipant, Message, ThreadComment } from '../app/types'
-import { isImageMimeType, isVideoMimeType, shouldShowDeliveryCaption } from '../app/utils'
+import {
+  isImageMimeType,
+  isStandaloneEmojiMessageText,
+  isVideoMimeType,
+  shouldShowDeliveryCaption,
+  stripMessageFormattingMarkup,
+} from '../app/utils'
 import {
   BubbleImageOverlayMeta,
   BubbleMessageContent,
+  EmojiOnlyMessageContent,
   ForwardedChannelHeader,
   shouldUseLightDeliveryIndicatorTint,
 } from './BubbleMessageContent'
@@ -226,6 +233,20 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     !props.message.sourceChannel &&
     !props.message.sourceContact &&
     !props.message.sourceGroup
+  const isStandaloneEmojiOnlyMessage =
+    (props.kind === 'direct' || props.kind === 'group') &&
+    !hasImageAttachment &&
+    !props.linkedChannel &&
+    !props.message.sourceChannel &&
+    !props.message.sourceContact &&
+    !props.message.sourceGroup &&
+    !props.message.forwarded &&
+    !props.message.attachmentRemovedNotice &&
+    (props.kind !== 'group' || (props.message.threadComments?.length ?? 0) === 0) &&
+    isStandaloneEmojiMessageText(props.message.text)
+  const standaloneEmojiGlyph = isStandaloneEmojiOnlyMessage
+    ? stripMessageFormattingMarkup(props.message.text).trim()
+    : ''
   const groupOverlayAuthorNode =
     props.kind === 'group'
       ? renderGroupOverlayAuthor(props.message.author === 'me', props.message.displayAuthor, props.participant)
@@ -260,6 +281,10 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
 
   if (isImageOnlyBubble) {
     bubbleClassNames.push('media-only-bubble')
+  }
+
+  if (isStandaloneEmojiOnlyMessage) {
+    bubbleClassNames.push('emoji-only-message')
   }
 
   if (isGroupCaptionedImageBubble) {
@@ -305,55 +330,72 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           ) : null}
         </>
       ) : null}
-      <BubbleMessageContent
-        imageOverlay={
-          hasImageAttachment ? (
-            <BubbleImageOverlayMeta
-              deliveryIndicatorSrc={
-                props.mine
-                  ? resolveDirectDeliveryIndicatorSrc(
-                      props.deliveryIssue,
-                      props.kind === 'direct' ? props.message.readAt : undefined,
-                    )
-                  : null
+      {isStandaloneEmojiOnlyMessage ? (
+        <EmojiOnlyMessageContent
+          deliveryIndicatorSrc={
+            props.mine
+              ? resolveDirectDeliveryIndicatorSrc(
+                  props.deliveryIssue,
+                  props.kind === 'direct' ? props.message.readAt : undefined,
+                )
+              : null
+          }
+          emoji={standaloneEmojiGlyph}
+          time={props.message.time}
+        />
+      ) : (
+        <>
+          <BubbleMessageContent
+            imageOverlay={
+              hasImageAttachment ? (
+                <BubbleImageOverlayMeta
+                  deliveryIndicatorSrc={
+                    props.mine
+                      ? resolveDirectDeliveryIndicatorSrc(
+                          props.deliveryIssue,
+                          props.kind === 'direct' ? props.message.readAt : undefined,
+                        )
+                      : null
+                  }
+                  time={props.message.time}
+                />
+              ) : undefined
+            }
+            linkedChannel={props.linkedChannel}
+            message={props.message}
+            onOpenAttachment={props.onOpenAttachment}
+            onOpenExternalLink={props.onOpenExternalLink}
+            onOpenPremiumUpsell={props.onOpenPremiumUpsell}
+            onOpenSourceGroup={undefined}
+            replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
+            showReplyInline={false}
+          />
+          {!hasImageAttachment ? <time>{props.message.time}</time> : null}
+          {!hasImageAttachment && showDeliveryCaption ? (
+            <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+          ) : null}
+          {!hasImageAttachment && props.mine ? (
+            <img
+              className={
+                shouldUseLightDeliveryIndicatorTint(
+                  resolveDirectDeliveryIndicatorSrc(
+                    props.deliveryIssue,
+                    props.kind === 'direct' ? props.message.readAt : undefined,
+                  ),
+                )
+                  ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
+                  : 'bubble-delivery-indicator'
               }
-              time={props.message.time}
-            />
-          ) : undefined
-        }
-        linkedChannel={props.linkedChannel}
-        message={props.message}
-        onOpenAttachment={props.onOpenAttachment}
-        onOpenExternalLink={props.onOpenExternalLink}
-        onOpenPremiumUpsell={props.onOpenPremiumUpsell}
-        onOpenSourceGroup={undefined}
-        replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
-        showReplyInline={false}
-      />
-      {!hasImageAttachment ? <time>{props.message.time}</time> : null}
-      {!hasImageAttachment && showDeliveryCaption ? (
-        <span className="bubble-delivery-caption">Сообщение не отправлено</span>
-      ) : null}
-      {!hasImageAttachment && props.mine ? (
-        <img
-          className={
-            shouldUseLightDeliveryIndicatorTint(
-              resolveDirectDeliveryIndicatorSrc(
+              src={resolveDirectDeliveryIndicatorSrc(
                 props.deliveryIssue,
                 props.kind === 'direct' ? props.message.readAt : undefined,
-              ),
-            )
-              ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
-              : 'bubble-delivery-indicator'
-          }
-          src={resolveDirectDeliveryIndicatorSrc(
-            props.deliveryIssue,
-            props.kind === 'direct' ? props.message.readAt : undefined,
-          )}
-          alt=""
-          aria-hidden="true"
-        />
-      ) : null}
+              )}
+              alt=""
+              aria-hidden="true"
+            />
+          ) : null}
+        </>
+      )}
     </div>
   )
 

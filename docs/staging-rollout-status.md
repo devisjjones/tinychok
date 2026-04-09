@@ -198,6 +198,11 @@
 - spacing между bubble в room feeds:
   - direct, group и thread = `3px`
   - channel posts сохраняют более крупный gap и не должны выглядеть как обычный chat stream
+- standalone emoji contract:
+  - top-level direct/group message из одного emoji без вложений и без source/forward chrome идёт без фонового bubble
+  - emoji увеличен, а time/delivery meta остаётся бледной отдельной строкой
+  - channel posts, thread comments и reply/thread previews этот bubbleless path не используют
+  - если group root-message получает первый комментарий, он должен вернуться к обычному bubbled виду
 - карточки групп в левом списке должны оставаться компактнее по вертикали:
   - без лишнего воздуха сверху и снизу
   - с увеличенной group-avatar, которая визуально сидит ближе к левому краю

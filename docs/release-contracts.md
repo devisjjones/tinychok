@@ -253,6 +253,17 @@
 - selected overlay bubble в группе и в комментариях треда не должен возвращаться к старым vertical paddings:
   - open context menu должен сохранять ту же compact высоту bubble, что и в самой ленте
 
+### 11.1.5. Standalone Emoji Message Contract
+
+- top-level direct-room и group-room message без вложений, без source/forward chrome и с текстом ровно в один emoji-grapheme рендерится без фонового bubble
+- такой emoji визуально увеличен примерно в `2x`, а time/delivery meta остаётся отдельной бледной строкой рядом с ним
+- этот contract не распространяется на:
+  - subscription channel posts
+  - thread comments
+  - reply/thread source previews
+- если group root-message с bubbleless emoji получает первый комментарий, он обязан вернуться к обычному bubbled layout, чтобы thread pill и root-card не разваливались
+- selected overlay для такого сообщения не должен внезапно возвращать фон, старые paddings или outline
+
 ### 11.2. Snapshot Trust Boundary
 
 - `PUT /api/snapshot` не является источником истины для аккаунта и session-security state

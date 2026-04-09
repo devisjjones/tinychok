@@ -1191,6 +1191,38 @@ export function stripMessageFormattingMarkup(text: string) {
   return text.replace(/<\/?[bius]>/giu, '')
 }
 
+const standaloneEmojiSegmenter =
+  typeof Intl !== 'undefined' && 'Segmenter' in Intl
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null
+
+const regionalIndicatorPairPattern = /^[\p{Regional_Indicator}]{2}$/u
+const keycapEmojiPattern = /^[0-9#*]\uFE0F?\u20E3$/u
+const standaloneEmojiPattern = /\p{Extended_Pictographic}/u
+
+export function isStandaloneEmojiMessageText(text: string) {
+  const normalizedText = stripMessageFormattingMarkup(text).trim()
+  if (!normalizedText) {
+    return false
+  }
+
+  const graphemeClusters = standaloneEmojiSegmenter
+    ? Array.from(standaloneEmojiSegmenter.segment(normalizedText), (segment) => segment.segment)
+    : Array.from(normalizedText)
+
+  if (graphemeClusters.length !== 1) {
+    return false
+  }
+
+  const [grapheme] = graphemeClusters
+
+  return (
+    standaloneEmojiPattern.test(grapheme) ||
+    regionalIndicatorPairPattern.test(grapheme) ||
+    keycapEmojiPattern.test(grapheme)
+  )
+}
+
 export function wrapComposerSelectionWithMarkup(
   input: ComposerTextInputElement | null,
   currentValue: string,
