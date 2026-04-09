@@ -1178,6 +1178,7 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
 - direct reply-preview jump в личке:
   - mirrored reply у второго участника должен ссылаться на локальный id его копии оригинального сообщения
   - snapshot-path тоже обязан лечить старые persisted direct replies с уже неправильным `replyTo.id`, иначе tap-to-jump остаётся сломан после deploy
+  - при reply на attachment-only direct message без текста repair нельзя матчить только по `message.text`; нужно учитывать preview вида `Файл: <fileName>`, иначе у второго участника attachment reply остаётся со старым чужим id
 - delete history for everyone in direct dialogs:
   - очищает комнату у обеих сторон
   - server-side история не удаляется физически, а архивируется

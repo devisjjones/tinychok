@@ -2717,9 +2717,20 @@ function matchesDirectReplyTarget(
   message: PersistedDialogMessage,
   replyTo: NonNullable<Message['replyTo']>,
 ) {
+  const previewText = sanitizeMessageText(message.text).slice(0, 280)
+  const fallbackPreview =
+    previewText ||
+    message.sourceChannel?.leadText ||
+    message.sourceGroup?.leadText ||
+    (message.attachment ? `Файл: ${message.attachment.fileName}` : '') ||
+    message.attachmentRemovedNotice?.text ||
+    (message.sourceChannel ? `Канал: ${message.sourceChannel.title}` : '') ||
+    (message.sourceContact ? `Контакт: ${message.sourceContact.title}` : '') ||
+    (message.sourceGroup ? `Пользователь приглашает вас в группу: ${message.sourceGroup.title}` : '')
+
   return (
     message.author === replyTo.author &&
-    sanitizeMessageText(message.text).slice(0, 280) === replyTo.text
+    fallbackPreview === replyTo.text
   )
 }
 

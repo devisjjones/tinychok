@@ -388,6 +388,99 @@ test('direct snapshot and history repair legacy mirrored reply target ids for re
   assert.equal(recipientSnapshotReply?.replyTo?.id, recipientOriginalMessage.id)
 })
 
+test('direct snapshot repairs legacy mirrored reply target ids for attachment-only originals', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const sender = createAccount('+79990100019')
+  const recipient = createAccount('+79990100020')
+  const mediaUrl = '/uploads/attachments/legacy-reply-target.png'
+
+  database.accounts.push(sender, recipient)
+  const senderToken = createSession(database, sender.identifier, 'legacy-attachment-reply-sender')
+  const recipientToken = createSession(database, recipient.identifier, 'legacy-attachment-reply-recipient')
+  database.pendingMediaUploads.push({
+    createdAt: '2026-03-29T00:00:00.000Z',
+    fileName: 'legacy-reply-target.png',
+    kind: 'attachment',
+    linked: true,
+    mediaUrl,
+    mimeType: 'image/png',
+    ownerIdentifier: sender.identifier,
+    size: 2048,
+    storageKey: 'legacy-reply-target',
+  })
+
+  await store.openDirectDialog(senderToken, { identifier: recipient.identifier })
+  await store.sendContactRequest(senderToken, { identifier: recipient.identifier })
+  await store.acceptContactRequest(recipientToken, sender.identifier)
+
+  const senderChat = store.getSnapshotByToken(senderToken)?.chats.find(
+    (chat) => chat.phone === recipient.identifier,
+  )
+  const recipientChat = store.getSnapshotByToken(recipientToken)?.chats.find(
+    (chat) => chat.phone === sender.identifier,
+  )
+  assert.ok(senderChat)
+  assert.ok(recipientChat)
+
+  addArchivedLocalOnlyDialogMessage(
+    database,
+    sender.identifier,
+    senderChat.id,
+    2,
+    'Локальный скрытый хвост отправителя для вложения',
+  )
+
+  await store.sendDirectMessage(senderToken, senderChat.id, {
+    attachment: {
+      fileName: 'legacy-reply-target.png',
+      mediaUrl,
+      mimeType: 'image/png',
+      size: 2048,
+    },
+    text: '',
+  })
+
+  const senderChatAfterAttachment = store.getSnapshotByToken(senderToken)?.chats.find(
+    (chat) => chat.phone === recipient.identifier,
+  )
+  const recipientChatAfterAttachment = store.getSnapshotByToken(recipientToken)?.chats.find(
+    (chat) => chat.phone === sender.identifier,
+  )
+  const senderAttachmentMessage = senderChatAfterAttachment?.messages.at(-1)
+  const recipientAttachmentMessage = recipientChatAfterAttachment?.messages.at(-1)
+  assert.ok(senderAttachmentMessage)
+  assert.ok(recipientAttachmentMessage)
+  assert.notEqual(senderAttachmentMessage.id, recipientAttachmentMessage.id)
+
+  await store.sendDirectMessage(senderToken, senderChatAfterAttachment!.id, {
+    replyTo: {
+      author: 'me',
+      id: senderAttachmentMessage.id,
+      text: 'Файл: legacy-reply-target.png',
+    },
+    text: 'Ответ на вложение',
+  })
+
+  const recipientDialogMessageRows = database.dialogMessages.filter(
+    (message) =>
+      message.ownerIdentifier === recipient.identifier &&
+      message.dialogId === recipientChat.id &&
+      !message.archivedAt,
+  )
+  const recipientPersistedReply = recipientDialogMessageRows.at(-1)
+  assert.ok(recipientPersistedReply?.replyTo)
+  recipientPersistedReply.replyTo!.id = senderAttachmentMessage.id
+
+  const recipientSnapshotReply = store
+    .getSnapshotByToken(recipientToken)
+    ?.chats.find((chat) => chat.phone === sender.identifier)
+    ?.messages.at(-1)
+
+  assert.equal(recipientSnapshotReply?.replyTo?.id, recipientAttachmentMessage.id)
+  assert.equal(recipientSnapshotReply?.replyTo?.text, 'Файл: legacy-reply-target.png')
+})
+
 test('reject resets pending contact request and allows sending it again', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)

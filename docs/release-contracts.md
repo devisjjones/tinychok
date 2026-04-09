@@ -693,5 +693,6 @@
 - icon asset перестал грузиться
 - `В сети` не гаснет после logout/close
 - mirrored direct reply-preview у второго участника не скроллит к оригиналу, даже если reply был отправлен до фикса и в базе остался старый чужой `replyTo.id`
+- mirrored direct reply-preview у второго участника не скроллит к attachment-only оригиналу без текста, если legacy persisted reply хранит `replyTo.id` от чужой копии
 
 Такие случаи нужно чинить как release-blocking bugs и фиксировать в тестах, deploy-скриптах и `.md`, а не только в переписке.
