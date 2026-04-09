@@ -256,7 +256,8 @@ export function SubscriptionChannelRoom({
             const previousPostDayKey = previousPost ? getConversationDayKey(previousPost.createdAt) : null
           const replyReference = post.replyTo
           const hasImageAttachment = Boolean(
-            post.attachment && isImageMimeType(post.attachment.mimeType),
+            post.attachment &&
+            (isImageMimeType(post.attachment.mimeType) || isVideoMimeType(post.attachment.mimeType)),
           )
           const isImageOnlyBubble = hasImageAttachment && post.text.trim().length === 0
 

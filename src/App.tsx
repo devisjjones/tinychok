@@ -12957,7 +12957,11 @@ function App() {
           {threadTarget.kind === 'group' && threadGroupMessage ? (
             (() => {
               const hasImageAttachment = Boolean(
-                threadGroupMessage.attachment && isImageMimeType(threadGroupMessage.attachment.mimeType),
+                threadGroupMessage.attachment &&
+                (
+                  isImageMimeType(threadGroupMessage.attachment.mimeType) ||
+                  isVideoMimeType(threadGroupMessage.attachment.mimeType)
+                ),
               )
               const isImageOnlyBubble =
                 hasImageAttachment &&
@@ -13045,7 +13049,11 @@ function App() {
               // The root channel post inside an opened thread must stay a compact preview surface,
               // but it should now stretch full-width like a proper reference card instead of a tiny bubble.
               const hasImageAttachment = Boolean(
-                threadChannelPost.attachment && isImageMimeType(threadChannelPost.attachment.mimeType),
+                threadChannelPost.attachment &&
+                (
+                  isImageMimeType(threadChannelPost.attachment.mimeType) ||
+                  isVideoMimeType(threadChannelPost.attachment.mimeType)
+                ),
               )
               const isImageOnlyBubble =
                 hasImageAttachment && threadSourceText.trim().length === 0
@@ -13163,7 +13171,11 @@ function App() {
               const participant = resolveThreadCommentParticipant(comment)
               const mine = comment.author === 'me'
               const hasImageAttachment = Boolean(
-                comment.attachment && isImageMimeType(comment.attachment.mimeType),
+                comment.attachment &&
+                (
+                  isImageMimeType(comment.attachment.mimeType) ||
+                  isVideoMimeType(comment.attachment.mimeType)
+                ),
               )
               const isImageOnlyBubble = hasImageAttachment && comment.text.trim().length === 0
               const replyReference = comment.replyTo

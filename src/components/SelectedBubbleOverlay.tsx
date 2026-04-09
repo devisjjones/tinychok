@@ -1,5 +1,5 @@
 import type { ActionAnchor, ChannelPost, GroupParticipant, Message, ThreadComment } from '../app/types'
-import { isImageMimeType, shouldShowDeliveryCaption } from '../app/utils'
+import { isImageMimeType, isVideoMimeType, shouldShowDeliveryCaption } from '../app/utils'
 import {
   BubbleImageOverlayMeta,
   BubbleMessageContent,
@@ -129,7 +129,8 @@ function renderGroupOverlayAuthor(
 export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
   if (props.kind === 'channel') {
     const hasImageAttachment = Boolean(
-      props.post.attachment && isImageMimeType(props.post.attachment.mimeType),
+      props.post.attachment &&
+      (isImageMimeType(props.post.attachment.mimeType) || isVideoMimeType(props.post.attachment.mimeType)),
     )
     const isImageOnlyBubble = hasImageAttachment && props.post.text.trim().length === 0
 
@@ -158,7 +159,8 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
 
   if (props.kind === 'thread-comment') {
     const hasImageAttachment = Boolean(
-      props.comment.attachment && isImageMimeType(props.comment.attachment.mimeType),
+      props.comment.attachment &&
+      (isImageMimeType(props.comment.attachment.mimeType) || isVideoMimeType(props.comment.attachment.mimeType)),
     )
     const isImageOnlyBubble = hasImageAttachment && props.comment.text.trim().length === 0
     const authorNode = renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
@@ -199,7 +201,8 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
   const bubbleClassNames = ['bubble', 'bubble-overlay', 'bubble-button', 'selected']
   const hasDeliveryIssue = Boolean(props.deliveryIssue)
   const hasImageAttachment = Boolean(
-    props.message.attachment && isImageMimeType(props.message.attachment.mimeType),
+    props.message.attachment &&
+    (isImageMimeType(props.message.attachment.mimeType) || isVideoMimeType(props.message.attachment.mimeType)),
   )
   const isImageOnlyBubble =
     hasImageAttachment &&

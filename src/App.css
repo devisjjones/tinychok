@@ -4434,15 +4434,15 @@
   cursor: pointer;
 }
 
-.bubble-attachment-video {
-  background: rgba(125, 86, 52, 0.08);
-}
-
 .bubble-attachment-image {
   width: 100%;
   max-height: min(360px, 62vw);
   object-fit: cover;
   display: block;
+}
+
+.bubble-attachment-video-preview {
+  background: rgba(30, 20, 15, 0.18);
 }
 
 .bubble-attachment-photo.has-body-below .bubble-attachment-image {
@@ -4489,6 +4489,32 @@
   filter: brightness(0) invert(1);
 }
 
+.bubble-attachment-play-button {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(33, 23, 18, 0.54);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 24px rgba(16, 10, 8, 0.18);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.bubble-attachment-play-icon {
+  width: 0;
+  height: 0;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-left: 15px solid #fff8f2;
+  transform: translateX(2px);
+}
+
 .bubble-attachment-badge {
   width: fit-content;
   padding: 6px 10px;
@@ -4498,11 +4524,6 @@
   font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-}
-
-.bubble-attachment-badge-video {
-  background: rgba(140, 87, 56, 0.18);
-  color: rgba(95, 66, 46, 0.92);
 }
 
 .bubble-attachment-copy {

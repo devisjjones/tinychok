@@ -193,7 +193,7 @@ test('attachment storage cleanup copy stays wired into preview and bubble render
   assert.match(appCss, /\.bubble-attachment-removed-note-crown img/u)
 })
 
-test('video attachments stay on the file flow but open in an in-app player instead of a download-only card', () => {
+test('video attachments render through the visual media preview flow and still open in the in-app player', () => {
   const sharedConstantsSource = readFileSync(join(process.cwd(), 'src/shared/constants.ts'), 'utf8')
   const sharedUtilsSource = readFileSync(join(process.cwd(), 'src/shared/utils.ts'), 'utf8')
   const appUtilsSource = readFileSync(join(process.cwd(), 'src/app/utils.ts'), 'utf8')
@@ -215,6 +215,16 @@ test('video attachments stay on the file flow but open in an in-app player inste
   )
   const mediaViewerSource = readFileSync(
     join(process.cwd(), 'src/components/MediaViewerOverlay.tsx'),
+    'utf8',
+  )
+  const selectedOverlaySource = readFileSync(
+    join(process.cwd(), 'src/components/SelectedBubbleOverlay.tsx'),
+    'utf8',
+  )
+  const directRoomSource = readFileSync(join(process.cwd(), 'src/rooms/DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(process.cwd(), 'src/rooms/GroupRoom.tsx'), 'utf8')
+  const channelRoomSource = readFileSync(
+    join(process.cwd(), 'src/rooms/SubscriptionChannelRoom.tsx'),
     'utf8',
   )
   const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
@@ -241,17 +251,42 @@ test('video attachments stay on the file flow but open in an in-app player inste
   assert.match(attachmentPreviewSource, /isVideoMimeType\(attachmentDraft\.mimeType\)/u)
   assert.match(attachmentPreviewSource, /Открыть превью видео/u)
   assert.match(attachmentPreviewSource, /\{videoAttachment \? 'Видео' : 'Файл'\}/u)
+  assert.match(bubbleSource, /function buildVideoPreviewUrl\(mediaUrl: string\)/u)
   assert.match(bubbleSource, /const isVideoAttachment = Boolean\(/u)
+  assert.match(bubbleSource, /const hasVisualAttachment = isImageAttachment \|\| isVideoAttachment/u)
   assert.match(bubbleSource, /isVideoMimeType\(message\.attachment\.mimeType\)/u)
-  assert.match(bubbleSource, /bubble-attachment-badge-video/u)
-  assert.match(bubbleSource, /\{isVideoAttachment \? 'Видео' : 'Файл'\}/u)
+  assert.match(bubbleSource, /buildVideoPreviewUrl\(message\.attachment\.mediaUrl\)/u)
+  assert.match(bubbleSource, /bubble-attachment-video-preview/u)
+  assert.match(bubbleSource, /bubble-attachment-play-button/u)
+  assert.match(bubbleSource, /<video[\s\S]*playsInline[\s\S]*preload="metadata"/u)
+  assert.doesNotMatch(bubbleSource, /bubble-attachment-badge-video/u)
+  assert.doesNotMatch(bubbleSource, /\{isVideoAttachment \? 'Видео' : 'Файл'\}/u)
   assert.match(mediaViewerSource, /const isVideo = isVideoMimeType\(attachment\.mimeType\)/u)
   assert.match(
     mediaViewerSource,
     /<video[\s\S]*className="media-viewer-video"[\s\S]*controls[\s\S]*playsInline/u,
   )
+  assert.match(
+    directRoomSource,
+    /isImageMimeType\(message\.attachment\.mimeType\)[\s\S]*isVideoMimeType\(message\.attachment\.mimeType\)/u,
+  )
+  assert.match(
+    groupRoomSource,
+    /isImageMimeType\(message\.attachment\.mimeType\)[\s\S]*isVideoMimeType\(message\.attachment\.mimeType\)/u,
+  )
+  assert.match(
+    channelRoomSource,
+    /isImageMimeType\(post\.attachment\.mimeType\)[\s\S]*isVideoMimeType\(post\.attachment\.mimeType\)/u,
+  )
+  assert.match(
+    selectedOverlaySource,
+    /isImageMimeType\(props\.message\.attachment\.mimeType\)[\s\S]*isVideoMimeType\(props\.message\.attachment\.mimeType\)/u,
+  )
   assert.match(appSource, /!attachmentDraft \|\|[\s\S]*!isImageMimeType\(attachmentDraft\.mimeType\) && !isVideoMimeType\(attachmentDraft\.mimeType\)/u)
   assert.match(appSource, /Добавьте подпись к видео/u)
+  assert.match(appSource, /isVideoMimeType\(threadGroupMessage\.attachment\.mimeType\)/u)
+  assert.match(appSource, /isVideoMimeType\(threadChannelPost\.attachment\.mimeType\)/u)
+  assert.match(appSource, /isVideoMimeType\(comment\.attachment\.mimeType\)/u)
   assert.match(serverMediaSource, /'video\/mp4': '\.mp4'/u)
   assert.match(serverMediaSource, /'video\/quicktime': '\.mov'/u)
   assert.match(serverMediaSource, /'video\/webm': '\.webm'/u)
@@ -261,7 +296,10 @@ test('video attachments stay on the file flow but open in an in-app player inste
   assert.match(serverIndexSource, /const ATTACHMENT_EXTENSION_MIME_TYPE_MAP: Record<string, string> = \{/u)
   assert.match(serverIndexSource, /function resolveAttachmentUploadMimeType\(fileName: string, mimeType: string \| undefined\)/u)
   assert.match(serverIndexSource, /uploadDiagnostic\.mimeType = resolveAttachmentUploadMimeType\(file\.filename, file\.mimetype\)/u)
-  assert.match(appCss, /\.bubble-attachment-badge-video/u)
+  assert.match(appCss, /\.bubble-attachment-video-preview/u)
+  assert.match(appCss, /\.bubble-attachment-play-button/u)
+  assert.match(appCss, /\.bubble-attachment-play-icon/u)
+  assert.doesNotMatch(appCss, /\.bubble-attachment-badge-video/u)
   assert.match(appCss, /\.composer-attachment-preview-file-badge\.video/u)
   assert.match(appCss, /\.media-viewer-video/u)
 })

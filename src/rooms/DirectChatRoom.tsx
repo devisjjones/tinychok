@@ -391,7 +391,8 @@ export function DirectChatRoom({
           const messageDeliveryIssue =
             message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
           const hasImageAttachment = Boolean(
-            message.attachment && isImageMimeType(message.attachment.mimeType),
+            message.attachment &&
+            (isImageMimeType(message.attachment.mimeType) || isVideoMimeType(message.attachment.mimeType)),
           )
           const messagePending = messageDeliveryIssue === 'pending'
           const messageFailed = messageDeliveryIssue === 'failed'

@@ -361,11 +361,12 @@ export function GroupRoom({
             const messageDayKey = getConversationDayKey(message.createdAt)
             const previousMessageDayKey = previousMessage ? getConversationDayKey(previousMessage.createdAt) : null
             const groupParticipant = resolveGroupParticipant(message)
-            const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
+          const linkedChannel = message.sourceChannel ? null : resolveLinkedChannelFromMessage(message)
           const messageDeliveryIssue =
             message.author === 'me' ? getMessageDeliveryIssue(message.id) : null
           const hasImageAttachment = Boolean(
-            message.attachment && isImageMimeType(message.attachment.mimeType),
+            message.attachment &&
+            (isImageMimeType(message.attachment.mimeType) || isVideoMimeType(message.attachment.mimeType)),
           )
           const messagePending = messageDeliveryIssue === 'pending'
           const messageFailed = messageDeliveryIssue === 'failed'

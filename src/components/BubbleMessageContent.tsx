@@ -1,4 +1,4 @@
-import { Fragment, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import React, { type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import type { ChannelMessageSource, Message } from '../app/types'
 import {
   formatChannelAvatarLabel,
@@ -42,6 +42,10 @@ export function shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc: string
     deliveryIndicatorSrc === '/icons/check-mark-50.png' ||
     deliveryIndicatorSrc === '/icons/double-tick-50.png'
   )
+}
+
+function buildVideoPreviewUrl(mediaUrl: string) {
+  return mediaUrl.includes('#') ? mediaUrl : `${mediaUrl}#t=0.001`
 }
 
 function AttachmentRemovedNoticeBlock({ notice }: AttachmentRemovedNoticeBlockProps) {
@@ -331,7 +335,7 @@ function BubbleRichText({
   return (
     <p>
       {lines.map((line, lineIndex) => (
-        <Fragment key={`line-${lineIndex}`}>
+        <React.Fragment key={`line-${lineIndex}`}>
           {lineIndex > 0 ? <br /> : null}
           {parseMessageTextSegments(line).map((segment, segmentIndex) => {
             const segmentKey = `${segment.kind}-${lineIndex}-${segmentIndex}`
@@ -359,7 +363,7 @@ function BubbleRichText({
               segmentKey,
             )
           })}
-        </Fragment>
+        </React.Fragment>
       ))}
     </p>
   )
@@ -382,6 +386,10 @@ export function BubbleMessageContent({
   const isVideoAttachment = Boolean(
     message.attachment && isVideoMimeType(message.attachment.mimeType),
   )
+  const isImageAttachment = Boolean(
+    message.attachment && isImageMimeType(message.attachment.mimeType),
+  )
+  const hasVisualAttachment = isImageAttachment || isVideoAttachment
   const shouldRenderContactBodyText =
     Boolean(trimmedText) &&
     Boolean(message.sourceContact) &&
@@ -390,7 +398,7 @@ export function BubbleMessageContent({
     linkedChannel || message.sourceContact || message.sourceGroup || trimmedText || message.attachmentRemovedNotice,
   )
   const attachmentNode = message.attachment ? (
-    isImageMimeType(message.attachment.mimeType) ? (
+    hasVisualAttachment ? (
       <div
         className={`bubble-attachment bubble-attachment-photo bubble-attachment-button${
           hasBodyBelowAttachment ? ' has-body-below' : ' image-only'
@@ -406,30 +414,46 @@ export function BubbleMessageContent({
           onOpenAttachment?.(message.attachment!)
         }}
       >
-        <img
-          src={message.attachment.mediaUrl}
-          alt={message.attachment.fileName}
-          className={`bubble-attachment-image${
-            attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
-          }${
-            attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
-          }`}
-        />
+        {isVideoAttachment ? (
+          <>
+            <video
+              src={buildVideoPreviewUrl(message.attachment.mediaUrl)}
+              className={`bubble-attachment-image bubble-attachment-video-preview${
+                attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
+              }${
+                attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
+              }`}
+              aria-hidden="true"
+              muted
+              playsInline
+              preload="metadata"
+            />
+            <span className="bubble-attachment-play-button" aria-hidden="true">
+              <span className="bubble-attachment-play-icon" />
+            </span>
+          </>
+        ) : (
+          <img
+            src={message.attachment.mediaUrl}
+            alt={message.attachment.fileName}
+            className={`bubble-attachment-image${
+              attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
+            }${
+              attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
+            }`}
+          />
+        )}
         {imageOverlay}
       </div>
     ) : (
       <div
-        className={`bubble-attachment bubble-attachment-link${
-          isVideoAttachment ? ' bubble-attachment-video' : ''
-        }`}
+        className="bubble-attachment bubble-attachment-link"
         onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
           event.stopPropagation()
           onOpenAttachment?.(message.attachment!)
         }}
       >
-        <span className={`bubble-attachment-badge${isVideoAttachment ? ' bubble-attachment-badge-video' : ''}`}>
-          {isVideoAttachment ? 'Видео' : 'Файл'}
-        </span>
+        <span className="bubble-attachment-badge">Файл</span>
         <div className="bubble-attachment-copy">
           <strong>{message.attachment.fileName}</strong>
           <span>
