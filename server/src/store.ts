@@ -3826,6 +3826,21 @@ function buildThreadInbox(
       if (!isSubscribed) continue
 
       const latestComment = findLatestThreadComment(comments)
+      const latestCommentAuthorAccount =
+        latestComment?.authorIdentifier
+          ? findAccountByStoredIdentifier(database, latestComment.authorIdentifier)
+          : null
+      const latestCommentGroupParticipant =
+        (latestComment?.authorIdentifier
+          ? group.participants.find(
+              (participant) =>
+                normalizeIdentifier(participant.identifier ?? '') ===
+                normalizeIdentifier(latestComment.authorIdentifier ?? ''),
+            ) ?? null
+          : null) ??
+        (latestComment?.displayAuthor
+          ? group.participants.find((participant) => participant.title === latestComment.displayAuthor) ?? null
+          : null)
       const latestOwnComment = findLatestOwnThreadComment(comments, ownerIdentifier)
       const lastReadCommentCreatedAt =
         threadState?.lastReadCommentCreatedAt ??
@@ -3851,6 +3866,9 @@ function buildThreadInbox(
         kind: 'group',
         latestActivityAt: latestComment?.createdAt ?? message.createdAt,
         latestCommentAuthor: latestComment?.displayAuthor,
+        latestCommentAuthorAccent: latestCommentGroupParticipant?.accent ?? '#cfb4a0',
+        latestCommentAuthorAvatarImage:
+          latestCommentAuthorAccount?.avatarImage ?? latestCommentGroupParticipant?.avatarImage,
         latestCommentText: latestComment?.text ?? 'Пока без комментариев',
         latestCommentTime: latestComment?.time ?? message.time,
         messageId: message.id,
@@ -3895,6 +3913,10 @@ function buildThreadInbox(
       if (!isSubscribed) continue
 
       const latestComment = findLatestThreadComment(comments)
+      const latestCommentAuthorAccount =
+        latestComment?.authorIdentifier
+          ? findAccountByStoredIdentifier(database, latestComment.authorIdentifier)
+          : null
       const latestOwnComment = findLatestOwnThreadComment(comments, ownerIdentifier)
       const lastReadCommentCreatedAt =
         threadState?.lastReadCommentCreatedAt ??
@@ -3920,6 +3942,8 @@ function buildThreadInbox(
         kind: 'channel',
         latestActivityAt: latestComment?.createdAt ?? post.createdAt,
         latestCommentAuthor: latestComment?.displayAuthor,
+        latestCommentAuthorAccent: '#cfb4a0',
+        latestCommentAuthorAvatarImage: latestCommentAuthorAccount?.avatarImage,
         latestCommentText: latestComment?.text ?? 'Пока без комментариев',
         latestCommentTime: latestComment?.time ?? post.time,
         postId: post.id,

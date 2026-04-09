@@ -1317,6 +1317,86 @@
   white-space: nowrap;
 }
 
+.chat-card.thread-inbox-card {
+  padding: 11px 12px;
+  gap: 11px;
+  align-items: start;
+}
+
+.chat-card.thread-inbox-card .chat-copy {
+  gap: 2px;
+  align-self: start;
+}
+
+.chat-card.thread-inbox-card .chat-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.thread-inbox-avatar-stack {
+  align-self: start;
+}
+
+.chat-card.thread-inbox-card .thread-inbox-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 18px;
+  font-size: 1.04rem;
+}
+
+.thread-inbox-source-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 251, 245, 0.94);
+  box-shadow: 0 0 0 2px rgba(255, 251, 245, 0.96);
+}
+
+.thread-inbox-source-badge img {
+  width: 11px;
+  height: 11px;
+  display: block;
+}
+
+.thread-inbox-activity {
+  line-height: 1.18;
+}
+
+.thread-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.thread-preview-author-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 7px;
+  font-size: 0.62rem;
+  flex: 0 0 auto;
+}
+
+.thread-preview-author-separator {
+  flex: 0 0 auto;
+  line-height: 1;
+}
+
+.thread-preview-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .thread-inbox-preview {
   display: block;
   min-width: 0;
@@ -7596,6 +7676,10 @@
     align-items: center;
   }
 
+  .chat-card.thread-inbox-card {
+    align-items: start;
+  }
+
   .auth-panel,
   .auth-card,
   .auth-support-footer,
@@ -7815,6 +7899,11 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
     align-items: start;
+  }
+
+  .chat-card.thread-inbox-card .thread-inbox-avatar {
+    width: 48px;
+    height: 48px;
   }
 
   .chat-name-row {

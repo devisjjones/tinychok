@@ -554,6 +554,8 @@ function buildFallbackGroupParticipant(title: string, participantId: number): Gr
   }
 }
 
+const THREAD_PREVIEW_AUTHOR_FALLBACK_ACCENT = '#cfb4a0'
+
 function renderAccountAvatarContent(title: string, archivedAccount?: boolean, avatarImage?: string) {
   if (archivedAccount) {
     return <img src="/icons/ghost.png" alt="" aria-hidden="true" className="avatar-ghost-icon" />
@@ -616,6 +618,70 @@ function resolveGroupPreviewAuthor(
     accent: '#cfb4a0',
     avatarImage: undefined,
     title: latestMessage.displayAuthor,
+  }
+}
+
+function resolveGroupThreadInboxPreviewAuthor(
+  group: GroupPreview,
+  latestComment: ThreadComment | undefined,
+  session: Session | null,
+) {
+  if (!latestComment) {
+    return {
+      accent: THREAD_PREVIEW_AUTHOR_FALLBACK_ACCENT,
+      avatarImage: undefined,
+    }
+  }
+
+  const normalizedAuthorIdentifier = normalizeIdentifier(latestComment.authorIdentifier ?? '')
+
+  if (latestComment.author === 'me') {
+    const normalizedSessionIdentifier = normalizeIdentifier(session?.identifier ?? '')
+    const sessionParticipant =
+      normalizedSessionIdentifier
+        ? group.participants.find(
+            (participant) =>
+              normalizeIdentifier(participant.identifier ?? '') === normalizedSessionIdentifier,
+          ) ?? null
+        : null
+
+    return {
+      accent: sessionParticipant?.accent ?? group.accent ?? THREAD_PREVIEW_AUTHOR_FALLBACK_ACCENT,
+      avatarImage: session?.avatarImage ?? sessionParticipant?.avatarImage,
+    }
+  }
+
+  const matchedParticipant =
+    (normalizedAuthorIdentifier
+      ? group.participants.find(
+          (participant) =>
+            normalizeIdentifier(participant.identifier ?? '') === normalizedAuthorIdentifier,
+        ) ?? null
+      : null) ??
+    (latestComment.displayAuthor
+      ? group.participants.find((participant) => participant.title === latestComment.displayAuthor) ?? null
+      : null)
+
+  return {
+    accent: matchedParticipant?.accent ?? THREAD_PREVIEW_AUTHOR_FALLBACK_ACCENT,
+    avatarImage: matchedParticipant?.avatarImage,
+  }
+}
+
+function resolveChannelThreadInboxPreviewAuthor(
+  latestComment: ThreadComment | undefined,
+  session: Session | null,
+) {
+  if (!latestComment) {
+    return {
+      accent: THREAD_PREVIEW_AUTHOR_FALLBACK_ACCENT,
+      avatarImage: undefined,
+    }
+  }
+
+  return {
+    accent: THREAD_PREVIEW_AUTHOR_FALLBACK_ACCENT,
+    avatarImage: latestComment.author === 'me' ? session?.avatarImage : undefined,
   }
 }
 
@@ -2931,13 +2997,8 @@ function App() {
 
     return item.kind === 'group' ? item.groupTitle : item.channelTitle
   }
-  const formatThreadInboxContextLabel = (item: ThreadInboxItem) => {
-    const roomLabel = item.kind === 'group' ? `Группа: ${item.groupTitle}` : `Канал: ${item.channelTitle}`
-    const activityLabel =
-      item.commentCount > 0 ? formatThreadCommentCountLabel(item.commentCount) : 'Подписка на тред'
-
-    return `${roomLabel} · ${activityLabel}`
-  }
+  const formatThreadInboxActivityLabel = (item: ThreadInboxItem) =>
+    item.commentCount > 0 ? formatThreadCommentCountLabel(item.commentCount) : 'Подписка на тред'
   const resolveThreadInboxAvatarImage = (item: ThreadInboxItem) => {
     if (item.kind === 'group') {
       return groups.find((group) => group.id === item.groupId)?.avatarImage ?? item.avatarImage
@@ -2945,15 +3006,25 @@ function App() {
 
     return subscriptionChannels.find((channel) => channel.id === item.channelId)?.avatarImage ?? item.avatarImage
   }
-  const formatThreadInboxPreview = (item: ThreadInboxItem) => {
+  const formatThreadInboxPreviewText = (item: ThreadInboxItem) => {
     const latestCommentText = item.latestCommentText.trim()
     if (!latestCommentText) {
       return item.commentCount > 0 ? 'Пока без комментариев' : 'Подписка на тред'
     }
 
-    return item.latestCommentAuthor
-      ? `${item.latestCommentAuthor}: ${latestCommentText}`
-      : latestCommentText
+    return latestCommentText
+  }
+  const resolveThreadInboxPreviewAuthor = (item: ThreadInboxItem) => {
+    const title = item.latestCommentAuthor?.trim()
+    if (!title || item.latestCommentText.trim().length === 0) {
+      return null
+    }
+
+    return {
+      accent: item.latestCommentAuthorAccent ?? THREAD_PREVIEW_AUTHOR_FALLBACK_ACCENT,
+      avatarImage: item.latestCommentAuthorAvatarImage,
+      title,
+    }
   }
   const totalChannelNotifications = subscriptionChannels.reduce((sum, channel) => sum + channel.unread, 0)
   const totalGroupNotifications = groups.reduce((sum, group) => sum + group.unread, 0)
@@ -5609,6 +5680,7 @@ function App() {
 
       const comments = message.threadComments ?? []
       const latestComment = comments.at(-1)
+      const latestCommentAuthor = resolveGroupThreadInboxPreviewAuthor(group, latestComment, session)
 
       return {
         avatarImage: group.avatarImage,
@@ -5619,6 +5691,8 @@ function App() {
         kind: 'group' as const,
         latestActivityAt: latestComment?.createdAt ?? message.createdAt,
         latestCommentAuthor: latestComment?.displayAuthor,
+        latestCommentAuthorAccent: latestCommentAuthor.accent,
+        latestCommentAuthorAvatarImage: latestCommentAuthor.avatarImage,
         latestCommentText: latestComment?.text ?? 'Пока без комментариев',
         latestCommentTime: latestComment?.time ?? message.time,
         messageId: message.id,
@@ -5636,6 +5710,7 @@ function App() {
 
     const comments = post.threadComments ?? []
     const latestComment = comments.at(-1)
+    const latestCommentAuthor = resolveChannelThreadInboxPreviewAuthor(latestComment, session)
 
     return {
       avatarImage: channel.avatarImage,
@@ -5646,6 +5721,8 @@ function App() {
       kind: 'channel' as const,
       latestActivityAt: latestComment?.createdAt ?? post.createdAt,
       latestCommentAuthor: latestComment?.displayAuthor,
+      latestCommentAuthorAccent: latestCommentAuthor.accent,
+      latestCommentAuthorAvatarImage: latestCommentAuthor.avatarImage,
       latestCommentText: latestComment?.text ?? 'Пока без комментариев',
       latestCommentTime: latestComment?.time ?? post.time,
       postId: post.id,
@@ -15673,6 +15750,8 @@ function App() {
             {orderedThreadInbox.length > 0 ? (
               orderedThreadInbox.map((item) => {
                 const threadInboxAvatarImage = resolveThreadInboxAvatarImage(item)
+                const threadInboxPreviewAuthor = resolveThreadInboxPreviewAuthor(item)
+                const threadInboxPreviewText = formatThreadInboxPreviewText(item)
 
                 return (
                   <button
@@ -15681,57 +15760,73 @@ function App() {
                     className={[
                       'chat-card',
                       'chat-card-compact',
+                      'thread-inbox-card',
                       activeThreadId === item.threadId ? 'active' : '',
                     ]
                       .filter(Boolean)
                       .join(' ')}
                     onClick={() => openThreadInboxItem(item)}
                   >
-                    <span
-                      className="avatar"
-                      style={{
-                        backgroundColor: item.kind === 'group' ? item.groupAccent : item.channelAccent,
-                      }}
-                    >
-                      {threadInboxAvatarImage ? (
-                        <img src={threadInboxAvatarImage} alt="" className="channel-avatar-image" />
-                      ) : item.kind === 'group' ? (
-                        formatChannelAvatarLabel(item.groupTitle)
-                      ) : (
-                        formatChannelAvatarLabel(item.channelTitle)
-                      )}
+                    <span className="chat-avatar-stack thread-inbox-avatar-stack">
+                      <span
+                        className="avatar thread-inbox-avatar"
+                        style={{
+                          backgroundColor: item.kind === 'group' ? item.groupAccent : item.channelAccent,
+                        }}
+                      >
+                        {threadInboxAvatarImage ? (
+                          <img src={threadInboxAvatarImage} alt="" className="channel-avatar-image" />
+                        ) : item.kind === 'group' ? (
+                          formatChannelAvatarLabel(item.groupTitle)
+                        ) : (
+                          formatChannelAvatarLabel(item.channelTitle)
+                        )}
+                      </span>
+                      <span className="thread-inbox-source-badge" aria-hidden="true">
+                        <img src={item.kind === 'group' ? '/icons/group100.png' : '/icons/news100.svg'} alt="" />
+                      </span>
                     </span>
                     <span className="chat-copy">
                       <span className="chat-topline">
                         <span className="chat-name-row">
                           <strong className="chat-name-text">{formatThreadInboxTitle(item)}</strong>
-                          <span className="chat-star">
-                            <img
-                              src={item.kind === 'group' ? '/icons/group100.png' : '/icons/news100.svg'}
-                              alt=""
-                            />
                         </span>
-                      </span>
-                      {!quietThreadsSuppressed && item.unreadCount > 0 ? (
-                        <span
-                          className={
-                            item.unreadCount > 9
-                              ? 'chat-topline-badge chat-topline-badge-wide'
-                              : 'chat-topline-badge'
-                          }
-                        >
-                          {formatUnreadBadgeCount(item.unreadCount)}
-                        </span>
-                      ) : (
+                        {!quietThreadsSuppressed && item.unreadCount > 0 ? (
+                          <span
+                            className={
+                              item.unreadCount > 9
+                                ? 'chat-topline-badge chat-topline-badge-wide'
+                                : 'chat-topline-badge'
+                            }
+                          >
+                            {formatUnreadBadgeCount(item.unreadCount)}
+                          </span>
+                        ) : (
                           <span className="chat-topline-meta">
                             {formatSidebarActivityLabel(item.latestActivityAt, item.latestCommentTime)}
                           </span>
+                        )}
+                      </span>
+                      <span className="chat-handle thread-inbox-activity">{formatThreadInboxActivityLabel(item)}</span>
+                      {threadInboxPreviewAuthor ? (
+                        <span className="chat-preview thread-preview-row">
+                          <span
+                            className="avatar thread-preview-author-avatar"
+                            style={{ backgroundColor: threadInboxPreviewAuthor.accent }}
+                            aria-hidden="true"
+                          >
+                            {renderAccountAvatarContent(
+                              threadInboxPreviewAuthor.title,
+                              false,
+                              threadInboxPreviewAuthor.avatarImage,
+                            )}
+                          </span>
+                          <span className="thread-preview-author-separator">:</span>
+                          <span className="thread-preview-text">{threadInboxPreviewText}</span>
+                        </span>
+                      ) : (
+                        <span className="chat-preview thread-inbox-preview">{threadInboxPreviewText}</span>
                       )}
-                      </span>
-                      <span className="chat-handle">{formatThreadInboxContextLabel(item)}</span>
-                      <span className="chat-preview thread-inbox-preview">
-                        {formatThreadInboxPreview(item)}
-                      </span>
                     </span>
                   </button>
                 )

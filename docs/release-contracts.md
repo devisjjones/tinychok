@@ -124,6 +124,12 @@
 - room feed spacing contract:
   - direct, group и thread bubble feeds должны держать compact gap `3px`
   - subscription channel posts не должны автоматически наследовать этот compact gap и остаются более воздушными
+- thread inbox card contract:
+  - avatar root-message треда должен быть прижат к верхней линии карточки, а не болтаться по vertical center
+  - у avatar должен быть нижний-right badge источника треда (`group` / `channel`) с mask-обводкой, чтобы иконка не сливалась с картинкой
+  - secondary row не должна дублировать `Группа:` / `Канал:` и название сущности текстом
+  - preview последнего комментария должен идти как `mini-avatar + : + text`, а не как текстовое `Имя: текст`
+  - счётчик комментариев должен оставаться отдельной строкой на карточке
 - group sender-strip contract:
   - author avatar/name над bubble должны быть ближе к своему bubble, чем к предыдущему сообщению
   - sender name и premium-crown должны выравниваться по нижней границе avatar, а не по vertical center

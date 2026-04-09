@@ -21,6 +21,7 @@ function getStoreDatabase(store: TinychokStore) {
 function createAccount(
   identifier: string,
   options?: {
+    avatarImage?: string
     premium?: boolean
     premiumExpiresAt?: string
     quietModeEnabled?: boolean
@@ -31,7 +32,7 @@ function createAccount(
 ) {
   return {
     accountId: `account_${identifier}`,
-    avatarImage: undefined,
+    avatarImage: options?.avatarImage,
     archivedOriginalIdentifier: undefined,
     archivedProfile: undefined,
     blockedAt: undefined,
@@ -1547,7 +1548,9 @@ test('root author gets unread thread inbox notifications for group replies witho
   const store = createStore()
   const database = getStoreDatabase(store)
   const owner = createAccount('+79990006029')
-  const invited = createAccount('+79990006030')
+  const invited = createAccount('+79990006030', {
+    avatarImage: 'https://cdn.example.test/group-thread-comment-author-avatar.png',
+  })
 
   database.accounts.push(owner, invited)
   const ownerToken = createSession(database, owner.identifier, 'group-thread-root-owner')
@@ -1606,6 +1609,10 @@ test('root author gets unread thread inbox notifications for group replies witho
   assert.ok(ownerInboxItem)
   assert.equal(ownerInboxItem?.kind, 'group')
   assert.equal(ownerInboxItem?.avatarImage, 'https://cdn.example.test/group-thread-avatar.png')
+  assert.equal(
+    ownerInboxItem?.latestCommentAuthorAvatarImage,
+    'https://cdn.example.test/group-thread-comment-author-avatar.png',
+  )
   assert.equal(ownerInboxItem?.unreadCount, 1)
 })
 
@@ -1654,7 +1661,9 @@ test('channel post owner gets unread thread inbox notifications for subscriber r
   const store = createStore()
   const database = getStoreDatabase(store)
   const owner = createAccount('+79990006032')
-  const invited = createAccount('+79990006033')
+  const invited = createAccount('+79990006033', {
+    avatarImage: 'https://cdn.example.test/channel-thread-comment-author-avatar.png',
+  })
 
   database.accounts.push(owner, invited)
   const ownerToken = createSession(database, owner.identifier, 'channel-thread-root-owner')
@@ -1698,6 +1707,10 @@ test('channel post owner gets unread thread inbox notifications for subscriber r
   assert.ok(ownerInboxItem)
   assert.equal(ownerInboxItem?.kind, 'channel')
   assert.equal(ownerInboxItem?.avatarImage, 'https://cdn.example.test/channel-thread-avatar.png')
+  assert.equal(
+    ownerInboxItem?.latestCommentAuthorAvatarImage,
+    'https://cdn.example.test/channel-thread-comment-author-avatar.png',
+  )
   assert.equal(ownerInboxItem?.unreadCount, 1)
 })
 

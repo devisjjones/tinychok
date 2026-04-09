@@ -92,6 +92,8 @@ export type GroupThreadInboxItem = {
   groupTitle: string
   latestActivityAt?: string
   latestCommentAuthor?: string
+  latestCommentAuthorAccent?: string
+  latestCommentAuthorAvatarImage?: string
   latestCommentText: string
   latestCommentTime: string
   messageId: number
@@ -111,6 +113,8 @@ export type ChannelThreadInboxItem = {
   commentCount: number
   latestActivityAt?: string
   latestCommentAuthor?: string
+  latestCommentAuthorAccent?: string
+  latestCommentAuthorAvatarImage?: string
   latestCommentText: string
   latestCommentTime: string
   postId: number

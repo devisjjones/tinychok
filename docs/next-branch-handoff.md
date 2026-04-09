@@ -236,6 +236,12 @@
   - более плотный vertical padding, чем у default `chat-card`
   - `chat-copy` внутри group-card держит более плотный текстовый gap, чем общий rail-card
   - preview последнего сообщения показывает маленькую author-avatar + `:` + текст preview вместо отдельного текстового имени автора
+- thread inbox card держит отдельный compact-контракт:
+  - root avatar треда выровнен по верхней линии карточки, а не по vertical center
+  - у avatar есть нижний-right badge источника (`group` / `channel`) с mask-обводкой
+  - отдельная строка `Группа:` / `Канал:` и название source room не показываются
+  - preview последнего комментария идёт как `mini-avatar + : + text`
+  - счётчик комментариев остаётся отдельной muted-строкой
 
 ### Group Captioned Media
 
@@ -535,6 +541,9 @@
   - channels
   - thread inbox
 - thread inbox card reuse-ит `avatarImage` source room, а не synthetic initials, когда у группы/канала уже есть avatar
+- thread inbox card не должен дублировать source room текстом:
+  - тип room показывается badge-иконкой на avatar
+  - preview автора показывается mini-avatar строкой, а не текстовым `Имя:`
 - `Настройки режима "Тихо"` — отдельная settings-scene и release-blocking контракт
 - `quietModeSettings` хранится server-side в `Session/Account` и должен нормализоваться к дефолтам:
   - `dialogs=true`
