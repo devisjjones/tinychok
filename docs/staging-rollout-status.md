@@ -206,6 +206,9 @@
 - spacing между bubble в room feeds:
   - direct, group и thread = `3px`
   - channel posts сохраняют более крупный gap и не должны выглядеть как обычный chat stream
+- в открытом thread room:
+  - между root/source card и первым комментарием обязан оставаться gap `12px`
+  - этот gap нельзя добиваться общим `padding-top` у `.room-thread-feed`, чтобы не возвращать пустую полоску под source card при скролле
 - group sender-chain в живом room feed:
   - sender-strip показывается только на первом сообщении подряд идущей цепочки автора
   - same-author continuation идёт с gap `3px`

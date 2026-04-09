@@ -7142,6 +7142,10 @@
   padding-top: 0;
 }
 
+.room-thread-feed > .thread-comment-row:first-child {
+  margin-top: 12px;
+}
+
 .room-thread-empty-copy {
   margin: 0 0 10px;
   color: var(--muted);

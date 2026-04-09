@@ -182,6 +182,9 @@
   - same-author bubble gap = `3px`
   - author-change block gap = `12px`
   - sender-strip стартует по той же левой линии, что и bubble под ним
+- thread room root/source spacing contract:
+  - между root/source card и первым комментарием нужен gap `12px`
+  - не возвращать это через общий `padding-top` на `.room-thread-feed`, иначе снова появляется пустая полоска под root/source card
 - selected message overlay contract:
   - для bubble с внешним sender-strip action anchor нельзя мерить только по inner bubble
   - overlay и оригинальное сообщение должны совпадать по геометрии
