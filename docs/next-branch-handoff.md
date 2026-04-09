@@ -1210,3 +1210,7 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - выбор первого пользователя
   - выбор канонического диалога
   - export CSV
+- mobile direct-room media/video rows:
+  - clamp to viewport width
+  - keep a shrinkable bubble column
+  - never widen the room from sender-owned portrait video bubbles

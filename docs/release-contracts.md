@@ -706,3 +706,8 @@
 - mirrored direct reply-preview у второго участника не скроллит к attachment-only оригиналу без текста, если legacy persisted reply хранит `replyTo.id` от чужой копии
 
 Такие случаи нужно чинить как release-blocking bugs и фиксировать в тестах, deploy-скриптах и `.md`, а не только в переписке.
+
+- mobile media/video bubble не должен раздвигать room по ширине:
+  - `media-bubble-row` обязан clamp-иться к viewport
+  - bubble track обязан быть shrinkable через `minmax(0, 1fr)`
+  - portrait video не должен создавать horizontal scroll

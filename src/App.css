@@ -7850,6 +7850,45 @@
     align-self: center;
   }
 
+  .media-bubble-row {
+    width: min(100%, calc(100vw - 28px));
+    max-width: min(100%, calc(100vw - 28px));
+    grid-template-columns: minmax(0, 1fr) 38px;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .media-bubble-row.mine {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .media-bubble-row.channel {
+    width: min(100%, calc(100vw - 28px));
+    max-width: min(100%, calc(100vw - 28px));
+  }
+
+  .media-bubble-row-action {
+    width: 38px;
+    min-width: 38px;
+  }
+
+  .media-bubble-row > .bubble.media-only-bubble,
+  .media-bubble-row > .channel-post.media-only-bubble {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .media-bubble-row > .bubble.media-only-bubble .bubble-attachment,
+  .media-bubble-row > .bubble.media-only-bubble .bubble-attachment-photo,
+  .media-bubble-row > .bubble.media-only-bubble .bubble-attachment-image,
+  .media-bubble-row > .channel-post.media-only-bubble .bubble-attachment,
+  .media-bubble-row > .channel-post.media-only-bubble .bubble-attachment-photo,
+  .media-bubble-row > .channel-post.media-only-bubble .bubble-attachment-image {
+    max-width: 100%;
+    min-width: 0;
+  }
+
   .settings-panel {
     padding: 22px;
   }

@@ -866,3 +866,6 @@ curl -s https://api.staging.tinychok.ru/healthz
   - у второго участника tap по reply-preview обязан скроллить к оригиналу так же, как у автора ответа
   - это должно работать и для новых direct replies, и для legacy сообщений, где в persisted mirrored copy раньше сохранился чужой `replyTo.id`
   - attachment-only оригинал без текста тоже входит в этот контракт: legacy mirrored reply не должен оставаться привязанным к чужому id только потому, что preview хранится как `Файл: <name>`
+- mobile media/video bubble:
+  - отправленное видео не должно раздвигать direct room вправо
+  - `media-bubble-row` остаётся зажатым в viewport, bubble track shrinkable, horizontal overflow отсутствует
