@@ -4202,10 +4202,6 @@
   box-shadow: 0 0 0 1.5px rgba(185, 124, 80, 0.96);
 }
 
-.bubble.group-captioned-media-bubble {
-  padding-top: 12px;
-}
-
 .bubble.group-captioned-media-bubble .bubble-media-header {
   display: flex;
   align-items: center;
@@ -5274,6 +5270,12 @@
 .room-thread-feed .bubble:not(.media-only-bubble):not(.emoji-only-message) {
   padding-top: 14px;
   padding-bottom: 12px;
+}
+
+.group-room-feed .bubble.group-captioned-media-bubble,
+.room-thread-feed .bubble.group-captioned-media-bubble,
+.bubble-overlay.group-captioned-media-bubble {
+  padding-top: 12px;
 }
 
 .group-room-feed .bubble:not(.media-only-bubble):not(.emoji-only-message) time,
