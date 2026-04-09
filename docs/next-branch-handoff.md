@@ -422,6 +422,7 @@
 - profile-scene mobile contract:
   - даже на узком телефоне avatar и profile-copy не должны распадаться в две вертикальные колонки
   - mobile display name справа от avatar должен быть меньше desktop headline
+  - mobile rail не должен держать большие двойные боковые отступы; account header, filters, bottom-nav и contact cards должны занимать ширину ближе к viewport edges
   - stack `Имя / Фамилия / Статус / Никнейм` держит compact vertical spacing без больших пустых промежутков
   - на `<=420px` profile headline должен переопределяться после общего `.settings-heading h2`, иначе узкий mobile снова раздувает имя
   - settings profile autosize обязан стартовать от текущего computed mobile font-size, а не от desktop-константы `30.4px`

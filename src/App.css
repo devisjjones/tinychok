@@ -7904,11 +7904,15 @@
   .auth-shell,
   .confirm-shell,
   .policy-shell {
-    padding: 12px;
+    padding: 8px;
   }
 
   .shell {
-    gap: 12px;
+    gap: 8px;
+  }
+
+  .rail {
+    padding: 0 4px 0;
   }
 
   .auth-shell {
@@ -7931,20 +7935,28 @@
   }
 
   .chat-list {
-    padding-inline: 6px;
+    padding-inline: 4px;
   }
 
   .chat-card {
-    padding: 12px;
+    padding: 11px 12px;
   }
 
   .chat-card.chat-card-compact {
     grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
+    padding: 10px 11px;
+    gap: 9px;
   }
 
   .chat-card.thread-inbox-card {
     align-items: start;
+    padding: 10px 11px;
+  }
+
+  .chat-card.channel-list-card,
+  .chat-card.group-list-card {
+    padding: 10px 11px;
   }
 
   .auth-panel,
@@ -8097,6 +8109,13 @@
   .filters {
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 5px;
+    padding: 7px 8px 8px;
+    margin-inline: 0;
+  }
+
+  .filters::before {
+    left: 16px;
+    right: 16px;
   }
 
   .contacts-filters {
@@ -8119,6 +8138,8 @@
 
   .bottom-nav {
     gap: 6px;
+    padding: 10px;
+    margin-inline: 0;
   }
 
   .bottom-nav .icon-button {
@@ -8135,6 +8156,12 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     align-items: start;
+  }
+
+  .account-header {
+    padding: 9px 10px 8px;
+    gap: 8px;
+    margin-inline: 0;
   }
 
   .account-name {
@@ -8457,7 +8484,11 @@
   .auth-shell,
   .confirm-shell,
   .policy-shell {
-    padding: 10px;
+    padding: 6px;
+  }
+
+  .rail {
+    padding: 0 2px 0;
   }
 
   .chat-room,
@@ -8467,8 +8498,8 @@
   }
 
   .account-header {
-    padding: 11px 14px 10px 12px;
-    gap: 10px;
+    padding: 8px 9px;
+    gap: 8px;
   }
 
   .account-name {
@@ -8482,6 +8513,33 @@
 
   .account-status-row p {
     font-size: 0.9rem;
+  }
+
+  .filters {
+    padding: 6px 7px 7px;
+  }
+
+  .filters::before {
+    left: 14px;
+    right: 14px;
+  }
+
+  .chat-list {
+    padding-inline: 3px;
+  }
+
+  .chat-card,
+  .chat-card.chat-card-compact,
+  .chat-card.thread-inbox-card,
+  .chat-card.channel-list-card,
+  .chat-card.group-list-card {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .bottom-nav {
+    padding: 8px;
+    gap: 5px;
   }
 
   .room-header {

@@ -531,6 +531,7 @@
   - display name не должен падать под avatar только из-за mobile media-rule
   - длинный direct-room status на mobile по умолчанию должен схлопываться до `2` строк
   - toggle в статусе должен раскрывать и снова сворачивать текст, не ломая desktop header
+  - outer mobile gutters у account header, filters, bottom-nav и contact cards должны быть уменьшены; эти surface должны тянуться ближе к краям viewport
   - gap между `Имя / Фамилия / Статус / Никнейм` должен оставаться compact
   - узкий mobile breakpoint не должен перетирать compact profile headline общим `.settings-heading h2`
   - inline autosize profile headline должен уважать текущий mobile font-size из CSS, а не возвращать desktop `30.4px`
