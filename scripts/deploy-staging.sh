@@ -175,6 +175,10 @@ wait_for_staging_runtime_release
 echo "==> Syncing dist/ to $FRONTEND_DIR"
 sudo rsync -av --delete --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r dist/ "$FRONTEND_DIR/"
 
+echo "==> Verifying staging static web icon contracts"
+node scripts/verify-web-static-assets.mjs \
+  --root-url https://staging.tinychok.ru
+
 echo "==> Done"
 echo "Commit: $CURRENT_HEAD"
 echo "Next check:"

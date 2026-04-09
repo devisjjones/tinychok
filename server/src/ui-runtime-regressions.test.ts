@@ -3937,6 +3937,8 @@ test('all public legal pages keep static routes, public pdf assets and stable so
 
 test('favicon and home-screen icon contract stays wired to the new logo assets', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const deployScriptSource = readFileSync(join(repoRoot, 'scripts', 'deploy-staging.sh'), 'utf8')
+  const staticVerifySource = readFileSync(join(repoRoot, 'scripts', 'verify-web-static-assets.mjs'), 'utf8')
   const htmlEntries = [
     'index.html',
     'contacts.html',
@@ -3952,20 +3954,26 @@ test('favicon and home-screen icon contract stays wired to the new logo assets',
 
   for (const entry of htmlEntries) {
     const htmlSource = readFileSync(join(repoRoot, entry), 'utf8')
-    assert.match(htmlSource, /rel="icon" type="image\/x-icon" href="\/favicon\.ico\?v=20260408" sizes="any"/u)
-    assert.match(htmlSource, /rel="shortcut icon" href="\/favicon\.ico\?v=20260408"/u)
-    assert.match(htmlSource, /rel="icon" type="image\/png" sizes="32x32" href="\/favicon-32x32\.png\?v=20260408"/u)
-    assert.match(htmlSource, /rel="icon" type="image\/png" sizes="16x16" href="\/favicon-16x16\.png\?v=20260408"/u)
-    assert.match(htmlSource, /rel="icon" type="image\/png" sizes="512x512" href="\/logo\/squad\/512squad\.png\?v=20260408"/u)
-    assert.match(htmlSource, /rel="apple-touch-icon" href="\/apple-touch-icon\.png\?v=20260408"/u)
-    assert.match(htmlSource, /rel="apple-touch-icon-precomposed" href="\/apple-touch-icon-precomposed\.png\?v=20260408"/u)
-    assert.match(htmlSource, /rel="manifest" href="\/manifest\.webmanifest\?v=20260408"/u)
+    assert.match(htmlSource, /rel="icon" type="image\/x-icon" href="\/favicon\.ico\?v=20260409" sizes="any"/u)
+    assert.match(htmlSource, /rel="shortcut icon" href="\/favicon\.ico\?v=20260409"/u)
+    assert.match(htmlSource, /rel="icon" type="image\/png" sizes="32x32" href="\/favicon-32x32\.png\?v=20260409"/u)
+    assert.match(htmlSource, /rel="icon" type="image\/png" sizes="16x16" href="\/favicon-16x16\.png\?v=20260409"/u)
+    assert.match(htmlSource, /rel="icon" type="image\/png" sizes="192x192" href="\/logo\/squad\/192squad\.png\?v=20260409"/u)
+    assert.match(htmlSource, /rel="icon" type="image\/png" sizes="512x512" href="\/logo\/squad\/512squad\.png\?v=20260409"/u)
+    assert.match(htmlSource, /rel="apple-touch-icon" sizes="180x180" href="\/apple-touch-icon\.png\?v=20260409"/u)
+    assert.match(htmlSource, /rel="apple-touch-icon-precomposed" sizes="180x180" href="\/apple-touch-icon-precomposed\.png\?v=20260409"/u)
+    assert.match(htmlSource, /rel="manifest" href="\/manifest\.webmanifest\?v=20260409"/u)
     assert.match(htmlSource, /name="apple-mobile-web-app-title" content="Тайничок"/u)
   }
 
   assert.equal(manifest.icons?.some((icon) => icon.src === '/logo/squad/16squad.png' && icon.purpose === 'any'), true)
   assert.equal(manifest.icons?.some((icon) => icon.src === '/logo/squad/32squad.png' && icon.purpose === 'any'), true)
+  assert.equal(manifest.icons?.some((icon) => icon.src === '/logo/squad/192squad.png' && icon.purpose === 'any'), true)
   assert.equal(manifest.icons?.some((icon) => icon.src === '/logo/squad/512squad.png' && icon.purpose === 'any'), true)
+  assert.equal(
+    manifest.icons?.some((icon) => icon.src === '/logo/round/192round.png' && icon.purpose === 'maskable'),
+    true,
+  )
   assert.equal(
     manifest.icons?.some((icon) => icon.src === '/logo/round/512round.png' && icon.purpose === 'maskable'),
     true,
@@ -3978,8 +3986,16 @@ test('favicon and home-screen icon contract stays wired to the new logo assets',
   assert.ok(existsSync(join(repoRoot, 'public', 'logo', 'squad', '16squad.png')))
   assert.ok(existsSync(join(repoRoot, 'public', 'logo', 'squad', '32squad.png')))
   assert.ok(existsSync(join(repoRoot, 'public', 'logo', 'squad', '64squad.png')))
+  assert.ok(existsSync(join(repoRoot, 'public', 'logo', 'squad', '192squad.png')))
   assert.ok(existsSync(join(repoRoot, 'public', 'logo', 'squad', '512squad.png')))
+  assert.ok(existsSync(join(repoRoot, 'public', 'logo', 'round', '192round.png')))
   assert.ok(existsSync(join(repoRoot, 'public', 'logo', 'round', '512round.png')))
+  assert.match(deployScriptSource, /verify-web-static-assets\.mjs/u)
+  assert.match(staticVerifySource, /application\/manifest\+json/u)
+  assert.match(staticVerifySource, /apple-touch icon/u)
+  assert.match(staticVerifySource, /favicon 32x32/u)
+  assert.match(staticVerifySource, /192x192/u)
+  assert.match(staticVerifySource, /512x512/u)
 })
 
 test('avatar upload rules keep moderation, removal and blocking contract explicit', () => {

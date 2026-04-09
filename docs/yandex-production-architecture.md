@@ -17,6 +17,10 @@
 - `Object Storage + CDN` для статической выдачи фронтенда;
 - основной домен: `https://tinychok.ru`;
 - frontend не должен быть жёстко привязан к same-origin API.
+- installable web-app surfaces нельзя оставлять на implicit mime fallback:
+  - `manifest.webmanifest` должен отдаваться как `application/manifest+json`
+  - square install icons `192x192` и `512x512` должны реально долетать до web-host/CDN
+  - Safari/macOS web-app icon для add-to-dock path нормально работает с PNG; отдельный pinned-tab `mask-icon` — это уже отдельный SVG surface
 
 ### API и realtime
 

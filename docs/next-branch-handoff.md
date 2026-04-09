@@ -77,6 +77,11 @@
   - все файлы в `public/icons/*`, на которые есть ссылки из `src`, должны существовать и быть world-readable (`0644` или эквивалент)
   - private perms вроде `0600` на `quiet.png`, `news_settings.png`, `glasses100.png` уже ломали staging и приводили к broken icons после rsync
   - regression tests теперь держат не только существование icon assets, но и наличие бита `other-read`
+- favicon / Safari web-app contract тоже держать отдельно:
+  - `manifest.webmanifest` должен отдаваться как `application/manifest+json`
+  - square install icons `192x192` и `512x512` должны быть в manifest и реально долетать до web-host
+  - `apple-touch-icon.png` должен быть живым `image/png`, а не fallback-path
+  - PNG достаточно для Safari/macOS web-app install icon; отдельный pinned-tab `mask-icon` — это уже отдельный SVG контракт
 - avatar picker actions для профиля, группы и канала используют общий row-контракт:
   - `Отмена` должна быть прижата к левому краю
   - `Применить` к правому

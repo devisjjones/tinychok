@@ -62,6 +62,13 @@
   - первым делом проверять права на исходный asset в `public/icons/*`
   - staging static icons должны быть world-readable (`0644`), иначе `nginx` не сможет их отдать после rsync/deploy
   - типичный симптом = broken image только у одной кнопки при полностью рабочем остальном frontend
+- favicon / Safari web-app smoke-check после frontend deploy:
+  - `curl -I https://staging.tinychok.ru/manifest.webmanifest`
+  - expected `Content-Type: application/manifest+json`
+  - `curl -I https://staging.tinychok.ru/apple-touch-icon.png`
+  - expected `Content-Type: image/png`
+  - `curl -I https://staging.tinychok.ru/favicon-32x32.png`
+  - expected `Content-Type: image/png`
 - в avatar picker для профиля, группы и канала нижний action-row должен оставаться разнесённым:
   - `Отмена` слева
   - `Применить` справа

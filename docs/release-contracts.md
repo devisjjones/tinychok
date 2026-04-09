@@ -75,6 +75,12 @@
   - быть world-readable
 - права уровня `0600` считаются release-blocking багом
 - минимально допустимый контракт: `0644` или эквивалент
+- favicon / installable web-app icon contract тоже release-blocking:
+  - `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png` и `manifest.webmanifest` должны реально отдаваться staging/prod web-hostом
+  - `manifest.webmanifest` обязан отдаваться как `application/manifest+json`, а не как `application/octet-stream`
+  - installable icon set должен включать как минимум square `192x192` и `512x512`
+  - Safari/macOS web-app install path не требует SVG для обычной app icon: PNG достаточно
+  - отдельный Safari pinned-tab `mask-icon` — это уже отдельный SVG surface и его нельзя подменять ожиданием, что `manifest` или `apple-touch-icon` автоматически закроют pinned-tab поведение
 
 ### 6. Public Legal Pages Contract
 
