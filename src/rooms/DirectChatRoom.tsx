@@ -11,7 +11,6 @@ import type { ChannelMessageSource, Chat, Message, ReplyTarget, UserGifLibraryIt
 import {
   formatConversationDayLabel,
   formatMessagePreview,
-  formatRoomPresence,
   getConversationDayKey,
   isImageMimeType,
   isStandaloneEmojiMessageText,
@@ -187,7 +186,20 @@ export function DirectChatRoom({
     composerDisabledNotice ?? (activeChat.archivedAccount ? 'Аккаунт удалён. Переписка недоступна.' : null)
   const effectiveComposerGate = effectiveComposerDisabledNotice ? null : composerGate
   const canSubmitComposer = attachmentDraft ? attachmentDraft.status === 'ready' : draft.trim().length > 0
-  const roomPresenceText = formatRoomPresence(activeChat).trim() || '\u00A0'
+  const roomStatusText = activeChat.status.trim()
+  const roomLastSeenText = activeChat.lastSeen?.trim() ?? ''
+  const roomPresenceParts: string[] = []
+  if (activeChat.archivedAccount) {
+    roomPresenceParts.push('Удалённый аккаунт')
+  } else {
+    if (roomStatusText && roomStatusText.toLowerCase() !== 'в сети' && roomStatusText !== roomLastSeenText) {
+      roomPresenceParts.push(roomStatusText)
+    }
+    if (!activeChat.online && roomLastSeenText) {
+      roomPresenceParts.push(roomLastSeenText)
+    }
+  }
+  const roomPresenceText = roomPresenceParts.join(' · ').trim() || '\u00A0'
   const [roomStatusExpanded, setRoomStatusExpanded] = useState(false)
   const [roomStatusExpandable, setRoomStatusExpandable] = useState(false)
   const composerPlaceholder = attachmentDraft
@@ -322,14 +334,17 @@ export function DirectChatRoom({
           <img src="/icons/back.png" alt="" aria-hidden="true" className="room-mobile-back-icon" />
         </button>
         <div className="room-id">
-          <span className="avatar large" style={{ backgroundColor: activeChat.accent }}>
-            {activeChat.avatarImage ? (
-              <img src={activeChat.avatarImage} alt="" className="channel-avatar-image" />
-            ) : activeChat.archivedAccount ? (
-              <img src="/icons/ghost.png" alt="" aria-hidden="true" className="avatar-ghost-icon" />
-            ) : (
-              activeChat.title.slice(0, 1)
-            )}
+          <span className="chat-avatar-stack room-avatar-stack">
+            <span className="avatar large" style={{ backgroundColor: activeChat.accent }}>
+              {activeChat.avatarImage ? (
+                <img src={activeChat.avatarImage} alt="" className="channel-avatar-image" />
+              ) : activeChat.archivedAccount ? (
+                <img src="/icons/ghost.png" alt="" aria-hidden="true" className="avatar-ghost-icon" />
+              ) : (
+                activeChat.title.slice(0, 1)
+              )}
+            </span>
+            {activeChat.online && !activeChat.archivedAccount ? <span className="presence-dot" aria-label="В сети" /> : null}
           </span>
           <div>
             <div className="room-title">
@@ -351,7 +366,6 @@ export function DirectChatRoom({
                     <img src="/icons/crown64.png" alt="" />
                   </span>
                 ) : null}
-                {activeChat.online ? <span className="room-online-label">В сети</span> : null}
               </div>
             </div>
             <div

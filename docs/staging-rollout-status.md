@@ -578,6 +578,7 @@
   - regressions по presence и direct read-receipts обязательны при каждой правке quiet-mode / premium / snapshot materialization
 - обычный `В сети` тоже держим как release-blocking контракт:
   - live online должен зависеть только от websocket/realtime presence
+  - в обычном direct room header online-state показываем зелёной точкой на avatar-stack, а не отдельным текстом `В сети`
   - persisted `sessions` и retention cleanup не могут сами по себе держать пользователя online
   - `logout` должен проходить через `/api/logout` и сразу гасить presence, если это был последний live socket
   - smoke на staging: открыть аккаунт A и B, увидеть `В сети`, закрыть вкладку или нажать `Выйти` на A и убедиться, что у B статус быстро уходит в `был(а) недавно в сети`

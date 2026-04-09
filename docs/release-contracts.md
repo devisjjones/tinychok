@@ -109,6 +109,7 @@
 - online нельзя снова завязывать на наличие записи в `database.sessions`
 - `logout` обязан инвалидировать текущую server session и сразу выбрасывать token из live presence registry
 - отсутствие активного websocket должно быстро убирать `В сети`
+- в шапке direct room online presence показываем зелёной точкой на аватарке, а не текстом `В сети`
 
 ### 8. Websocket / Realtime Contract
 

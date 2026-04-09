@@ -3641,6 +3641,11 @@
   min-width: 0;
 }
 
+.room-avatar-stack {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
 .room-id .avatar.large {
   flex: 0 0 auto;
   aspect-ratio: 1 / 1;
@@ -3700,13 +3705,6 @@
   width: 14px;
   height: 14px;
   opacity: 0.82;
-}
-
-.room-online-label {
-  color: #57c785;
-  font-size: 0.92rem;
-  line-height: 1;
-  font-weight: 600;
 }
 
 .room-title-name h3 {
@@ -8647,8 +8645,7 @@
 
   .room-header p,
   .room-channel-status,
-  .room-members-link,
-  .room-online-label {
+  .room-members-link {
     font-size: 0.84rem;
   }
 

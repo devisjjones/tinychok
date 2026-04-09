@@ -670,6 +670,7 @@
 - обычный индикатор `В сети` теперь тоже считается release-blocking presence-контрактом:
   - он не должен вычисляться через `database.sessions` или retention cleanup
   - source of truth только live realtime/websocket presence
+  - в direct room header обычный online-state показываем зелёной точкой на avatar-stack, а не текстом `В сети`
   - `logout` обязан делать server-side invalidation текущего token через `/api/logout`, а не только локальную очистку storage
   - если websocket закрыт и живых сокетов у аккаунта больше нет, другим пользователям нужно быстро материализовать офлайн-состояние
   - coarse offline-текст остаётся прежним: `был(а) недавно в сети`
