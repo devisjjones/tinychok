@@ -4996,3 +4996,30 @@ test('switching rooms from the left rail clears any stale thread target before o
   assert.match(appSource, /function openGroup\(groupId: number\) \{[\s\S]*resetThreadState\(\)[\s\S]*setStageView\('main'\)/u)
   assert.match(appSource, /function openChat\(chatId: number, options\?: \{ bottomSection\?: 'chats' \| 'contacts' \}\) \{[\s\S]*resetThreadState\(\)[\s\S]*setStageView\('main'\)/u)
 })
+
+test('reply previews render only the quoted text and no longer inject ambiguous author labels', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+
+  assert.match(
+    bubbleSource,
+    /showReplyInline && message\.replyTo[\s\S]*<div className="bubble-reply">[\s\S]*<p>\{stripMessageFormattingMarkup\(message\.replyTo\.text\)\}<\/p>/u,
+  )
+  assert.doesNotMatch(
+    bubbleSource,
+    /showReplyInline && message\.replyTo[\s\S]*formatMessageAuthor\(message\.replyTo\.author/u,
+  )
+  assert.doesNotMatch(
+    bubbleSource,
+    /showReplyInline && message\.replyTo[\s\S]*message\.replyTo\.author === 'me'[\s\S]*'Вы'/u,
+  )
+  assert.doesNotMatch(
+    bubbleSource,
+    /showReplyInline && message\.replyTo[\s\S]*'Собеседник'/u,
+  )
+  assert.match(
+    bubbleSource,
+    /ReplyReferenceBlock[\s\S]*className =[\s\S]*bubble-reply-reference-copy/u,
+  )
+  assert.doesNotMatch(bubbleSource, /bubble-reply-reference-label/u)
+})

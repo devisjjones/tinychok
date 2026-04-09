@@ -7,7 +7,6 @@ import {
   formatChannelAvatarLabel,
   formatAttachmentImageDimensions,
   formatAttachmentSize,
-  formatMessageAuthor,
   isImageMimeType,
   isVideoMimeType,
   parseMessageTextSegments,
@@ -467,7 +466,6 @@ export function BubbleMessageContent({
   onOpenPremiumUpsell,
   onOpenSourceContact,
   onOpenSourceGroup,
-  replyChatTitle,
   showReplyInline = true,
 }: BubbleMessageContentProps) {
   const trimmedText = message.text.trim()
@@ -556,13 +554,6 @@ export function BubbleMessageContent({
     <>
       {showReplyInline && message.replyTo ? (
         <div className="bubble-reply">
-          <span>
-            {replyChatTitle
-              ? formatMessageAuthor(message.replyTo.author, replyChatTitle)
-              : message.replyTo.author === 'me'
-                ? 'Вы'
-                : 'Собеседник'}
-          </span>
           <p>{stripMessageFormattingMarkup(message.replyTo.text)}</p>
         </div>
       ) : null}
@@ -601,15 +592,8 @@ type ReplyReferenceBlockProps = {
 export function ReplyReferenceBlock({
   mine = false,
   onClick,
-  replyChatTitle,
   replyTo,
 }: ReplyReferenceBlockProps) {
-  const authorLabel = replyChatTitle
-    ? formatMessageAuthor(replyTo.author, replyChatTitle)
-    : replyTo.author === 'me'
-      ? 'Вы'
-      : 'Собеседник'
-
   const className = mine
     ? 'bubble-reply-reference bubble-reply-reference-button mine'
     : 'bubble-reply-reference bubble-reply-reference-button'
@@ -622,7 +606,6 @@ export function ReplyReferenceBlock({
         onClick={onClick}
         title={stripMessageFormattingMarkup(replyTo.text)}
       >
-        <span className="bubble-reply-reference-label">{authorLabel}</span>
         <span className="bubble-reply-reference-copy">{stripMessageFormattingMarkup(replyTo.text)}</span>
       </button>
     )
@@ -633,7 +616,6 @@ export function ReplyReferenceBlock({
       className={mine ? 'bubble-reply-reference mine' : 'bubble-reply-reference'}
       title={stripMessageFormattingMarkup(replyTo.text)}
     >
-      <span className="bubble-reply-reference-label">{authorLabel}</span>
       <span className="bubble-reply-reference-copy">{stripMessageFormattingMarkup(replyTo.text)}</span>
     </div>
   )

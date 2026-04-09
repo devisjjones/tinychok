@@ -536,6 +536,10 @@
 - у обычного direct / group / channel / thread composer toolbar тоже stateful:
   - пока textarea остаётся однострочным и без attachment, action buttons центрируются по высоте поля
   - как только textarea вырос или появился attachment preview, action buttons возвращаются в правый нижний угол
+- reply preview contract:
+  - quoted reply-preview больше не должен показывать автора как `Вы`, `Собеседник` или имя
+  - и inline `bubble-reply`, и attached `reply-reference` показывают только сам текст/emoji цитируемого сообщения
+  - это нужно, чтобы viewer-facing UI не подменял автора цитаты двусмысленным `Вы`
 - mobile viewport тоже входит в контракт:
   - composer не должен давать horizontal overflow на `390px` ширине
 - profile-scene на узком mobile не должен ронять avatar и display name в две отдельные вертикальные колонки:

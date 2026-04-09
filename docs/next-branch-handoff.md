@@ -192,6 +192,10 @@
   - для bubble с внешним sender-strip action anchor нельзя мерить только по inner bubble
   - overlay и оригинальное сообщение должны совпадать по геометрии
   - если full block не помещается в viewport-safe area, подскролливается `.message-feed`, а не дрейфует сам overlay
+- reply preview contract:
+  - viewer-facing quoted preview не показывает author-label вообще
+  - не возвращать `Вы`, `Собеседник` или имя в `bubble-reply` и `bubble-reply-reference`
+  - preview оставляет только текст / emoji цитируемого сообщения, а переход к оригиналу решается tap-навигацией
 
 ### PostgreSQL Runtime Layout
 
