@@ -47,15 +47,16 @@ test('video bubble renders a preview frame shell with play icon and overlay meta
   const parsed = JSON.parse(result.stdout.trim()) as { markup: string }
   const { markup } = parsed
 
-  assert.match(markup, /<video/u)
+  assert.match(markup, /<img/u)
   assert.match(markup, /bubble-attachment-photo/u)
   assert.match(markup, /bubble-attachment-video-preview/u)
-  assert.match(markup, /#t=0\.001/u)
+  assert.match(markup, /\/api\/media\/preview\?mediaUrl=/u)
   assert.match(markup, /bubble-attachment-play-button/u)
   assert.match(markup, /bubble-attachment-play-icon/u)
   assert.match(markup, /bubble-attachment-image-overlay/u)
   assert.match(markup, /12:16/u)
   assert.match(markup, /double-tick-50\.png/u)
+  assert.doesNotMatch(markup, /<video/u)
   assert.doesNotMatch(markup, /bubble-attachment-link/u)
   assert.doesNotMatch(markup, /bubble-attachment-copy/u)
   assert.doesNotMatch(markup, /VID_20260408_151326\.mp4/u)

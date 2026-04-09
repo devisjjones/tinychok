@@ -1,7 +1,6 @@
 import React, {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
-  type SyntheticEvent,
 } from 'react'
 import type { ChannelMessageSource, Message } from '../app/types'
 import {
@@ -49,33 +48,24 @@ export function shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc: string
 }
 
 function buildVideoPreviewUrl(mediaUrl: string) {
-  return mediaUrl.includes('#') ? mediaUrl : `${mediaUrl}#t=0.001`
-}
-
-function requestVideoPreviewFrame(event: SyntheticEvent<HTMLVideoElement>) {
-  const video = event.currentTarget
-
-  if (video.dataset.previewFrameRequested === 'true') {
-    return
+  const normalizedMediaUrl = mediaUrl.trim()
+  if (!normalizedMediaUrl) {
+    return normalizedMediaUrl
   }
 
-  video.dataset.previewFrameRequested = 'true'
-
-  if (!Number.isFinite(video.duration) || video.duration <= 0.001) {
-    return
-  }
-
-  queueMicrotask(() => {
-    try {
-      video.currentTime = 0.001
-    } catch {
-      video.dataset.previewFrameRequested = 'failed'
+  try {
+    if (/^https?:\/\//u.test(normalizedMediaUrl)) {
+      const previewUrl = new URL('/api/media/preview', normalizedMediaUrl)
+      previewUrl.searchParams.set('mediaUrl', normalizedMediaUrl)
+      return previewUrl.toString()
     }
-  })
-}
 
-function keepVideoPreviewPaused(event: SyntheticEvent<HTMLVideoElement>) {
-  event.currentTarget.pause()
+    const previewParams = new URLSearchParams()
+    previewParams.set('mediaUrl', normalizedMediaUrl)
+    return `/api/media/preview?${previewParams.toString()}`
+  } catch {
+    return normalizedMediaUrl.includes('#') ? normalizedMediaUrl : `${normalizedMediaUrl}#t=0.001`
+  }
 }
 
 function AttachmentRemovedNoticeBlock({ notice }: AttachmentRemovedNoticeBlockProps) {
@@ -446,20 +436,14 @@ export function BubbleMessageContent({
       >
         {isVideoAttachment ? (
           <>
-            <video
+            <img
               src={buildVideoPreviewUrl(message.attachment.mediaUrl)}
               className={`bubble-attachment-image bubble-attachment-video-preview${
                 attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
               }${
                 attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
               }`}
-              aria-hidden="true"
-              muted
-              onCanPlay={requestVideoPreviewFrame}
-              onLoadedMetadata={requestVideoPreviewFrame}
-              onSeeked={keepVideoPreviewPaused}
-              playsInline
-              preload="auto"
+              alt=""
             />
             <span className="bubble-attachment-play-button" aria-hidden="true">
               <span className="bubble-attachment-play-icon" />

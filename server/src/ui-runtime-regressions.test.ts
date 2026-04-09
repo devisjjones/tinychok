@@ -217,6 +217,7 @@ test('video attachments render through the visual media preview flow and still o
     join(process.cwd(), 'src/components/MediaViewerOverlay.tsx'),
     'utf8',
   )
+  const packageJsonSource = readFileSync(join(process.cwd(), 'package.json'), 'utf8')
   const selectedOverlaySource = readFileSync(
     join(process.cwd(), 'src/components/SelectedBubbleOverlay.tsx'),
     'utf8',
@@ -255,15 +256,19 @@ test('video attachments render through the visual media preview flow and still o
   assert.match(bubbleSource, /const isVideoAttachment = Boolean\(/u)
   assert.match(bubbleSource, /const hasVisualAttachment = isImageAttachment \|\| isVideoAttachment/u)
   assert.match(bubbleSource, /isVideoMimeType\(message\.attachment\.mimeType\)/u)
-  assert.match(bubbleSource, /buildVideoPreviewUrl\(message\.attachment\.mediaUrl\)/u)
-  assert.match(bubbleSource, /function requestVideoPreviewFrame\(event: SyntheticEvent<HTMLVideoElement>\)/u)
-  assert.match(bubbleSource, /function keepVideoPreviewPaused\(event: SyntheticEvent<HTMLVideoElement>\)/u)
+  assert.match(bubbleSource, /const normalizedMediaUrl = mediaUrl\.trim\(\)/u)
+  assert.match(bubbleSource, /new URL\('\/api\/media\/preview', normalizedMediaUrl\)/u)
+  assert.match(bubbleSource, /previewUrl\.searchParams\.set\('mediaUrl', normalizedMediaUrl\)/u)
+  assert.match(bubbleSource, /new URLSearchParams\(\)/u)
+  assert.match(bubbleSource, /return `\/api\/media\/preview\?\$\{previewParams\.toString\(\)\}`/u)
   assert.match(bubbleSource, /bubble-attachment-video-preview/u)
   assert.match(bubbleSource, /bubble-attachment-play-button/u)
   assert.match(
     bubbleSource,
-    /<video[\s\S]*onCanPlay=\{requestVideoPreviewFrame\}[\s\S]*onLoadedMetadata=\{requestVideoPreviewFrame\}[\s\S]*onSeeked=\{keepVideoPreviewPaused\}[\s\S]*playsInline[\s\S]*preload="auto"/u,
+    /<img[\s\S]*src=\{buildVideoPreviewUrl\(message\.attachment\.mediaUrl\)\}[\s\S]*alt=""/u,
   )
+  assert.doesNotMatch(bubbleSource, /function requestVideoPreviewFrame/u)
+  assert.doesNotMatch(bubbleSource, /function keepVideoPreviewPaused/u)
   assert.doesNotMatch(bubbleSource, /bubble-attachment-badge-video/u)
   assert.doesNotMatch(bubbleSource, /\{isVideoAttachment \? 'Видео' : 'Файл'\}/u)
   assert.match(mediaViewerSource, /const isVideo = isVideoMimeType\(attachment\.mimeType\)/u)
@@ -296,11 +301,25 @@ test('video attachments render through the visual media preview flow and still o
   assert.match(serverMediaSource, /'video\/quicktime': '\.mov'/u)
   assert.match(serverMediaSource, /'video\/webm': '\.webm'/u)
   assert.match(serverMediaSource, /'video\/x-m4v': '\.m4v'/u)
+  assert.match(serverMediaSource, /const SUPPORTED_VIDEO_ATTACHMENT_EXTENSIONS = new Set\(\['\.mp4', '\.mov', '\.webm', '\.m4v'\]\)/u)
+  assert.match(serverMediaSource, /import ffmpegStatic from 'ffmpeg-static'/u)
+  assert.match(serverMediaSource, /import \{ createHash, randomUUID \} from 'node:crypto'/u)
+  assert.match(serverMediaSource, /export async function generateVideoAttachmentPreview\(mediaUrl: string\)/u)
+  assert.match(serverMediaSource, /const VIDEO_ATTACHMENT_PREVIEW_CACHE_DIRECTORY = 'attachment-previews'/u)
+  assert.match(serverMediaSource, /createHash\('sha256'\)\.update\(mediaUrl\.trim\(\)\)\.digest\('hex'\)/u)
+  assert.match(serverMediaSource, /readStoredMediaByUrl\(mediaUrl, 'attachment'\)/u)
+  assert.match(serverMediaSource, /return await readFile\(cachePath\)/u)
+  assert.match(serverMediaSource, /execFileAsync\(ffmpegStatic, \[/u)
+  assert.match(serverMediaSource, /await mkdir\(dirname\(cachePath\), \{ recursive: true \}\)/u)
+  assert.match(serverMediaSource, /await writeFile\(cachePath, previewBuffer\)/u)
   assert.match(serverMediaSource, /mimeType === 'application\/octet-stream'/u)
   assert.match(serverMediaSource, /Поддерживаются PDF, DOC, DOCX, XLS, XLSX, TXT, ZIP и видео MP4, MOV, WEBM, M4V\./u)
   assert.match(serverIndexSource, /const ATTACHMENT_EXTENSION_MIME_TYPE_MAP: Record<string, string> = \{/u)
   assert.match(serverIndexSource, /function resolveAttachmentUploadMimeType\(fileName: string, mimeType: string \| undefined\)/u)
   assert.match(serverIndexSource, /uploadDiagnostic\.mimeType = resolveAttachmentUploadMimeType\(file\.filename, file\.mimetype\)/u)
+  assert.match(serverIndexSource, /app\.get\('\/api\/media\/preview'/u)
+  assert.match(serverIndexSource, /const previewBuffer = await generateVideoAttachmentPreview\(mediaUrl\)/u)
+  assert.match(packageJsonSource, /"ffmpeg-static":/u)
   assert.match(appCss, /\.bubble-attachment-video-preview/u)
   assert.match(appCss, /\.bubble-attachment-play-button/u)
   assert.match(appCss, /\.bubble-attachment-play-icon/u)

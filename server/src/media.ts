@@ -1,8 +1,12 @@
-import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
+import { promisify } from 'node:util'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import ffmpegStatic from 'ffmpeg-static'
 import type { UploadMediaKind, UploadMediaResponse } from '../../src/shared/backend'
 import {
   avatarAcceptedMimeTypes,
@@ -38,6 +42,7 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
 const SUPPORTED_IMAGE_ATTACHMENT_MIME_TYPES = new Set(messagePhotoAcceptedMimeTypes)
 const SUPPORTED_FILE_ATTACHMENT_MIME_TYPES = new Set(messageFileAcceptedMimeTypes)
 const SUPPORTED_FILE_ATTACHMENT_EXTENSIONS = new Set(messageFileAcceptedExtensions)
+const SUPPORTED_VIDEO_ATTACHMENT_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.m4v'])
 
 const MEDIA_KIND_CONFIG: Record<
   UploadMediaKind,
@@ -78,6 +83,8 @@ const MEDIA_KIND_CONFIG: Record<
 }
 
 let objectStorageClient: S3Client | null = null
+const execFileAsync = promisify(execFile)
+const VIDEO_ATTACHMENT_PREVIEW_CACHE_DIRECTORY = 'attachment-previews'
 
 function sanitizeFileExtension(fileName: string, mimeType: string) {
   const rawExtension = extname(fileName).toLowerCase()
@@ -268,6 +275,28 @@ function isSupportedFileAttachment(fileName: string, mimeType: string) {
 
   return SUPPORTED_FILE_ATTACHMENT_MIME_TYPES.has(
     mimeType as (typeof messageFileAcceptedMimeTypes)[number],
+  )
+}
+
+function getMediaPathname(mediaUrl: string) {
+  if (/^https?:\/\//u.test(mediaUrl)) {
+    return new URL(mediaUrl).pathname
+  }
+
+  return mediaUrl
+}
+
+function isVideoAttachmentMediaUrl(mediaUrl: string) {
+  const extension = extname(getMediaPathname(mediaUrl)).toLowerCase()
+  return SUPPORTED_VIDEO_ATTACHMENT_EXTENSIONS.has(extension)
+}
+
+function buildVideoAttachmentPreviewCachePath(mediaUrl: string) {
+  const cacheFileName = `${createHash('sha256').update(mediaUrl.trim()).digest('hex')}.jpg`
+  return join(
+    runtimeConfig.storage.localMediaRoot,
+    VIDEO_ATTACHMENT_PREVIEW_CACHE_DIRECTORY,
+    cacheFileName,
   )
 }
 
@@ -488,6 +517,60 @@ export async function readStoredMediaByUrl(mediaUrl: string, kind: UploadMediaKi
   }
 
   return readFile(join(runtimeConfig.storage.localMediaRoot, storageKey))
+}
+
+export async function generateVideoAttachmentPreview(mediaUrl: string) {
+  if (!ffmpegStatic) {
+    throw new Error('Видео-превью недоступно: ffmpeg binary не найден.')
+  }
+
+  if (!isVideoAttachmentMediaUrl(mediaUrl)) {
+    throw new Error('Превью доступно только для видео-вложений.')
+  }
+
+  const cachePath = buildVideoAttachmentPreviewCachePath(mediaUrl)
+
+  try {
+    return await readFile(cachePath)
+  } catch (error) {
+    if (
+      typeof error !== 'object' ||
+      error === null ||
+      !('code' in error) ||
+      error.code !== 'ENOENT'
+    ) {
+      throw error
+    }
+  }
+
+  const sourceBuffer = await readStoredMediaByUrl(mediaUrl, 'attachment')
+  const sourceExtension = extname(getMediaPathname(mediaUrl)).toLowerCase() || '.mp4'
+  const tempDir = await mkdtemp(join(tmpdir(), 'tinychok-video-preview-'))
+  const inputPath = join(tempDir, `source${sourceExtension}`)
+  const outputPath = join(tempDir, 'preview.jpg')
+
+  try {
+    await writeFile(inputPath, sourceBuffer)
+    await execFileAsync(ffmpegStatic, [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-i',
+      inputPath,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
+      outputPath,
+    ])
+    const previewBuffer = await readFile(outputPath)
+    await mkdir(dirname(cachePath), { recursive: true })
+    await writeFile(cachePath, previewBuffer)
+    return previewBuffer
+  } finally {
+    await rm(tempDir, { force: true, recursive: true })
+  }
 }
 
 export function getMediaBackend() {

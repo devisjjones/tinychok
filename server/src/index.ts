@@ -73,6 +73,7 @@ import { runtimeConfig } from './config'
 import { getErrorStatusCode } from './http-error'
 import {
   deleteStoredMediaByUrl,
+  generateVideoAttachmentPreview,
   getMediaBackend,
   getMediaObjectSignedUrl,
   getMediaRootPath,
@@ -512,6 +513,23 @@ app.get('/api/client-config', async () => ({
     siteKey: runtimeConfig.auth.captcha.siteKey,
   },
 }) satisfies ClientRuntimeConfigResponse)
+
+app.get('/api/media/preview', async (request, reply) => {
+  const mediaUrl = ((request.query as Record<string, string | undefined> | undefined)?.mediaUrl ?? '').trim()
+
+  if (!mediaUrl) {
+    return reply.code(400).send({ message: 'Не указан mediaUrl для превью.' })
+  }
+
+  try {
+    const previewBuffer = await generateVideoAttachmentPreview(mediaUrl)
+    reply.header('Cache-Control', 'public, max-age=300')
+    reply.type('image/jpeg')
+    return reply.send(previewBuffer)
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
 
 app.post('/api/auth/request-code', async (request, reply) => {
   try {
