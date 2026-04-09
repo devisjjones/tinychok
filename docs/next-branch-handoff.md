@@ -219,6 +219,12 @@
   - лёгкий сдвиг avatar влево, чтобы картинка не плавала внутри лишнего поля
   - `chat-copy` внутри group-card держит более плотный текстовый gap, чем общий rail-card
 
+### Group Captioned Media
+
+- `group-captioned-media-bubble` не должен сам по себе обнулять верхний media inset
+- flush layout для media с подписью применяется только через дополнительный `group-captioned-media-bubble-with-header`, когда author header реально рендерится
+- это защищает own photo/video with caption от коричневой полосы над media
+
 ### External Links
 
 - raw `http://` и `https://` в текстах сообщений и комментариев считаются отдельным linkify-контрактом:

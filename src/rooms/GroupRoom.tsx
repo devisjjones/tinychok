@@ -385,6 +385,7 @@ export function GroupRoom({
               !message.sourceContact &&
               !message.sourceGroup
             const groupMediaAuthor = renderGroupMediaAuthor(message, groupParticipant)
+            const hasGroupCaptionedMediaHeader = isGroupCaptionedImageBubble && Boolean(groupMediaAuthor)
             const shouldRenderExternalGroupAuthor =
               Boolean(groupMediaAuthor) && !isImageOnlyBubble && !isGroupCaptionedImageBubble
             const bubbleClassNames = ['bubble', 'bubble-button']
@@ -423,6 +424,10 @@ export function GroupRoom({
 
             if (isGroupCaptionedImageBubble) {
               bubbleClassNames.push('group-captioned-media-bubble')
+            }
+
+            if (hasGroupCaptionedMediaHeader) {
+              bubbleClassNames.push('group-captioned-media-bubble-with-header')
             }
 
             const replyReference = message.replyTo

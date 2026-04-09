@@ -223,6 +223,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     props.kind === 'group'
       ? renderGroupOverlayAuthor(props.message.author === 'me', props.message.displayAuthor, props.participant)
       : null
+  const hasGroupCaptionedMediaHeader = isGroupCaptionedImageBubble && Boolean(groupOverlayAuthorNode)
   const shouldRenderExternalGroupAuthor =
     props.kind === 'group' &&
     props.message.author !== 'me' &&
@@ -256,6 +257,10 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
 
   if (isGroupCaptionedImageBubble) {
     bubbleClassNames.push('group-captioned-media-bubble')
+  }
+
+  if (hasGroupCaptionedMediaHeader) {
+    bubbleClassNames.push('group-captioned-media-bubble-with-header')
   }
 
   const bubbleNode = (

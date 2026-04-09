@@ -237,6 +237,12 @@
   - в самой settings-scene должен быть live preview аватарки группы
   - должен быть доступен `Сменить`, открывающий тот же group avatar picker уже для existing group
 
+### 11.1.4. Group Captioned Media Bubble Contract
+
+- group photo/video bubble с подписью не должен показывать accent/background-strip над media
+- специальный top-flush layout разрешён только когда над media реально есть group author header
+- own media с подписью в группе не должен получать header-only spacing, если header не рендерится
+
 ### 11.2. Snapshot Trust Boundary
 
 - `PUT /api/snapshot` не является источником истины для аккаунта и session-security state

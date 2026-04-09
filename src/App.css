@@ -4020,11 +4020,11 @@
   margin: 0;
 }
 
-.bubble.group-captioned-media-bubble .bubble-attachment-photo.has-body-below {
+.bubble.group-captioned-media-bubble-with-header .bubble-attachment-photo.has-body-below {
   margin: 0 -18px 12px;
 }
 
-.bubble.group-captioned-media-bubble .bubble-attachment-photo.has-body-below .bubble-attachment-image {
+.bubble.group-captioned-media-bubble-with-header .bubble-attachment-photo.has-body-below .bubble-attachment-image {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }

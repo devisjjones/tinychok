@@ -2074,21 +2074,29 @@ test('group captioned media bubbles keep a dedicated author-safe layout in room 
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(groupRoomSource, /const isGroupCaptionedImageBubble =/u)
+  assert.match(groupRoomSource, /const hasGroupCaptionedMediaHeader = isGroupCaptionedImageBubble && Boolean\(groupMediaAuthor\)/u)
   assert.match(groupRoomSource, /bubbleClassNames\.push\('group-captioned-media-bubble'\)/u)
+  assert.match(groupRoomSource, /bubbleClassNames\.push\('group-captioned-media-bubble-with-header'\)/u)
   assert.match(groupRoomSource, /className="bubble-media-header bubble-media-header-captioned"/u)
   assert.match(overlaySource, /const isGroupCaptionedImageBubble =/u)
+  assert.match(overlaySource, /const hasGroupCaptionedMediaHeader = isGroupCaptionedImageBubble && Boolean\(groupOverlayAuthorNode\)/u)
   assert.match(overlaySource, /bubbleClassNames\.push\('group-captioned-media-bubble'\)/u)
+  assert.match(overlaySource, /bubbleClassNames\.push\('group-captioned-media-bubble-with-header'\)/u)
   assert.match(overlaySource, /className="bubble-media-header bubble-media-header-captioned"/u)
   assert.match(appCss, /\.bubble\.group-captioned-media-bubble \.bubble-media-header/u)
   assert.match(
     appCss,
-    /\.bubble\.group-captioned-media-bubble \.bubble-attachment-photo\.has-body-below \{\s*margin:\s*0 -18px 12px;/u,
+    /\.bubble\.group-captioned-media-bubble-with-header \.bubble-attachment-photo\.has-body-below \{\s*margin:\s*0 -18px 12px;/u,
   )
   assert.match(
     appCss,
-    /\.bubble\.group-captioned-media-bubble \.bubble-attachment-photo\.has-body-below \.bubble-attachment-image \{\s*border-top-left-radius:\s*0;/u,
+    /\.bubble\.group-captioned-media-bubble-with-header \.bubble-attachment-photo\.has-body-below \.bubble-attachment-image \{\s*border-top-left-radius:\s*0;/u,
   )
   assert.match(appCss, /border-top-right-radius:\s*0;/u)
+  assert.doesNotMatch(
+    appCss,
+    /\.bubble\.group-captioned-media-bubble \.bubble-attachment-photo\.has-body-below \{\s*margin:\s*0 -18px 12px;/u,
+  )
 })
 
 test('threaded media bubbles keep the image flush with the comments pill without restored bottom rounding', () => {

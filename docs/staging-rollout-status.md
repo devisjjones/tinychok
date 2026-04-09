@@ -243,6 +243,9 @@
 - group join history smoke:
   - default group setting = новые участники видят историю группы до вступления
   - если в настройках группы выключить `Отображать историю группы новым пользователям`, следующий приглашённый участник не должен видеть старые сообщения, отправленные до его вступления
+- group media smoke:
+  - photo/video bubble с подписью не должен показывать accent strip над media
+  - top spacing над media допустим только если в bubble реально виден author header
 - автоскролл вниз в room feed — критичная проверка:
   - opening room must land on the latest item
   - own send must always land on the latest item
