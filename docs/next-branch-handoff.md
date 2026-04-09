@@ -401,6 +401,9 @@
 - enlarged support-root toolbar держит отдельный stateful layout:
   - idle -> кнопки центрированы по высоте textarea
   - expanded / has-attachment -> кнопки прибиты к правому нижнему углу
+- обычный compact composer тоже stateful:
+  - однострочный idle state держит action buttons по центру поля
+  - expanded textarea и attachment preview возвращают buttons в правый нижний угол
 - live staging smoke на `2026-04-08` подтвердил:
   - direct / generic thread держат общий compact textarea contract
   - idle textarea у общего composer держим визуально однострочной

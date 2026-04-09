@@ -5490,6 +5490,19 @@
   gap: 8px;
 }
 
+.composer-field:not(.composer-field-expanded):not(.composer-field-has-attachment) .composer-tools {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.composer-field.composer-field-expanded .composer-tools,
+.composer-field.composer-field-has-attachment .composer-tools {
+  top: auto;
+  bottom: 8px;
+  transform: none;
+}
+
 .composer-attachment-picker {
   position: relative;
   display: inline-flex;
@@ -6096,6 +6109,10 @@
   border-radius: 16px;
   display: inline-grid;
   place-items: center;
+}
+
+.composer-field:not(.composer-field-expanded):not(.composer-field-has-attachment) .composer-send {
+  margin-bottom: 0;
 }
 
 .channel-subscribe-button {

@@ -348,6 +348,9 @@
   - action buttons в idle state центрируются по высоте support-root textarea
   - после роста textarea action buttons прибиваются к правому нижнему углу
 - в idle state обычный composer остаётся однострочным; enlarged support-root textarea этим не считается
+- у обычного direct / group / channel / thread composer toolbar тоже двухсостояний:
+  - однострочный idle state центрирует action buttons по высоте поля
+  - expanded state и attachment preview возвращают action buttons в правый нижний угол
 - mobile smoke для этой зоны обязателен:
   - на `390px` composer должен полностью помещаться в viewport без horizontal overflow
 - отправка root message создаёт `Тикет #N`

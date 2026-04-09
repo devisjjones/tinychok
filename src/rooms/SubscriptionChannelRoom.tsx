@@ -1,5 +1,5 @@
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import {
   formatChannelAvatarLabel,
@@ -96,6 +96,7 @@ export function SubscriptionChannelRoom({
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
   const publisherInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const [publisherComposerExpanded, setPublisherComposerExpanded] = useState(false)
   const publisherAttachmentDraft = publisher?.attachmentDraft
   const publisherAttachmentInputRef = publisher?.attachmentInputRef
   const publisherAttachmentName = publisher?.attachmentName ?? ''
@@ -138,7 +139,8 @@ export function SubscriptionChannelRoom({
     if (!textarea) return
 
     const syncTextareaSize = () => {
-      resizeComposerTextarea(textarea)
+      const { expanded } = resizeComposerTextarea(textarea)
+      setPublisherComposerExpanded(expanded)
     }
 
     syncTextareaSize()
@@ -148,7 +150,7 @@ export function SubscriptionChannelRoom({
     return () => {
       window.removeEventListener('resize', syncTextareaSize)
     }
-  }, [publisherDraft])
+  }, [publisherAttachmentDraft, publisherDraft])
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (!publisher || (!publisherDraft.trim() && !publisherAttachmentDraft) || !publisherCanSubmit) return
@@ -403,7 +405,9 @@ export function SubscriptionChannelRoom({
                 </div>
               ) : null}
               <div className="composer-entry">
-                <div className="composer-field">
+                <div
+                  className={`composer-field${publisherAttachmentDraft ? ' composer-field-has-attachment' : ''}${publisherComposerExpanded ? ' composer-field-expanded' : ''}`}
+                >
                   {publisherAttachmentDraft && publisherOnAttachmentClear ? (
                     <ComposerAttachmentPreview
                       attachmentDraft={publisherAttachmentDraft}

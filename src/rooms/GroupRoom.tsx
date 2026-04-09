@@ -1,5 +1,5 @@
 import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { Fragment, useEffect, useLayoutEffect, useRef } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import {
   shouldRenderIncomingAuthorStrip,
@@ -191,6 +191,7 @@ export function GroupRoom({
   storageCleanupWarning = null,
 }: GroupRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const [composerExpanded, setComposerExpanded] = useState(false)
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
   const canSubmitComposer = attachmentDraft ? attachmentDraft.status === 'ready' : draft.trim().length > 0
   const composerPlaceholder = attachmentDraft
@@ -206,7 +207,8 @@ export function GroupRoom({
     if (!textarea) return
 
     const syncTextareaSize = () => {
-      resizeComposerTextarea(textarea)
+      const { expanded } = resizeComposerTextarea(textarea)
+      setComposerExpanded(expanded)
     }
 
     syncTextareaSize()
@@ -216,7 +218,7 @@ export function GroupRoom({
     return () => {
       window.removeEventListener('resize', syncTextareaSize)
     }
-  }, [draft])
+  }, [attachmentDraft, draft])
 
   async function submitComposer() {
     await Promise.resolve(onSubmit())
@@ -735,7 +737,9 @@ export function GroupRoom({
                 </div>
               ) : null}
               <div className="composer-entry">
-                <div className="composer-field">
+                <div
+                  className={`composer-field${attachmentDraft ? ' composer-field-has-attachment' : ''}${composerExpanded ? ' composer-field-expanded' : ''}`}
+                >
                   {attachmentDraft ? (
                     <ComposerAttachmentPreview
                       attachmentDraft={attachmentDraft}
