@@ -248,6 +248,7 @@
   - own send must always land on the latest item
   - incoming should auto-scroll only when already near bottom
   - prepend older history must preserve viewport
+  - room feed scrollbar должен оставаться скрытым и не перекрывать bubbles
   - runtime DOM tests для room feed обязательны; static source-contract tests сами по себе недостаточны
 - скролл вверх догружает старые страницы истории
 - day divider показывает корректную дату

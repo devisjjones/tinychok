@@ -507,6 +507,8 @@
   - при same-millisecond комментариях server-side mark-read обязан использовать identity последнего видимого комментария
   - сценарий `unread = 1` после простого чтения считается регрессией
 - пока тред открыт и видим пользователю, client/server не должны оставлять stale unread и не должны дёргать сортировку inbox так, будто unread всё ещё висит
+- visible scrollbar поверх bubbles в room feed считается release-blocking visual bug:
+  - room scroll остаётся рабочим, но сама полоска не должна перекрывать сообщения
 - thread inbox card обязана reuse-ить avatar источника:
   - group-thread тянет avatar группы
   - channel-thread тянет avatar канала
