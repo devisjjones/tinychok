@@ -486,12 +486,13 @@
 ### 11.8.2. Plain Composer Contract
 
 - текущий stable-контракт composer-а = обычное plain-text поле ввода
-- direct dialog, support root-scene и thread room должны использовать один и тот же textarea-based composer contract
-- допускается различаться только contextual copy:
-  - placeholder
-  - support wrapper modifier class
-- textarea geometry, tool buttons и send-path layout не должны расходиться между direct / support / thread
-- idle textarea должна выглядеть как однострочное поле, а не как двухстрочный блок
+- direct dialog и generic thread room используют общий textarea-based composer contract
+- support composer тоже обязан оставаться plain-text, но теперь имеет intentional split:
+  - root support-scene рендерится без внешней белой wrapper-card
+  - root support-scene использует увеличенный textarea вместо стандартного компактного idle-height
+  - support root-scene и support-thread не показывают emoji/GIF UI
+  - support root-scene и support-thread не должны давать file-attach path; допустимо только photo-attach
+- idle textarea должна выглядеть как однострочное поле там, где не включён intentional enlarged support-root variant
 - mobile viewport тоже входит в контракт:
   - composer не должен давать horizontal overflow на `390px` ширине
 - rich-text toolbar с `B / I / U / S` и `contenteditable` не считается разрешённым user-facing surface, пока не будет возвращён без regressions в:

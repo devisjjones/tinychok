@@ -17,6 +17,7 @@ type RoomComposerProps = {
   attachmentDraft?: ComposerAttachmentDraft
   attachmentInputRef: RefObject<HTMLInputElement | null>
   attachmentName: string
+  attachmentModes?: Array<'file' | 'photo'>
   className?: string
   draft: string
   draftInputRef: RefObject<HTMLTextAreaElement | null>
@@ -41,6 +42,7 @@ type RoomComposerProps = {
   placeholder: string
   premiumUnlocked?: boolean
   replyTarget?: ReplyTarget | null
+  showEmojiPicker?: boolean
   storageCleanupWarning?: ReactNode
   submitAriaLabel?: string
   submitDisabled?: boolean
@@ -53,6 +55,7 @@ export function RoomComposer({
   attachmentDraft,
   attachmentInputRef,
   attachmentName,
+  attachmentModes = ['photo', 'file'],
   className = '',
   draft,
   draftInputRef,
@@ -77,6 +80,7 @@ export function RoomComposer({
   placeholder,
   premiumUnlocked = false,
   replyTarget = null,
+  showEmojiPicker = true,
   storageCleanupWarning = null,
   submitAriaLabel = 'Отправить',
   submitDisabled = false,
@@ -143,22 +147,25 @@ export function RoomComposer({
               onKeyDown={onKeyDown}
             />
             <div className="composer-tools">
-              <EmojiPicker
-                canSelectGif={!gifSelectionBlockedReason}
-                gifLibrary={gifLibrary}
-                gifSelectionBlockedReason={gifSelectionBlockedReason}
-                onDeleteGif={onDeleteGif}
-                onOpenPremiumUpsell={onOpenPremiumUpsell}
-                onSearchGifs={onSearchGifs}
-                onSelect={(emoji) =>
-                  insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
-                }
-                onSelectGif={onSelectGif}
-                onUploadGif={onUploadGif}
-                premiumUnlocked={premiumUnlocked}
-              />
+              {showEmojiPicker ? (
+                <EmojiPicker
+                  canSelectGif={!gifSelectionBlockedReason}
+                  gifLibrary={gifLibrary}
+                  gifSelectionBlockedReason={gifSelectionBlockedReason}
+                  onDeleteGif={onDeleteGif}
+                  onOpenPremiumUpsell={onOpenPremiumUpsell}
+                  onSearchGifs={onSearchGifs}
+                  onSelect={(emoji) =>
+                    insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
+                  }
+                  onSelectGif={onSelectGif}
+                  onUploadGif={onUploadGif}
+                  premiumUnlocked={premiumUnlocked}
+                />
+              ) : null}
               <ComposerAttachmentPicker
                 attachmentName={attachmentName}
+                attachmentModes={attachmentModes}
                 onSelectMode={onOpenAttachmentPicker}
                 premiumUnlocked={premiumUnlocked}
               />

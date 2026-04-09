@@ -5250,6 +5250,12 @@
   background: rgba(255, 255, 255, 0.72);
 }
 
+.composer.settings-item.settings-support-composer {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .composer-input {
   display: grid;
   gap: 2px;
@@ -6321,6 +6327,21 @@
 .settings-support-empty-state,
 .settings-support-composer {
   gap: 10px;
+}
+
+.settings-support-composer .composer-field {
+  gap: 10px;
+}
+
+.settings-support-composer textarea {
+  min-height: 124px;
+  padding: 16px 76px 16px 18px;
+  border-radius: 28px;
+}
+
+.settings-support-composer .composer-tools {
+  right: 14px;
+  bottom: 14px;
 }
 
 .settings-support-ticket-list {

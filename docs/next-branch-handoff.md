@@ -358,9 +358,13 @@
 - текущий стабильный контракт composer-а = обычное plain-text поле ввода
 - точка входа для direct / support / thread composer parity теперь общая:
   - `src/components/RoomComposer.tsx`
-- допускается различаться только contextual copy placeholder-а и support wrapper modifier class
+- direct и generic thread по-прежнему держат общий compact textarea contract
+- support intentionally split:
+  - support root-scene использует enlarged textarea без внешней white wrapper-card
+  - support root-scene и support-thread скрывают emoji/GIF UI
+  - support root-scene и support-thread разрешают только photo-attach, без file-attach path
 - live staging smoke на `2026-04-08` подтвердил:
-  - direct / support / thread совпадают по textarea styles и tool buttons contract
+  - direct / generic thread держат общий compact textarea contract
   - idle textarea у общего composer держим визуально однострочной
   - mobile `390px` не даёт horizontal overflow у composer-а
 - rich-text toolbar с `B / I / U / S` и `contenteditable` откатили как регрессивный surface

@@ -13372,6 +13372,7 @@ function App() {
             attachmentDraft={threadAttachmentDraft}
             attachmentInputRef={threadAttachmentInputRef}
             attachmentName={threadAttachmentDraft?.fileName ?? ''}
+            attachmentModes={threadTarget.kind === 'support' ? ['photo'] : undefined}
             draft={threadDraft}
             draftInputRef={threadComposerInputRef}
             gifLibrary={session?.gifLibrary ?? []}
@@ -13405,6 +13406,7 @@ function App() {
             }
             premiumUnlocked={sessionHasPremium}
             replyTarget={threadReplyTarget}
+            showEmojiPicker={threadTarget.kind !== 'support'}
             storageCleanupWarning={getStorageCleanupWarning(threadAttachmentDraft)}
             submitAriaLabel="Отправить комментарий"
             submitDisabled={
@@ -16433,6 +16435,7 @@ function App() {
                       attachmentDraft={supportAttachmentDraft}
                       attachmentInputRef={supportAttachmentInputRef}
                       attachmentName={supportAttachmentDraft?.fileName ?? ''}
+                      attachmentModes={['photo']}
                       className="settings-item settings-support-composer"
                       draft={supportDraft}
                       draftInputRef={supportComposerInputRef}
@@ -16466,6 +16469,7 @@ function App() {
                       onUploadGif={uploadAndAttachSupportGif}
                       placeholder="Опишите проблему одним сообщением..."
                       premiumUnlocked={sessionHasPremium}
+                      showEmojiPicker={false}
                       storageCleanupWarning={getStorageCleanupWarning(supportAttachmentDraft)}
                       submitAriaLabel="Отправить в поддержку"
                       submitDisabled={

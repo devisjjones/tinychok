@@ -304,9 +304,13 @@
 
 - `Написать в поддержку` открывается только из `Настроек`
 - support-room не появляется в обычных `Диалогах`
-- support-scene, direct dialog и thread room должны держать один и тот же plain-text composer contract
-- placeholder copy может отличаться по контексту, но textarea geometry и toolbar/buttons contract должны совпадать
-- в idle state composer должен выглядеть как однострочное поле ввода
+- support root-scene и support-thread остаются plain-text composer surface
+- root support-scene intentionally отличается от обычного direct/thread composer:
+  - без внешней белой wrapper-card вокруг textarea
+  - с увеличенным textarea для стартового описания проблемы
+- в support root-scene и support-thread нельзя показывать emoji/GIF и file-attach:
+  - допустимо только photo-attach
+- в idle state обычный composer остаётся однострочным; enlarged support-root textarea этим не считается
 - mobile smoke для этой зоны обязателен:
   - на `390px` composer должен полностью помещаться в viewport без horizontal overflow
 - отправка root message создаёт `Тикет #N`

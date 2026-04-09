@@ -2,17 +2,25 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 
 type ComposerAttachmentPickerProps = {
   attachmentName: string
+  attachmentModes?: Array<'file' | 'photo'>
   onSelectMode: (mode: 'file' | 'photo') => void
   premiumUnlocked?: boolean
 }
 
 export function ComposerAttachmentPicker({
   attachmentName,
+  attachmentModes = ['photo', 'file'],
   onSelectMode,
   premiumUnlocked = false,
 }: ComposerAttachmentPickerProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const availableAttachmentModes: Array<'file' | 'photo'> =
+    attachmentModes.length > 0 ? attachmentModes : ['photo', 'file']
+  const supportsPhotoAttachments = availableAttachmentModes.includes('photo')
+  const supportsFileAttachments = availableAttachmentModes.includes('file')
+  const singleAttachmentMode: 'file' | 'photo' | null =
+    availableAttachmentModes.length === 1 ? availableAttachmentModes[0] : null
 
   useEffect(() => {
     if (!open) return
@@ -41,6 +49,11 @@ export function ComposerAttachmentPicker({
   function handleToggle(event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault()
     event.stopPropagation()
+    if (singleAttachmentMode) {
+      handleSelect(singleAttachmentMode)
+      return
+    }
+
     setOpen((current) => !current)
   }
 
@@ -60,39 +73,43 @@ export function ComposerAttachmentPicker({
       >
         <img src="/icons/attach.png" alt="" />
       </button>
-      {open ? (
+      {open && !singleAttachmentMode ? (
         <div className="composer-attachment-popover">
-          <button
-            type="button"
-            className="composer-attachment-option"
-            onClick={() => handleSelect('photo')}
-          >
-            <strong>Приложить фотографию</strong>
-            <span>До 10 МБ. Поддерживаются JPG, PNG и WebP.</span>
-          </button>
-          <button
-            type="button"
-            className="composer-attachment-option"
-            onClick={() => handleSelect('file')}
-          >
-            <strong>Приложить файл</strong>
-            <span>
-              {premiumUnlocked
-                ? 'Документы, архивы и видео до 200 МБ.'
-                : (
-                  <>
-                    {'Документы, архивы и видео до 10 МБ. '}
-                    <span className="composer-attachment-inline-premium">
-                      <span>С премиумом</span>
-                      <span className="premium-crown composer-attachment-premium-crown" aria-hidden="true">
-                        <img src="/icons/crown64.png" alt="" />
+          {supportsPhotoAttachments ? (
+            <button
+              type="button"
+              className="composer-attachment-option"
+              onClick={() => handleSelect('photo')}
+            >
+              <strong>Приложить фотографию</strong>
+              <span>До 10 МБ. Поддерживаются JPG, PNG и WebP.</span>
+            </button>
+          ) : null}
+          {supportsFileAttachments ? (
+            <button
+              type="button"
+              className="composer-attachment-option"
+              onClick={() => handleSelect('file')}
+            >
+              <strong>Приложить файл</strong>
+              <span>
+                {premiumUnlocked
+                  ? 'Документы, архивы и видео до 200 МБ.'
+                  : (
+                    <>
+                      {'Документы, архивы и видео до 10 МБ. '}
+                      <span className="composer-attachment-inline-premium">
+                        <span>С премиумом</span>
+                        <span className="premium-crown composer-attachment-premium-crown" aria-hidden="true">
+                          <img src="/icons/crown64.png" alt="" />
+                        </span>
                       </span>
-                    </span>
-                    {' можно до 200 МБ.'}
-                  </>
-                )}
-            </span>
-          </button>
+                      {' можно до 200 МБ.'}
+                    </>
+                  )}
+              </span>
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
