@@ -376,7 +376,7 @@ type BrowserNotificationDigest = Map<string, BrowserNotificationDigestEntry>
 
 type ProfileSettingsDraft = Pick<
   Session,
-  'displayName' | 'surname' | 'nickname' | 'status' | 'avatarImage' | 'soundsDisabled'
+  'displayName' | 'surname' | 'nickname' | 'status' | 'avatarImage' | 'soundsDisabled' | 'darkThemeEnabled'
 >
 
 function resolveSupportCooldownUntilFromTickets(
@@ -419,6 +419,7 @@ const takeSoundPath = '/sfx/take.wav'
 function buildProfileSettingsDraft(session: Session): ProfileSettingsDraft {
   return {
     avatarImage: session.avatarImage,
+    darkThemeEnabled: Boolean(session.darkThemeEnabled),
     displayName: session.displayName,
     nickname: session.nickname ?? '',
     soundsDisabled: Boolean(session.soundsDisabled),
@@ -3162,6 +3163,7 @@ function App() {
           ...profileSettingsDraft,
         }
       : session
+  const darkThemeEnabled = Boolean(profilePreviewSession?.darkThemeEnabled)
   const sessionName = session ? formatSessionName(session) : ''
   const sessionAvatarLabel = session?.displayName.trim().slice(0, 1).toUpperCase() || 'Я'
   const profileSettingsName = profilePreviewSession ? formatSessionName(profilePreviewSession) : ''
@@ -3278,6 +3280,7 @@ function App() {
       normalizeNickname(profileSettingsDraft.nickname ?? '') !== (session.nickname ?? '') ||
       sanitizeStatusField(profileSettingsDraft.status ?? '') !== (session.status ?? '') ||
       (profileSettingsDraft.avatarImage?.trim() || undefined) !== session.avatarImage ||
+      Boolean(profileSettingsDraft.darkThemeEnabled) !== Boolean(session.darkThemeEnabled) ||
       Boolean(profileSettingsDraft.soundsDisabled) !== Boolean(session.soundsDisabled)
     )
   const changePasswordDirty =
@@ -3807,6 +3810,21 @@ function App() {
   }, [session?.quietModeEnabled])
 
   useEffect(() => {
+    if (typeof document === 'undefined') return
+
+    const root = document.documentElement
+    const body = document.body
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]')
+    const nextTheme = darkThemeEnabled ? 'dark' : 'light'
+
+    root.dataset.theme = nextTheme
+    body.dataset.theme = nextTheme
+    if (themeColorMeta instanceof HTMLMetaElement) {
+      themeColorMeta.content = darkThemeEnabled ? '#17181c' : '#f7efe5'
+    }
+  }, [darkThemeEnabled])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return
 
     window.localStorage.setItem(
@@ -3927,6 +3945,7 @@ function App() {
             ? {
                 ...account,
                 avatarImage: nextSession.avatarImage,
+                darkThemeEnabled: Boolean(nextSession.darkThemeEnabled),
                 displayName: nextSession.displayName,
                 surname: nextSession.surname ?? '',
                 nickname: nextSession.nickname ?? '',
@@ -3951,6 +3970,7 @@ function App() {
             avatarImage: nextSession.avatarImage,
             blockedContactIds: nextSession.blockedContactIds ?? [],
             createdAt: new Date().toISOString(),
+            darkThemeEnabled: Boolean(nextSession.darkThemeEnabled),
             displayName: nextSession.displayName,
             identifier: nextSession.identifier,
             invisibilityAutoEnabled: Boolean(nextSession.invisibilityAutoEnabled),
@@ -10299,6 +10319,7 @@ function App() {
     const nextNickname = normalizeNickname(profileSettingsDraft.nickname ?? '')
     const nextStatus = sanitizeStatusField(profileSettingsDraft.status ?? '')
     const nextAvatarImage = profileSettingsDraft.avatarImage?.trim() || undefined
+    const nextDarkThemeEnabled = Boolean(profileSettingsDraft.darkThemeEnabled)
     const nextSoundsDisabled = Boolean(profileSettingsDraft.soundsDisabled)
 
     if (!nextDisplayName) {
@@ -10312,6 +10333,7 @@ function App() {
       nextNickname === (session.nickname ?? '') &&
       nextStatus === (session.status ?? '') &&
       nextAvatarImage === session.avatarImage &&
+      nextDarkThemeEnabled === Boolean(session.darkThemeEnabled) &&
       nextSoundsDisabled === Boolean(session.soundsDisabled)
 
     if (sanitizedPatchMatchesSession) {
@@ -10321,6 +10343,7 @@ function App() {
 
     const patch: UpdateSessionBody = {
       avatarImage: nextAvatarImage,
+      darkThemeEnabled: nextDarkThemeEnabled,
       displayName: nextDisplayName,
       nickname: nextNickname,
       soundsDisabled: nextSoundsDisabled,
@@ -10331,6 +10354,7 @@ function App() {
     const nextSession: Session = {
       ...session,
       avatarImage: nextAvatarImage,
+      darkThemeEnabled: nextDarkThemeEnabled,
       displayName: nextDisplayName,
       nickname: nextNickname,
       soundsDisabled: nextSoundsDisabled,
@@ -10353,6 +10377,7 @@ function App() {
 
       trackAnalyticsEvent('profile_settings_saved', {
         changedAvatar: nextAvatarImage !== (session.avatarImage ?? undefined),
+        changedDarkTheme: nextDarkThemeEnabled !== Boolean(session.darkThemeEnabled),
         changedNickname: nextNickname !== (session.nickname ?? ''),
         changedStatus: nextStatus !== (session.status ?? ''),
       })
@@ -16422,6 +16447,23 @@ function App() {
                     </label>
                   </article>
                   <article className="settings-item settings-item-profile-section-start">
+                    <label className="settings-checkbox settings-checkbox-expanded">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(profileSettingsDraft?.darkThemeEnabled)}
+                        onChange={(event) =>
+                          updateSessionProfile({ darkThemeEnabled: event.target.checked })
+                        }
+                      />
+                      <span className="settings-quiet-copy">
+                        <span>Тёмная тема</span>
+                        <span className="settings-text">
+                          Перекрасить интерфейс в спокойные серые оттенки.
+                        </span>
+                      </span>
+                    </label>
+                  </article>
+                  <article className="settings-item">
                     <label className="settings-checkbox">
                       <input
                         type="checkbox"

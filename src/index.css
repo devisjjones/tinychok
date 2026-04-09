@@ -14,18 +14,88 @@
   line-height: 1.5;
   font-weight: 400;
   color: #3d3028;
-  background:
-    radial-gradient(circle at top left, rgba(255, 213, 170, 0.75), transparent 34%),
-    radial-gradient(circle at top right, rgba(246, 185, 145, 0.6), transparent 28%),
-    linear-gradient(180deg, #f8efe4 0%, #efe0d1 52%, #ead7c6 100%);
+  background: var(--app-background);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --app-background:
+    radial-gradient(circle at top left, rgba(255, 213, 170, 0.75), transparent 34%),
+    radial-gradient(circle at top right, rgba(246, 185, 145, 0.6), transparent 28%),
+    linear-gradient(180deg, #f8efe4 0%, #efe0d1 52%, #ead7c6 100%);
   --ink: #4c372b;
   --muted: #7a6255;
   --line: rgba(122, 98, 85, 0.12);
   --accent: #8c5738;
+  --surface-panel: rgba(255, 251, 245, 0.7);
+  --surface-panel-raised: rgba(255, 251, 245, 0.68);
+  --surface-card: rgba(255, 255, 255, 0.9);
+  --surface-card-soft: rgba(255, 255, 255, 0.72);
+  --surface-input: rgba(255, 255, 255, 0.9);
+  --surface-button: rgba(77, 58, 46, 0.08);
+  --surface-button-hover: rgba(77, 58, 46, 0.14);
+  --surface-button-active: var(--accent);
+  --surface-button-active-ink: #fff9f3;
+  --surface-bubble: rgba(255, 255, 255, 0.82);
+  --surface-bubble-selected: rgba(255, 255, 255, 0.98);
+  --surface-bubble-mine: #b97c50;
+  --surface-bubble-mine-ink: #fff8f2;
+  --surface-reply: rgba(77, 58, 46, 0.08);
+  --surface-reply-mine: #a96d43;
+  --surface-selection-outline: rgba(141, 89, 57, 0.22);
+  --shadow-soft: rgba(64, 35, 18, 0.08);
+  --shadow-panel: rgba(64, 35, 18, 0.07);
+  --shadow-strong: rgba(128, 76, 45, 0.22);
+  --shadow-bubble: rgba(72, 52, 33, 0.08);
+  --focus-border: rgba(155, 93, 57, 0.3);
+  --focus-ring: rgba(214, 173, 132, 0.18);
+  --status-text: rgba(105, 72, 51, 0.92);
+  --icon-filter:
+    brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
+    brightness(93%) contrast(90%);
+  --icon-filter-active: brightness(0) saturate(100%) invert(100%);
+  --presence-outline: rgba(255, 251, 245, 0.96);
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+  color: #eff0f3;
+  --app-background:
+    radial-gradient(circle at top left, rgba(122, 122, 132, 0.18), transparent 34%),
+    radial-gradient(circle at top right, rgba(86, 86, 92, 0.18), transparent 28%),
+    linear-gradient(180deg, #111214 0%, #17181c 52%, #1e2025 100%);
+  --ink: #eff0f3;
+  --muted: #a5a8b1;
+  --line: rgba(255, 255, 255, 0.1);
+  --accent: #666a73;
+  --surface-panel: rgba(18, 19, 22, 0.86);
+  --surface-panel-raised: rgba(22, 23, 27, 0.9);
+  --surface-card: rgba(27, 28, 33, 0.94);
+  --surface-card-soft: rgba(24, 25, 30, 0.92);
+  --surface-input: rgba(33, 34, 40, 0.96);
+  --surface-button: rgba(255, 255, 255, 0.08);
+  --surface-button-hover: rgba(255, 255, 255, 0.14);
+  --surface-button-active: #666a73;
+  --surface-button-active-ink: #ffffff;
+  --surface-bubble: rgba(29, 30, 35, 0.96);
+  --surface-bubble-selected: rgba(36, 37, 43, 0.98);
+  --surface-bubble-mine: rgba(55, 57, 65, 0.96);
+  --surface-bubble-mine-ink: #f7f7f8;
+  --surface-reply: rgba(255, 255, 255, 0.08);
+  --surface-reply-mine: rgba(255, 255, 255, 0.12);
+  --surface-selection-outline: rgba(255, 255, 255, 0.14);
+  --shadow-soft: rgba(0, 0, 0, 0.38);
+  --shadow-panel: rgba(0, 0, 0, 0.34);
+  --shadow-strong: rgba(0, 0, 0, 0.28);
+  --shadow-bubble: rgba(0, 0, 0, 0.28);
+  --focus-border: rgba(255, 255, 255, 0.24);
+  --focus-ring: rgba(255, 255, 255, 0.12);
+  --status-text: #b8bbc3;
+  --icon-filter:
+    brightness(0) saturate(100%) invert(93%) sepia(7%) saturate(251%) hue-rotate(189deg)
+    brightness(103%) contrast(92%);
+  --icon-filter-active: brightness(0) saturate(100%) invert(100%);
+  --presence-outline: rgba(22, 23, 27, 0.96);
 }
 
 * {
@@ -46,6 +116,8 @@ body {
   min-width: 320px;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  background: var(--app-background);
+  color: var(--ink);
   overflow-x: hidden;
   width: 100%;
   max-width: 100%;

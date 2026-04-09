@@ -63,8 +63,8 @@
 .confirm-card {
   border: 1px solid var(--line);
   border-radius: 28px;
-  background: rgba(255, 251, 245, 0.7);
-  box-shadow: 0 24px 60px rgba(64, 35, 18, 0.08);
+  background: var(--surface-panel);
+  box-shadow: 0 24px 60px var(--shadow-soft);
   backdrop-filter: blur(18px);
 }
 
@@ -541,7 +541,7 @@
 .filter {
   padding: 10px 14px;
   border-radius: 999px;
-  background: rgba(77, 58, 46, 0.08);
+  background: var(--surface-button);
   color: var(--ink);
 }
 
@@ -559,8 +559,7 @@
   width: 18px;
   height: 18px;
   display: block;
-  filter: brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
-    brightness(93%) contrast(90%);
+  filter: var(--icon-filter);
   transition: filter 180ms ease;
 }
 
@@ -582,15 +581,15 @@
 }
 
 .ghost-button.active {
-  background: var(--accent);
-  color: #fff9f3;
-  box-shadow: 0 12px 30px rgba(128, 76, 45, 0.22);
+  background: var(--surface-button-active);
+  color: var(--surface-button-active-ink);
+  box-shadow: 0 12px 30px var(--shadow-strong);
 }
 
 .soft-button.active {
-  background: var(--accent);
-  color: #fff9f3;
-  box-shadow: 0 12px 30px rgba(128, 76, 45, 0.22);
+  background: var(--surface-button-active);
+  color: var(--surface-button-active-ink);
+  box-shadow: 0 12px 30px var(--shadow-strong);
 }
 
 .ghost-button:hover,
@@ -919,8 +918,8 @@
   padding: 11px 18px 10px 12px;
   border: 0;
   border-radius: 24px;
-  background: rgba(255, 251, 245, 0.68);
-  box-shadow: 0 18px 40px rgba(64, 35, 18, 0.07);
+  background: var(--surface-panel-raised);
+  box-shadow: 0 18px 40px var(--shadow-panel);
   backdrop-filter: blur(16px);
   margin-inline: -2px;
 }
@@ -961,7 +960,7 @@
   height: 12px;
   border-radius: 999px;
   background: #57c785;
-  box-shadow: 0 0 0 2px rgba(255, 251, 245, 0.96);
+  box-shadow: 0 0 0 2px var(--presence-outline);
 }
 
 .self-presence-indicator.invisible {
@@ -1013,7 +1012,7 @@
 .account-status-row p {
   margin: 0;
   max-width: 100%;
-  color: rgba(105, 72, 51, 0.92);
+  color: var(--status-text);
   line-height: 1.32;
   letter-spacing: 0.01em;
   overflow-wrap: break-word;
@@ -1032,8 +1031,7 @@
   width: 16px;
   height: 16px;
   display: block;
-  filter: brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
-    brightness(93%) contrast(90%);
+  filter: var(--icon-filter);
 }
 
 .icon-button {
@@ -1064,8 +1062,8 @@
   justify-content: space-between;
   border: 0;
   border-radius: 24px;
-  background: rgba(255, 251, 245, 0.68);
-  box-shadow: 0 18px 40px rgba(64, 35, 18, 0.07);
+  background: var(--surface-panel-raised);
+  box-shadow: 0 18px 40px var(--shadow-panel);
   backdrop-filter: blur(16px);
   margin-top: 0;
   margin-inline: -4px;
@@ -1085,8 +1083,7 @@
 .bottom-nav .icon-button img {
   width: 28px;
   height: 28px;
-  filter: brightness(0) saturate(100%) invert(18%) sepia(22%) saturate(984%) hue-rotate(340deg)
-    brightness(93%) contrast(90%);
+  filter: var(--icon-filter);
   transition: filter 180ms ease;
 }
 
@@ -1096,7 +1093,7 @@
 }
 
 .bottom-nav .icon-button.active img {
-  filter: brightness(0) saturate(100%) invert(100%);
+  filter: var(--icon-filter-active);
 }
 
 .icon-button-badge {
@@ -1127,7 +1124,7 @@
   position: relative;
   border: 1px solid transparent;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface-card);
   padding: 14px;
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -2736,7 +2733,7 @@
   gap: 6px;
   padding: 16px 18px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface-card-soft);
   min-width: 0;
 }
 
@@ -2849,14 +2846,14 @@
   border: 1px solid transparent;
   outline: none;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface-input);
   color: var(--ink);
   padding: 12px 14px;
 }
 
 .settings-input:focus {
-  border-color: rgba(155, 93, 57, 0.3);
-  box-shadow: 0 0 0 4px rgba(214, 173, 132, 0.18);
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 4px var(--focus-ring);
 }
 
 .settings-handle {
@@ -2866,7 +2863,7 @@
   position: relative;
   border: 1px solid transparent;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface-input);
   padding: 0 14px;
 }
 
@@ -3528,13 +3525,13 @@
   margin: -18px -18px 0;
   padding: 14px 20px 12px;
   border: 0;
-  border-bottom: 1px solid rgba(141, 89, 57, 0.08);
+  border-bottom: 1px solid var(--line);
   border-radius: 28px 28px 22px 22px;
   background:
     linear-gradient(180deg, rgba(255, 254, 251, 0.985) 0%, rgba(255, 251, 245, 0.95) 100%);
   box-shadow:
-    inset 0 -1px 0 rgba(255, 255, 255, 0.58),
-    0 10px 24px rgba(93, 63, 39, 0.04);
+    inset 0 -1px 0 rgba(255, 255, 255, 0.18),
+    0 10px 24px var(--shadow-panel);
   align-items: center;
 }
 
@@ -4057,9 +4054,9 @@
   max-width: min(520px, 78%);
   padding: 16px 18px;
   border-radius: 24px 24px 24px 8px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--surface-bubble);
   color: var(--ink);
-  box-shadow: 0 16px 30px rgba(72, 52, 33, 0.08);
+  box-shadow: 0 16px 30px var(--shadow-bubble);
   overflow-wrap: anywhere;
   word-break: break-word;
   position: relative;
@@ -4105,12 +4102,12 @@
 .bubble-button.selected {
   position: relative;
   z-index: 7;
-  box-shadow: 0 22px 40px rgba(72, 52, 33, 0.18);
-  outline: 1px solid rgba(141, 89, 57, 0.22);
+  box-shadow: 0 22px 40px var(--shadow-strong);
+  outline: 1px solid var(--surface-selection-outline);
 }
 
 .bubble-button.selected:not(.mine) {
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--surface-bubble-selected);
 }
 
 .bubble-overlay.bubble-button.selected {
@@ -4154,8 +4151,8 @@
 .bubble.mine {
   align-self: flex-end;
   border-radius: 24px 24px 8px 24px;
-  background: #b97c50;
-  color: #fff8f2;
+  background: var(--surface-bubble-mine);
+  color: var(--surface-bubble-mine-ink);
 }
 
 .bubble.emoji-only-message {
@@ -5261,11 +5258,11 @@
   margin-bottom: 10px;
   padding: 10px 12px;
   border-radius: 14px;
-  background: rgba(77, 58, 46, 0.08);
+  background: var(--surface-reply);
 }
 
 .bubble.mine .bubble-reply {
-  background: rgba(255, 248, 242, 0.14);
+  background: var(--surface-reply-mine);
 }
 
 .bubble-reply span {
@@ -5288,13 +5285,13 @@
   padding: 10px 14px 9px;
   box-sizing: border-box;
   border-radius: 20px 20px 0 0;
-  background: rgba(77, 58, 46, 0.08);
+  background: var(--surface-reply);
   color: var(--ink);
 }
 
 .bubble-reply-reference.mine {
-  background: #a96d43;
-  color: #fff8f2;
+  background: var(--surface-reply-mine);
+  color: var(--surface-bubble-mine-ink);
 }
 
 .bubble-reply-reference-button {
@@ -8757,4 +8754,241 @@
     max-width: 100% !important;
     min-width: 0 !important;
   }
+}
+
+html[data-theme='dark'] .room-header {
+  background:
+    linear-gradient(180deg, rgba(24, 25, 29, 0.985) 0%, rgba(20, 21, 25, 0.95) 100%);
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 24px var(--shadow-panel);
+}
+
+html[data-theme='dark'] .room-channel-status,
+html[data-theme='dark'] .channel-description-dialog-status,
+html[data-theme='dark'] .channel-description-dialog-label,
+html[data-theme='dark'] .channel-description-dialog-empty,
+html[data-theme='dark'] .composer-attachment-preview-status,
+html[data-theme='dark'] .composer-attachment-option span,
+html[data-theme='dark'] .composer-attachment-rename-label,
+html[data-theme='dark'] .composer-attachment-rename-extension,
+html[data-theme='dark'] .bubble-attachment-removed-note,
+html[data-theme='dark'] .message-menu-item.disabled,
+html[data-theme='dark'] .settings-item-profile-field .settings-label,
+html[data-theme='dark'] .storage-usage-open-copy {
+  color: var(--muted);
+}
+
+html[data-theme='dark'] .channel-avatar-picker-popover,
+html[data-theme='dark'] .channel-title-popover,
+html[data-theme='dark'] .settings-popover,
+html[data-theme='dark'] .room-menu,
+html[data-theme='dark'] .message-menu,
+html[data-theme='dark'] .composer-attachment-popover,
+html[data-theme='dark'] .composer-attachment-rename-popover,
+html[data-theme='dark'] .emoji-picker-popover,
+html[data-theme='dark'] .channel-description-dialog {
+  background: rgba(18, 19, 22, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.36);
+}
+
+html[data-theme='dark'] .channel-avatar-picker-preview-card,
+html[data-theme='dark'] .channel-avatar-stock-option,
+html[data-theme='dark'] .channel-status-input,
+html[data-theme='dark'] .channel-description-input,
+html[data-theme='dark'] .channel-privacy-content,
+html[data-theme='dark'] .channel-description-dialog-body,
+html[data-theme='dark'] .premium-card,
+html[data-theme='dark'] .settings-action-card,
+html[data-theme='dark'] .settings-storage-card,
+html[data-theme='dark'] .composer-attachment-preview,
+html[data-theme='dark'] .composer-reply {
+  background: var(--surface-card);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme='dark'] .premium-card-monthly,
+html[data-theme='dark'] .premium-card-annual,
+html[data-theme='dark'] .settings-action-card-subtle,
+html[data-theme='dark'] .thread-pill,
+html[data-theme='dark'] .thread-pill.mine,
+html[data-theme='dark'] .storage-usage-open-pill,
+html[data-theme='dark'] .settings-storage-file-card,
+html[data-theme='dark'] .composer-attachment-preview-file-badge,
+html[data-theme='dark'] .composer-attachment-preview-file-badge.video,
+html[data-theme='dark'] .composer-attachment-rename-trigger,
+html[data-theme='dark'] .composer-attachment-checkbox,
+html[data-theme='dark'] .composer-attachment-option,
+html[data-theme='dark'] .emoji-picker-tab,
+html[data-theme='dark'] .room-menu-item,
+html[data-theme='dark'] .message-menu-item {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+}
+
+html[data-theme='dark'] .premium-card-annual {
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme='dark'] .premium-annual-badge,
+html[data-theme='dark'] .composer-attachment-storage-warning-link {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--ink);
+  box-shadow: none;
+  text-decoration-color: rgba(239, 240, 243, 0.6);
+}
+
+html[data-theme='dark'] .composer-attachment-storage-warning {
+  color: #c3c6ce !important;
+}
+
+html[data-theme='dark'] .composer-attachment-storage-warning-link:hover,
+html[data-theme='dark'] .composer-attachment-storage-warning-link:focus-visible,
+html[data-theme='dark'] .composer-attachment-option:hover,
+html[data-theme='dark'] .emoji-picker-tab:hover,
+html[data-theme='dark'] .emoji-picker-tab.active,
+html[data-theme='dark'] .room-menu-item:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+html[data-theme='dark'] .message-menu-item.disabled {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme='dark'] .settings-action-card.danger,
+html[data-theme='dark'] .room-menu-item.danger,
+html[data-theme='dark'] .message-menu-item.danger,
+html[data-theme='dark'] .composer-attachment-preview-clear,
+html[data-theme='dark'] .composer-reply-cancel,
+html[data-theme='dark'] .settings-storage-delete {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f0d2d2;
+}
+
+html[data-theme='dark'] .settings-action-card.danger,
+html[data-theme='dark'] .room-menu-item.danger,
+html[data-theme='dark'] .message-menu-item.danger {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme='dark'] .composer-attachment-preview-clear:hover,
+html[data-theme='dark'] .composer-reply-cancel:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme='dark'] .storage-usage-bar,
+html[data-theme='dark'] .settings-storage-thumb-wrap,
+html[data-theme='dark'] .composer-attachment-checkbox-box,
+html[data-theme='dark'] .room-presence-toggle {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .composer-attachment-checkbox-box,
+html[data-theme='dark'] .room-presence-toggle,
+html[data-theme='dark'] .composer-attachment-rename-input,
+html[data-theme='dark'] .settings-input,
+html[data-theme='dark'] .settings-handle,
+html[data-theme='dark'] .settings-item-profile-field .settings-input,
+html[data-theme='dark'] .settings-item-profile-field .settings-handle {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme='dark'] .composer-attachment-rename-input,
+html[data-theme='dark'] .settings-item-profile-field .settings-input,
+html[data-theme='dark'] .settings-item-profile-field .settings-handle {
+  background: var(--surface-input);
+}
+
+html[data-theme='dark'] .storage-usage-bar-fill {
+  background: linear-gradient(90deg, rgba(149, 153, 163, 0.84), rgba(197, 201, 210, 0.94));
+}
+
+html[data-theme='dark'] .storage-usage-card.warning .storage-usage-bar-fill,
+html[data-theme='dark'] .storage-usage-card.danger .storage-usage-bar-fill {
+  background: linear-gradient(90deg, rgba(139, 143, 153, 0.84), rgba(185, 189, 198, 0.94));
+}
+
+html[data-theme='dark'] .storage-usage-card.warning .settings-text,
+html[data-theme='dark'] .storage-usage-card.danger .settings-text {
+  color: var(--ink);
+}
+
+html[data-theme='dark'] .settings-storage-file-badge,
+html[data-theme='dark'] .bubble-attachment-badge {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+}
+
+html[data-theme='dark'] .premium-consent-copy,
+html[data-theme='dark'] .storage-usage-subject-label,
+html[data-theme='dark'] .message-menu-note {
+  color: var(--muted);
+}
+
+html[data-theme='dark'] .settings-checkbox input {
+  accent-color: #7f8490;
+}
+
+html[data-theme='dark'] .storage-usage-card-button:hover,
+html[data-theme='dark'] .channel-avatar-stock-option:hover,
+html[data-theme='dark'] .channel-avatar-stock-option.active,
+html[data-theme='dark'] .settings-action-card:hover {
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme='dark'] .copy-hint {
+  background: rgba(18, 19, 22, 0.96);
+  color: var(--ink);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+}
+
+html[data-theme='dark'] .channels-create-button,
+html[data-theme='dark'] .hero-stats div {
+  background: var(--surface-card-soft);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .premium-debug-toggle {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme='dark'] .premium-debug-toggle.active,
+html[data-theme='dark'] .channel-avatar-picker-toggle.active {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+html[data-theme='dark'] .premium-debug-toggle-thumb {
+  background: #f1f2f4;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+}
+
+html[data-theme='dark'] .settings-handle:focus-within,
+html[data-theme='dark'] .channel-status-input:focus,
+html[data-theme='dark'] .channel-description-input:focus,
+html[data-theme='dark'] .composer-attachment-rename-input:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+html[data-theme='dark'] .room-star img,
+html[data-theme='dark'] .room-menu-icon,
+html[data-theme='dark'] .composer-attachment-rename-trigger img,
+html[data-theme='dark'] .composer-reply-cancel-icon,
+html[data-theme='dark'] .composer-attachment-preview-clear-icon,
+html[data-theme='dark'] .emoji-picker-trigger-icon,
+html[data-theme='dark'] .message-menu-item-with-icon img,
+html[data-theme='dark'] .premium-feature-crown img {
+  filter: var(--icon-filter);
+}
+
+html[data-theme='dark'] .message-menu-scrim,
+html[data-theme='dark'] .composer-attachment-rename-backdrop,
+html[data-theme='dark'] .room-confirm-scrim {
+  background: rgba(0, 0, 0, 0.36);
 }

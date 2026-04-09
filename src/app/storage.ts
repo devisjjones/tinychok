@@ -11,6 +11,7 @@ export function loadAccounts() {
   try {
     return (JSON.parse(raw) as Account[]).map((account) => ({
       ...account,
+      darkThemeEnabled: Boolean(account.darkThemeEnabled),
       quietModeEnabled: Boolean(account.quietModeEnabled),
       quietModeSettings: normalizeQuietModeSettings(account.quietModeSettings),
       invisibilityAutoEnabled: Boolean(account.invisibilityAutoEnabled),
@@ -35,6 +36,7 @@ export function loadSession() {
     const parsed = JSON.parse(raw) as Session
     return {
       ...parsed,
+      darkThemeEnabled: Boolean(parsed.darkThemeEnabled),
       quietModeEnabled: Boolean(parsed.quietModeEnabled),
       quietModeSettings: normalizeQuietModeSettings(parsed.quietModeSettings),
       invisibilityAutoEnabled: Boolean(parsed.invisibilityAutoEnabled),

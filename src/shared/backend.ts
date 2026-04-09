@@ -832,6 +832,7 @@ export type UpdateSessionBody = Partial<
     | 'status'
     | 'blockedContactIds'
     | 'avatarImage'
+    | 'darkThemeEnabled'
     | 'quietModeEnabled'
     | 'quietModeSettings'
     | 'invisibilityEnabled'

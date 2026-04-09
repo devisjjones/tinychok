@@ -526,6 +526,9 @@
   - если каналов нет, header показывает `Пока нет каналов. Создайте свой первый канал.`
   - transfer-channel modal/action не доступны пользователю
 - profile settings сохраняются без transport-level сбоев за reverse proxy
+- persisted dark-theme toggle считается частью release-blocking profile contract:
+  - setting `darkThemeEnabled` должен приходить из snapshot и переживать hard refresh / relogin
+  - live UI должен переключать root `data-theme` contract, а dark mode не должен оставлять brown panel/menu/card surfaces
 - profile settings mobile smoke:
   - на `390px` avatar и display name остаются в одном header-row
   - display name не должен падать под avatar только из-за mobile media-rule

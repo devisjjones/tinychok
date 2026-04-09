@@ -466,6 +466,7 @@ export type Account = {
   status?: string
   statusHistory?: AccountStatusHistoryEntry[]
   avatarImage?: string
+  darkThemeEnabled?: boolean
   quietModeEnabled?: boolean
   quietModeSettings?: QuietModeSettings
   invisibilityEnabled?: boolean
@@ -493,6 +494,7 @@ export type Session = {
   nickname?: string
   status?: string
   avatarImage?: string
+  darkThemeEnabled?: boolean
   quietModeEnabled?: boolean
   quietModeSettings?: QuietModeSettings
   invisibilityEnabled?: boolean

@@ -429,6 +429,10 @@
   - stack `Имя / Фамилия / Статус / Никнейм` держит compact vertical spacing без больших пустых промежутков
   - на `<=420px` profile headline должен переопределяться после общего `.settings-heading h2`, иначе узкий mobile снова раздувает имя
   - settings profile autosize обязан стартовать от текущего computed mobile font-size, а не от desktop-константы `30.4px`
+  - новый `data-theme` contract тоже живёт здесь:
+    - `darkThemeEnabled` должен храниться в session/account snapshot
+    - profile toggle `Тёмная тема` обязан переживать refresh и relogin
+    - если кто-то снова вернёт brown panel/menu/card surfaces в dark mode, это считать регрессией
 - rich-text toolbar с `B / I / U / S` и `contenteditable` откатили как регрессивный surface
 - если кто-то снова будет возвращать форматирование текста, нужно отдельно перепроверять:
   - direct

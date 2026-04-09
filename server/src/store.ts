@@ -3189,6 +3189,7 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
       blockedReason: legacyAccount.blockedReason,
       blockedContactIds: legacyAccount.blockedContactIds ?? [],
       createdAt: legacyAccount.createdAt,
+      darkThemeEnabled: Boolean(legacyAccount.darkThemeEnabled),
       deletedAt: undefined,
       deletedBySelfService: undefined,
       deletionMode: undefined,
@@ -4444,6 +4445,7 @@ export class TinychokStore {
       deletionMode: undefined,
       publicDeleted: undefined,
       displayName,
+      darkThemeEnabled: false,
       gifLibrary: [],
       identifier: normalizedIdentifier,
       invisibilityAutoEnabled: false,
@@ -8733,6 +8735,10 @@ export class TinychokStore {
       account.avatarImage = payload.avatarImage.trim() || undefined
     }
 
+    if (payload.darkThemeEnabled !== undefined) {
+      account.darkThemeEnabled = Boolean(payload.darkThemeEnabled)
+    }
+
     if (payload.quietModeSettings !== undefined) {
       account.quietModeSettings = normalizeQuietModeSettings(payload.quietModeSettings)
     }
@@ -12343,6 +12349,7 @@ export class TinychokStore {
         blockedAt: account.blockedAt,
         blockedReason: account.blockedReason,
         blockedContactIds: [...(account.blockedContactIds ?? [])],
+        darkThemeEnabled: Boolean(account.darkThemeEnabled),
         displayName: account.displayName,
         gifLibrary: [...(account.gifLibrary ?? [])],
         identifier: account.identifier,

@@ -36,6 +36,7 @@ function createAccount(
   identifier: string,
   options?: {
     avatarImage?: string
+    darkThemeEnabled?: boolean
     invisibilityAutoEnabled?: boolean
     invisibilityEnabled?: boolean
     passwordHash?: string
@@ -67,6 +68,7 @@ function createAccount(
     deletedBySelfService: undefined,
     deletionMode: undefined,
     displayName: `User ${identifier}`,
+    darkThemeEnabled: options?.darkThemeEnabled ?? false,
     gifLibrary: [],
     identifier,
     invisibilityAutoEnabled: options?.invisibilityAutoEnabled ?? false,
@@ -3972,6 +3974,64 @@ test('narrow mobile view keeps settings, room headers and admin panels from over
   assert.match(adminCss, /@media \(max-width: 700px\) \{[\s\S]*\.admin-topbar,\s*[\s\S]*\.admin-panel,\s*[\s\S]*\.admin-auth-copy,\s*[\s\S]*\.admin-auth-card,\s*[\s\S]*\.admin-guard-card\s*\{[\s\S]*padding:\s*18px;/u)
   assert.match(adminCss, /@media \(max-width: 700px\) \{[\s\S]*\.admin-topbar,\s*[\s\S]*\.admin-panel-heading,\s*[\s\S]*\.admin-topbar strong\s*\{[\s\S]*flex-direction:\s*column;/u)
   assert.match(adminCss, /@media \(max-width: 480px\) \{[\s\S]*\.admin-nav-item,\s*[\s\S]*\.admin-list-item,\s*[\s\S]*\.admin-filter-tab,\s*[\s\S]*\.admin-primary-button,\s*[\s\S]*\.admin-secondary-button\s*\{[\s\S]*min-height:\s*42px;/u)
+})
+
+test('dark theme toggle persists in session snapshots and ships a gray dark-surface contract', async () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  const indexCss = readFileSync(join(repoRoot, 'src', 'index.css'), 'utf8')
+  const storageSource = readFileSync(join(repoRoot, 'src', 'app', 'storage.ts'), 'utf8')
+  const sharedTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'types.ts'), 'utf8')
+  const backendTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'backend.ts'), 'utf8')
+  const releaseDoc = readFileSync(join(repoRoot, 'docs', 'release-contracts.md'), 'utf8')
+  const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
+  const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
+
+  assert.match(sharedTypesSource, /darkThemeEnabled\?: boolean/u)
+  assert.match(backendTypesSource, /'darkThemeEnabled'/u)
+  assert.match(storageSource, /darkThemeEnabled: Boolean\(account\.darkThemeEnabled\)/u)
+  assert.match(storageSource, /darkThemeEnabled: Boolean\(parsed\.darkThemeEnabled\)/u)
+  assert.match(appSource, /buildProfileSettingsDraft\(session: Session\)[\s\S]*darkThemeEnabled: Boolean\(session\.darkThemeEnabled\)/u)
+  assert.match(appSource, /const darkThemeEnabled = Boolean\(profilePreviewSession\?\.darkThemeEnabled\)/u)
+  assert.match(appSource, /root\.dataset\.theme = nextTheme/u)
+  assert.match(appSource, /body\.dataset\.theme = nextTheme/u)
+  assert.match(appSource, /themeColorMeta\.content = darkThemeEnabled \? '#17181c' : '#f7efe5'/u)
+  assert.match(appSource, /<span>Тёмная тема<\/span>/u)
+  assert.match(appSource, /Перекрасить интерфейс в спокойные серые оттенки\./u)
+  assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*color-scheme:\s*dark;[\s\S]*--app-background:[\s\S]*#111214/u)
+  assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(55,\s*57,\s*65,\s*0\.96\);/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.room-header\s*\{/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.channel-avatar-picker-popover,[\s\S]*\.message-menu,[\s\S]*\.composer-attachment-popover/u,
+  )
+  assert.match(appCss, /html\[data-theme='dark'\] \.premium-card-monthly,\s*[\s\S]*\.premium-card-annual/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.composer-attachment-preview,\s*[\s\S]*\.composer-reply/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.settings-checkbox input\s*\{[\s\S]*accent-color:\s*#7f8490;/u)
+  assert.match(releaseDoc, /persisted user setting `darkThemeEnabled`/u)
+  assert.match(rolloutDoc, /persisted dark-theme toggle/iu)
+  assert.match(handoffDoc, /`data-theme` contract/iu)
+
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  database.accounts.push(
+    createAccount('+79990000001', {
+      darkThemeEnabled: false,
+    }),
+  )
+  const token = createSession(database, '+79990000001', 'dark-theme')
+  markSessionLive(store, token)
+
+  assert.equal(store.getSnapshotByToken(token)?.session.darkThemeEnabled, false)
+
+  await store.updateSession(token, { darkThemeEnabled: true })
+
+  assert.equal(
+    database.accounts.find((account) => account.identifier === '+79990000001')?.darkThemeEnabled,
+    true,
+  )
+  assert.equal(store.getSnapshotByToken(token)?.session.darkThemeEnabled, true)
 })
 
 test('search pane keeps the main search heading aligned with search results heading rhythm', () => {
