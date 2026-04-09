@@ -15618,7 +15618,7 @@ function App() {
                   <button
                     key={chat.id}
                     type="button"
-                    className={chat.id === activeChat?.id ? 'chat-card active' : 'chat-card'}
+                    className={chat.id === activeChat?.id ? 'chat-card dialog-list-card active' : 'chat-card dialog-list-card'}
                     onClick={() => openChat(chat.id)}
                   >
                     <span className="chat-avatar-stack">
@@ -16096,6 +16096,7 @@ function App() {
                     className={[
                       'chat-card',
                       'chat-card-compact',
+                      'dialog-list-card',
                       chat.id === activeChat?.id ? 'active' : '',
                     ]
                       .filter(Boolean)

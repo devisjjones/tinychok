@@ -282,7 +282,14 @@
 - gap между карточками групп должен совпадать с общим `chat-list` gap и не разъезжаться относительно соседних списков
 - переключение этого чекбокса влияет только на будущие вступления и не должно ретроактивно удалять историю у уже существующих участников
 
-### 11.1.3. Group And Channel Owner Menu Contract
+### 11.1.3. Direct Dialog Left Rail Avatar Contract
+
+- direct dialog cards в левом списке должны использовать отдельный `dialog-list-card` avatar-slot
+- avatar прямого диалога должна быть увеличена почти до group/channel размера и занимать почти всё доступное avatar-space карточки
+- direct dialog avatar-stack должен быть визуально отцентрирован по высоте карточки и не прилипать к верхней кромке
+- этот контракт относится только к direct dialog cards и не должен менять размеры avatar у group/channel/thread cards
+
+### 11.1.4. Group And Channel Owner Menu Contract
 
 - в owner-only popup menu для room action `Настройки группы` и `Настройки канала` должны рендериться с leading icon `edit100.png`
 - иконка относится именно к settings action и не должна заменяться отдельным badge, вынесенным за пределы строки кнопки

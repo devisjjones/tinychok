@@ -1149,6 +1149,17 @@
   font-size: 1rem;
 }
 
+.chat-card.dialog-list-card .chat-avatar-stack {
+  align-self: center;
+}
+
+.chat-card.dialog-list-card .avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 20px;
+  font-size: 1.08rem;
+}
+
 .chat-card.chat-card-request {
   align-items: center;
 }

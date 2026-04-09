@@ -269,6 +269,10 @@
   - одинаковый размер avatar `56px`
   - одинаковый left inset
   - одинаковое визуальное центрирование avatar относительно текстового блока
+- direct dialog cards используют отдельный `dialog-list-card` avatar-slot:
+  - avatar увеличена почти до group/channel размера
+  - avatar-stack выровнен по центру карточки, без лишнего воздуха сверху
+  - этот контракт не должен менять размеры avatar у group/channel/thread cards
 - group-card поверх этого держит свой compact-контракт:
   - более плотный vertical padding, чем у default `chat-card`
   - `chat-copy` внутри group-card держит более плотный текстовый gap, чем общий rail-card

@@ -838,6 +838,7 @@ curl -s https://api.staging.tinychok.ru/healthz
   - `Delete` скрывает из UI и физически удаляет media-object
 - `Медиа`: timestamp sort, download, hide / delete
 - `Каналы` / `Группы` / `Треды`: одна строка на одну каноническую сущность без fan-out дублей
+- карточки прямых диалогов должны использовать увеличенный `dialog-list-card` avatar-slot, без уменьшения avatar у group/channel/thread cards
 - `Группы`: из detail-card рядом с `Участников` скачивается CSV со всеми участниками
 - `Каналы`: из detail-card рядом с `Читателей` скачивается CSV со всеми подписчиками
 - `Диалоги`: выбор двух пользователей и CSV export одного канонического диалога
