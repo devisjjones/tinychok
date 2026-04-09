@@ -12639,6 +12639,7 @@ function App() {
           kind="channel"
           onOpenAttachment={openMediaViewer}
           onOpenExternalLink={requestOpenExternalLink}
+          onOpenPremiumUpsell={openPremiumUpsell}
           post={activeSubscriptionPost}
           draft={Boolean(currentSubscriptionChannel?.draft)}
         />
@@ -13025,6 +13026,7 @@ function App() {
                     }}
                     onOpenAttachment={openMediaViewer}
                     onOpenExternalLink={requestOpenExternalLink}
+                    onOpenPremiumUpsell={openPremiumUpsell}
                     onOpenSourceContact={
                       threadGroupMessage.sourceContact
                         ? () =>
@@ -13120,6 +13122,7 @@ function App() {
                     }}
                     onOpenAttachment={openMediaViewer}
                     onOpenExternalLink={requestOpenExternalLink}
+                    onOpenPremiumUpsell={openPremiumUpsell}
                     onOpenSourceContact={
                       threadChannelPost.sourceContact
                         ? () =>
@@ -13158,6 +13161,7 @@ function App() {
                 }}
                 onOpenAttachment={openMediaViewer}
                 onOpenExternalLink={requestOpenExternalLink}
+                onOpenPremiumUpsell={openPremiumUpsell}
                 showReplyInline={false}
               />
               <time>{threadSourceTime}</time>
@@ -13244,6 +13248,7 @@ function App() {
                           }}
                           onOpenAttachment={openMediaViewer}
                           onOpenExternalLink={requestOpenExternalLink}
+                          onOpenPremiumUpsell={openPremiumUpsell}
                           onOpenSourceContact={
                             comment.sourceContact
                               ? () =>
@@ -13282,6 +13287,7 @@ function App() {
                           }}
                           onOpenAttachment={openMediaViewer}
                           onOpenExternalLink={requestOpenExternalLink}
+                          onOpenPremiumUpsell={openPremiumUpsell}
                           onOpenSourceContact={
                             comment.sourceContact
                               ? () =>
@@ -13379,6 +13385,7 @@ function App() {
               mine={activeThreadComment.author === 'me'}
               onOpenAttachment={openMediaViewer}
               onOpenExternalLink={requestOpenExternalLink}
+              onOpenPremiumUpsell={openPremiumUpsell}
               participant={activeThreadCommentParticipant}
             />
           ) : null}
@@ -14153,6 +14160,7 @@ function App() {
           mine={activeGroupMessage.author === 'me'}
           onOpenAttachment={openMediaViewer}
           onOpenExternalLink={requestOpenExternalLink}
+          onOpenPremiumUpsell={openPremiumUpsell}
           participant={activeGroupMessageParticipant}
         />
       ) : null}
@@ -16495,6 +16503,7 @@ function App() {
                                   }}
                                   onOpenAttachment={openMediaViewer}
                                   onOpenExternalLink={requestOpenExternalLink}
+                                  onOpenPremiumUpsell={openPremiumUpsell}
                                   showReplyInline={false}
                                 />
                                 <div className="settings-support-ticket-footer">
@@ -18354,6 +18363,7 @@ function App() {
                     mine={activeMessage.author === 'me'}
                     onOpenAttachment={openMediaViewer}
                     onOpenExternalLink={requestOpenExternalLink}
+                    onOpenPremiumUpsell={openPremiumUpsell}
                     replyChatTitle={activeChat.title}
                   />
                 ) : null}

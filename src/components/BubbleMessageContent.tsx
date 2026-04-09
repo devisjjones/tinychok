@@ -25,6 +25,7 @@ type BubbleMessageContentProps = {
   onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
   onOpenExternalLink?: (url: string) => void
   onOpenLinkedChannel?: () => void
+  onOpenPremiumUpsell?: () => void
   onOpenSourceContact?: () => void
   onOpenSourceGroup?: () => void
   replyChatTitle?: string
@@ -38,6 +39,7 @@ type BubbleImageOverlayMetaProps = {
 
 type AttachmentRemovedNoticeBlockProps = {
   notice: NonNullable<Message['attachmentRemovedNotice']>
+  onOpenPremiumUpsell?: () => void
 }
 
 export function shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc: string | null | undefined) {
@@ -68,16 +70,52 @@ function buildVideoPreviewUrl(mediaUrl: string) {
   }
 }
 
-function AttachmentRemovedNoticeBlock({ notice }: AttachmentRemovedNoticeBlockProps) {
+function AttachmentRemovedNoticeBlock({
+  notice,
+  onOpenPremiumUpsell,
+}: AttachmentRemovedNoticeBlockProps) {
   const showPremiumUpsell = notice.reason === 'storage-quota' && notice.perspective === 'self'
 
   if (!showPremiumUpsell) {
     return <p className="bubble-attachment-removed-note">{notice.text}</p>
   }
 
+  const premiumUpsellCtaText = 'Оформите подписку.'
+  const premiumLeadText = notice.text.endsWith(premiumUpsellCtaText)
+    ? notice.text.slice(0, -premiumUpsellCtaText.length).trimEnd()
+    : notice.text
+
+  if (!onOpenPremiumUpsell) {
+    return (
+      <p className="bubble-attachment-removed-note bubble-attachment-removed-note-premium">
+        <span>{notice.text}</span>
+        <span className="bubble-attachment-removed-note-crown" aria-hidden="true">
+          <img src="/icons/crown64.png" alt="" />
+        </span>
+      </p>
+    )
+  }
+
   return (
     <p className="bubble-attachment-removed-note bubble-attachment-removed-note-premium">
-      <span>{notice.text}</span>
+      {premiumLeadText ? <span>{premiumLeadText}</span> : null}
+      <span
+        className="bubble-attachment-removed-note-link"
+        role="link"
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onOpenPremiumUpsell()
+        }}
+        onMouseDown={(event) => {
+          event.stopPropagation()
+        }}
+        onPointerDown={(event) => {
+          event.stopPropagation()
+        }}
+      >
+        {premiumUpsellCtaText}
+      </span>
       <span className="bubble-attachment-removed-note-crown" aria-hidden="true">
         <img src="/icons/crown64.png" alt="" />
       </span>
@@ -397,6 +435,7 @@ export function BubbleMessageContent({
   onOpenAttachment,
   onOpenExternalLink,
   onOpenLinkedChannel,
+  onOpenPremiumUpsell,
   onOpenSourceContact,
   onOpenSourceGroup,
   replyChatTitle,
@@ -514,7 +553,10 @@ export function BubbleMessageContent({
         <BubbleRichText text={message.text} onOpenExternalLink={onOpenExternalLink} />
       ) : null}
       {message.attachmentRemovedNotice ? (
-        <AttachmentRemovedNoticeBlock notice={message.attachmentRemovedNotice} />
+        <AttachmentRemovedNoticeBlock
+          notice={message.attachmentRemovedNotice}
+          onOpenPremiumUpsell={onOpenPremiumUpsell}
+        />
       ) : null}
     </>
   )

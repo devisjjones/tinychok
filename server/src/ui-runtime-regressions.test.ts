@@ -144,6 +144,10 @@ test.after(() => {
 test('attachment storage cleanup copy stays wired into preview and bubble rendering', () => {
   const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
   const bubbleSource = readFileSync(join(process.cwd(), 'src/components/BubbleMessageContent.tsx'), 'utf8')
+  const directRoomSource = readFileSync(join(process.cwd(), 'src/rooms/DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(process.cwd(), 'src/rooms/GroupRoom.tsx'), 'utf8')
+  const channelRoomSource = readFileSync(join(process.cwd(), 'src/rooms/SubscriptionChannelRoom.tsx'), 'utf8')
+  const overlaySource = readFileSync(join(process.cwd(), 'src/components/SelectedBubbleOverlay.tsx'), 'utf8')
   const attachmentPreviewSource = readFileSync(
     join(process.cwd(), 'src/components/ComposerAttachmentPreview.tsx'),
     'utf8',
@@ -168,6 +172,12 @@ test('attachment storage cleanup copy stays wired into preview and bubble render
   assert.match(bubbleSource, /AttachmentRemovedNoticeBlock/u)
   assert.match(bubbleSource, /notice\.reason === 'storage-quota' && notice\.perspective === 'self'/u)
   assert.match(bubbleSource, /bubble-attachment-removed-note-crown/u)
+  assert.match(bubbleSource, /onOpenPremiumUpsell\?: \(\) => void/u)
+  assert.match(bubbleSource, /bubble-attachment-removed-note-link/u)
+  assert.match(
+    bubbleSource,
+    /bubble-attachment-removed-note-link[\s\S]*onClick=\{\(event\) => \{[\s\S]*onOpenPremiumUpsell\(\)/u,
+  )
   assert.match(sharedUtilsSource, /attachmentRemovedNotice/u)
   assert.match(sharedTypesSource, /export type AttachmentRemovedNotice/u)
   assert.match(sharedTypesSource, /perspective\?: 'author' \| 'peer' \| 'self'/u)
@@ -190,7 +200,14 @@ test('attachment storage cleanup copy stays wired into preview and bubble render
   assert.match(appCss, /\.composer-attachment-premium-crown-brown img/u)
   assert.match(appCss, /\.bubble-attachment-removed-note/u)
   assert.match(appCss, /\.bubble-attachment-removed-note-premium/u)
+  assert.match(appCss, /\.bubble-attachment-removed-note-link/u)
   assert.match(appCss, /\.bubble-attachment-removed-note-crown img/u)
+  assert.ok((directRoomSource.match(/onOpenPremiumUpsell=\{onOpenPremiumUpsell\}/gu) ?? []).length >= 2)
+  assert.ok((groupRoomSource.match(/onOpenPremiumUpsell=\{onOpenPremiumUpsell\}/gu) ?? []).length >= 2)
+  assert.ok((channelRoomSource.match(/onOpenPremiumUpsell=\{publisherOnOpenPremiumUpsell\}/gu) ?? []).length >= 4)
+  assert.match(overlaySource, /onOpenPremiumUpsell\?: \(\) => void/u)
+  assert.match(overlaySource, /onOpenPremiumUpsell=\{props\.onOpenPremiumUpsell\}/u)
+  assert.ok((appSource.match(/onOpenPremiumUpsell=\{openPremiumUpsell\}/gu) ?? []).length >= 10)
 })
 
 test('video attachments render through the visual media preview flow and still open in the in-app player', () => {

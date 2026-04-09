@@ -501,6 +501,7 @@ export function GroupRoom({
                               onOpenLinkedChannel={
                                 linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
                               }
+                              onOpenPremiumUpsell={onOpenPremiumUpsell}
                               onOpenSourceContact={
                                 message.sourceContact
                                   ? () =>
@@ -562,6 +563,7 @@ export function GroupRoom({
                                   onOpenLinkedChannel={
                                     linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
                                   }
+                                  onOpenPremiumUpsell={onOpenPremiumUpsell}
                                   onOpenSourceContact={
                                     message.sourceContact
                                       ? () =>

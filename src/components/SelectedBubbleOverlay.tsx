@@ -12,6 +12,7 @@ type SelectedBubbleOverlayProps =
       anchor: ActionAnchor
       onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
       onOpenExternalLink?: (url: string) => void
+      onOpenPremiumUpsell?: () => void
       kind: 'direct'
       deliveryIssue?: 'pending' | 'failed'
       linkedChannel?: NonNullable<Message['sourceChannel']> | null
@@ -28,6 +29,7 @@ type SelectedBubbleOverlayProps =
       mine: boolean
       onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
       onOpenExternalLink?: (url: string) => void
+      onOpenPremiumUpsell?: () => void
       participant?: GroupParticipant | null
     }
   | {
@@ -36,6 +38,7 @@ type SelectedBubbleOverlayProps =
       channelTitle: string
       onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
       onOpenExternalLink?: (url: string) => void
+      onOpenPremiumUpsell?: () => void
       post: ChannelPost
       draft: boolean
     }
@@ -46,6 +49,7 @@ type SelectedBubbleOverlayProps =
       mine: boolean
       onOpenAttachment?: (attachment: NonNullable<Message['attachment']>) => void
       onOpenExternalLink?: (url: string) => void
+      onOpenPremiumUpsell?: () => void
       participant?: GroupParticipant | null
     }
 
@@ -150,6 +154,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           }}
           onOpenAttachment={props.onOpenAttachment}
           onOpenExternalLink={props.onOpenExternalLink}
+          onOpenPremiumUpsell={props.onOpenPremiumUpsell}
           showReplyInline={false}
         />
         {!hasImageAttachment ? <time>{props.post.time}</time> : null}
@@ -192,6 +197,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           }}
           onOpenAttachment={props.onOpenAttachment}
           onOpenExternalLink={props.onOpenExternalLink}
+          onOpenPremiumUpsell={props.onOpenPremiumUpsell}
           showReplyInline={false}
         />
         {!hasImageAttachment ? <time>{props.comment.time}</time> : null}
@@ -319,6 +325,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         message={props.message}
         onOpenAttachment={props.onOpenAttachment}
         onOpenExternalLink={props.onOpenExternalLink}
+        onOpenPremiumUpsell={props.onOpenPremiumUpsell}
         onOpenSourceGroup={undefined}
         replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
         showReplyInline={false}

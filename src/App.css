@@ -4577,6 +4577,14 @@
   column-gap: 4px;
 }
 
+.bubble-attachment-removed-note-link {
+  color: rgba(255, 247, 240, 0.96);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.12em;
+}
+
 .bubble-attachment-removed-note-crown {
   display: inline-flex;
   align-items: center;

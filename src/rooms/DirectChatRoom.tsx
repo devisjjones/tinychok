@@ -498,6 +498,7 @@ export function DirectChatRoom({
                         onOpenLinkedChannel={
                           linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
                         }
+                        onOpenPremiumUpsell={onOpenPremiumUpsell}
                         onOpenSourceContact={
                           message.sourceContact
                             ? () =>
@@ -558,6 +559,7 @@ export function DirectChatRoom({
                         onOpenLinkedChannel={
                           linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
                         }
+                        onOpenPremiumUpsell={onOpenPremiumUpsell}
                         onOpenSourceContact={
                           message.sourceContact
                             ? () =>

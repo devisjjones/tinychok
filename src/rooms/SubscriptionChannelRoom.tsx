@@ -305,6 +305,7 @@ export function SubscriptionChannelRoom({
                                 message={post}
                                 onOpenAttachment={onOpenAttachment}
                                 onOpenExternalLink={onOpenExternalLink}
+                                onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
                                 onOpenSourceContact={
                                   post.sourceContact
                                     ? () =>
@@ -334,6 +335,7 @@ export function SubscriptionChannelRoom({
                                 message={post}
                                 onOpenAttachment={onOpenAttachment}
                                 onOpenExternalLink={onOpenExternalLink}
+                                onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
                                 onOpenSourceContact={
                                   post.sourceContact
                                     ? () =>
