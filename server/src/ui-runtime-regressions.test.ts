@@ -2896,14 +2896,18 @@ test('profile settings fields keep lightweight label-and-input layout instead of
   assert.match(appCss, /\.settings-stack-profile\s*\{\s*gap:\s*2px;/u)
   assert.match(appCss, /\.settings-item-profile-field \.settings-input,\s*\n\s*\.settings-item-profile-field \.settings-handle\s*\{\s*min-height:\s*56px;/u)
   assert.match(appCss, /@media \(max-width:\s*420px\)\s*\{[\s\S]*?\.settings-profile-copy h2\s*\{\s*font-size:\s*clamp\(0\.98rem,\s*4\.8vw,\s*1\.18rem\);/u)
+  assert.match(appSource, /const adjustSettingsProfileNameFontSize = useCallback\(\(\) => \{[\s\S]*?nameNode\.style\.removeProperty\('font-size'\)[\s\S]*?const responsiveFontSize = Number\.parseFloat\(window\.getComputedStyle\(nameNode\)\.fontSize\)[\s\S]*?Math\.min\(accountNameMaxFontSize, responsiveFontSize\)/u)
   assert.match(appCss, /\.settings-action-card-subtle\s*\{/u)
   assert.match(appCss, /\.settings-quiet-settings-button\s*\{/u)
   assert.match(releaseDoc, /profile-scene на узком mobile не должен ронять avatar и display name в две отдельные вертикальные колонки/u)
   assert.match(releaseDoc, /узкий breakpoint `<=420px` не должен снова раздувать profile headline общим `\.settings-heading h2`/u)
+  assert.match(releaseDoc, /runtime autosize profile headline не должен стартовать с desktop `30\.4px`, если mobile CSS уже задал меньший baseline/u)
   assert.match(rolloutDoc, /profile settings mobile smoke/u)
   assert.match(rolloutDoc, /узкий mobile breakpoint не должен перетирать compact profile headline общим `\.settings-heading h2`/u)
+  assert.match(rolloutDoc, /inline autosize profile headline должен уважать текущий mobile font-size из CSS/u)
   assert.match(handoffDoc, /profile-scene mobile contract/u)
   assert.match(handoffDoc, /на `<=420px` profile headline должен переопределяться после общего `\.settings-heading h2`/u)
+  assert.match(handoffDoc, /settings profile autosize обязан стартовать от текущего computed mobile font-size/u)
 })
 
 test('support chat contract stays wired through app, store, admin surface and docs', () => {

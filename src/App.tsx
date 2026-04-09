@@ -3678,12 +3678,17 @@ function App() {
 
     if (!nameNode) return
 
+    nameNode.style.removeProperty('font-size')
+
     if (!sessionName.trim()) {
-      nameNode.style.removeProperty('font-size')
       return
     }
 
-    let nextFontSize = accountNameMaxFontSize
+    const responsiveFontSize = Number.parseFloat(window.getComputedStyle(nameNode).fontSize)
+    let nextFontSize =
+      Number.isFinite(responsiveFontSize) && responsiveFontSize > 0
+        ? Math.min(accountNameMaxFontSize, responsiveFontSize)
+        : accountNameMaxFontSize
     nameNode.style.fontSize = `${nextFontSize}px`
 
     const computedStyle = window.getComputedStyle(nameNode)
