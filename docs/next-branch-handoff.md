@@ -388,6 +388,7 @@
   - даже на узком телефоне avatar и profile-copy не должны распадаться в две вертикальные колонки
   - mobile display name справа от avatar должен быть меньше desktop headline
   - stack `Имя / Фамилия / Статус / Никнейм` держит compact vertical spacing без больших пустых промежутков
+  - на `<=420px` profile headline должен переопределяться после общего `.settings-heading h2`, иначе узкий mobile снова раздувает имя
 - rich-text toolbar с `B / I / U / S` и `contenteditable` откатили как регрессивный surface
 - если кто-то снова будет возвращать форматирование текста, нужно отдельно перепроверять:
   - direct

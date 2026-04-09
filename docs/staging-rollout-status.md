@@ -502,6 +502,7 @@
   - на `390px` avatar и display name остаются в одном header-row
   - display name не должен падать под avatar только из-за mobile media-rule
   - gap между `Имя / Фамилия / Статус / Никнейм` должен оставаться compact
+  - узкий mobile breakpoint не должен перетирать compact profile headline общим `.settings-heading h2`
 - browser notifications не должны приходить в режиме `Тихо`
 - quiet-settings сцена считается release-blocking контрактом:
   - `quietModeSettings` должен нормализоваться к дефолтам

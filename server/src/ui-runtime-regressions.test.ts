@@ -2895,11 +2895,15 @@ test('profile settings fields keep lightweight label-and-input layout instead of
   assert.match(appCss, /\.settings-profile-header\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*auto minmax\(0, 1fr\)/u)
   assert.match(appCss, /\.settings-stack-profile\s*\{\s*gap:\s*2px;/u)
   assert.match(appCss, /\.settings-item-profile-field \.settings-input,\s*\n\s*\.settings-item-profile-field \.settings-handle\s*\{\s*min-height:\s*56px;/u)
+  assert.match(appCss, /@media \(max-width:\s*420px\)\s*\{[\s\S]*?\.settings-profile-copy h2\s*\{\s*font-size:\s*clamp\(0\.98rem,\s*4\.8vw,\s*1\.18rem\);/u)
   assert.match(appCss, /\.settings-action-card-subtle\s*\{/u)
   assert.match(appCss, /\.settings-quiet-settings-button\s*\{/u)
   assert.match(releaseDoc, /profile-scene на узком mobile не должен ронять avatar и display name в две отдельные вертикальные колонки/u)
+  assert.match(releaseDoc, /узкий breakpoint `<=420px` не должен снова раздувать profile headline общим `\.settings-heading h2`/u)
   assert.match(rolloutDoc, /profile settings mobile smoke/u)
+  assert.match(rolloutDoc, /узкий mobile breakpoint не должен перетирать compact profile headline общим `\.settings-heading h2`/u)
   assert.match(handoffDoc, /profile-scene mobile contract/u)
+  assert.match(handoffDoc, /на `<=420px` profile headline должен переопределяться после общего `\.settings-heading h2`/u)
 })
 
 test('support chat contract stays wired through app, store, admin surface and docs', () => {

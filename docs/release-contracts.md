@@ -522,6 +522,7 @@
   - avatar и profile-copy должны оставаться в одном row-layout
   - mobile headline справа от avatar должен ужиматься, чтобы имя помещалось в header-block
   - stack полей `Имя / Фамилия / Статус / Никнейм` должен держать compact vertical spacing без лишних пустот между input-блоками
+  - узкий breakpoint `<=420px` не должен снова раздувать profile headline общим `.settings-heading h2`: у profile-scene должен оставаться свой более поздний mobile override
 - rich-text toolbar с `B / I / U / S` и `contenteditable` не считается разрешённым user-facing surface, пока не будет возвращён без regressions в:
   - direct
   - group
