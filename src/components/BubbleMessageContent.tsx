@@ -1,4 +1,8 @@
-import React, { type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import React, {
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  type SyntheticEvent,
+} from 'react'
 import type { ChannelMessageSource, Message } from '../app/types'
 import {
   formatChannelAvatarLabel,
@@ -46,6 +50,32 @@ export function shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc: string
 
 function buildVideoPreviewUrl(mediaUrl: string) {
   return mediaUrl.includes('#') ? mediaUrl : `${mediaUrl}#t=0.001`
+}
+
+function requestVideoPreviewFrame(event: SyntheticEvent<HTMLVideoElement>) {
+  const video = event.currentTarget
+
+  if (video.dataset.previewFrameRequested === 'true') {
+    return
+  }
+
+  video.dataset.previewFrameRequested = 'true'
+
+  if (!Number.isFinite(video.duration) || video.duration <= 0.001) {
+    return
+  }
+
+  queueMicrotask(() => {
+    try {
+      video.currentTime = 0.001
+    } catch {
+      video.dataset.previewFrameRequested = 'failed'
+    }
+  })
+}
+
+function keepVideoPreviewPaused(event: SyntheticEvent<HTMLVideoElement>) {
+  event.currentTarget.pause()
 }
 
 function AttachmentRemovedNoticeBlock({ notice }: AttachmentRemovedNoticeBlockProps) {
@@ -425,8 +455,11 @@ export function BubbleMessageContent({
               }`}
               aria-hidden="true"
               muted
+              onCanPlay={requestVideoPreviewFrame}
+              onLoadedMetadata={requestVideoPreviewFrame}
+              onSeeked={keepVideoPreviewPaused}
               playsInline
-              preload="metadata"
+              preload="auto"
             />
             <span className="bubble-attachment-play-button" aria-hidden="true">
               <span className="bubble-attachment-play-icon" />

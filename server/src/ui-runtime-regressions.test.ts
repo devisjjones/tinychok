@@ -256,9 +256,14 @@ test('video attachments render through the visual media preview flow and still o
   assert.match(bubbleSource, /const hasVisualAttachment = isImageAttachment \|\| isVideoAttachment/u)
   assert.match(bubbleSource, /isVideoMimeType\(message\.attachment\.mimeType\)/u)
   assert.match(bubbleSource, /buildVideoPreviewUrl\(message\.attachment\.mediaUrl\)/u)
+  assert.match(bubbleSource, /function requestVideoPreviewFrame\(event: SyntheticEvent<HTMLVideoElement>\)/u)
+  assert.match(bubbleSource, /function keepVideoPreviewPaused\(event: SyntheticEvent<HTMLVideoElement>\)/u)
   assert.match(bubbleSource, /bubble-attachment-video-preview/u)
   assert.match(bubbleSource, /bubble-attachment-play-button/u)
-  assert.match(bubbleSource, /<video[\s\S]*playsInline[\s\S]*preload="metadata"/u)
+  assert.match(
+    bubbleSource,
+    /<video[\s\S]*onCanPlay=\{requestVideoPreviewFrame\}[\s\S]*onLoadedMetadata=\{requestVideoPreviewFrame\}[\s\S]*onSeeked=\{keepVideoPreviewPaused\}[\s\S]*playsInline[\s\S]*preload="auto"/u,
+  )
   assert.doesNotMatch(bubbleSource, /bubble-attachment-badge-video/u)
   assert.doesNotMatch(bubbleSource, /\{isVideoAttachment \? 'Видео' : 'Файл'\}/u)
   assert.match(mediaViewerSource, /const isVideo = isVideoMimeType\(attachment\.mimeType\)/u)
