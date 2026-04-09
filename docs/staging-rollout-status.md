@@ -858,3 +858,6 @@ curl -s https://api.staging.tinychok.ru/healthz
 - `?analytics_debug=1`:
   - показывает local analytics dispatch в `Console`
   - не должен дублировать один и тот же `pageview`/`gif_search_used` без нового фактического действия
+- direct reply-preview:
+  - у второго участника tap по reply-preview обязан скроллить к оригиналу так же, как у автора ответа
+  - это должно работать и для новых direct replies, и для legacy сообщений, где в persisted mirrored copy раньше сохранился чужой `replyTo.id`

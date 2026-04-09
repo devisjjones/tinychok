@@ -1175,6 +1175,9 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - сообщение, пост или комментарий могут сохраниться без самого вложения
   - отдельные backup сроки не означают обещание бессрочного хранения пользовательских файлов
 - delete flow с повторным входом в комнату
+- direct reply-preview jump в личке:
+  - mirrored reply у второго участника должен ссылаться на локальный id его копии оригинального сообщения
+  - snapshot-path тоже обязан лечить старые persisted direct replies с уже неправильным `replyTo.id`, иначе tap-to-jump остаётся сломан после deploy
 - delete history for everyone in direct dialogs:
   - очищает комнату у обеих сторон
   - server-side история не удаляется физически, а архивируется

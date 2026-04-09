@@ -2684,6 +2684,7 @@ function materializeDialogMessage(
   database: Database,
   viewerIdentifier: string,
   message: PersistedDialogMessage,
+  replyTo: Message['replyTo'] = message.replyTo,
 ): Omit<PersistedDialogMessage, 'dialogId' | 'ownerIdentifier'> {
   const resolvedSourceContact = message.sourceContact ?? resolveContactSourceReferenceFromText(database, message.text)
   return {
@@ -2700,7 +2701,7 @@ function materializeDialogMessage(
     forwardedAuthorName: message.forwardedAuthorName,
     id: message.id,
     readAt: message.readAt,
-    replyTo: message.replyTo,
+    replyTo,
     sourceChannel:
       message.sourceChannel ??
       (resolvedSourceContact ? undefined : resolveChannelSourceReferenceFromText(database, message.text)),
@@ -2709,6 +2710,100 @@ function materializeDialogMessage(
     system: Boolean(message.system),
     text: message.text,
     time: message.time,
+  }
+}
+
+function matchesDirectReplyTarget(
+  message: PersistedDialogMessage,
+  replyTo: NonNullable<Message['replyTo']>,
+) {
+  return (
+    message.author === replyTo.author &&
+    sanitizeMessageText(message.text).slice(0, 280) === replyTo.text
+  )
+}
+
+function findMirroredDirectMessageInDialog(
+  dialogMessages: PersistedDialogMessage[],
+  sourceMessage: PersistedDialogMessage,
+) {
+  return (
+    dialogMessages.find((message) => {
+      if (message.archivedAt) {
+        return false
+      }
+
+      if (sourceMessage.deliveryId && message.deliveryId) {
+        return sourceMessage.deliveryId === message.deliveryId
+      }
+
+      return (
+        message.createdAt === sourceMessage.createdAt &&
+        message.text === sourceMessage.text &&
+        message.attachment?.mediaUrl === sourceMessage.attachment?.mediaUrl &&
+        message.author === invertMessageAuthor(sourceMessage.author)
+      )
+    }) ?? null
+  )
+}
+
+function remapDialogReplyTargetForViewer(
+  database: Database,
+  ownerIdentifier: string,
+  dialog: PersistedDialog,
+  dialogMessages: PersistedDialogMessage[],
+  replyTo?: Message['replyTo'],
+): Message['replyTo'] | undefined {
+  if (!replyTo || replyTo.id <= 0) {
+    return replyTo
+  }
+
+  const currentTarget = dialogMessages.find(
+    (message) => !message.archivedAt && message.id === replyTo.id,
+  )
+  if (currentTarget && matchesDirectReplyTarget(currentTarget, replyTo)) {
+    return replyTo
+  }
+
+  const peerIdentifier = normalizeStoredIdentifierReference(dialog.phone)
+  if (!peerIdentifier || isArchivedIdentifier(dialog.phone)) {
+    return replyTo
+  }
+
+  const peerDialog =
+    database.dialogs.find(
+      (candidate) =>
+        candidate.ownerIdentifier === peerIdentifier &&
+        normalizeStoredIdentifierReference(candidate.phone) === ownerIdentifier,
+    ) ?? null
+  if (!peerDialog) {
+    return replyTo
+  }
+
+  const peerSourceMessage =
+    database.dialogMessages.find(
+      (message) =>
+        message.ownerIdentifier === peerIdentifier &&
+        message.dialogId === peerDialog.id &&
+        message.id === replyTo.id &&
+        !message.archivedAt &&
+        matchesDirectReplyTarget(message, {
+          ...replyTo,
+          author: invertMessageAuthor(replyTo.author),
+        }),
+    ) ?? null
+  if (!peerSourceMessage) {
+    return replyTo
+  }
+
+  const mirroredMessage = findMirroredDirectMessageInDialog(dialogMessages, peerSourceMessage)
+  if (!mirroredMessage) {
+    return replyTo
+  }
+
+  return {
+    ...replyTo,
+    id: mirroredMessage.id,
   }
 }
 
@@ -3261,7 +3356,7 @@ function materializeFullChats(
       if ((contactAccount && isPublicDeletedAccount(contactAccount)) || isArchivedIdentifier(dialog.phone)) {
         return []
       }
-      const messages = database.dialogMessages
+      const persistedMessages = database.dialogMessages
         .filter(
           (message) =>
             message.ownerIdentifier === ownerIdentifier &&
@@ -3270,7 +3365,20 @@ function materializeFullChats(
         )
         // Direct "delete for everyone" archives messages server-side for admin recovery,
         // but those archived copies must disappear from every normal user snapshot/history view.
-        .map((message) => materializeDialogMessage(database, ownerIdentifier, message))
+      const messages = persistedMessages.map((message) =>
+        materializeDialogMessage(
+          database,
+          ownerIdentifier,
+          message,
+          remapDialogReplyTargetForViewer(
+            database,
+            ownerIdentifier,
+            dialog,
+            persistedMessages,
+            message.replyTo,
+          ),
+        ),
+      )
       const pinnedMessage =
         dialog.pinnedMessageId === undefined
           ? undefined
@@ -9406,11 +9514,13 @@ export class TinychokStore {
     if (recipientAccount) {
       const recipientDialog = this.ensureDialogForContact(recipientAccount.identifier, account)
       const recipientReplyTo: Message['replyTo'] = senderReplyTo
-        ? {
-            author: invertMessageAuthor(senderReplyTo.author),
-            id: senderReplyTo.id,
-            text: senderReplyTo.text,
-          }
+        ? this.remapDirectReplyTargetForRecipient(
+            account.identifier,
+            dialog.id,
+            recipientAccount.identifier,
+            recipientDialog.id,
+            senderReplyTo,
+          )
         : undefined
 
       // Messages carry only attachment metadata and a stable media URL.
@@ -14234,6 +14344,70 @@ export class TinychokStore {
           !message.archivedAt,
       ) ?? null
     )
+  }
+
+  private findDirectMessageById(
+    ownerIdentifier: string,
+    dialogId: number,
+    messageId: number,
+  ) {
+    return (
+      this.database.dialogMessages.find(
+        (message) =>
+          message.ownerIdentifier === ownerIdentifier &&
+          message.dialogId === dialogId &&
+          message.id === messageId &&
+          !message.archivedAt,
+      ) ?? null
+    )
+  }
+
+  private findMirroredDirectMessage(
+    ownerIdentifier: string,
+    dialogId: number,
+    sourceMessage: PersistedDialogMessage,
+  ) {
+    return (
+      this.database.dialogMessages.find((message) => {
+        if (
+          message.ownerIdentifier !== ownerIdentifier ||
+          message.dialogId !== dialogId ||
+          message.archivedAt
+        ) {
+          return false
+        }
+
+        if (sourceMessage.deliveryId && message.deliveryId) {
+          return sourceMessage.deliveryId === message.deliveryId
+        }
+
+        return (
+          message.createdAt === sourceMessage.createdAt &&
+          message.text === sourceMessage.text &&
+          message.attachment?.mediaUrl === sourceMessage.attachment?.mediaUrl &&
+          message.author === invertMessageAuthor(sourceMessage.author)
+        )
+      }) ?? null
+    )
+  }
+
+  private remapDirectReplyTargetForRecipient(
+    senderOwnerIdentifier: string,
+    senderDialogId: number,
+    recipientOwnerIdentifier: string,
+    recipientDialogId: number,
+    replyTo: NonNullable<Message['replyTo']>,
+  ): Message['replyTo'] {
+    const sourceMessage = this.findDirectMessageById(senderOwnerIdentifier, senderDialogId, replyTo.id)
+    const mirroredMessage = sourceMessage
+      ? this.findMirroredDirectMessage(recipientOwnerIdentifier, recipientDialogId, sourceMessage)
+      : null
+
+    return {
+      author: invertMessageAuthor(replyTo.author),
+      id: mirroredMessage?.id ?? 0,
+      text: replyTo.text,
+    }
   }
 
   private findExistingGroupMessageByDeliveryId(

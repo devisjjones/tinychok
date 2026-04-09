@@ -62,6 +62,26 @@ function createSession(database: Database, identifier: string, suffix: string) {
   return token
 }
 
+function addArchivedLocalOnlyDialogMessage(
+  database: Database,
+  ownerIdentifier: string,
+  dialogId: number,
+  id: number,
+  text: string,
+) {
+  database.dialogMessages.push({
+    archivedAt: '2026-03-29T00:05:00.000Z',
+    archivedReason: 'delete-message-me',
+    author: 'me',
+    createdAt: '2026-03-29T00:04:00.000Z',
+    dialogId,
+    id,
+    ownerIdentifier,
+    text,
+    time: '00:04',
+  })
+}
+
 test.before(() => {
   console.info = () => undefined
 })
@@ -161,6 +181,211 @@ test('accepting contact request creates canonical chats and system message with 
       text: 'Теперь можно писать',
     }),
   )
+})
+
+test('recipient direct copy remaps reply target id when sender replies to their own earlier message', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const sender = createAccount('+79990100013')
+  const recipient = createAccount('+79990100014')
+
+  database.accounts.push(sender, recipient)
+  const senderToken = createSession(database, sender.identifier, 'reply-own-sender')
+  const recipientToken = createSession(database, recipient.identifier, 'reply-own-recipient')
+
+  await store.openDirectDialog(senderToken, { identifier: recipient.identifier })
+  await store.sendContactRequest(senderToken, { identifier: recipient.identifier })
+  await store.acceptContactRequest(recipientToken, sender.identifier)
+
+  const initialSenderChat = store.getSnapshotByToken(senderToken)?.chats.find(
+    (chat) => chat.phone === recipient.identifier,
+  )
+  const initialRecipientChat = store.getSnapshotByToken(recipientToken)?.chats.find(
+    (chat) => chat.phone === sender.identifier,
+  )
+  assert.ok(initialSenderChat)
+  assert.ok(initialRecipientChat)
+
+  addArchivedLocalOnlyDialogMessage(
+    database,
+    sender.identifier,
+    initialSenderChat.id,
+    2,
+    'Локальный скрытый хвост отправителя',
+  )
+
+  await store.sendDirectMessage(senderToken, initialSenderChat.id, {
+    text: 'Первое сообщение автора',
+  })
+
+  const senderChatAfterFirstMessage = store.getSnapshotByToken(senderToken)?.chats.find(
+    (chat) => chat.phone === recipient.identifier,
+  )
+  const recipientChatAfterFirstMessage = store.getSnapshotByToken(recipientToken)?.chats.find(
+    (chat) => chat.phone === sender.identifier,
+  )
+  const senderOriginalMessage = senderChatAfterFirstMessage?.messages.at(-1)
+  const recipientOriginalMessage = recipientChatAfterFirstMessage?.messages.at(-1)
+  assert.ok(senderOriginalMessage)
+  assert.ok(recipientOriginalMessage)
+  assert.notEqual(senderOriginalMessage.id, recipientOriginalMessage.id)
+
+  await store.sendDirectMessage(senderToken, senderChatAfterFirstMessage!.id, {
+    replyTo: {
+      author: 'me',
+      id: senderOriginalMessage.id,
+      text: senderOriginalMessage.text,
+    },
+    text: 'Ответ на своё сообщение',
+  })
+
+  const recipientReplyMessage = store
+    .getSnapshotByToken(recipientToken)
+    ?.chats.find((chat) => chat.phone === sender.identifier)
+    ?.messages.at(-1)
+
+  assert.equal(recipientReplyMessage?.replyTo?.author, 'them')
+  assert.equal(recipientReplyMessage?.replyTo?.id, recipientOriginalMessage.id)
+  assert.equal(recipientReplyMessage?.replyTo?.text, 'Первое сообщение автора')
+})
+
+test('recipient direct copy remaps reply target id when sender replies to recipient earlier message', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const sender = createAccount('+79990100015')
+  const recipient = createAccount('+79990100016')
+
+  database.accounts.push(sender, recipient)
+  const senderToken = createSession(database, sender.identifier, 'reply-peer-sender')
+  const recipientToken = createSession(database, recipient.identifier, 'reply-peer-recipient')
+
+  await store.openDirectDialog(senderToken, { identifier: recipient.identifier })
+  await store.sendContactRequest(senderToken, { identifier: recipient.identifier })
+  await store.acceptContactRequest(recipientToken, sender.identifier)
+
+  const senderChat = store.getSnapshotByToken(senderToken)?.chats.find(
+    (chat) => chat.phone === recipient.identifier,
+  )
+  const recipientChat = store.getSnapshotByToken(recipientToken)?.chats.find(
+    (chat) => chat.phone === sender.identifier,
+  )
+  assert.ok(senderChat)
+  assert.ok(recipientChat)
+
+  addArchivedLocalOnlyDialogMessage(
+    database,
+    sender.identifier,
+    senderChat.id,
+    2,
+    'Локальный скрытый хвост отправителя',
+  )
+
+  await store.sendDirectMessage(recipientToken, recipientChat.id, {
+    text: 'Сообщение получателя',
+  })
+
+  const senderChatAfterPeerMessage = store.getSnapshotByToken(senderToken)?.chats.find(
+    (chat) => chat.phone === recipient.identifier,
+  )
+  const recipientChatAfterPeerMessage = store.getSnapshotByToken(recipientToken)?.chats.find(
+    (chat) => chat.phone === sender.identifier,
+  )
+  const senderVisiblePeerMessage = senderChatAfterPeerMessage?.messages.at(-1)
+  const recipientOwnMessage = recipientChatAfterPeerMessage?.messages.at(-1)
+  assert.ok(senderVisiblePeerMessage)
+  assert.ok(recipientOwnMessage)
+  assert.notEqual(senderVisiblePeerMessage.id, recipientOwnMessage.id)
+
+  await store.sendDirectMessage(senderToken, senderChatAfterPeerMessage!.id, {
+    replyTo: {
+      author: 'them',
+      id: senderVisiblePeerMessage.id,
+      text: senderVisiblePeerMessage.text,
+    },
+    text: 'Ответ на чужое сообщение',
+  })
+
+  const recipientReplyMessage = store
+    .getSnapshotByToken(recipientToken)
+    ?.chats.find((chat) => chat.phone === sender.identifier)
+    ?.messages.at(-1)
+
+  assert.equal(recipientReplyMessage?.replyTo?.author, 'me')
+  assert.equal(recipientReplyMessage?.replyTo?.id, recipientOwnMessage.id)
+  assert.equal(recipientReplyMessage?.replyTo?.text, 'Сообщение получателя')
+})
+
+test('direct snapshot and history repair legacy mirrored reply target ids for recipient viewer', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const sender = createAccount('+79990100017')
+  const recipient = createAccount('+79990100018')
+
+  database.accounts.push(sender, recipient)
+  const senderToken = createSession(database, sender.identifier, 'legacy-reply-sender')
+  const recipientToken = createSession(database, recipient.identifier, 'legacy-reply-recipient')
+
+  await store.openDirectDialog(senderToken, { identifier: recipient.identifier })
+  await store.sendContactRequest(senderToken, { identifier: recipient.identifier })
+  await store.acceptContactRequest(recipientToken, sender.identifier)
+
+  const senderChat = store.getSnapshotByToken(senderToken)?.chats.find(
+    (chat) => chat.phone === recipient.identifier,
+  )
+  const recipientChat = store.getSnapshotByToken(recipientToken)?.chats.find(
+    (chat) => chat.phone === sender.identifier,
+  )
+  assert.ok(senderChat)
+  assert.ok(recipientChat)
+
+  addArchivedLocalOnlyDialogMessage(
+    database,
+    sender.identifier,
+    senderChat.id,
+    2,
+    'Локальный скрытый хвост отправителя',
+  )
+
+  await store.sendDirectMessage(senderToken, senderChat.id, {
+    text: 'Старое сообщение автора',
+  })
+
+  const senderChatAfterFirstMessage = store.getSnapshotByToken(senderToken)?.chats.find(
+    (chat) => chat.phone === recipient.identifier,
+  )
+  const recipientChatAfterFirstMessage = store.getSnapshotByToken(recipientToken)?.chats.find(
+    (chat) => chat.phone === sender.identifier,
+  )
+  const senderOriginalMessage = senderChatAfterFirstMessage?.messages.at(-1)
+  const recipientOriginalMessage = recipientChatAfterFirstMessage?.messages.at(-1)
+  assert.ok(senderOriginalMessage)
+  assert.ok(recipientOriginalMessage)
+  assert.notEqual(senderOriginalMessage.id, recipientOriginalMessage.id)
+
+  await store.sendDirectMessage(senderToken, senderChatAfterFirstMessage!.id, {
+    replyTo: {
+      author: 'me',
+      id: senderOriginalMessage.id,
+      text: senderOriginalMessage.text,
+    },
+    text: 'Ответ с legacy reply id',
+  })
+
+  const recipientDialogMessageRows = database.dialogMessages.filter(
+    (message) =>
+      message.ownerIdentifier === recipient.identifier &&
+      message.dialogId === recipientChat.id &&
+      !message.archivedAt,
+  )
+  const recipientPersistedReply = recipientDialogMessageRows.at(-1)
+  assert.ok(recipientPersistedReply?.replyTo)
+  recipientPersistedReply.replyTo!.id = senderOriginalMessage.id
+
+  const recipientSnapshotReply = store
+    .getSnapshotByToken(recipientToken)
+    ?.chats.find((chat) => chat.phone === sender.identifier)
+    ?.messages.at(-1)
+  assert.equal(recipientSnapshotReply?.replyTo?.id, recipientOriginalMessage.id)
 })
 
 test('reject resets pending contact request and allows sending it again', async () => {
