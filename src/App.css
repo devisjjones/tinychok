@@ -4055,6 +4055,7 @@
   position: fixed;
   pointer-events: none;
   z-index: 7;
+  gap: 3px;
   width: min(520px, 78%);
   max-width: none;
 }

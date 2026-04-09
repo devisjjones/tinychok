@@ -2213,6 +2213,7 @@ test('standard group text bubbles render the author strip above the bubble inste
 test('selected message overlays anchor to the full author-strip layout and can nudge the feed instead of drifting', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const anchoredMenuSource = readFileSync(join(repoRoot, 'src', 'app', 'useAnchoredMenu.ts'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(anchoredMenuSource, /function getActionAnchorRoot\(element: HTMLElement\)/u)
   assert.match(anchoredMenuSource, /element\.closest<HTMLElement>\('\.bubble-author-layout'\) \?\? element/u)
@@ -2225,6 +2226,7 @@ test('selected message overlays anchor to the full author-strip layout and can n
   assert.match(anchoredMenuSource, /const scrollContainer = element\.closest<HTMLElement>\('\.message-feed'\)/u)
   assert.match(anchoredMenuSource, /scrollContainer\.scrollTop \+= scrollDelta/u)
   assert.match(anchoredMenuSource, /setAnchor\(getActionAnchor\(element, align\)\)/u)
+  assert.match(appCss, /\.bubble-overlay-author-layout \{[\s\S]*gap:\s*3px;/u)
 })
 
 test('group captioned media bubbles keep a dedicated author-safe layout in room and selected overlay', () => {
