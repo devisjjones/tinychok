@@ -1,17 +1,58 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ActionAnchor } from './types'
 
+function getActionAnchorRoot(element: HTMLElement) {
+  return element.closest<HTMLElement>('.bubble-author-layout') ?? element
+}
+
+function getActionAnchorMeasureElement(root: HTMLElement, fallbackElement: HTMLElement) {
+  return (
+    root.querySelector<HTMLElement>('[data-bubble-measure="true"]') ??
+    fallbackElement.querySelector<HTMLElement>('[data-bubble-measure="true"]') ??
+    fallbackElement
+  )
+}
+
 function getActionAnchor(element: HTMLElement, align: 'start' | 'end' = 'start'): ActionAnchor {
-  const rect = element.getBoundingClientRect()
+  const root = getActionAnchorRoot(element)
+  const rect = root.getBoundingClientRect()
+  const measureRect = getActionAnchorMeasureElement(root, element).getBoundingClientRect()
 
   return {
     top: rect.top,
     bottom: rect.bottom,
-    left: rect.left,
-    right: rect.right,
-    width: rect.width,
+    left: measureRect.left,
+    right: measureRect.right,
+    width: measureRect.width,
     align,
   }
+}
+
+function getOverlaySafeBottom(viewportInset: number) {
+  const composerSelectors = ['.composer', '.composer-disabled', '.settings-support-composer', '.channel-room-footer']
+  const candidateTops = composerSelectors.flatMap((selector) =>
+    Array.from(document.querySelectorAll<HTMLElement>(selector))
+      .map((node) => node.getBoundingClientRect())
+      .filter((rect) => rect.height > 0 && rect.width > 0 && rect.top < window.innerHeight && rect.bottom > 0)
+      .map((rect) => Math.max(viewportInset, rect.top - 8)),
+  )
+
+  return candidateTops.length > 0
+    ? Math.min(window.innerHeight - viewportInset, ...candidateTops)
+    : window.innerHeight - viewportInset
+}
+
+function getDesiredActionOverlayTop(anchor: ActionAnchor) {
+  const viewportInset = 16
+  const safeBottom = getOverlaySafeBottom(viewportInset)
+  const overlayHeight = Math.max(0, anchor.bottom - anchor.top)
+  const maxHeight = Math.max(0, safeBottom - viewportInset)
+  const boundedHeight = Math.min(overlayHeight, maxHeight)
+
+  return Math.min(
+    Math.max(viewportInset, anchor.top),
+    Math.max(viewportInset, safeBottom - boundedHeight),
+  )
 }
 
 export function scheduleActionAnchor(
@@ -21,7 +62,21 @@ export function scheduleActionAnchor(
 ) {
   window.requestAnimationFrame(() => {
     if (!element.isConnected) return
-    setAnchor(getActionAnchor(element, align))
+    const nextAnchor = getActionAnchor(element, align)
+    const desiredTop = getDesiredActionOverlayTop(nextAnchor)
+    const scrollDelta = nextAnchor.top - desiredTop
+    const scrollContainer = element.closest<HTMLElement>('.message-feed')
+
+    if (scrollContainer && Math.abs(scrollDelta) >= 1) {
+      scrollContainer.scrollTop += scrollDelta
+      window.requestAnimationFrame(() => {
+        if (!element.isConnected) return
+        setAnchor(getActionAnchor(element, align))
+      })
+      return
+    }
+
+    setAnchor(nextAnchor)
   })
 }
 

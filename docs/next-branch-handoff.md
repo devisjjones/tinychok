@@ -182,6 +182,10 @@
   - same-author bubble gap = `3px`
   - author-change block gap = `12px`
   - sender-strip стартует по той же левой линии, что и bubble под ним
+- selected message overlay contract:
+  - для bubble с внешним sender-strip action anchor нельзя мерить только по inner bubble
+  - overlay и оригинальное сообщение должны совпадать по геометрии
+  - если full block не помещается в viewport-safe area, подскролливается `.message-feed`, а не дрейфует сам overlay
 
 ### PostgreSQL Runtime Layout
 

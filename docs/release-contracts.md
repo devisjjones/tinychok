@@ -143,6 +143,8 @@
   - подряд идущие сообщения того же автора не должны повторно рендерить sender-strip
   - same-author gap в group room должен оставаться `3px`, а при смене автора возвращаться к `12px`
   - sender-strip должен стартовать по той же левой линии, что и bubble под ним, без дополнительного horizontal inset
+  - selected message overlay не должен мериться только по inner bubble, если визуальный блок сообщения включает sender-strip
+  - при открытии message-menu overlay и исходное сообщение должны совпадать по геометрии; если block не помещается, подскролливается room feed, а не уезжает сам overlay-bubble относительно оригинала
 - support scene contracts считаются release-blocking:
   - unread staff reply должен быть виден и на кнопке `Написать в поддержку`, и на launcher-кнопке `Настройки`
   - tap по всей карточке тикета должен открывать его thread-room

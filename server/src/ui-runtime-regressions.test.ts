@@ -2210,6 +2210,23 @@ test('standard group text bubbles render the author strip above the bubble inste
   assert.match(appCss, /\.bubble-overlay-author-layout/u)
 })
 
+test('selected message overlays anchor to the full author-strip layout and can nudge the feed instead of drifting', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const anchoredMenuSource = readFileSync(join(repoRoot, 'src', 'app', 'useAnchoredMenu.ts'), 'utf8')
+
+  assert.match(anchoredMenuSource, /function getActionAnchorRoot\(element: HTMLElement\)/u)
+  assert.match(anchoredMenuSource, /element\.closest<HTMLElement>\('\.bubble-author-layout'\) \?\? element/u)
+  assert.match(anchoredMenuSource, /function getActionAnchorMeasureElement/u)
+  assert.match(anchoredMenuSource, /\[data-bubble-measure="true"\]/u)
+  assert.match(anchoredMenuSource, /top: rect\.top,/u)
+  assert.match(anchoredMenuSource, /left: measureRect\.left,/u)
+  assert.match(anchoredMenuSource, /width: measureRect\.width,/u)
+  assert.match(anchoredMenuSource, /function getDesiredActionOverlayTop\(anchor: ActionAnchor\)/u)
+  assert.match(anchoredMenuSource, /const scrollContainer = element\.closest<HTMLElement>\('\.message-feed'\)/u)
+  assert.match(anchoredMenuSource, /scrollContainer\.scrollTop \+= scrollDelta/u)
+  assert.match(anchoredMenuSource, /setAnchor\(getActionAnchor\(element, align\)\)/u)
+})
+
 test('group captioned media bubbles keep a dedicated author-safe layout in room and selected overlay', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
