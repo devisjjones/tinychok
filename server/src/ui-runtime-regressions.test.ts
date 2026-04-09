@@ -1069,6 +1069,10 @@ test('thread source attachments stay compact previews instead of full-room media
   assert.match(appCssSource, /\.room-thread-source > \.bubble-stack\.channel \{/u)
   assert.match(appCssSource, /width: calc\(100% \+ 36px\);/u)
   assert.match(appCssSource, /margin: 0 -18px;/u)
+  assert.match(
+    appCssSource,
+    /\.room-thread-header\.room-header \{[\s\S]*border-bottom-left-radius: 0;[\s\S]*border-bottom-right-radius: 0;[\s\S]*border-bottom-color: transparent;/u,
+  )
   assert.match(appCssSource, /\.room-thread-source \.channel-post\.room-thread-source-bubble,/u)
   assert.match(appCssSource, /max-width: 100%;/u)
   assert.match(appCssSource, /box-sizing: border-box;/u)
@@ -1077,6 +1081,9 @@ test('thread source attachments stay compact previews instead of full-room media
     /\.room-thread-source > \.bubble-stack > \.bubble-stack-main > \.room-thread-source-bubble,\s*\.room-thread-source > \.room-thread-source-bubble \{/u,
   )
   assert.match(appCssSource, /justify-self: stretch;/u)
+  assert.match(appCssSource, /border-top-left-radius: 0;/u)
+  assert.match(appCssSource, /border-top-right-radius: 0;/u)
+  assert.match(appCssSource, /background:\s*linear-gradient\(180deg, rgba\(255, 254, 251, 0.985\) 0%, rgba\(255, 251, 245, 0.95\) 100%\);/u)
   assert.match(
     appCssSource,
     /\.room-thread-source\s*>\s*\.bubble-stack\s*>\s*\.bubble-stack-main\s*>\s*\.room-thread-source-bubble\.room-thread-source-bubble-inline-time,\s*\.room-thread-source > \.room-thread-source-bubble\.room-thread-source-bubble-inline-time \{/u,
@@ -1151,11 +1158,11 @@ test('thread source image cards use dedicated full-width card layouts for captio
   )
   assert.match(
     appCssSource,
-    /\.room-thread-source[\s\S]*\.room-thread-source-bubble:not\(\.mine\)\.room-thread-source-bubble-thumbnail-image-only-card[\s\S]*\.bubble-attachment-photo-thread-source-card[\s\S]*border-radius: 24px 0 0 8px;/u,
+    /\.room-thread-source[\s\S]*\.room-thread-source-bubble\.room-thread-source-bubble-thumbnail-image-only-card[\s\S]*\.bubble-attachment-photo-thread-source-card[\s\S]*border-radius: 0 0 0 24px;/u,
   )
   assert.match(
     appCssSource,
-    /\.room-thread-source[\s\S]*\.room-thread-source-bubble:not\(\.mine\)\.room-thread-source-bubble-thumbnail-captioned[\s\S]*\.bubble-attachment-image-thread-source-card[\s\S]*border-radius: 24px 0 0 8px;/u,
+    /\.room-thread-source[\s\S]*\.room-thread-source-bubble\.room-thread-source-bubble-thumbnail-captioned[\s\S]*\.bubble-attachment-image-thread-source-card[\s\S]*border-radius: 0 0 0 24px;/u,
   )
 })
 

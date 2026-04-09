@@ -6770,6 +6770,12 @@
   align-items: flex-start;
 }
 
+.room-thread-header.room-header {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+}
+
 .room-thread-header .room-id {
   flex: 1 1 auto;
 }
@@ -6831,6 +6837,16 @@
   max-width: 100%;
   justify-self: stretch;
   box-sizing: border-box;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: 24px;
+  border-bottom-right-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 254, 251, 0.985) 0%, rgba(255, 251, 245, 0.95) 100%);
+  color: var(--ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.58),
+    0 10px 24px rgba(93, 63, 39, 0.04);
 }
 
 .room-thread-source > .room-thread-source-bubble {
@@ -6844,6 +6860,15 @@
   display: block;
   overflow: visible;
   -webkit-line-clamp: unset;
+}
+
+.room-thread-source .room-thread-source-bubble .bubble-text-link {
+  color: #8d5939;
+}
+
+.room-thread-source .room-thread-source-bubble .bubble-reply,
+.room-thread-source .room-thread-source-bubble .bubble-reply-reference {
+  background: rgba(77, 58, 46, 0.08);
 }
 
 .room-thread-source
@@ -7135,6 +7160,41 @@
   > .room-thread-source-bubble:not(.mine).room-thread-source-bubble-thumbnail-captioned
   .bubble-attachment-image-thread-source-card {
   border-radius: 24px 0 0 8px;
+}
+
+.room-thread-source
+  > .bubble-stack
+  > .bubble-stack-main
+  > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-image-only-card
+  .bubble-attachment-photo-thread-source-card,
+.room-thread-source
+  > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-image-only-card
+  .bubble-attachment-photo-thread-source-card,
+.room-thread-source
+  > .bubble-stack
+  > .bubble-stack-main
+  > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-captioned
+  .bubble-attachment-photo-thread-source-card,
+.room-thread-source
+  > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-captioned
+  .bubble-attachment-photo-thread-source-card,
+.room-thread-source
+  > .bubble-stack
+  > .bubble-stack-main
+  > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-image-only-card
+  .bubble-attachment-image-thread-source-card,
+.room-thread-source
+  > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-image-only-card
+  .bubble-attachment-image-thread-source-card,
+.room-thread-source
+  > .bubble-stack
+  > .bubble-stack-main
+  > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-captioned
+  .bubble-attachment-image-thread-source-card,
+.room-thread-source
+  > .room-thread-source-bubble.room-thread-source-bubble-thumbnail-captioned
+  .bubble-attachment-image-thread-source-card {
+  border-radius: 0 0 0 24px;
 }
 
 .room-thread-feed {

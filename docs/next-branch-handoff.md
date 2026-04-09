@@ -186,6 +186,7 @@
   - между root/source card и первым комментарием нужен gap `12px`
   - не возвращать это через общий `padding-top` на `.room-thread-feed`, иначе снова появляется пустая полоска под root/source card
   - у image-only root/source card `time` должно жить в правой колонке карточки, а не в центральной колонке сразу после картинки
+  - root/source card и header используют один светлый thread surface; внутренние радиусы на их стыке должны быть обнулены, а `mine`-path не должен перекрашивать source card в тёмный bubble
 - selected message overlay contract:
   - для bubble с внешним sender-strip action anchor нельзя мерить только по inner bubble
   - overlay и оригинальное сообщение должны совпадать по геометрии
