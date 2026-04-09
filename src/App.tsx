@@ -2646,13 +2646,6 @@ function App() {
         activeGroup.messages.find((message) => message.id === threadTarget.messageId) ??
         null
       : null
-  const activeThreadGroup =
-    threadTarget?.kind === 'group'
-      ? (activeGroup?.id === threadTarget.groupId
-          ? activeGroup
-          : groups.find((group) => group.id === threadTarget.groupId) ?? null)
-      : null
-  const threadGroupMessageParticipant = resolveGroupParticipant(activeThreadGroup, threadGroupMessage)
   const threadChannelPost =
     threadTarget?.kind === 'channel' && currentSubscriptionChannel?.id === threadTarget.channelId
       ? visibleSubscriptionPosts.find((post) => post.id === threadTarget.postId) ??
@@ -13197,27 +13190,12 @@ function App() {
                 !threadGroupMessage.attachmentRemovedNotice
               const usesThumbnailImageLayout =
                 hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout
-              const threadSourceAuthorNode =
-                threadGroupMessage.author === 'me'
-                  ? null
-                  : renderThreadAuthorNode(
-                      threadGroupMessageParticipant,
-                      threadGroupMessage.displayAuthor ?? 'Участник',
-                    )
-              const hasCaptionedSourceHeader = usesCaptionedImageCardLayout && Boolean(threadSourceAuthorNode)
-              const shouldRenderExternalThreadSourceAuthor =
-                Boolean(threadSourceAuthorNode) && !isImageOnlyBubble && !usesCaptionedImageCardLayout
               const threadSourceBubble = isImageOnlyBubble ? (
                 <MediaOnlyBubbleRow
                   bubbleClassName={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
                   mine={threadGroupMessage.author === 'me'}
                   semantic="article"
                 >
-                  {threadSourceAuthorNode ? (
-                    <div className="bubble-media-header bubble-media-header-captioned">
-                      {threadSourceAuthorNode}
-                    </div>
-                  ) : null}
                   <BubbleMessageContent
                     attachmentLayout={
                       usesCaptionedImageCardLayout || usesImageOnlyCardLayout
@@ -13262,11 +13240,6 @@ function App() {
                 <article
                   className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
                 >
-                  {hasCaptionedSourceHeader ? (
-                    <div className="bubble-media-header bubble-media-header-captioned">
-                      {threadSourceAuthorNode}
-                    </div>
-                  ) : null}
                   <BubbleMessageContent
                     attachmentLayout={
                       usesCaptionedImageCardLayout || usesImageOnlyCardLayout
@@ -13316,14 +13289,7 @@ function App() {
                 />
               )
 
-              return shouldRenderExternalThreadSourceAuthor ? (
-                <div className="bubble-author-layout room-thread-source-author-layout">
-                  <div className="bubble-author-strip">{threadSourceAuthorNode}</div>
-                  {threadSourceBubbleWithReply}
-                </div>
-              ) : (
-                threadSourceBubbleWithReply
-              )
+              return threadSourceBubbleWithReply
             })()
           ) : threadTarget.kind === 'channel' && threadChannelPost ? (
             (() => {

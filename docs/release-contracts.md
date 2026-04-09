@@ -711,3 +711,6 @@
   - `media-bubble-row` обязан clamp-иться к viewport
   - bubble track обязан быть shrinkable через `minmax(0, 1fr)`
   - portrait video не должен создавать horizontal scroll
+- в открытом треде корневая `room-thread-source` карточка не должна показывать автора сообщения:
+  - author-strip и media-header автора допустимы только у комментариев внутри треда
+  - root source остаётся compact reference-card без имени/аватарки автора

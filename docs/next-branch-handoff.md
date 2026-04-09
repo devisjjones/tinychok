@@ -1214,3 +1214,6 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - clamp to viewport width
   - keep a shrinkable bubble column
   - never widen the room from sender-owned portrait video bubbles
+- thread root source:
+  - корневая карточка в открытом треде не должна рендерить имя/аватар автора сообщения
+  - author-strip остаётся только у комментариев внутри треда

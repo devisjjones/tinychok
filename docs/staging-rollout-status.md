@@ -869,3 +869,6 @@ curl -s https://api.staging.tinychok.ru/healthz
 - mobile media/video bubble:
   - отправленное видео не должно раздвигать direct room вправо
   - `media-bubble-row` остаётся зажатым в viewport, bubble track shrinkable, horizontal overflow отсутствует
+- thread root source:
+  - в открытом треде корневое сообщение не должно показывать author-strip автора
+  - author/avatar допустимы только у самих комментариев, а не у `room-thread-source`
