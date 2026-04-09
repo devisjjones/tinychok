@@ -434,6 +434,7 @@
   - даже на узком телефоне avatar и profile-copy не должны распадаться в две вертикальные колонки
   - mobile display name справа от avatar должен быть меньше desktop headline
   - mobile rail не должен держать большие двойные боковые отступы; account header, filters, bottom-nav и contact cards должны занимать ширину ближе к viewport edges
+  - mobile room headers держат tall-pill buttons: узкий back-pill слева и более широкие star/menu pills справа, без возврата к круглым `32x32`
   - mobile main-list shell должен оставаться fixed-height: нижний nav pinned к низу viewport, скролл уходит в `chat-list`, а не во весь shell
   - mobile main-list/main-room не должны прокручиваться как весь document: shell pinned к viewport, overscroll chaining наружу запрещён
   - при regression на мобильном браузере проверять не только `.shell-main-list/.shell-main-room`, но и `html/body/#root`: document root тоже должен быть locked к viewport

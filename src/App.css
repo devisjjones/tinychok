@@ -7795,13 +7795,20 @@
 
   .room-header {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
 
   .room-mobile-back {
     display: inline-grid;
+    width: 34px;
+    min-width: 34px;
+    height: 54px;
+    min-height: 54px;
+    border-radius: 16px;
+    justify-self: start;
+    box-shadow: 0 10px 24px rgba(17, 18, 20, 0.08);
   }
 
   .room-actions {
@@ -7809,6 +7816,8 @@
     width: auto;
     margin-left: 0;
     justify-content: flex-end;
+    align-items: stretch;
+    gap: 8px;
   }
 
   .room-id {
@@ -7824,6 +7833,21 @@
 
   .room-title-name {
     flex-wrap: wrap;
+  }
+
+  .room-menu-button,
+  .room-star,
+  .room-group-actions-toggle {
+    width: 42px;
+    min-width: 42px;
+    height: 54px;
+    min-height: 54px;
+    border-radius: 16px;
+    box-shadow: 0 10px 24px rgba(17, 18, 20, 0.08);
+  }
+
+  .room-group-actions-toggle {
+    align-self: center;
   }
 
   .settings-panel {
@@ -8622,9 +8646,9 @@
 
   .room-header {
     margin: -16px -16px 0;
-    padding: 11px 12px 10px;
+    padding: 10px 10px 9px;
     border-radius: 18px 18px 16px 16px;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: 30px minmax(0, 1fr) auto;
     gap: 6px;
   }
 
@@ -8662,12 +8686,22 @@
     gap: 6px;
   }
 
+  .room-mobile-back {
+    min-width: 30px;
+    width: 30px;
+    height: 50px;
+    min-height: 50px;
+    border-radius: 15px;
+  }
+
   .room-menu-button,
   .room-star,
-  .room-mobile-back {
-    min-width: 32px;
-    width: 32px;
-    height: 32px;
+  .room-group-actions-toggle {
+    min-width: 38px;
+    width: 38px;
+    height: 50px;
+    min-height: 50px;
+    border-radius: 15px;
   }
 
   .settings-panel {

@@ -110,6 +110,7 @@
 - `logout` обязан инвалидировать текущую server session и сразу выбрасывать token из live presence registry
 - отсутствие активного websocket должно быстро убирать `В сети`
 - в шапке direct room online presence показываем зелёной точкой на аватарке, а не текстом `В сети`
+- mobile room headers не должны раздуваться круглыми action-buttons: back остаётся узким tall-pill слева, а star/menu — чуть более широкими tall-pill кнопками с лёгкой тенью
 
 ### 8. Websocket / Realtime Contract
 

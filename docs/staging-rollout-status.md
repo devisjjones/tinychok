@@ -541,6 +541,7 @@
   - длинный direct-room status на mobile по умолчанию должен схлопываться до `2` строк
   - toggle в статусе должен раскрывать и снова сворачивать текст, не ломая desktop header
   - outer mobile gutters у account header, filters, bottom-nav и contact cards должны быть уменьшены; эти surface должны тянуться ближе к краям viewport
+  - mobile room headers должны держать узкие tall-pill buttons: back слева уже menu/star, а action-buttons справа не должны возвращаться к круглым `32x32`
   - bottom-nav на mobile main-list должен оставаться pinned к низу viewport; вниз скроллится только лента карточек
   - mobile browser не должен уметь тянуть весь main-list/main-room document вверх или вниз поверх viewport; overscroll остаётся внутри ленты
   - mobile browser не должен уметь утащить весь `html/body/#root` поверх pinned shell; viewport lock должен держаться и на уровне document root
