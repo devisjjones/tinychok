@@ -7587,15 +7587,21 @@
   }
 
   .shell-main-room {
+    position: fixed;
+    inset: 0;
     height: 100vh;
     height: 100dvh;
     overflow: hidden;
+    overscroll-behavior: none;
   }
 
   .shell-main-list {
+    position: fixed;
+    inset: 0;
     height: 100vh;
     height: 100dvh;
     overflow: hidden;
+    overscroll-behavior: none;
   }
 
   .shell-main-list .stage {
@@ -7646,6 +7652,7 @@
     padding-top: 3px;
     padding-inline: 8px;
     padding-bottom: 2px;
+    overscroll-behavior-y: contain;
   }
 
   .filter-badge {
