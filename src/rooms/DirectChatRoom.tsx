@@ -5,7 +5,7 @@ import type {
   ReactNode,
   RefObject,
 } from 'react'
-import { Fragment, useEffect, useRef } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import type { ChannelMessageSource, Chat, Message, ReplyTarget, UserGifLibraryItem } from '../app/types'
 import {
@@ -179,11 +179,16 @@ export function DirectChatRoom({
   storageCleanupWarning = null,
 }: DirectChatRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const roomPresenceBlockRef = useRef<HTMLDivElement | null>(null)
+  const roomPresenceMeasureRef = useRef<HTMLDivElement | null>(null)
   const effectiveVisibleMessages = activeChat.archivedAccount ? [] : visibleMessages
   const effectiveComposerDisabledNotice =
     composerDisabledNotice ?? (activeChat.archivedAccount ? 'Аккаунт удалён. Переписка недоступна.' : null)
   const effectiveComposerGate = effectiveComposerDisabledNotice ? null : composerGate
   const canSubmitComposer = attachmentDraft ? attachmentDraft.status === 'ready' : draft.trim().length > 0
+  const roomPresenceText = formatRoomPresence(activeChat).trim() || '\u00A0'
+  const [roomStatusExpanded, setRoomStatusExpanded] = useState(false)
+  const [roomStatusExpandable, setRoomStatusExpandable] = useState(false)
   const composerPlaceholder = attachmentDraft
     ? isImageMimeType(attachmentDraft.mimeType)
       ? 'Добавьте подпись к фотографии...'
@@ -233,6 +238,64 @@ export function DirectChatRoom({
       draftInputRef.current?.focus()
     })
   }, [activeChat.id, activeChat.archivedAccount, effectiveComposerDisabledNotice, effectiveComposerGate])
+
+  useEffect(() => {
+    setRoomStatusExpanded(false)
+  }, [activeChat.id, roomPresenceText])
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const block = roomPresenceBlockRef.current
+    const measure = roomPresenceMeasureRef.current
+    if (!block || !measure || !roomPresenceText.trim()) {
+      setRoomStatusExpandable(false)
+      return
+    }
+
+    let animationFrameId = 0
+    let resizeObserver: ResizeObserver | null = null
+
+    const syncExpandableState = () => {
+      const isMobileViewport = window.matchMedia('(max-width: 640px)').matches
+      if (!isMobileViewport) {
+        setRoomStatusExpandable(false)
+        return
+      }
+
+      const computedMeasureStyles = window.getComputedStyle(measure)
+      const fontSize = Number.parseFloat(computedMeasureStyles.fontSize) || 16
+      const lineHeight = Number.parseFloat(computedMeasureStyles.lineHeight) || fontSize * 1.25
+      const maxCollapsedHeight = lineHeight * 2 + 1
+      const nextExpandable = measure.scrollHeight > maxCollapsedHeight
+
+      setRoomStatusExpandable((previous) => (previous === nextExpandable ? previous : nextExpandable))
+      if (!nextExpandable) {
+        setRoomStatusExpanded(false)
+      }
+    }
+
+    const scheduleSync = () => {
+      window.cancelAnimationFrame(animationFrameId)
+      animationFrameId = window.requestAnimationFrame(syncExpandableState)
+    }
+
+    scheduleSync()
+    window.addEventListener('resize', scheduleSync)
+
+    if ('ResizeObserver' in window) {
+      resizeObserver = new ResizeObserver(scheduleSync)
+      resizeObserver.observe(block)
+    }
+
+    return () => {
+      window.removeEventListener('resize', scheduleSync)
+      if (resizeObserver) {
+        resizeObserver.disconnect()
+      }
+      window.cancelAnimationFrame(animationFrameId)
+    }
+  }, [roomPresenceText])
 
   function jumpToMessage(messageId: number) {
     if (onReplyReferenceJump) {
@@ -290,7 +353,32 @@ export function DirectChatRoom({
                 {activeChat.online ? <span className="room-online-label">В сети</span> : null}
               </div>
             </div>
-            <p>{formatRoomPresence(activeChat)}</p>
+            <div
+              ref={roomPresenceBlockRef}
+              className={`room-presence-block${roomStatusExpanded ? ' room-presence-block-expanded' : ''}`}
+            >
+              <p
+                className={`room-presence-text${
+                  roomStatusExpandable ? ' room-presence-text-toggleable' : ''
+                }${roomStatusExpanded ? ' room-presence-text-expanded' : ' room-presence-text-collapsed'}`}
+              >
+                {roomPresenceText}
+              </p>
+              {roomStatusExpandable ? (
+                <button
+                  type="button"
+                  className={`room-presence-toggle${roomStatusExpanded ? ' is-expanded' : ''}`}
+                  onClick={() => setRoomStatusExpanded((previous) => !previous)}
+                  aria-label={roomStatusExpanded ? 'Свернуть статус' : 'Показать полный статус'}
+                  aria-expanded={roomStatusExpanded}
+                >
+                  <img src="/icons/back.png" alt="" aria-hidden="true" />
+                </button>
+              ) : null}
+              <div ref={roomPresenceMeasureRef} className="room-presence-text room-presence-text-measure" aria-hidden="true">
+                {roomPresenceText}
+              </div>
+            </div>
           </div>
         </div>
         <div className="room-actions">

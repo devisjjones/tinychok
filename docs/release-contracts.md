@@ -545,6 +545,8 @@
   - это нужно, чтобы viewer-facing UI не подменял автора цитаты двусмысленным `Вы`
 - mobile viewport тоже входит в контракт:
   - composer не должен давать horizontal overflow на `390px` ширине
+  - direct-room status на mobile по умолчанию clamp-ится до `2` строк
+  - если статус длиннее двух строк, toggle обязан раскрывать и обратно сворачивать весь текст без ломания desktop header
 - profile-scene на узком mobile не должен ронять avatar и display name в две отдельные вертикальные колонки:
   - avatar и profile-copy должны оставаться в одном row-layout
   - mobile headline справа от avatar должен ужиматься, чтобы имя помещалось в header-block

@@ -4974,6 +4974,29 @@ test('opening a writable room focuses the composer immediately', () => {
   assert.match(appSource, /settingsView !== 'support'/u)
 })
 
+test('mobile direct-room status clamps to two lines with explicit expand and collapse toggle', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(directRoomSource, /const roomPresenceText = formatRoomPresence\(activeChat\)\.trim\(\) \|\| '\\u00A0'/u)
+  assert.match(directRoomSource, /const \[roomStatusExpanded, setRoomStatusExpanded\] = useState\(false\)/u)
+  assert.match(directRoomSource, /const \[roomStatusExpandable, setRoomStatusExpandable\] = useState\(false\)/u)
+  assert.match(directRoomSource, /window\.matchMedia\('\(max-width: 640px\)'\)\.matches/u)
+  assert.match(directRoomSource, /room-presence-block/u)
+  assert.match(directRoomSource, /room-presence-text-toggleable/u)
+  assert.match(directRoomSource, /room-presence-toggle/u)
+  assert.match(directRoomSource, /aria-label=\{roomStatusExpanded \? 'Свернуть статус' : 'Показать полный статус'\}/u)
+  assert.match(directRoomSource, /<img src="\/icons\/back\.png" alt="" aria-hidden="true" \/>/u)
+
+  assert.match(appCss, /\.room-presence-text-toggleable\s*\{[\s\S]*padding-right:\s*24px;/u)
+  assert.match(appCss, /\.room-presence-text-toggleable\.room-presence-text-collapsed\s*\{[\s\S]*-webkit-line-clamp:\s*2;/u)
+  assert.match(appCss, /\.room-presence-toggle\s*\{[\s\S]*position:\s*absolute;[\s\S]*bottom:\s*0;/u)
+  assert.match(appCss, /\.room-presence-toggle img\s*\{[\s\S]*transform:\s*rotate\(-90deg\);/u)
+  assert.match(appCss, /\.room-presence-toggle\.is-expanded img\s*\{[\s\S]*transform:\s*rotate\(90deg\);/u)
+  assert.match(appCss, /\.room-presence-block-expanded\s+\.room-presence-toggle\s*\{[\s\S]*position:\s*static;/u)
+})
+
 test('owned groups and channels show the edit badge in the left rail and room headers', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')

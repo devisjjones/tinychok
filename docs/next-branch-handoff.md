@@ -414,6 +414,10 @@
   - direct / generic thread держат общий compact textarea contract
   - idle textarea у общего composer держим визуально однострочной
   - mobile `390px` не даёт horizontal overflow у composer-а
+- direct-room mobile status contract:
+  - длинный статус в шапке по умолчанию clamp-ится до `2` строк
+  - toggle раскрывает полный текст и должен уметь обратно свернуть его
+  - desktop header при этом не должен получать toggle и не должен менять свой обычный layout
 - profile-scene mobile contract:
   - даже на узком телефоне avatar и profile-copy не должны распадаться в две вертикальные колонки
   - mobile display name справа от avatar должен быть меньше desktop headline
