@@ -7494,6 +7494,11 @@
     padding: 13px 94px 16px 14px;
   }
 
+  .settings-support-composer textarea {
+    min-height: 124px;
+    padding: 16px 76px 16px 18px;
+  }
+
   .composer {
     padding: 0;
   }

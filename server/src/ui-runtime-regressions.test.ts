@@ -2971,6 +2971,7 @@ test('support chat contract stays wired through app, store, admin surface and do
   assert.match(appCss, /\.composer\.settings-item\.settings-support-composer\s*\{[\s\S]*padding:\s*0;[\s\S]*background:\s*transparent;/u)
   assert.match(appCss, /\.settings-support-composer textarea\s*\{[\s\S]*min-height:\s*124px;[\s\S]*padding:\s*16px 76px 16px 18px;/u)
   assert.match(appCss, /\.settings-support-composer \.composer-tools\s*\{[\s\S]*right:\s*14px;[\s\S]*bottom:\s*14px;/u)
+  assert.match(appCss, /@media[\s\S]*\.settings-support-composer textarea\s*\{[\s\S]*min-height:\s*124px;[\s\S]*padding:\s*16px 76px 16px 18px;/u)
   assert.match(appCss, /\.support-ticket-status-badge-resolved/u)
   assert.match(appCss, /\.settings-support-chat-button\s*\{/u)
   assert.match(appCss, /\.settings-support-chat-badge\s*\{[^}]*position:\s*static;/u)
