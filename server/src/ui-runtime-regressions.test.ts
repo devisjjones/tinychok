@@ -1115,6 +1115,10 @@ test('thread source attachments stay compact previews instead of full-room media
   assert.match(appCssSource, /background:\s*linear-gradient\(180deg, rgba\(255, 254, 251, 0.985\) 0%, rgba\(255, 251, 245, 0.95\) 100%\);/u)
   assert.match(
     appCssSource,
+    /\.room-thread-source \.room-thread-source-bubble \.bubble-attachment-removed-note-link \{[\s\S]*color:\s*#8d5939;[\s\S]*text-decoration-color:\s*rgba\(141,\s*89,\s*57,\s*0\.5\);/u,
+  )
+  assert.match(
+    appCssSource,
     /\.room-thread-source\s*>\s*\.bubble-stack\s*>\s*\.bubble-stack-main\s*>\s*\.room-thread-source-bubble\.room-thread-source-bubble-inline-time,\s*\.room-thread-source > \.room-thread-source-bubble\.room-thread-source-bubble-inline-time \{/u,
   )
   assert.match(appCssSource, /grid-template-columns: minmax\(0, 1fr\) auto;/u)

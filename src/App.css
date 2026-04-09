@@ -7049,6 +7049,11 @@
   color: #8d5939;
 }
 
+.room-thread-source .room-thread-source-bubble .bubble-attachment-removed-note-link {
+  color: #8d5939;
+  text-decoration-color: rgba(141, 89, 57, 0.5);
+}
+
 .room-thread-source .room-thread-source-bubble .bubble-reply,
 .room-thread-source .room-thread-source-bubble .bubble-reply-reference {
   background: rgba(77, 58, 46, 0.08);

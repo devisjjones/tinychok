@@ -333,6 +333,7 @@
 - root-message с `фото без подписи` не должен превращаться в пустую широкую плашку
 - радиусы thumbnail внутри root-card обязаны совпадать с радиусами самой плашки
 - корневая плашка треда должна тянуться по ширине до тех же краёв, что и header comments-room
+- если root-card треда использует светлую surface, premium upsell link внутри notice скрытого вложения тоже должен стать тёмным и контрастным, а не оставаться белым от owner-bubble path
 - это особенно важно для channel-thread:
   - base `.channel-post` стили слишком широкие для comments-room
   - поэтому для `.room-thread-source .channel-post.room-thread-source-bubble` есть отдельный зажим по ширине
