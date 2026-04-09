@@ -1153,6 +1153,11 @@
   align-self: center;
 }
 
+.chat-card.dialog-list-card {
+  padding: 7px 12px;
+  gap: 10px;
+}
+
 .chat-card.dialog-list-card .avatar {
   width: 56px;
   height: 56px;

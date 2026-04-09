@@ -718,6 +718,7 @@ test('group and channel left-rail cards share avatar layout and group previews u
   assert.match(appSource, /className="avatar group-preview-author-avatar"/u)
   assert.doesNotMatch(appSource, /formatGroupLatestAuthor\(group\)/u)
   assert.match(appCss, /\.chat-card\.dialog-list-card \.chat-avatar-stack\s*\{[\s\S]*align-self:\s*center;/u)
+  assert.match(appCss, /\.chat-card\.dialog-list-card\s*\{[\s\S]*padding:\s*7px 12px;[\s\S]*gap:\s*10px;/u)
   assert.match(appCss, /\.chat-card\.dialog-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;[\s\S]*border-radius:\s*20px;/u)
   assert.match(appCss, /\.chat-card\.channel-list-card,\s*[\r\n]+\s*\.chat-card\.group-list-card\s*\{[\s\S]*padding:\s*9px 14px 9px 10px;[\s\S]*gap:\s*12px;/u)
   assert.match(appCss, /\.chat-card\.channel-list-card \.avatar,\s*[\r\n]+\s*\.chat-card\.group-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;/u)
