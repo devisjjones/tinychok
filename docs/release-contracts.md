@@ -309,6 +309,22 @@
 - если group root-message с bubbleless emoji получает первый комментарий, он обязан вернуться к обычному bubbled layout, чтобы thread pill и root-card не разваливались
 - selected overlay для такого сообщения не должен внезапно возвращать фон, старые paddings или outline
 
+### 11.1.6. Inline Text Bubble Meta Contract
+
+- обычные text-only bubbles в:
+  - direct-room
+  - group-room
+  - subscription channel room
+  - thread comments
+  - selected message overlay
+  должны держать `time` внутри самого bubble, а не отдельным footer-row снаружи
+- короткое сообщение не должно раздуваться во вторую строку только потому, что рядом есть `time`
+- длинное сообщение может занимать несколько строк, но `time` обязано оставаться внутри bubble у правого нижнего края
+- этот inline-meta path не должен применяться к:
+  - media-only bubbles
+  - standalone emoji path
+  - delivery-caption path
+
 ### 11.2. Snapshot Trust Boundary
 
 - `PUT /api/snapshot` не является источником истины для аккаунта и session-security state

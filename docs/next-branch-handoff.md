@@ -244,6 +244,10 @@
 - room feed spacing split:
   - direct-room, group-room и thread-room используют compact bubble gap `3px`
   - subscription channel room intentionally не использует этот compact gap, чтобы posts оставались отдельными units of attention
+- inline text bubble meta contract:
+  - обычные text-only bubbles в direct/group/channel/thread-comment surfaces держат `time` внутри самого bubble
+  - короткий текст не должен расширяться до лишней второй строки только из-за `time`
+  - длинный текст держит `time` у правого нижнего края bubble, а не в отдельном footer-row
 - optimistic direct/group send contract:
   - pending bubble с hourglass не должен прыгать вверх по ленте до server ack
   - при равном `createdAt` confirmed items должны оставаться раньше optimistic local ids `< 0`
