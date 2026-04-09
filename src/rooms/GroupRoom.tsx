@@ -31,6 +31,7 @@ import {
   BubbleMessageContent,
   EmojiOnlyMessageContent,
   BubbleImageOverlayMeta,
+  BubbleTextInlineMeta,
   ForwardedChannelHeader,
   shouldUseLightDeliveryIndicatorTint,
 } from '../components/BubbleMessageContent'
@@ -401,6 +402,11 @@ export function GroupRoom({
             const messageFailed = messageDeliveryIssue === 'failed'
             const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
             const showDeliveryIndicator = message.author === 'me'
+            const bubbleDeliveryIndicatorSrc = messageFailed
+              ? '/icons/warning-48.png'
+              : messagePending
+                ? '/icons/hourglass-48.png'
+                : '/icons/double-tick-50.png'
             const isImageOnlyBubble =
               hasImageAttachment &&
               !linkedChannel &&
@@ -419,6 +425,11 @@ export function GroupRoom({
             const standaloneEmojiGlyph = isStandaloneEmojiOnlyMessage
               ? stripMessageFormattingMarkup(message.text).trim()
               : ''
+            const shouldUseInlineTextMeta =
+              !hasImageAttachment &&
+              !isStandaloneEmojiOnlyMessage &&
+              !showDeliveryCaption &&
+              message.text.trim().length > 0
             const isGroupCaptionedImageBubble =
               hasImageAttachment &&
               message.text.trim().length > 0 &&
@@ -603,11 +614,7 @@ export function GroupRoom({
                                       <EmojiOnlyMessageContent
                                         deliveryIndicatorSrc={
                                           showDeliveryIndicator
-                                            ? messageFailed
-                                              ? '/icons/warning-48.png'
-                                              : messagePending
-                                                ? '/icons/hourglass-48.png'
-                                                : '/icons/double-tick-50.png'
+                                            ? bubbleDeliveryIndicatorSrc
                                             : null
                                         }
                                         emoji={standaloneEmojiGlyph}
@@ -633,6 +640,16 @@ export function GroupRoom({
                                             ) : undefined
                                           }
                                           linkedChannel={linkedChannel}
+                                          inlineMeta={
+                                            shouldUseInlineTextMeta ? (
+                                              <BubbleTextInlineMeta
+                                                deliveryIndicatorSrc={
+                                                  showDeliveryIndicator ? bubbleDeliveryIndicatorSrc : null
+                                                }
+                                                time={message.time}
+                                              />
+                                            ) : undefined
+                                          }
                                           message={message}
                                           onOpenAttachment={onOpenAttachment}
                                           onOpenExternalLink={onOpenExternalLink}
@@ -654,31 +671,23 @@ export function GroupRoom({
                                           }
                                           showReplyInline={false}
                                         />
-                                        {!hasImageAttachment ? <time>{message.time}</time> : null}
+                                        {!hasImageAttachment && !shouldUseInlineTextMeta ? (
+                                          <time>{message.time}</time>
+                                        ) : null}
                                         {!hasImageAttachment && showDeliveryCaption ? (
                                           <span className="bubble-delivery-caption">Сообщение не отправлено</span>
                                         ) : null}
-                                        {!hasImageAttachment && showDeliveryIndicator ? (
-                                          (() => {
-                                            const deliveryIndicatorSrc = messageFailed
-                                              ? '/icons/warning-48.png'
-                                              : messagePending
-                                                ? '/icons/hourglass-48.png'
-                                                : '/icons/double-tick-50.png'
-
-                                            return (
-                                              <img
-                                                className={
-                                                  shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
-                                                    ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
-                                                    : 'bubble-delivery-indicator'
-                                                }
-                                                src={deliveryIndicatorSrc}
-                                                alt=""
-                                                aria-hidden="true"
-                                              />
-                                            )
-                                          })()
+                                        {!hasImageAttachment && !shouldUseInlineTextMeta && showDeliveryIndicator ? (
+                                          <img
+                                            className={
+                                              shouldUseLightDeliveryIndicatorTint(bubbleDeliveryIndicatorSrc)
+                                                ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
+                                                : 'bubble-delivery-indicator'
+                                            }
+                                            src={bubbleDeliveryIndicatorSrc}
+                                            alt=""
+                                            aria-hidden="true"
+                                          />
                                         ) : null}
                                       </>
                                     )}

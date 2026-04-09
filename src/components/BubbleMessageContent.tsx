@@ -15,6 +15,7 @@ import {
 
 type BubbleMessageContentProps = {
   attachmentLayout?: 'default' | 'thread-source-thumbnail' | 'thread-source-card'
+  inlineMeta?: ReactNode
   message: Pick<
     Message,
     'attachment' | 'attachmentRemovedNotice' | 'replyTo' | 'sourceContact' | 'sourceGroup' | 'text'
@@ -32,6 +33,11 @@ type BubbleMessageContentProps = {
 }
 
 type BubbleImageOverlayMetaProps = {
+  deliveryIndicatorSrc?: string | null
+  time: string
+}
+
+type BubbleTextInlineMetaProps = {
   deliveryIndicatorSrc?: string | null
   time: string
 }
@@ -350,6 +356,29 @@ export function BubbleImageOverlayMeta({
   )
 }
 
+export function BubbleTextInlineMeta({
+  deliveryIndicatorSrc,
+  time,
+}: BubbleTextInlineMetaProps) {
+  return (
+    <span className="bubble-text-inline-meta">
+      <time>{time}</time>
+      {deliveryIndicatorSrc ? (
+        <img
+          className={
+            shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
+              ? 'bubble-text-inline-meta-indicator bubble-text-inline-meta-indicator-light'
+              : 'bubble-text-inline-meta-indicator'
+          }
+          src={deliveryIndicatorSrc}
+          alt=""
+          aria-hidden="true"
+        />
+      ) : null}
+    </span>
+  )
+}
+
 export function EmojiOnlyMessageContent({
   deliveryIndicatorSrc,
   emoji,
@@ -374,11 +403,13 @@ export function EmojiOnlyMessageContent({
 }
 
 type BubbleRichTextProps = {
+  inlineMeta?: ReactNode
   text: string
   onOpenExternalLink?: (url: string) => void
 }
 
 function BubbleRichText({
+  inlineMeta,
   text,
   onOpenExternalLink,
 }: BubbleRichTextProps) {
@@ -418,8 +449,8 @@ function BubbleRichText({
     return result
   }
 
-  return (
-    <p>
+  const content = (
+    <>
       {lines.map((line, lineIndex) => (
         <React.Fragment key={`line-${lineIndex}`}>
           {lineIndex > 0 ? <br /> : null}
@@ -451,6 +482,17 @@ function BubbleRichText({
           })}
         </React.Fragment>
       ))}
+    </>
+  )
+
+  if (!inlineMeta) {
+    return <p>{content}</p>
+  }
+
+  return (
+    <p className="bubble-text-paragraph-with-inline-meta">
+      <span className="bubble-text-content">{content}</span>
+      {inlineMeta}
     </p>
   )
 }
@@ -458,6 +500,7 @@ function BubbleRichText({
 export function BubbleMessageContent({
   attachmentLayout = 'default',
   imageOverlay,
+  inlineMeta,
   linkedChannel,
   message,
   onOpenAttachment,
@@ -566,11 +609,19 @@ export function BubbleMessageContent({
         <>
           <ForwardedContactHeader sourceContact={message.sourceContact} onClick={onOpenSourceContact} />
           {shouldRenderContactBodyText ? (
-            <BubbleRichText text={message.text} onOpenExternalLink={onOpenExternalLink} />
+            <BubbleRichText
+              inlineMeta={inlineMeta}
+              text={message.text}
+              onOpenExternalLink={onOpenExternalLink}
+            />
           ) : null}
         </>
       ) : trimmedText ? (
-        <BubbleRichText text={message.text} onOpenExternalLink={onOpenExternalLink} />
+        <BubbleRichText
+          inlineMeta={inlineMeta}
+          text={message.text}
+          onOpenExternalLink={onOpenExternalLink}
+        />
       ) : null}
       {message.attachmentRemovedNotice ? (
         <AttachmentRemovedNoticeBlock

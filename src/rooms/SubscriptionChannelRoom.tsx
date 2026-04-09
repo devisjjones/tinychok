@@ -13,7 +13,11 @@ import {
   shouldSubmitComposerWithEnter,
 } from '../app/utils'
 import type { Message, ReplyTarget, SubscriptionChannel, UserGifLibraryItem } from '../app/types'
-import { BubbleImageOverlayMeta, BubbleMessageContent } from '../components/BubbleMessageContent'
+import {
+  BubbleImageOverlayMeta,
+  BubbleMessageContent,
+  BubbleTextInlineMeta,
+} from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ComposerAttachmentPicker } from '../components/ComposerAttachmentPicker'
 import { ComposerAttachmentPreview } from '../components/ComposerAttachmentPreview'
@@ -280,6 +284,7 @@ export function SubscriptionChannelRoom({
             (isImageMimeType(post.attachment.mimeType) || isVideoMimeType(post.attachment.mimeType)),
           )
           const isImageOnlyBubble = hasImageAttachment && post.text.trim().length === 0
+          const shouldUseInlineTextMeta = !hasImageAttachment && post.text.trim().length > 0
 
           return (
               <Fragment key={post.id}>
@@ -321,6 +326,11 @@ export function SubscriptionChannelRoom({
                               <BubbleMessageContent
                                 imageOverlay={
                                   hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
+                                }
+                                inlineMeta={
+                                  shouldUseInlineTextMeta ? (
+                                    <BubbleTextInlineMeta time={post.time} />
+                                  ) : undefined
                                 }
                                 message={post}
                                 onOpenAttachment={onOpenAttachment}
@@ -366,7 +376,7 @@ export function SubscriptionChannelRoom({
                                 }
                                 showReplyInline={false}
                               />
-                              {!hasImageAttachment ? <time>{post.time}</time> : null}
+                              {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{post.time}</time> : null}
                             </button>
                           )
                         }

@@ -9,6 +9,7 @@ import {
 import {
   BubbleImageOverlayMeta,
   BubbleMessageContent,
+  BubbleTextInlineMeta,
   EmojiOnlyMessageContent,
   ForwardedChannelHeader,
   shouldUseLightDeliveryIndicatorTint,
@@ -144,6 +145,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       (isImageMimeType(props.post.attachment.mimeType) || isVideoMimeType(props.post.attachment.mimeType)),
     )
     const isImageOnlyBubble = hasImageAttachment && props.post.text.trim().length === 0
+    const shouldUseInlineTextMeta = !hasImageAttachment && props.post.text.trim().length > 0
 
     return (
       <div
@@ -153,6 +155,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       >
         <BubbleMessageContent
           imageOverlay={hasImageAttachment ? <BubbleImageOverlayMeta time={props.post.time} /> : undefined}
+          inlineMeta={
+            shouldUseInlineTextMeta ? <BubbleTextInlineMeta time={props.post.time} /> : undefined
+          }
           message={{
             attachment: props.post.attachment,
             replyTo: undefined,
@@ -164,7 +169,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           onOpenPremiumUpsell={props.onOpenPremiumUpsell}
           showReplyInline={false}
         />
-        {!hasImageAttachment ? <time>{props.post.time}</time> : null}
+        {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{props.post.time}</time> : null}
       </div>
     )
   }
@@ -175,6 +180,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       (isImageMimeType(props.comment.attachment.mimeType) || isVideoMimeType(props.comment.attachment.mimeType)),
     )
     const isImageOnlyBubble = hasImageAttachment && props.comment.text.trim().length === 0
+    const shouldUseInlineTextMeta = !hasImageAttachment && props.comment.text.trim().length > 0
     const authorNode = renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
     const shouldRenderExternalAuthor = Boolean(authorNode) && !isImageOnlyBubble
     const compactOverlayClassName = ' bubble-overlay-compact'
@@ -193,6 +199,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
               <BubbleImageOverlayMeta time={props.comment.time} />
             ) : undefined
           }
+          inlineMeta={
+            shouldUseInlineTextMeta ? <BubbleTextInlineMeta time={props.comment.time} /> : undefined
+          }
           message={{
             attachment: props.comment.attachment,
             replyTo: props.comment.replyTo,
@@ -205,7 +214,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           onOpenPremiumUpsell={props.onOpenPremiumUpsell}
           showReplyInline={false}
         />
-        {!hasImageAttachment ? <time>{props.comment.time}</time> : null}
+        {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{props.comment.time}</time> : null}
       </div>
     )
 
@@ -269,6 +278,11 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     !hasImageAttachment &&
     !isGroupCaptionedImageBubble
   const showDeliveryCaption = hasDeliveryIssue && shouldShowDeliveryCaption(props.message)
+  const shouldUseInlineTextMeta =
+    !hasImageAttachment &&
+    !isStandaloneEmojiOnlyMessage &&
+    !showDeliveryCaption &&
+    props.message.text.trim().length > 0
 
   if (props.mine) {
     bubbleClassNames.push('mine', 'has-delivery-indicator')
@@ -372,6 +386,21 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
                 />
               ) : undefined
             }
+            inlineMeta={
+              shouldUseInlineTextMeta ? (
+                <BubbleTextInlineMeta
+                  deliveryIndicatorSrc={
+                    props.mine
+                      ? resolveDirectDeliveryIndicatorSrc(
+                          props.deliveryIssue,
+                          props.kind === 'direct' ? props.message.readAt : undefined,
+                        )
+                      : null
+                  }
+                  time={props.message.time}
+                />
+              ) : undefined
+            }
             linkedChannel={props.linkedChannel}
             message={props.message}
             onOpenAttachment={props.onOpenAttachment}
@@ -381,11 +410,11 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
             replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
             showReplyInline={false}
           />
-          {!hasImageAttachment ? <time>{props.message.time}</time> : null}
+          {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{props.message.time}</time> : null}
           {!hasImageAttachment && showDeliveryCaption ? (
             <span className="bubble-delivery-caption">Сообщение не отправлено</span>
           ) : null}
-          {!hasImageAttachment && props.mine ? (
+          {!hasImageAttachment && !shouldUseInlineTextMeta && props.mine ? (
             <img
               className={
                 shouldUseLightDeliveryIndicatorTint(

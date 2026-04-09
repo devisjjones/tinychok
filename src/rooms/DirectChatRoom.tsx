@@ -25,6 +25,7 @@ import {
   BubbleMessageContent,
   EmojiOnlyMessageContent,
   BubbleImageOverlayMeta,
+  BubbleTextInlineMeta,
   ForwardedChannelHeader,
   shouldUseLightDeliveryIndicatorTint,
 } from '../components/BubbleMessageContent'
@@ -515,6 +516,11 @@ export function DirectChatRoom({
           const standaloneEmojiGlyph = isStandaloneEmojiOnlyMessage
             ? stripMessageFormattingMarkup(message.text).trim()
             : ''
+          const shouldUseInlineTextMeta =
+            !hasImageAttachment &&
+            !isStandaloneEmojiOnlyMessage &&
+            !showDeliveryCaption &&
+            message.text.trim().length > 0
           const bubbleClassNames = ['bubble', 'bubble-button']
 
           if (message.author === 'me') {
@@ -668,6 +674,16 @@ export function DirectChatRoom({
                               ) : undefined
                             }
                             linkedChannel={linkedChannel}
+                            inlineMeta={
+                              shouldUseInlineTextMeta ? (
+                                <BubbleTextInlineMeta
+                                  deliveryIndicatorSrc={
+                                    showDeliveryIndicator ? deliveryIndicatorSrc : null
+                                  }
+                                  time={message.time}
+                                />
+                              ) : undefined
+                            }
                             message={message}
                             onOpenAttachment={onOpenAttachment}
                             onOpenExternalLink={onOpenExternalLink}
@@ -691,11 +707,11 @@ export function DirectChatRoom({
                             replyChatTitle={activeChat.title}
                             showReplyInline={false}
                           />
-                          {!hasImageAttachment ? <time>{message.time}</time> : null}
+                          {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{message.time}</time> : null}
                           {!hasImageAttachment && showDeliveryCaption ? (
                             <span className="bubble-delivery-caption">Сообщение не отправлено</span>
                           ) : null}
-                          {!hasImageAttachment && showDeliveryIndicator ? (
+                          {!hasImageAttachment && !shouldUseInlineTextMeta && showDeliveryIndicator ? (
                             <img
                               className={
                                 shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)

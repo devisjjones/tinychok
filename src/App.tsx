@@ -280,7 +280,11 @@ import { ConfirmLogoutScreen } from './screens/ConfirmLogoutScreen'
 import { DirectChatRoom } from './rooms/DirectChatRoom'
 import { GroupRoom } from './rooms/GroupRoom'
 import { SubscriptionChannelRoom } from './rooms/SubscriptionChannelRoom'
-import { BubbleImageOverlayMeta, BubbleMessageContent } from './components/BubbleMessageContent'
+import {
+  BubbleImageOverlayMeta,
+  BubbleMessageContent,
+  BubbleTextInlineMeta,
+} from './components/BubbleMessageContent'
 import { AttachedReplyBubble } from './components/AttachedReplyBubble'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { MediaOnlyBubbleRow } from './components/MediaOnlyBubbleRow'
@@ -13535,6 +13539,8 @@ function App() {
                         </MediaOnlyBubbleRow>
                       ) : (
                         (() => {
+                          const shouldUseInlineTextMeta =
+                            !hasImageAttachment && comment.text.trim().length > 0
                           const threadCommentBubbleButton = (
                             <button
                               type="button"
@@ -13552,6 +13558,11 @@ function App() {
                               <BubbleMessageContent
                                 imageOverlay={
                                   hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
+                                }
+                                inlineMeta={
+                                  shouldUseInlineTextMeta ? (
+                                    <BubbleTextInlineMeta time={comment.time} />
+                                  ) : undefined
                                 }
                                 message={{
                                   attachment: comment.attachment,
@@ -13573,7 +13584,7 @@ function App() {
                                 }
                                 showReplyInline={false}
                               />
-                              {!hasImageAttachment ? <time>{comment.time}</time> : null}
+                              {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{comment.time}</time> : null}
                             </button>
                           )
 

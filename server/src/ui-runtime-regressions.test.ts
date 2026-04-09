@@ -2406,6 +2406,45 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   )
 })
 
+test('text bubbles use inline meta so time does not force a separate footer row', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const channelRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'SubscriptionChannelRoom.tsx'), 'utf8')
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const overlaySource = readFileSync(
+    join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'),
+    'utf8',
+  )
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(bubbleSource, /export function BubbleTextInlineMeta/u)
+  assert.match(bubbleSource, /className="bubble-text-paragraph-with-inline-meta"/u)
+  assert.match(bubbleSource, /className="bubble-text-content"/u)
+  assert.match(directRoomSource, /const shouldUseInlineTextMeta =/u)
+  assert.match(directRoomSource, /<BubbleTextInlineMeta/u)
+  assert.match(directRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? <time>\{message\.time\}<\/time> : null/u)
+  assert.match(groupRoomSource, /const shouldUseInlineTextMeta =/u)
+  assert.match(groupRoomSource, /<BubbleTextInlineMeta/u)
+  assert.match(groupRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? \(\s*<time>\{message\.time\}<\/time>/u)
+  assert.match(channelRoomSource, /const shouldUseInlineTextMeta = !hasImageAttachment && post\.text\.trim\(\)\.length > 0/u)
+  assert.match(channelRoomSource, /<BubbleTextInlineMeta time=\{post\.time\} \/>/u)
+  assert.match(channelRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? <time>\{post\.time\}<\/time> : null/u)
+  assert.match(appSource, /const shouldUseInlineTextMeta =\s*!hasImageAttachment && comment\.text\.trim\(\)\.length > 0/u)
+  assert.match(appSource, /<BubbleTextInlineMeta time=\{comment\.time\} \/>/u)
+  assert.match(overlaySource, /const shouldUseInlineTextMeta = !hasImageAttachment && props\.post\.text\.trim\(\)\.length > 0/u)
+  assert.match(overlaySource, /const shouldUseInlineTextMeta = !hasImageAttachment && props\.comment\.text\.trim\(\)\.length > 0/u)
+  assert.match(overlaySource, /const shouldUseInlineTextMeta =\s*!hasImageAttachment &&\s*!isStandaloneEmojiOnlyMessage &&\s*!showDeliveryCaption &&\s*props\.message\.text\.trim\(\)\.length > 0/u)
+  assert.match(appCss, /\.bubble-text-paragraph-with-inline-meta \{\s*display: flow-root;/u)
+  assert.match(appCss, /\.bubble \.bubble-text-inline-meta \{\s*float: right;/u)
+  assert.match(appCss, /\.bubble-text-paragraph-with-inline-meta > \.bubble-text-content \{\s*white-space: pre-wrap;/u)
+  assert.match(
+    appCss,
+    /\.bubble \.bubble-text-inline-meta time,\s*\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-text-inline-meta time,\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-text-inline-meta time,\s*\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-text-inline-meta time \{\s*display: block;\s*margin: 0;\s*padding: 0;/u,
+  )
+})
+
 test('standalone emoji messages stay bubbleless only in direct and unthreaded group room feeds', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const sharedUtilsSource = readFileSync(join(repoRoot, 'src', 'shared', 'utils.ts'), 'utf8')
@@ -2460,7 +2499,7 @@ test('contact cards have an explicit UI contract and open direct dialogs on tap'
   )
   assert.match(
     bubbleSource,
-    /shouldRenderContactBodyText \? \(\s*<BubbleRichText text=\{message\.text\} onOpenExternalLink=\{onOpenExternalLink\} \/>/u,
+    /shouldRenderContactBodyText \? \(\s*<BubbleRichText[\s\S]*inlineMeta=\{inlineMeta\}[\s\S]*text=\{message\.text\}[\s\S]*onOpenExternalLink=\{onOpenExternalLink\}[\s\S]*\/>/u,
   )
 })
 
