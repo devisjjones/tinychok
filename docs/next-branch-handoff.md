@@ -402,6 +402,13 @@
   - `MP4 / MOV / WEBM / M4V` определяются как видео
   - видео открывается и воспроизводится внутри Tinychok, а не только скачивается
   - draft-preview и bubble copy различают `Видео` и обычный `Файл`
+  - bubble в ленте не должен показывать filename и size
+  - первый кадр в bubble приходит не из client-side `video#t=...`, а из server preview route `GET /api/media/preview?mediaUrl=...`
+  - backend строит derived JPEG через `ffmpeg-static` и кэширует его в `server/uploads/attachment-previews/`
+  - этот путь должен работать и для уже существующих video attachments; message schema не расширялась отдельным `previewUrl`
+  - если video bubble снова показывает серую заглушку, первым делом проверять:
+    - `curl -I 'https://api.staging.tinychok.ru/api/media/preview?mediaUrl=<video-url>'`
+    - есть ли новый JPEG в `server/uploads/attachment-previews/` на staging VM
 - вложения в сообщениях считаются disposable-storage, а не вечным файлообменником:
   - если новый upload не помещается в квоту, backend сначала автоматически снимает самые старые ранее отправленные вложения этого пользователя
   - сообщение / комментарий / пост при этом не удаляется целиком, а получает viewer-aware заметку:

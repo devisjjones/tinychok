@@ -361,6 +361,14 @@
   - открываться во встроенном viewer/player
   - воспроизводиться без обязательного скачивания на устройство
   - поддерживать обычный caption-flow
+- video bubble в ленте не должен снова откатываться к file-card copy:
+  - имя файла и размер в bubble не показываются
+  - по центру поверх превью остаётся play-иконка
+  - time и delivery ticks лежат поверх превью так же, как у photo bubble
+- preview для video bubble обязан строиться от первого кадра уже загруженного видео:
+  - source of truth = server-side `GET /api/media/preview?mediaUrl=...`
+  - backend обязан уметь отдать preview и для старых video attachments без миграции message schema
+  - derived JPEG preview должен кэшироваться по `mediaUrl`, чтобы повторное открытие bubble не гоняло `ffmpeg` заново
 - draft-preview и bubble copy обязаны различать `Видео` и обычный `Файл`
 
 ### 11.6. External Link Warning Contract

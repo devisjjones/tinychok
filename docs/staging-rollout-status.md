@@ -320,6 +320,10 @@
   - `MP4 / MOV / WEBM / M4V` должны определяться как видео
   - видео должно открываться и воспроизводиться внутри Tinychok, а не только скачиваться
   - video draft-preview и bubble copy должны отличаться от обычного файла
+  - bubble в direct/group/thread не показывает filename и size
+  - bubble использует server preview `GET /api/media/preview?mediaUrl=...` и показывает первый кадр уже загруженного видео
+  - поверх превью остаются play icon, send time и delivery ticks как у photo bubble
+  - после первого живого запроса backend кэширует derived JPEG в `server/uploads/attachment-previews/`
 - если новый файл не помещается в quota, backend сначала автоматически снимает самые старые ранее отправленные вложения пользователя
 - auto-cleanup не должен удалять сообщение целиком:
   - в пузыре должна остаться viewer-aware заметка:
