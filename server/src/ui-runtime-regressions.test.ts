@@ -2226,7 +2226,7 @@ test('selected message overlays anchor to the full author-strip layout and can n
   assert.match(anchoredMenuSource, /const scrollContainer = element\.closest<HTMLElement>\('\.message-feed'\)/u)
   assert.match(anchoredMenuSource, /scrollContainer\.scrollTop \+= scrollDelta/u)
   assert.match(anchoredMenuSource, /setAnchor\(getActionAnchor\(element, align\)\)/u)
-  assert.match(appCss, /\.bubble-overlay-author-layout \{[\s\S]*gap:\s*3px;/u)
+  assert.match(appCss, /\.bubble-author-layout\.bubble-overlay-author-layout \{[\s\S]*gap:\s*3px;/u)
 })
 
 test('group captioned media bubbles keep a dedicated author-safe layout in room and selected overlay', () => {

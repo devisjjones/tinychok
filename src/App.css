@@ -4297,6 +4297,10 @@
   padding-top: 0;
 }
 
+.bubble-author-layout.bubble-overlay-author-layout {
+  gap: 3px;
+}
+
 .bubble-author-strip {
   min-width: 0;
   max-width: 100%;
