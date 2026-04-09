@@ -2169,7 +2169,13 @@ test('standard group text bubbles render the author strip above the bubble inste
   assert.match(overlaySource, /const shouldRenderExternalGroupAuthor =/u)
   assert.match(overlaySource, /className="bubble-author-layout bubble-overlay-author-layout"/u)
   assert.match(appCss, /\.bubble-author-layout/u)
+  assert.match(appCss, /\.group-room-feed \.bubble-author-layout \{/u)
+  assert.match(appCss, /gap:\s*3px;/u)
+  assert.match(appCss, /padding-top:\s*6px;/u)
   assert.match(appCss, /\.bubble-author-strip/u)
+  assert.match(appCss, /\.bubble-sender \{[\s\S]*align-items:\s*flex-end;/u)
+  assert.match(appCss, /\.bubble-sender-name \{[\s\S]*line-height:\s*1;/u)
+  assert.match(appCss, /\.bubble-sender-crown \{[\s\S]*align-items:\s*flex-end;/u)
   assert.match(appCss, /\.bubble-overlay-author-layout/u)
 })
 

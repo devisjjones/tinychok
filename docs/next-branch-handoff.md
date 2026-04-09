@@ -217,6 +217,9 @@
 - room feed spacing split:
   - direct-room, group-room и thread-room используют compact bubble gap `3px`
   - subscription channel room intentionally не использует этот compact gap, чтобы posts оставались отдельными units of attention
+- incoming group sender-strip над bubble не должен зависать посередине между сообщениями:
+  - strip привязан к своему bubble, а не к предыдущему
+  - имя и crown выровнены по нижней границе avatar
 - standalone emoji path:
   - direct-room и group-room умеют отдельный bubbleless render только для top-level messages, где текст = один emoji-grapheme и нет attachment/source/forward chrome
   - этот path не должен растекаться в channel posts, thread comments, reply previews и thread source cards

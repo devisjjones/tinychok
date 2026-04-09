@@ -4190,6 +4190,11 @@
   max-width: 100%;
 }
 
+.group-room-feed .bubble-author-layout {
+  gap: 3px;
+  padding-top: 6px;
+}
+
 .bubble-author-strip {
   min-width: 0;
   max-width: 100%;
@@ -4203,7 +4208,7 @@
 
 .bubble-sender {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   max-width: 100%;
   margin-bottom: 10px;
@@ -4237,8 +4242,14 @@
   min-width: 0;
   font-size: 0.84rem;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1;
   color: inherit;
+}
+
+.bubble-sender-crown {
+  display: inline-flex;
+  align-items: flex-end;
+  line-height: 1;
 }
 
 .bubble-sender-crown img {

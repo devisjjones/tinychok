@@ -124,6 +124,9 @@
 - room feed spacing contract:
   - direct, group и thread bubble feeds должны держать compact gap `3px`
   - subscription channel posts не должны автоматически наследовать этот compact gap и остаются более воздушными
+- group sender-strip contract:
+  - author avatar/name над bubble должны быть ближе к своему bubble, чем к предыдущему сообщению
+  - sender name и premium-crown должны выравниваться по нижней границе avatar, а не по vertical center
 - support scene contracts считаются release-blocking:
   - unread staff reply должен быть виден и на кнопке `Написать в поддержку`, и на launcher-кнопке `Настройки`
   - tap по всей карточке тикета должен открывать его thread-room
