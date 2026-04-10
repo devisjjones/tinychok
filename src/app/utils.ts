@@ -15,6 +15,7 @@ export {
   formatGroupLatestAuthor,
   formatGroupPreview,
   formatGroupTime,
+  formatMessageTimeLabel,
   formatMessageAuthor,
   formatMessagePreview,
   formatNowTime,

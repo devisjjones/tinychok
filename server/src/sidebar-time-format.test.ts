@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { formatGroupTime, formatSidebarActivityLabel, formatSubscriptionChannelTime } from '../../src/shared/utils'
+import {
+  formatGroupTime,
+  formatMessageTimeLabel,
+  formatSidebarActivityLabel,
+  formatSubscriptionChannelTime,
+} from '../../src/shared/utils'
 import type { GroupPreview, SubscriptionChannel } from '../../src/shared/types'
 
 test('sidebar activity labels show time only for today and short date for older activity', () => {
@@ -67,4 +72,12 @@ test('group and channel list formatters reuse sidebar activity labels instead of
 
   assert.match(formatGroupTime(group), /^4 апр\.$/u)
   assert.match(formatSubscriptionChannelTime(channel), /^4 апр\.$/u)
+})
+
+test('message time labels prefer createdAt over stale fallback time strings', () => {
+  const formatted = formatMessageTimeLabel('2026-04-10T20:44:00.000Z', '17:44')
+
+  assert.match(formatted, /^\d{2}:\d{2}$/u)
+  assert.notEqual(formatted, '17:44')
+  assert.equal(formatMessageTimeLabel(undefined, '17:44'), '17:44')
 })

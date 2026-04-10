@@ -497,9 +497,11 @@ test('thread inbox cards keep source badges on the avatar and render latest-comm
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
   const sharedTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'types.ts'), 'utf8')
   const storeSource = readFileSync(join(repoRoot, 'server', 'src', 'store.ts'), 'utf8')
+  const sharedUtilsSource = readFileSync(join(repoRoot, 'src', 'shared', 'utils.ts'), 'utf8')
 
   assert.match(sharedTypesSource, /export type GroupThreadInboxItem = \{[\s\S]*avatarImage\?: string/u)
   assert.match(sharedTypesSource, /export type ChannelThreadInboxItem = \{[\s\S]*avatarImage\?: string/u)
+  assert.match(sharedUtilsSource, /export function formatMessageTimeLabel/u)
   assert.match(sharedTypesSource, /latestCommentAuthorAccent\?: string/u)
   assert.match(sharedTypesSource, /latestCommentAuthorAvatarImage\?: string/u)
   assert.match(storeSource, /avatarImage: group\.avatarImage,[\s\S]*groupAccent: group\.accent/u)
@@ -513,6 +515,11 @@ test('thread inbox cards keep source badges on the avatar and render latest-comm
   assert.match(appSource, /const resolveThreadInboxAvatarImage = \(item: ThreadInboxItem\) =>/u)
   assert.match(appSource, /const formatThreadInboxPreviewText = \(item: ThreadInboxItem\) =>/u)
   assert.match(appSource, /const resolveThreadInboxPreviewAuthor = \(item: ThreadInboxItem\) =>/u)
+  assert.match(appSource, /formatMessageTimeLabel\(\s*threadGroupMessage\?\.createdAt/u)
+  assert.match(appSource, /formatMessageTimeLabel\(\s*threadChannelPost\?\.createdAt/u)
+  assert.match(appSource, /const threadCommentTime = formatMessageTimeLabel\(comment\.createdAt, comment\.time\)/u)
+  assert.match(appSource, /<BubbleTextInlineMeta time=\{threadCommentTime\} \/>/u)
+  assert.match(appSource, /<time>\{threadCommentTime\}<\/time>/u)
   assert.match(appSource, /aria-label="Комментарии"/u)
   assert.match(appSource, /title="Комментарии"/u)
   assert.match(appSource, /Комментариев пока нет/u)
@@ -2521,7 +2528,7 @@ test('text bubbles use inline meta so time does not force a separate footer row'
     appSource,
     /const shouldUseInlineTextMeta =\s*!hasImageAttachment &&\s*\(comment\.text\.trim\(\)\.length > 0 \|\| Boolean\(comment\.attachment\)\)/u,
   )
-  assert.match(appSource, /<BubbleTextInlineMeta time=\{comment\.time\} \/>/u)
+  assert.match(appSource, /<BubbleTextInlineMeta time=\{threadCommentTime\} \/>/u)
   assert.ok((appSource.match(/<BubbleTextInlineMeta time=\{threadSourceTime\} \/>/gu) ?? []).length >= 3)
   assert.match(appSource, /!usesInlineTimeLayout && \(!hasImageAttachment \|\| usesCaptionedImageCardLayout \|\| usesImageOnlyCardLayout\) \? \(\s*<time>\{threadSourceTime\}<\/time>/u)
   assert.match(

@@ -279,6 +279,18 @@ export function formatSupportTicketCreatedAt(createdAt?: string) {
   return formatter.format(date)
 }
 
+export function formatMessageTimeLabel(createdAt?: string, fallback = '') {
+  const timestamp = parseIsoDate(createdAt)
+  if (timestamp === null) {
+    return fallback
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(timestamp))
+}
+
 export function formatSidebarActivityLabel(createdAt?: string, fallback = '', now = new Date()) {
   const timestamp = parseIsoDate(createdAt)
   if (timestamp === null) {
@@ -1396,10 +1408,7 @@ export function isPhoneQuery(value: string) {
 }
 
 export function formatNowTime() {
-  return new Date().toLocaleTimeString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return formatMessageTimeLabel(new Date().toISOString())
 }
 
 export function formatChannelAvatarLabel(title: string) {

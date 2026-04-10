@@ -234,6 +234,7 @@ import {
   extendPremiumExpiry,
   formatGroupPreview,
   formatGroupTime,
+  formatMessageTimeLabel,
   formatNowTime,
   formatSessionName,
   formatSupportTicketCreatedAt,
@@ -2813,15 +2814,21 @@ function App() {
             ? threadChannelPost?.text ?? ''
             : activeSupportTicket?.text ?? ''
   const threadSourceTime =
-    activeThreadInboxItem?.kind === 'group' && threadTarget?.kind === 'group'
-      ? activeThreadInboxItem.sourceTime
-      : activeThreadInboxItem?.kind === 'channel' && threadTarget?.kind === 'channel'
-        ? activeThreadInboxItem.sourceTime
-        : threadTarget?.kind === 'group'
-          ? threadGroupMessage?.time ?? ''
-          : threadTarget?.kind === 'channel'
-            ? threadChannelPost?.time ?? ''
-            : activeSupportTicket?.time ?? ''
+    threadTarget?.kind === 'group'
+      ? formatMessageTimeLabel(
+          threadGroupMessage?.createdAt,
+          activeThreadInboxItem?.kind === 'group'
+            ? activeThreadInboxItem.sourceTime
+            : threadGroupMessage?.time ?? '',
+        )
+      : threadTarget?.kind === 'channel'
+        ? formatMessageTimeLabel(
+            threadChannelPost?.createdAt,
+            activeThreadInboxItem?.kind === 'channel'
+              ? activeThreadInboxItem.sourceTime
+              : threadChannelPost?.time ?? '',
+          )
+        : formatMessageTimeLabel(activeSupportTicket?.createdAt, activeSupportTicket?.time ?? '')
   const visibleRetainedSubscriptionChannelId =
     isChannelsTopListOpen &&
     stageView === 'main' &&
@@ -13505,6 +13512,7 @@ function App() {
               )
               const isImageOnlyBubble = hasImageAttachment && comment.text.trim().length === 0
               const replyReference = comment.replyTo
+              const threadCommentTime = formatMessageTimeLabel(comment.createdAt, comment.time)
               const commentAuthorNode =
                 !mine && shouldRenderCommentAuthorNode
                   ? renderThreadAuthorNode(participant, comment.displayAuthor ?? 'Участник')
@@ -13557,7 +13565,9 @@ function App() {
                           ) : null}
                           <BubbleMessageContent
                             imageOverlay={
-                              hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
+                              hasImageAttachment
+                                ? <BubbleImageOverlayMeta time={threadCommentTime} />
+                                : undefined
                             }
                             message={{
                               attachment: comment.attachment,
@@ -13601,11 +13611,13 @@ function App() {
                             >
                               <BubbleMessageContent
                                 imageOverlay={
-                                  hasImageAttachment ? <BubbleImageOverlayMeta time={comment.time} /> : undefined
+                                  hasImageAttachment
+                                    ? <BubbleImageOverlayMeta time={threadCommentTime} />
+                                    : undefined
                                 }
                                 inlineMeta={
                                   shouldUseInlineTextMeta ? (
-                                    <BubbleTextInlineMeta time={comment.time} />
+                                    <BubbleTextInlineMeta time={threadCommentTime} />
                                   ) : undefined
                                 }
                                 message={{
@@ -13628,7 +13640,7 @@ function App() {
                                 }
                                 showReplyInline={false}
                               />
-                              {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{comment.time}</time> : null}
+                              {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{threadCommentTime}</time> : null}
                             </button>
                           )
 
