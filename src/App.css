@@ -4066,7 +4066,7 @@
 
 .bubble {
   max-width: min(520px, 78%);
-  padding: 16px 18px;
+  padding: 13px 18px 11px;
   border-radius: 24px 24px 24px 8px;
   background: var(--surface-bubble);
   color: var(--ink);
@@ -4150,8 +4150,8 @@
 }
 
 .bubble-overlay.bubble-overlay-compact:not(.media-only-bubble):not(.emoji-only-message) {
-  padding-top: 14px;
-  padding-bottom: 12px;
+  padding-top: 12px;
+  padding-bottom: 10px;
 }
 
 .bubble-overlay.bubble-overlay-compact:not(.media-only-bubble):not(.emoji-only-message) time {
