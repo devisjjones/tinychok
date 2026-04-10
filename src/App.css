@@ -26,22 +26,6 @@
   overflow-x: hidden;
 }
 
-.shell-settings,
-.shell-premium,
-.policy-shell,
-.stage.channels-open,
-.stage.settings-open,
-.stage.premium-open,
-.channels-manager-content,
-.channels-detail-panel,
-.chat-list,
-.message-feed,
-.room-group-create,
-.emoji-picker-gif-grid {
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
-}
-
 .auth-shell {
   height: 100vh;
   height: 100dvh;
@@ -7971,6 +7955,25 @@
 }
 
 @media (max-width: 960px) {
+  /* Scroll regression note:
+     mobile momentum scroll must be enabled only on the real scroll containers.
+     A broad touch-action override on room/chat feeds regressed desktop wheel/trackpad scrolling
+     without actually proving the mobile fix, so keep this contract narrowly scoped. */
+  .shell-settings,
+  .shell-premium,
+  .policy-shell,
+  .stage.channels-open,
+  .stage.settings-open,
+  .stage.premium-open,
+  .channels-manager-content,
+  .channels-detail-panel,
+  .chat-list,
+  .message-feed,
+  .room-group-create,
+  .emoji-picker-gif-grid {
+    -webkit-overflow-scrolling: touch;
+  }
+
   .shell {
     height: auto;
     min-height: 100vh;

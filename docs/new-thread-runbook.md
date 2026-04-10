@@ -68,6 +68,7 @@
 - legal/public pages
 - mobile layout
 - media / file / image / video flows
+- scroll / overflow / touch scrolling
 
 ## Staging — обязательная часть работы
 
@@ -192,3 +193,28 @@
 - что запушено
 - что не доехало
 - где именно блокер
+
+## Отдельное Правило Для Scroll / Overflow Правок
+
+Если правка касается:
+
+- room feed scroll
+- mobile touch scroll
+- overflow / fixed shell / `100vh` / `100dvh`
+- `touch-action`
+- `overscroll-behavior`
+
+то нельзя закрывать задачу только по source-contract тестам или по одной платформе.
+
+Обязательный минимум:
+
+1. локально обновить автотесты
+2. прогнать `npm run test:ui-contracts`
+3. прогнать `npm run test:gate`
+4. проверить staging руками на desktop
+5. проверить staging руками на mobile
+
+Отдельный запрет:
+
+- нельзя делать широкий CSS-фикс через глобальный `touch-action` на реальных scroll-контейнерах, пока не доказано, что это именно их правильный контракт
+- если scroll сломался на одной платформе, нельзя считать задачу закрытой после проверки только другой платформы

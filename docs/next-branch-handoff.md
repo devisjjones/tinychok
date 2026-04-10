@@ -1151,6 +1151,8 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - incoming should auto-scroll only when the user is already near bottom
   - prepend older history must preserve viewport and must never fight open/send scroll-to-bottom
   - visible scrollbar в room feed считается дефектом layout и не должен ложиться поверх bubbles
+  - scroll / overflow fixes нельзя закрывать только по source-contract тестам; нужен runtime smoke и на desktop, и на mobile
+  - широкий `touch-action` на `.message-feed`, `.chat-list` и других реальных scroll-контейнерах считается рискованной правкой, пока не доказан живой сценарий на обеих платформах
 - premium debug state может использоваться на staging, но не должен попадать в production без отдельного решения
 - production deploy обязан идти в режиме `TINYCHOK_APP_ENV=production`, чтобы тестовые сущности не попадали в боевой runtime
 - admin production нельзя включать без отдельного ручного решения по env и rollout-проверке staging
@@ -1166,6 +1168,8 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - incoming while near bottom => остаёмся внизу
   - incoming while reading older history => не должно срывать вниз
   - scrollbar не должен быть видим поверх сообщений
+  - desktop wheel / trackpad scroll внутри комнаты не должен ломаться после mobile scroll fix
+  - mobile touch scroll внутри комнаты не должен чиниться ценой desktop regression
 - day divider и догрузка старой истории вверх
 - create-flow канала:
   - пустые поля `title`, `statusText`, `description`
