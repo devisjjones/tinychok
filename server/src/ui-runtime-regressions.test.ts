@@ -4474,6 +4474,7 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(appCss, /\.bubble\.mine \.bubble-delivery-caption\s*\{[\s\S]*color:\s*rgba\(90,\s*64,\s*50,\s*0\.76\);/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.room-header\s*\{/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.channel-description-dialog-text\s*\{[\s\S]*color:\s*var\(--ink\);/u)
+  assert.match(appCss, /\.composer-reply\s*\{[\s\S]*margin-bottom:\s*4px;/u)
   assert.match(
     appCss,
     /html\[data-theme='dark'\] \.emoji-picker-section-title,\s*[\s\S]*\.emoji-picker-gif-search-label,\s*[\s\S]*\.emoji-picker-gif-section-title,\s*[\s\S]*\.emoji-picker-gif-upload-hint,\s*[\s\S]*\.emoji-picker-gif-blocked p\s*\{[\s\S]*color:\s*var\(--muted\);/u,
