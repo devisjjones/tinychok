@@ -2407,20 +2407,24 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   assert.match(appCss, /\.group-room-feed \.bubble-author-layout,\s*\.room-thread-feed \.bubble-author-layout \{\s*gap: 3px;\s*padding-top: 0;/u)
   assert.match(
     appCss,
-    /\.bubble \{\s*max-width: min\(520px, 78%\);\s*padding: 13px 18px 11px;/u,
+    /\.bubble \{\s*max-width: min\(520px, 78%\);\s*padding: 11px 18px 9px;/u,
   )
   assert.match(
     appCss,
-    /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 14px;\s*padding-bottom: 12px;/u,
+    /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 12px;\s*padding-bottom: 10px;/u,
   )
   assert.match(
     appCss,
     /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) time,\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) time \{\s*margin-top: 5px;/u,
   )
+  assert.match(
+    appCss,
+    /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-delivery-indicator,\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-delivery-indicator \{\s*bottom: 10px;/u,
+  )
   assert.match(appCss, /\.room-thread-feed > \.thread-comment-row:first-child \{\s*margin-top: 12px;/u)
   assert.match(
     appCss,
-    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 12px;\s*padding-bottom: 10px;/u,
+    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 10px;\s*padding-bottom: 8px;/u,
   )
   assert.match(
     appCss,
@@ -2428,7 +2432,7 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   )
   assert.match(
     appCss,
-    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-delivery-indicator \{\s*bottom: 12px;/u,
+    /\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-delivery-indicator \{\s*bottom: 10px;/u,
   )
   assert.match(appCss, /\.threaded-bubble\.has-thread \.threaded-bubble-main > \.bubble-author-layout > \.bubble,/u)
   assert.match(

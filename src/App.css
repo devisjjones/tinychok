@@ -4092,7 +4092,7 @@
 
 .bubble {
   max-width: min(520px, 78%);
-  padding: 13px 18px 11px;
+  padding: 11px 18px 9px;
   border-radius: 24px 24px 24px 8px;
   background: var(--surface-bubble);
   color: var(--ink);
@@ -4176,8 +4176,8 @@
 }
 
 .bubble-overlay.bubble-overlay-compact:not(.media-only-bubble):not(.emoji-only-message) {
-  padding-top: 12px;
-  padding-bottom: 10px;
+  padding-top: 10px;
+  padding-bottom: 8px;
 }
 
 .bubble-overlay.bubble-overlay-compact:not(.media-only-bubble):not(.emoji-only-message) time {
@@ -4185,7 +4185,7 @@
 }
 
 .bubble-overlay.bubble-overlay-compact:not(.media-only-bubble):not(.emoji-only-message) .bubble-delivery-indicator {
-  bottom: 12px;
+  bottom: 10px;
 }
 
 .bubble.mine {
@@ -5395,8 +5395,8 @@
 
 .group-room-feed .bubble:not(.media-only-bubble):not(.emoji-only-message),
 .room-thread-feed .bubble:not(.media-only-bubble):not(.emoji-only-message) {
-  padding-top: 14px;
-  padding-bottom: 12px;
+  padding-top: 12px;
+  padding-bottom: 10px;
 }
 
 .group-room-feed .bubble.group-captioned-media-bubble,
@@ -5412,7 +5412,7 @@
 
 .group-room-feed .bubble:not(.media-only-bubble):not(.emoji-only-message) .bubble-delivery-indicator,
 .room-thread-feed .bubble:not(.media-only-bubble):not(.emoji-only-message) .bubble-delivery-indicator {
-  bottom: 12px;
+  bottom: 10px;
 }
 
 .bubble.has-delivery-indicator time {
