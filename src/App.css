@@ -1567,6 +1567,29 @@
   border-radius: 20px;
 }
 
+.contacts-section .contact-list-card {
+  align-items: center;
+  padding: 10px 12px 9px 10px;
+  gap: 9px;
+  border-radius: 18px;
+}
+
+.contacts-section .contact-list-card .chat-copy {
+  gap: 2px;
+  align-self: center;
+}
+
+.contacts-section .contact-list-card .chat-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.contacts-section .contact-list-card .chat-preview {
+  line-height: 1.18;
+}
+
 .contacts-section .chat-card .avatar {
   border-radius: 15px;
 }
@@ -9491,6 +9514,19 @@ html[data-theme='dark'] .contacts-section .chat-card {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 14px 30px rgba(0, 0, 0, 0.16);
+}
+
+html[data-theme='dark'] .contacts-section .contact-list-card {
+  background: rgba(40, 42, 50, 0.98);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 14px 30px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme='dark'] .contacts-section .contact-list-card.active {
+  background: rgba(52, 55, 65, 0.98);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 html[data-theme='dark'] .channel-card:hover {

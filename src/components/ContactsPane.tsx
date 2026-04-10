@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { formatContactStatus, normalizeIdentifier } from '../app/utils'
+import { formatContactStatus, formatPreview, formatSidebarActivityLabel, normalizeIdentifier } from '../app/utils'
 import type { Chat, ContactRequestPreview } from '../app/types'
 import type { ContactsTabKey } from '../app/contactsContract'
 import { ContactRequestCard } from './ContactRequestCard'
@@ -123,46 +123,54 @@ export function ContactsPane({
         <div className="contacts-section">
           <p className="room-forward-section-title contacts-section-title">Контакты</p>
           {orderedVisibleChats.length > 0 ? (
-            orderedVisibleChats.map((chat) => (
-              <button
-                key={chat.id}
-                type="button"
-                className={chat.id === activeChatId ? 'chat-card active' : 'chat-card'}
-                onClick={() => onOpenAcceptedContact(chat.id)}
-              >
-                <span className="chat-avatar-stack">
-                  <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                    {renderAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
-                  </span>
-                  {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
-                </span>
-                <span className="chat-copy">
-                  <span className="chat-topline">
-                    <span className="chat-name-row">
-                      <strong className="chat-name-text">{chat.title}</strong>
-                      {chat.archivedAccount ? <span className="chat-archive-badge">Удалён</span> : null}
-                      {renderAdminBlockedChatBadge(chat)}
-                      {chat.muted ? (
-                        <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
-                          <img src="/icons/bell-100.png" alt="" />
-                        </span>
-                      ) : null}
-                      {chat.premium ? (
-                        <span className="premium-crown chat-crown" aria-label="Премиум">
-                          <img src="/icons/crown64.png" alt="" />
-                        </span>
-                      ) : null}
-                      {chat.pinned ? (
-                        <span className="chat-star">
-                          <img src="/icons/star100.png" alt="Избранный контакт" />
-                        </span>
-                      ) : null}
+            orderedVisibleChats.map((chat) => {
+              const latestMessage = chat.messages.at(-1)
+              const chatPreview = chat.messages.length > 0 ? formatPreview(chat) : formatContactStatus(chat)
+
+              return (
+                <button
+                  key={chat.id}
+                  type="button"
+                  className={chat.id === activeChatId ? 'chat-card contact-list-card active' : 'chat-card contact-list-card'}
+                  onClick={() => onOpenAcceptedContact(chat.id)}
+                >
+                  <span className="chat-avatar-stack">
+                    <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                      {renderAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                     </span>
+                    {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                   </span>
-                  <span className="chat-preview chat-status-preview">{formatContactStatus(chat)}</span>
-                </span>
-              </button>
-            ))
+                  <span className="chat-copy">
+                    <span className="chat-topline">
+                      <span className="chat-name-row">
+                        <strong className="chat-name-text">{chat.title}</strong>
+                        {chat.archivedAccount ? <span className="chat-archive-badge">Удалён</span> : null}
+                        {renderAdminBlockedChatBadge(chat)}
+                        {chat.muted ? (
+                          <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                            <img src="/icons/bell-100.png" alt="" />
+                          </span>
+                        ) : null}
+                        {chat.premium ? (
+                          <span className="premium-crown chat-crown" aria-label="Премиум">
+                            <img src="/icons/crown64.png" alt="" />
+                          </span>
+                        ) : null}
+                        {chat.pinned ? (
+                          <span className="chat-star">
+                            <img src="/icons/star100.png" alt="Избранный контакт" />
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="chat-topline-meta">
+                        {formatSidebarActivityLabel(latestMessage?.createdAt, latestMessage?.time ?? '')}
+                      </span>
+                    </span>
+                    <span className="chat-preview chat-status-preview">{chatPreview}</span>
+                  </span>
+                </button>
+              )
+            })
           ) : (
             <article className="chat-card search-card">
               <span className="chat-copy">

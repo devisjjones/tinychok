@@ -3141,6 +3141,40 @@ test('contacts screen splits incoming requests from accepted contacts', () => {
   assert.match(rolloutDoc, /client-side contacts flow изолирован от общего chat-list UI/u)
 })
 
+test('accepted contact cards keep compact preview layout and lighter dark-theme surface', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const contactsPaneSource = readFileSync(join(repoRoot, 'src', 'components', 'ContactsPane.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(contactsPaneSource, /const latestMessage = chat\.messages\.at\(-1\)/u)
+  assert.match(
+    contactsPaneSource,
+    /const chatPreview = chat\.messages\.length > 0 \? formatPreview\(chat\) : formatContactStatus\(chat\)/u,
+  )
+  assert.match(
+    contactsPaneSource,
+    /className=\{chat\.id === activeChatId \? 'chat-card contact-list-card active' : 'chat-card contact-list-card'\}/u,
+  )
+  assert.match(
+    contactsPaneSource,
+    /formatSidebarActivityLabel\(latestMessage\?\.createdAt, latestMessage\?\.time \?\? ''\)/u,
+  )
+  assert.match(contactsPaneSource, /<span className="chat-preview chat-status-preview">\{chatPreview\}<\/span>/u)
+  assert.match(
+    appCss,
+    /\.contacts-section \.contact-list-card\s*\{[\s\S]*padding:\s*10px 12px 9px 10px;[\s\S]*gap:\s*9px;[\s\S]*border-radius:\s*18px;/u,
+  )
+  assert.match(appCss, /\.contacts-section \.contact-list-card \.chat-copy\s*\{[\s\S]*gap:\s*2px;/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.contacts-section \.contact-list-card\s*\{[\s\S]*background:\s*rgba\(40,\s*42,\s*50,\s*0\.98\);[\s\S]*border-color:\s*rgba\(255,\s*255,\s*255,\s*0\.1\);/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.contacts-section \.contact-list-card\.active\s*\{[\s\S]*background:\s*rgba\(52,\s*55,\s*65,\s*0\.98\);/u,
+  )
+})
+
 test('quiet settings scene keeps category-specific notification contract wired through app, shared types and docs', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
