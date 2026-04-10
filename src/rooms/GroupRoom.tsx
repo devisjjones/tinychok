@@ -120,6 +120,7 @@ type GroupRoomProps = {
   attachmentName: string
   draft: string
   getMessageDeliveryIssue: (messageId: number) => 'pending' | 'failed' | null
+  getMessageUploadProgress: (messageId: number) => number | null
   group: GroupPreview
   messageFeedRef: RefObject<HTMLDivElement | null>
   visibleMessages: Message[]
@@ -168,6 +169,7 @@ export function GroupRoom({
   attachmentName,
   draft,
   getMessageDeliveryIssue,
+  getMessageUploadProgress,
   group,
   messageFeedRef,
   visibleMessages,
@@ -439,7 +441,9 @@ export function GroupRoom({
             )
             const messagePending = messageDeliveryIssue === 'pending'
             const messageFailed = messageDeliveryIssue === 'failed'
-            const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
+            const messageUploadProgress =
+              message.author === 'me' && messagePending ? getMessageUploadProgress(message.id) : null
+            const showDeliveryCaption = messageFailed && shouldShowDeliveryCaption(message)
             const showDeliveryIndicator = message.author === 'me'
             const bubbleDeliveryIndicatorSrc = messageFailed
               ? '/icons/warning-48.png'
@@ -621,6 +625,7 @@ export function GroupRoom({
                                       : undefined
                                   }
                                   showReplyInline={false}
+                                  uploadProgress={messageUploadProgress ?? undefined}
                                 />
                               </MediaOnlyBubbleRow>
                             ) : (
@@ -709,6 +714,7 @@ export function GroupRoom({
                                               : undefined
                                           }
                                           showReplyInline={false}
+                                          uploadProgress={messageUploadProgress ?? undefined}
                                         />
                                         {!hasImageAttachment && !shouldUseInlineTextMeta ? (
                                           <time>{message.time}</time>

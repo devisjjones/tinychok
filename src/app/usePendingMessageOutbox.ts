@@ -11,6 +11,7 @@ export type PendingAttachmentDraft = {
   mediaUrl?: string
   mimeType: string
   size: number
+  uploadProgress?: number
   width?: number
 }
 
@@ -44,7 +45,7 @@ export type PendingGroupMessage = {
   retryCount: number
 }
 
-type StoredAttachmentDraft = Omit<PendingAttachmentDraft, 'file'>
+type StoredAttachmentDraft = Omit<PendingAttachmentDraft, 'file' | 'uploadProgress'>
 
 type StoredPendingDirectMessage = Omit<PendingDirectMessage, 'attachmentDraft'> & {
   attachmentDraft?: StoredAttachmentDraft
@@ -57,6 +58,14 @@ type StoredPendingGroupMessage = Omit<PendingGroupMessage, 'attachmentDraft'> & 
 const DELIVERY_FAILURE_TIMEOUT_MS = 15_000
 const failedDirectMessagesStorageKeyPrefix = 'tinychok.failed-direct'
 const failedGroupMessagesStorageKeyPrefix = 'tinychok.failed-group'
+
+function normalizeUploadProgress(progress: number | undefined) {
+  if (typeof progress !== 'number' || Number.isNaN(progress)) {
+    return undefined
+  }
+
+  return Math.min(1, Math.max(0, progress))
+}
 
 function getFailedDirectMessagesStorageKey(identifier: string) {
   return `${failedDirectMessagesStorageKeyPrefix}:${identifier}`
@@ -224,6 +233,12 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
 
       return {
         ...message,
+        attachmentDraft: message.attachmentDraft
+          ? {
+              ...message.attachmentDraft,
+              uploadProgress: undefined,
+            }
+          : message.attachmentDraft,
         retryCount: message.retryCount + 1,
         status: shouldFail ? 'failed' : 'pending',
       }
@@ -232,9 +247,30 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
     return failureTimestamp
   }, [updatePendingDirectMessage])
 
+  const setPendingDirectMessageUploadProgress = useCallback((localId: number, progress: number) => {
+    updatePendingDirectMessage(localId, (message) => ({
+      ...message,
+      attachmentDraft: message.attachmentDraft
+        ? {
+            ...message.attachmentDraft,
+            uploadProgress: normalizeUploadProgress(progress),
+          }
+        : message.attachmentDraft,
+    }))
+  }, [updatePendingDirectMessage])
+
   const markPendingDirectMessageSending = useCallback((localId: number) => {
     updatePendingDirectMessage(localId, (message) => ({
       ...message,
+      attachmentDraft: message.attachmentDraft
+        ? {
+            ...message.attachmentDraft,
+            uploadProgress:
+              message.attachmentDraft.mediaUrl || !message.attachmentDraft.file
+                ? undefined
+                : 0,
+          }
+        : message.attachmentDraft,
       status: 'sending',
     }))
   }, [updatePendingDirectMessage])
@@ -247,6 +283,12 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
 
       return {
         ...message,
+        attachmentDraft: message.attachmentDraft
+          ? {
+              ...message.attachmentDraft,
+              uploadProgress: undefined,
+            }
+          : message.attachmentDraft,
         retryCount: message.retryCount + 1,
         status: shouldFail ? 'failed' : 'pending',
       }
@@ -255,9 +297,30 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
     return failureTimestamp
   }, [updatePendingGroupMessage])
 
+  const setPendingGroupMessageUploadProgress = useCallback((localId: number, progress: number) => {
+    updatePendingGroupMessage(localId, (message) => ({
+      ...message,
+      attachmentDraft: message.attachmentDraft
+        ? {
+            ...message.attachmentDraft,
+            uploadProgress: normalizeUploadProgress(progress),
+          }
+        : message.attachmentDraft,
+    }))
+  }, [updatePendingGroupMessage])
+
   const markPendingGroupMessageSending = useCallback((localId: number) => {
     updatePendingGroupMessage(localId, (message) => ({
       ...message,
+      attachmentDraft: message.attachmentDraft
+        ? {
+            ...message.attachmentDraft,
+            uploadProgress:
+              message.attachmentDraft.mediaUrl || !message.attachmentDraft.file
+                ? undefined
+                : 0,
+          }
+        : message.attachmentDraft,
       status: 'sending',
     }))
   }, [updatePendingGroupMessage])
@@ -306,6 +369,16 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
     [failedDirectMessageIds, pendingDirectMessageIds],
   )
 
+  const directMessageUploadProgressById = useMemo(
+    () =>
+      new Map(
+        pendingDirectMessages
+          .filter((message) => typeof message.attachmentDraft?.uploadProgress === 'number')
+          .map((message) => [message.localId, message.attachmentDraft?.uploadProgress ?? 0]),
+      ),
+    [pendingDirectMessages],
+  )
+
   const getGroupMessageDeliveryIssue = useCallback(
     (messageId: number): DeliveryIssue | null =>
       failedGroupMessageIds.has(messageId)
@@ -315,6 +388,26 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
           : null,
     [failedGroupMessageIds, pendingGroupMessageIds],
   )
+
+  const groupMessageUploadProgressById = useMemo(
+    () =>
+      new Map(
+        pendingGroupMessages
+          .filter((message) => typeof message.attachmentDraft?.uploadProgress === 'number')
+          .map((message) => [message.localId, message.attachmentDraft?.uploadProgress ?? 0]),
+      ),
+    [pendingGroupMessages],
+  )
+
+  const getDirectMessageUploadProgress = useCallback((messageId: number) => {
+    const progress = directMessageUploadProgressById.get(messageId)
+    return typeof progress === 'number' ? progress : null
+  }, [directMessageUploadProgressById])
+
+  const getGroupMessageUploadProgress = useCallback((messageId: number) => {
+    const progress = groupMessageUploadProgressById.get(messageId)
+    return typeof progress === 'number' ? progress : null
+  }, [groupMessageUploadProgressById])
 
   useEffect(() => {
     pendingDirectMessagesRef.current = pendingDirectMessages
@@ -382,7 +475,9 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
     clearPendingDirectMessagesForChat,
     clearPendingMessages,
     getDirectMessageDeliveryIssue,
+    getDirectMessageUploadProgress,
     getGroupMessageDeliveryIssue,
+    getGroupMessageUploadProgress,
     hasLocalOutboxMessages,
     hasPendingOutgoingMessages,
     markPendingDirectMessageAttemptFailed,
@@ -398,6 +493,8 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
     removePendingDirectMessage,
     removePendingGroupMessage,
     restorePersistedFailedMessages,
+    setPendingDirectMessageUploadProgress,
+    setPendingGroupMessageUploadProgress,
     updatePendingDirectMessage,
     updatePendingGroupMessage,
   }

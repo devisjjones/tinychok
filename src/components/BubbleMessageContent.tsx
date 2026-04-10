@@ -30,6 +30,7 @@ type BubbleMessageContentProps = {
   onOpenSourceGroup?: () => void
   replyChatTitle?: string
   showReplyInline?: boolean
+  uploadProgress?: number
 }
 
 type BubbleImageOverlayMetaProps = {
@@ -55,9 +56,18 @@ type AttachmentRemovedNoticeBlockProps = {
 
 export function shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc: string | null | undefined) {
   return (
+    deliveryIndicatorSrc === '/icons/hourglass-48.png' ||
     deliveryIndicatorSrc === '/icons/check-mark-50.png' ||
     deliveryIndicatorSrc === '/icons/double-tick-50.png'
   )
+}
+
+function normalizeUploadProgress(progress: number | undefined) {
+  if (typeof progress !== 'number' || Number.isNaN(progress)) {
+    return null
+  }
+
+  return Math.min(1, Math.max(0, progress))
 }
 
 function buildVideoPreviewUrl(mediaUrl: string) {
@@ -510,6 +520,7 @@ export function BubbleMessageContent({
   onOpenSourceContact,
   onOpenSourceGroup,
   showReplyInline = true,
+  uploadProgress,
 }: BubbleMessageContentProps) {
   const trimmedText = message.text.trim()
   const isVideoAttachment = Boolean(
@@ -538,6 +549,13 @@ export function BubbleMessageContent({
           : ''
       }`
     : ''
+  const uploadProgressValue = normalizeUploadProgress(uploadProgress)
+  const uploadProgressPercent = uploadProgressValue === null ? null : Math.round(uploadProgressValue * 100)
+  const showAttachmentUploadProgress = Boolean(message.attachment) && uploadProgressPercent !== null
+  const attachmentUploadCopy =
+    uploadProgressPercent === null
+      ? ''
+      : `${isVideoAttachment ? 'Загрузка видео' : isImageAttachment ? 'Загрузка фото' : 'Загрузка файла'} ${uploadProgressPercent}%`
   const attachmentNode = message.attachment ? (
     hasVisualAttachment ? (
       <div
@@ -581,6 +599,21 @@ export function BubbleMessageContent({
             }`}
           />
         )}
+        {showAttachmentUploadProgress ? (
+          <span
+            className="bubble-attachment-upload-progress bubble-attachment-upload-progress-overlay"
+            role="progressbar"
+            aria-label={attachmentUploadCopy}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={uploadProgressPercent ?? 0}
+          >
+            <span
+              className="bubble-attachment-upload-progress-fill"
+              style={{ width: `${uploadProgressPercent ?? 0}%` }}
+            />
+          </span>
+        ) : null}
         {imageOverlay}
       </div>
     ) : (
@@ -602,6 +635,24 @@ export function BubbleMessageContent({
           ) : (
             <span>{attachmentStatusCopy}</span>
           )}
+          {showAttachmentUploadProgress ? (
+            <div className="bubble-attachment-upload-row">
+              <span className="bubble-attachment-upload-label">{attachmentUploadCopy}</span>
+              <span
+                className="bubble-attachment-upload-progress"
+                role="progressbar"
+                aria-label={attachmentUploadCopy}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={uploadProgressPercent ?? 0}
+              >
+                <span
+                  className="bubble-attachment-upload-progress-fill"
+                  style={{ width: `${uploadProgressPercent ?? 0}%` }}
+                />
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
     )

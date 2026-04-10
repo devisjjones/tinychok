@@ -377,7 +377,10 @@ test('composer attachment rename flow keeps extension outside the input and send
   assert.match(composerAttachmentsSource, /attachmentDraft\.fileName\)\.baseName/u)
   assert.match(backendSource, /uploadFileName\?: string/u)
   assert.match(backendSource, /formData\.append\('file', file, uploadFileName \|\| file\.name\)/u)
-  assert.match(appSource, /uploadMediaFile\(\s*sessionToken,\s*attachmentDraft\.file,\s*'attachment',\s*attachmentDraft\.fileName,\s*\)/u)
+  assert.match(
+    appSource,
+    /uploadMediaFile\(\s*sessionToken,\s*attachmentDraft\.file,\s*'attachment',\s*attachmentDraft\.fileName,\s*(?:\{\s*onProgress:\s*options\?\.onProgress\s*\}|\))/u,
+  )
   assert.match(appSource, /function renameChatAttachmentFileBaseName/u)
   assert.match(appSource, /function renameGroupAttachmentFileBaseName/u)
   assert.match(appSource, /function renameChannelAttachmentFileBaseName/u)
@@ -2565,6 +2568,44 @@ test('file attachment bubbles keep a left badge layout with inline bottom-right 
   )
 })
 
+test('pending attachment delivery keeps progress UI separate from failed-send captions', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const backendSource = readFileSync(join(repoRoot, 'src', 'app', 'backend.ts'), 'utf8')
+  const outboxSource = readFileSync(join(repoRoot, 'src', 'app', 'usePendingMessageOutbox.ts'), 'utf8')
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const overlaySource = readFileSync(
+    join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'),
+    'utf8',
+  )
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(outboxSource, /uploadProgress\?: number/u)
+  assert.match(outboxSource, /setPendingDirectMessageUploadProgress/u)
+  assert.match(outboxSource, /setPendingGroupMessageUploadProgress/u)
+  assert.match(outboxSource, /uploadProgress:\s*undefined/u)
+  assert.match(backendSource, /type UploadMediaFileOptions = \{[\s\S]*onProgress\?: \(progress: number\) => void/u)
+  assert.match(backendSource, /request\.upload\.onprogress = \(event\) => \{/u)
+  assert.match(directRoomSource, /const showDeliveryCaption = messageFailed && shouldShowDeliveryCaption\(message\)/u)
+  assert.match(groupRoomSource, /const showDeliveryCaption = messageFailed && shouldShowDeliveryCaption\(message\)/u)
+  assert.match(
+    overlaySource,
+    /const showDeliveryCaption = props\.deliveryIssue === 'failed' && shouldShowDeliveryCaption\(props\.message\)/u,
+  )
+  assert.match(directRoomSource, /const messageUploadProgress =[\s\S]*getMessageUploadProgress\(message\.id\)/u)
+  assert.match(groupRoomSource, /const messageUploadProgress =[\s\S]*getMessageUploadProgress\(message\.id\)/u)
+  assert.match(appSource, /setPendingDirectMessageUploadProgress\(localId,\s*progress\)/u)
+  assert.match(appSource, /setPendingGroupMessageUploadProgress\(localId,\s*progress\)/u)
+  assert.match(bubbleSource, /uploadProgress\?: number/u)
+  assert.match(bubbleSource, /bubble-attachment-upload-progress/u)
+  assert.match(bubbleSource, /aria-valuenow=\{uploadProgressPercent \?\? 0\}/u)
+  assert.match(appCss, /\.bubble-attachment-upload-progress \{/u)
+  assert.match(appCss, /\.bubble-attachment-upload-progress-fill \{/u)
+  assert.match(appCss, /\.bubble-attachment-upload-progress-overlay \{/u)
+})
+
 test('standalone emoji messages stay bubbleless only in direct and unthreaded group room feeds', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const sharedUtilsSource = readFileSync(join(repoRoot, 'src', 'shared', 'utils.ts'), 'utf8')
@@ -3824,6 +3865,7 @@ test('delivery check icons use light tint contract on dark bubbles', () => {
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(bubbleSource, /shouldUseLightDeliveryIndicatorTint/u)
+  assert.match(bubbleSource, /deliveryIndicatorSrc === '\/icons\/hourglass-48\.png'/u)
   assert.match(bubbleSource, /deliveryIndicatorSrc === '\/icons\/check-mark-50\.png'/u)
   assert.match(bubbleSource, /deliveryIndicatorSrc === '\/icons\/double-tick-50\.png'/u)
   assert.match(directRoomSource, /bubble-delivery-indicator bubble-delivery-indicator-light/u)

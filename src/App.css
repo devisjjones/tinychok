@@ -4945,6 +4945,53 @@
   opacity: 1;
 }
 
+.bubble-attachment-upload-row {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.bubble-attachment-upload-label {
+  font-size: 0.76rem;
+  line-height: 1.2;
+  opacity: 0.82;
+}
+
+.bubble-attachment-upload-progress {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(95, 66, 46, 0.14);
+}
+
+.bubble-attachment-upload-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(141, 89, 57, 0.72), rgba(202, 163, 132, 0.98));
+  transition: width 160ms linear;
+}
+
+.bubble-attachment-upload-progress-overlay {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: auto;
+  height: 5px;
+  background: rgba(255, 248, 242, 0.18);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 18px rgba(16, 10, 8, 0.16);
+  pointer-events: none;
+}
+
+.bubble-attachment-upload-progress-overlay .bubble-attachment-upload-progress-fill {
+  background: linear-gradient(90deg, rgba(255, 244, 236, 0.84), rgba(255, 255, 255, 0.98));
+}
+
 .bubble-attachment-removed-note {
   margin: 8px 0 0;
   font-size: 0.84rem;
@@ -9233,6 +9280,27 @@ html[data-theme='dark'] .settings-storage-file-badge,
 html[data-theme='dark'] .bubble-attachment-badge {
   background: rgba(255, 255, 255, 0.1);
   color: var(--muted);
+}
+
+html[data-theme='dark'] .bubble-attachment-upload-label {
+  color: var(--muted);
+  opacity: 1;
+}
+
+html[data-theme='dark'] .bubble-attachment-upload-progress {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme='dark'] .bubble-attachment-upload-progress-fill {
+  background: linear-gradient(90deg, rgba(164, 91, 78, 0.82), rgba(232, 210, 193, 0.98));
+}
+
+html[data-theme='dark'] .bubble-attachment-upload-progress-overlay {
+  background: rgba(17, 18, 24, 0.42);
+}
+
+html[data-theme='dark'] .bubble-attachment-upload-progress-overlay .bubble-attachment-upload-progress-fill {
+  background: linear-gradient(90deg, rgba(214, 176, 147, 0.84), rgba(255, 247, 241, 0.98));
 }
 
 html[data-theme='dark'] .premium-consent-copy,

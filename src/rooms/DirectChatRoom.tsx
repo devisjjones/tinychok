@@ -63,6 +63,7 @@ type DirectChatRoomProps = {
   chatActionsOpen: boolean
   draft: string
   getMessageDeliveryIssue: (messageId: number) => 'pending' | 'failed' | null
+  getMessageUploadProgress: (messageId: number) => number | null
   messageFeedRef: RefObject<HTMLDivElement | null>
   onAttachmentClear: () => void
   onAttachmentPreviewOpen?: () => void
@@ -126,6 +127,7 @@ export function DirectChatRoom({
   chatActionsOpen,
   draft,
   getMessageDeliveryIssue,
+  getMessageUploadProgress,
   messageFeedRef,
   onAttachmentClear,
   onAttachmentPreviewOpen,
@@ -532,7 +534,9 @@ export function DirectChatRoom({
           )
           const messagePending = messageDeliveryIssue === 'pending'
           const messageFailed = messageDeliveryIssue === 'failed'
-          const showDeliveryCaption = messageDeliveryIssue !== null && shouldShowDeliveryCaption(message)
+          const messageUploadProgress =
+            message.author === 'me' && messagePending ? getMessageUploadProgress(message.id) : null
+          const showDeliveryCaption = messageFailed && shouldShowDeliveryCaption(message)
           const showDeliveryIndicator = message.author === 'me'
           const messageReadByRecipient = message.author === 'me' && Boolean(message.readAt)
           const deliveryIndicatorSrc = messageFailed
@@ -671,6 +675,7 @@ export function DirectChatRoom({
                         }
                         replyChatTitle={activeChat.title}
                         showReplyInline={false}
+                        uploadProgress={messageUploadProgress ?? undefined}
                       />
                     </MediaOnlyBubbleRow>
                   ) : (
@@ -750,6 +755,7 @@ export function DirectChatRoom({
                             }
                             replyChatTitle={activeChat.title}
                             showReplyInline={false}
+                            uploadProgress={messageUploadProgress ?? undefined}
                           />
                           {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{message.time}</time> : null}
                           {!hasImageAttachment && showDeliveryCaption ? (

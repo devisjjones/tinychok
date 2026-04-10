@@ -349,6 +349,79 @@ async function readJsonResponse<T>(response: Response) {
   return payload as T
 }
 
+type UploadMediaFileOptions = {
+  onProgress?: (progress: number) => void
+}
+
+function uploadMediaFileWithProgress(
+  sessionToken: string,
+  kind: UploadMediaKind,
+  formData: FormData,
+  onProgress: NonNullable<UploadMediaFileOptions['onProgress']>,
+) {
+  return new Promise<UploadMediaResponse>((resolve, reject) => {
+    const request = new XMLHttpRequest()
+    const requestUrl = makeHttpUrl(`/api/media?kind=${encodeURIComponent(kind)}`)
+
+    request.open('POST', requestUrl)
+    request.setRequestHeader('Authorization', `Bearer ${sessionToken}`)
+    request.responseType = 'text'
+
+    onProgress(0)
+
+    request.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total <= 0) return
+      onProgress(event.loaded / event.total)
+    }
+
+    request.onerror = () => {
+      reject(new ApiError('Не удалось выполнить запрос к серверу.', request.status || 0))
+    }
+
+    request.onabort = () => {
+      reject(new ApiError('Загрузка файла была прервана.', request.status || 0))
+    }
+
+    request.onload = () => {
+      const contentType = request.getResponseHeader('content-type')?.toLowerCase() ?? ''
+      const expectsJson = contentType.includes('application/json')
+      let payload: UploadMediaResponse | { message?: string } | undefined
+
+      try {
+        if (expectsJson) {
+          payload = JSON.parse(request.responseText) as UploadMediaResponse | { message?: string }
+        }
+      } catch (error) {
+        if (request.status >= 200 && request.status < 300) {
+          reject(error)
+          return
+        }
+      }
+
+      if (request.status < 200 || request.status >= 300) {
+        const apiError = payload as { message?: string } | undefined
+        const message = typeof apiError?.message === 'string'
+          ? apiError.message
+          : request.status === 413
+            ? 'Файл слишком большой для текущего upload-контура.'
+            : 'Не удалось выполнить запрос к серверу.'
+        reject(new ApiError(message, request.status))
+        return
+      }
+
+      if (!payload) {
+        reject(new ApiError('Сервер вернул неожиданный ответ.', request.status))
+        return
+      }
+
+      onProgress(1)
+      resolve(payload as UploadMediaResponse)
+    }
+
+    request.send(formData)
+  })
+}
+
 function getDownloadFileName(response: Response, fallback: string) {
   const disposition = response.headers.get('content-disposition') ?? ''
   const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/iu)
@@ -1396,9 +1469,18 @@ export async function uploadMediaFile(
   file: File,
   kind: UploadMediaKind,
   uploadFileName?: string,
+  options?: UploadMediaFileOptions,
 ) {
   const formData = new FormData()
   formData.append('file', file, uploadFileName || file.name)
+
+  if (options?.onProgress) {
+    const payload = await uploadMediaFileWithProgress(sessionToken, kind, formData, options.onProgress)
+    return {
+      ...payload,
+      mediaUrl: resolveMediaUrl(payload.mediaUrl),
+    }
+  }
 
   const response = await fetch(makeHttpUrl(`/api/media?kind=${encodeURIComponent(kind)}`), {
     body: formData,

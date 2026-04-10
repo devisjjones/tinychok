@@ -1647,7 +1647,9 @@ function App() {
     clearPendingDirectMessagesForChat,
     clearPendingMessages,
     getDirectMessageDeliveryIssue,
+    getDirectMessageUploadProgress,
     getGroupMessageDeliveryIssue,
+    getGroupMessageUploadProgress,
     hasLocalOutboxMessages,
     hasPendingOutgoingMessages,
     markPendingDirectMessageAttemptFailed,
@@ -1663,6 +1665,8 @@ function App() {
     removePendingDirectMessage,
     removePendingGroupMessage,
     restorePersistedFailedMessages,
+    setPendingDirectMessageUploadProgress,
+    setPendingGroupMessageUploadProgress,
     updatePendingDirectMessage,
     updatePendingGroupMessage,
   } = usePendingMessageOutbox(session?.identifier)
@@ -3522,8 +3526,16 @@ function App() {
       : 'Выбор ещё не сохранён'
   const activeMessageDeliveryIssue =
     activeMessage?.author === 'me' ? getDirectMessageDeliveryIssue(activeMessage.id) : null
+  const activeMessageUploadProgress =
+    activeMessage?.author === 'me' && activeMessageDeliveryIssue === 'pending'
+      ? getDirectMessageUploadProgress(activeMessage.id)
+      : null
   const activeGroupMessageDeliveryIssue =
     activeGroupMessage?.author === 'me' ? getGroupMessageDeliveryIssue(activeGroupMessage.id) : null
+  const activeGroupMessageUploadProgress =
+    activeGroupMessage?.author === 'me' && activeGroupMessageDeliveryIssue === 'pending'
+      ? getGroupMessageUploadProgress(activeGroupMessage.id)
+      : null
   const nextCookieConsentChoice = cookieConsent === 'analytics' ? 'necessary' : 'analytics'
   const cookieConsentToggleLabel = cookieConsent === null ? 'Сохранить выбор' : 'Изменить выбор'
   const cookieConsentBanner = (
@@ -6367,7 +6379,10 @@ function App() {
   async function resolvePendingAttachmentForSend(
     sessionToken: string,
     attachmentDraft?: PendingAttachmentDraft,
-    options?: { surface: 'channel' | 'direct' | 'group' | 'support' | 'thread' },
+    options?: {
+      onProgress?: (progress: number) => void
+      surface: 'channel' | 'direct' | 'group' | 'support' | 'thread'
+    },
   ) {
     if (!attachmentDraft) {
       return {
@@ -6386,7 +6401,10 @@ function App() {
           size: attachmentDraft.size,
           width: attachmentDraft.width,
         } satisfies NonNullable<Message['attachment']>,
-        attachmentDraft,
+        attachmentDraft: {
+          ...attachmentDraft,
+          uploadProgress: attachmentDraft.uploadProgress,
+        },
       }
     }
 
@@ -6402,6 +6420,7 @@ function App() {
         attachmentDraft.file,
         'attachment',
         attachmentDraft.fileName,
+        { onProgress: options?.onProgress },
       )
     } catch (error) {
       if (isPhotoMimeType(attachmentDraft.mimeType)) {
@@ -6434,6 +6453,7 @@ function App() {
         mediaUrl: uploadedMedia.mediaUrl,
         mimeType: uploadedMedia.mimeType,
         size: uploadedMedia.size,
+        uploadProgress: 1,
         width: attachmentDraft.width,
       } satisfies PendingAttachmentDraft,
     }
@@ -7892,7 +7912,10 @@ function App() {
         const resolvedAttachment = await resolvePendingAttachmentForSend(
           session.sessionToken,
           pendingMessage.attachmentDraft,
-          { surface: 'direct' },
+          {
+            onProgress: (progress) => setPendingDirectMessageUploadProgress(localId, progress),
+            surface: 'direct',
+          },
         )
 
         if (
@@ -8020,7 +8043,10 @@ function App() {
         const resolvedAttachment = await resolvePendingAttachmentForSend(
           session.sessionToken,
           pendingMessage.attachmentDraft,
-          { surface: 'group' },
+          {
+            onProgress: (progress) => setPendingGroupMessageUploadProgress(localId, progress),
+            surface: 'group',
+          },
         )
 
         if (
@@ -8607,6 +8633,11 @@ function App() {
         const resolvedAttachment = await resolvePendingAttachmentForSend(
           session.sessionToken,
           nextDirectMessage.attachmentDraft,
+          {
+            onProgress: (progress) =>
+              setPendingDirectMessageUploadProgress(nextDirectMessage.localId, progress),
+            surface: 'direct',
+          },
         )
 
         if (
@@ -8649,6 +8680,11 @@ function App() {
       const resolvedAttachment = await resolvePendingAttachmentForSend(
         session.sessionToken,
         nextGroupMessage.attachmentDraft,
+        {
+          onProgress: (progress) =>
+            setPendingGroupMessageUploadProgress(nextGroupMessage.localId, progress),
+          surface: 'group',
+        },
       )
 
       if (
@@ -14478,6 +14514,7 @@ function App() {
           onOpenExternalLink={requestOpenExternalLink}
           onOpenPremiumUpsell={openPremiumUpsell}
           participant={activeGroupMessageParticipant}
+          uploadProgress={activeGroupMessageUploadProgress ?? undefined}
         />
       ) : null}
       {forwardingGroupMessageText ? (
@@ -18551,6 +18588,7 @@ function App() {
             attachmentName={groupAttachmentDrafts[activeGroup.id]?.fileName ?? ''}
             draft={groupMessageDrafts[activeGroup.id] ?? ''}
             getMessageDeliveryIssue={getGroupMessageDeliveryIssue}
+            getMessageUploadProgress={getGroupMessageUploadProgress}
             group={activeGroup}
             messageFeedRef={messageFeedRef}
             onAttachmentChange={handleGroupAttachmentChange}
@@ -18634,6 +18672,7 @@ function App() {
               chatActionsOpen={chatActionsOpen}
               draft={chatMessageDrafts[activeChat.id] ?? ''}
               getMessageDeliveryIssue={getDirectMessageDeliveryIssue}
+              getMessageUploadProgress={getDirectMessageUploadProgress}
               messageFeedRef={messageFeedRef}
               onAttachmentClear={() => clearChatAttachmentDraft(activeChat.id)}
               onAttachmentPreviewOpen={() => openAttachmentDraftPreview(chatAttachmentDrafts[activeChat.id])}
@@ -18764,6 +18803,7 @@ function App() {
                     onOpenExternalLink={requestOpenExternalLink}
                     onOpenPremiumUpsell={openPremiumUpsell}
                     replyChatTitle={activeChat.title}
+                    uploadProgress={activeMessageUploadProgress ?? undefined}
                   />
                 ) : null}
                 {messageActionAnchor ? (

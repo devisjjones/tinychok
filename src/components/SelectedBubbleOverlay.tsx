@@ -27,6 +27,7 @@ type SelectedBubbleOverlayProps =
       message: Message
       mine: boolean
       replyChatTitle?: string
+      uploadProgress?: number
     }
   | {
       anchor: ActionAnchor
@@ -39,6 +40,7 @@ type SelectedBubbleOverlayProps =
       onOpenExternalLink?: (url: string) => void
       onOpenPremiumUpsell?: () => void
       participant?: GroupParticipant | null
+      uploadProgress?: number
     }
   | {
       anchor: ActionAnchor
@@ -280,7 +282,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     props.message.author !== 'me' &&
     !hasImageAttachment &&
     !isGroupCaptionedImageBubble
-  const showDeliveryCaption = hasDeliveryIssue && shouldShowDeliveryCaption(props.message)
+  const showDeliveryCaption = props.deliveryIssue === 'failed' && shouldShowDeliveryCaption(props.message)
   const shouldUseInlineTextMeta =
     !hasImageAttachment &&
     !isStandaloneEmojiOnlyMessage &&
@@ -412,6 +414,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
             onOpenSourceGroup={undefined}
             replyChatTitle={props.kind === 'direct' ? props.replyChatTitle : undefined}
             showReplyInline={false}
+            uploadProgress={
+              props.kind === 'direct' || props.kind === 'group' ? props.uploadProgress : undefined
+            }
           />
           {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{props.message.time}</time> : null}
           {!hasImageAttachment && showDeliveryCaption ? (
