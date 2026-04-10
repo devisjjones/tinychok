@@ -1554,7 +1554,7 @@
 
 .contacts-section .chat-card {
   margin-inline: 4px;
-  padding: 12px 13px;
+  padding: 12px 13px 12px 10px;
   gap: 10px;
   border-radius: 20px;
 }
