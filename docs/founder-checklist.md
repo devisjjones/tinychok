@@ -2,8 +2,8 @@
 
 Этот чек-лист я буду держать актуальным по мере развития production-архитектуры. Если в следующих шагах появятся новые внешние зависимости от тебя, я буду добавлять их сюда и показывать в итоговом сообщении.
 
-Текущее зафиксированное состояние доменов и DNS лежит отдельно в [docs/domain-status.md](/Users/devisjones/Documents/New%20project/tinychok/docs/domain-status.md).
-Текущее зафиксированное состояние Yandex Cloud лежит отдельно в [docs/yandex-cloud-status.md](/Users/devisjones/Documents/New%20project/tinychok/docs/yandex-cloud-status.md).
+Текущее зафиксированное состояние доменов и DNS лежит отдельно в [docs/domain-status.md](/Users/devisjjones/Documents/tinychok/docs/domain-status.md).
+Текущее зафиксированное состояние Yandex Cloud лежит отдельно в [docs/yandex-cloud-status.md](/Users/devisjjones/Documents/tinychok/docs/yandex-cloud-status.md).
 
 ## Домены и DNS
 

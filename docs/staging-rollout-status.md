@@ -2,6 +2,8 @@
 
 Короткий runbook по текущему staging-контуру. Документ описывает только текущее устройство контура, обязательные проверки и стандартный deploy flow.
 
+Отдельный анти-долговый чеклист по самому rollout-процессу лежит в [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md).
+
 ## Staging Contour
 
 - staging frontend: `https://staging.tinychok.ru`
@@ -27,7 +29,7 @@
   - иначе frontend теряет `api.staging` / `wss://api.staging` и начинает ходить в same-origin `/api`
   - это снова открывает basic-auth popup в Chrome и выглядит как "staging перестал пускать"
 
-Подробности guard-а лежат в [docs/staging-access-guard.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-access-guard.md).
+Подробности guard-а лежат в [docs/staging-access-guard.md](/Users/devisjjones/Documents/tinychok/docs/staging-access-guard.md).
 
 ### Temporary Review Exception
 
@@ -96,7 +98,7 @@
   - `curl -s https://api.staging.tinychok.ru/api/client-config`
   - expected result = JSON with positive `analytics.metricaCounterId`
   - открыть staging с `?analytics_debug=1` и убедиться, что в console есть `pageview` / `event`
-- единый список release-blocking runtime-контрактов лежит в [docs/release-contracts.md](/Users/devisjones/Documents/New%20project/tinychok/docs/release-contracts.md)
+- единый список release-blocking runtime-контрактов лежит в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
 ### Tariff Limit Smoke Checks
 
@@ -690,8 +692,9 @@ bash scripts/deploy-staging.sh
   - `https://api.staging.tinychok.ru/healthz` → `{"status":"ok"}`
   - `https://api.staging.tinychok.ru/readyz` → `storage.layout = hybrid-normalized`
   - `https://api.staging.tinychok.ru/api/client-config` → `analytics.enabled=true`, `provider=log`, `metricaCounterId=108249405`
-  - `https://staging.tinychok.ru` реально отдаёт `assets/main-D-NEgpe-.js`
+  - `https://staging.tinychok.ru` реально отдаёт `assets/main-CaKkRSBQ.js`
   - dist bootstrap больше не монолитный: runtime URLs подтверждаются через split assets, а не через один giant main chunk
+  - подтверждённый staging VM commit после live deploy `2026-04-10`: `61f8db3`
 
 ## Minimal Post-Deploy Check
 

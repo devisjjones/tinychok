@@ -2,6 +2,8 @@
 
 Короткая техническая точка входа для следующего треда или новой ветки. Документ описывает только текущее устройство системы и рабочие инварианты, без истории коммитов и списков прошлых правок.
 
+Отдельный staging rollout discipline-checklist лежит в [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md).
+
 ## Runtime Topology
 
 - staging frontend: `https://staging.tinychok.ru`
@@ -60,8 +62,10 @@
 - fallback-защита на web-vhost тоже важна:
   - `staging.tinychok.ru/api/*` и `staging.tinychok.ru/ws` должны проксироваться на backend без повторного basic-auth challenge
   - even so, этот proxy не отменяет requirement собирать staging именно через `build:staging`
-- текущий подтверждённый user-frontend asset на staging после deploy `2026-04-08`:
-  - `assets/main-D-NEgpe-.js`
+- текущий подтверждённый user-frontend asset на staging после deploy `2026-04-10`:
+  - `assets/main-CaKkRSBQ.js`
+- подтверждённый staging VM commit после live deploy `2026-04-10`:
+  - `61f8db3`
 - временное review-исключение активно с `2026-04-07`:
   - public user frontend `https://staging.tinychok.ru` намеренно открыт без user `basic auth`
   - причина: внешний review с новых устройств без логин/пароль prompt
@@ -105,7 +109,7 @@
   - `analytics.metricaCounterId` должен быть положительным числом
 - нельзя считать проблему закрытой только потому, что frontend собрался и `healthz` зелёный:
 - analytics regressions ловятся только через runtime config smoke-check
-- единый release-blocking список теперь собран в [docs/release-contracts.md](/Users/devisjones/Documents/New%20project/tinychok/docs/release-contracts.md)
+- единый release-blocking список теперь собран в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
 ## Core Product Mechanics
 
@@ -902,7 +906,7 @@
   - отправку фото без сжатия
   - увеличенную storage quota
 - новые live-аккаунты при обычной регистрации больше не создаются с premium по умолчанию
-- в проекте есть debug-layer для premium, он описан отдельно в [docs/debug-flags.md](/Users/devisjones/Documents/New%20project/tinychok/docs/debug-flags.md)
+- в проекте есть debug-layer для premium, он описан отдельно в [docs/debug-flags.md](/Users/devisjjones/Documents/tinychok/docs/debug-flags.md)
 
 ### Storage and Quotas
 
@@ -972,7 +976,7 @@
   - current premium state
   - текущие аватары
 - cleanup запускается на старте backend и затем периодически по runtime env
-- отдельный актуальный документ по retention лежит в [docs/data-retention.md](/Users/devisjones/Documents/New%20project/tinychok/docs/data-retention.md)
+- отдельный актуальный документ по retention лежит в [docs/data-retention.md](/Users/devisjjones/Documents/tinychok/docs/data-retention.md)
 
 ### Admin Panel MVP
 

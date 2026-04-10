@@ -692,6 +692,17 @@
 - проверить хотя бы одну legal page
 - проверить, что иконки не побились
 - проверить, что analytics реально включены
+- не считать rollout завершённым, пока не подтверждены:
+  - local HEAD
+  - `origin/codex/staging-deploy`
+  - VM HEAD
+  - live `assets/main-*.js`
+  - `healthz` / `readyz`
+- полный anti-confusion checklist лежит в [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md)
+- текущее подтверждённое состояние staging после live deploy `2026-04-10`:
+  - `origin/codex/staging-deploy = 61f8db3`
+  - staging VM `HEAD = 61f8db3`
+  - live frontend bundle = `assets/main-CaKkRSBQ.js`
 
 ## Автоматические проверки
 
