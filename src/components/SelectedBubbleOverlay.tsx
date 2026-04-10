@@ -1,5 +1,6 @@
 import type { ActionAnchor, ChannelPost, GroupParticipant, Message, ThreadComment } from '../app/types'
 import {
+  formatMessageTimeLabel,
   isImageMimeType,
   isStandaloneEmojiMessageText,
   isVideoMimeType,
@@ -142,6 +143,7 @@ function renderGroupOverlayAuthor(
 
 export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
   if (props.kind === 'channel') {
+    const renderedPostTime = formatMessageTimeLabel(props.post.createdAt, props.post.time)
     const hasImageAttachment = Boolean(
       props.post.attachment &&
       (isImageMimeType(props.post.attachment.mimeType) || isVideoMimeType(props.post.attachment.mimeType)),
@@ -157,9 +159,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         aria-hidden="true"
       >
         <BubbleMessageContent
-          imageOverlay={hasImageAttachment ? <BubbleImageOverlayMeta time={props.post.time} /> : undefined}
+          imageOverlay={hasImageAttachment ? <BubbleImageOverlayMeta time={renderedPostTime} /> : undefined}
           inlineMeta={
-            shouldUseInlineTextMeta ? <BubbleTextInlineMeta time={props.post.time} /> : undefined
+            shouldUseInlineTextMeta ? <BubbleTextInlineMeta time={renderedPostTime} /> : undefined
           }
           message={{
             attachment: props.post.attachment,
@@ -172,12 +174,13 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           onOpenPremiumUpsell={props.onOpenPremiumUpsell}
           showReplyInline={false}
         />
-        {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{props.post.time}</time> : null}
+        {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{renderedPostTime}</time> : null}
       </div>
     )
   }
 
   if (props.kind === 'thread-comment') {
+    const renderedCommentTime = formatMessageTimeLabel(props.comment.createdAt, props.comment.time)
     const hasImageAttachment = Boolean(
       props.comment.attachment &&
       (isImageMimeType(props.comment.attachment.mimeType) || isVideoMimeType(props.comment.attachment.mimeType)),
@@ -201,11 +204,11 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         <BubbleMessageContent
           imageOverlay={
             hasImageAttachment ? (
-              <BubbleImageOverlayMeta time={props.comment.time} />
+              <BubbleImageOverlayMeta time={renderedCommentTime} />
             ) : undefined
           }
           inlineMeta={
-            shouldUseInlineTextMeta ? <BubbleTextInlineMeta time={props.comment.time} /> : undefined
+            shouldUseInlineTextMeta ? <BubbleTextInlineMeta time={renderedCommentTime} /> : undefined
           }
           message={{
             attachment: props.comment.attachment,
@@ -219,7 +222,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
           onOpenPremiumUpsell={props.onOpenPremiumUpsell}
           showReplyInline={false}
         />
-        {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{props.comment.time}</time> : null}
+        {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{renderedCommentTime}</time> : null}
       </div>
     )
 
@@ -239,6 +242,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
 
   const bubbleClassNames = ['bubble', 'bubble-overlay', 'bubble-button', 'selected']
   const hasDeliveryIssue = Boolean(props.deliveryIssue)
+  const renderedMessageTime = formatMessageTimeLabel(props.message.createdAt, props.message.time)
   const hasImageAttachment = Boolean(
     props.message.attachment &&
     (isImageMimeType(props.message.attachment.mimeType) || isVideoMimeType(props.message.attachment.mimeType)),
@@ -371,7 +375,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
               : null
           }
           emoji={standaloneEmojiGlyph}
-          time={props.message.time}
+          time={renderedMessageTime}
         />
       ) : (
         <>
@@ -387,7 +391,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
                         )
                       : null
                   }
-                  time={props.message.time}
+                  time={renderedMessageTime}
                 />
               ) : undefined
             }
@@ -402,7 +406,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
                         )
                       : null
                   }
-                  time={props.message.time}
+                  time={renderedMessageTime}
                 />
               ) : undefined
             }
@@ -418,7 +422,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
               props.kind === 'direct' || props.kind === 'group' ? props.uploadProgress : undefined
             }
           />
-          {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{props.message.time}</time> : null}
+          {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{renderedMessageTime}</time> : null}
           {!hasImageAttachment && showDeliveryCaption ? (
             <span className="bubble-delivery-caption">Сообщение не отправлено</span>
           ) : null}

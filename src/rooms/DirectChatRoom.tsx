@@ -10,6 +10,7 @@ import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import type { ChannelMessageSource, Chat, Message, ReplyTarget, UserGifLibraryItem } from '../app/types'
 import {
   formatConversationDayLabel,
+  formatMessageTimeLabel,
   formatMessagePreview,
   getConversationDayKey,
   isImageMimeType,
@@ -681,6 +682,8 @@ export function DirectChatRoom({
           }
 
           const replyReference = message.replyTo
+          // Keep every room surface on the same createdAt-first time contract.
+          const renderedMessageTime = formatMessageTimeLabel(message.createdAt, message.time)
 
           return (
             <Fragment key={message.id}>
@@ -717,7 +720,7 @@ export function DirectChatRoom({
                               deliveryIndicatorSrc={
                                 showDeliveryIndicator ? deliveryIndicatorSrc : null
                               }
-                              time={message.time}
+                              time={renderedMessageTime}
                             />
                           ) : undefined
                         }
@@ -758,7 +761,7 @@ export function DirectChatRoom({
                         <EmojiOnlyMessageContent
                           deliveryIndicatorSrc={showDeliveryIndicator ? deliveryIndicatorSrc : null}
                           emoji={standaloneEmojiGlyph}
-                          time={message.time}
+                          time={renderedMessageTime}
                         />
                       ) : (
                         <>
@@ -787,7 +790,7 @@ export function DirectChatRoom({
                                   deliveryIndicatorSrc={
                                     showDeliveryIndicator ? deliveryIndicatorSrc : null
                                   }
-                                  time={message.time}
+                                  time={renderedMessageTime}
                                 />
                               ) : undefined
                             }
@@ -798,7 +801,7 @@ export function DirectChatRoom({
                                   deliveryIndicatorSrc={
                                     showDeliveryIndicator ? deliveryIndicatorSrc : null
                                   }
-                                  time={message.time}
+                                  time={renderedMessageTime}
                                 />
                               ) : undefined
                             }
@@ -826,7 +829,7 @@ export function DirectChatRoom({
                             showReplyInline={false}
                             uploadProgress={messageUploadProgress ?? undefined}
                           />
-                          {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{message.time}</time> : null}
+                          {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{renderedMessageTime}</time> : null}
                           {!hasImageAttachment && showDeliveryCaption ? (
                             <span className="bubble-delivery-caption">Сообщение не отправлено</span>
                           ) : null}

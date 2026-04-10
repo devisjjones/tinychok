@@ -4,6 +4,7 @@ import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import {
   formatChannelAvatarLabel,
   formatConversationDayLabel,
+  formatMessageTimeLabel,
   getConversationDayKey,
   insertComposerTextAtCursor,
   isImageMimeType,
@@ -288,6 +289,8 @@ export function SubscriptionChannelRoom({
           const isImageOnlyBubble = hasImageAttachment && post.text.trim().length === 0
           const shouldUseInlineTextMeta =
             !hasImageAttachment && (post.text.trim().length > 0 || Boolean(post.attachment))
+          // Keep every room surface on the same createdAt-first time contract.
+          const renderedPostTime = formatMessageTimeLabel(post.createdAt, post.time)
 
           return (
               <Fragment key={post.id}>
@@ -297,7 +300,7 @@ export function SubscriptionChannelRoom({
                 {post.system ? (
                   <div className="channel-system-post" data-channel-post-id={post.id}>
                     <span className="channel-system-post-label">{post.text}</span>
-                    <time>{post.time}</time>
+                    <time>{renderedPostTime}</time>
                   </div>
                 ) : (
                   <ThreadedBubble
@@ -328,11 +331,11 @@ export function SubscriptionChannelRoom({
                             >
                               <BubbleMessageContent
                                 imageOverlay={
-                                  hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
+                                  hasImageAttachment ? <BubbleImageOverlayMeta time={renderedPostTime} /> : undefined
                                 }
                                 inlineMeta={
                                   shouldUseInlineTextMeta ? (
-                                    <BubbleTextInlineMeta time={post.time} />
+                                    <BubbleTextInlineMeta time={renderedPostTime} />
                                   ) : undefined
                                 }
                                 message={post}
@@ -363,11 +366,11 @@ export function SubscriptionChannelRoom({
                             >
                               <BubbleMessageContent
                                 imageOverlay={
-                                  hasImageAttachment ? <BubbleImageOverlayMeta time={post.time} /> : undefined
+                                  hasImageAttachment ? <BubbleImageOverlayMeta time={renderedPostTime} /> : undefined
                                 }
                                 inlineMeta={
                                   shouldUseInlineTextMeta ? (
-                                    <BubbleTextInlineMeta time={post.time} />
+                                    <BubbleTextInlineMeta time={renderedPostTime} />
                                   ) : undefined
                                 }
                                 message={post}
@@ -384,7 +387,7 @@ export function SubscriptionChannelRoom({
                                 }
                                 showReplyInline={false}
                               />
-                              {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{post.time}</time> : null}
+                              {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{renderedPostTime}</time> : null}
                             </button>
                           )
                         }

@@ -2536,18 +2536,26 @@ test('text bubbles use inline meta so time does not force a separate footer row'
   assert.match(bubbleSource, /export function BubbleTextInlineMeta/u)
   assert.match(bubbleSource, /className="bubble-text-paragraph-with-inline-meta"/u)
   assert.match(bubbleSource, /className="bubble-text-content"/u)
+  assert.match(directRoomSource, /const renderedMessageTime = formatMessageTimeLabel\(message\.createdAt, message\.time\)/u)
   assert.match(directRoomSource, /const shouldUseInlineTextMeta =/u)
   assert.match(directRoomSource, /<BubbleTextInlineMeta/u)
-  assert.match(directRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? <time>\{message\.time\}<\/time> : null/u)
+  assert.match(directRoomSource, /time=\{renderedMessageTime\}/u)
+  assert.match(directRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? <time>\{renderedMessageTime\}<\/time> : null/u)
+  assert.doesNotMatch(directRoomSource, /<time>\{message\.time\}<\/time>/u)
+  assert.match(groupRoomSource, /const renderedMessageTime = formatMessageTimeLabel\(message\.createdAt, message\.time\)/u)
   assert.match(groupRoomSource, /const shouldUseInlineTextMeta =/u)
   assert.match(groupRoomSource, /<BubbleTextInlineMeta/u)
-  assert.match(groupRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? \(\s*<time>\{message\.time\}<\/time>/u)
+  assert.match(groupRoomSource, /time=\{renderedMessageTime\}/u)
+  assert.match(groupRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? \(\s*<time>\{renderedMessageTime\}<\/time>/u)
+  assert.doesNotMatch(groupRoomSource, /<time>\{message\.time\}<\/time>/u)
+  assert.match(channelRoomSource, /const renderedPostTime = formatMessageTimeLabel\(post\.createdAt, post\.time\)/u)
   assert.match(
     channelRoomSource,
     /const shouldUseInlineTextMeta =\s*!hasImageAttachment && \(post\.text\.trim\(\)\.length > 0 \|\| Boolean\(post\.attachment\)\)/u,
   )
-  assert.ok((channelRoomSource.match(/<BubbleTextInlineMeta time=\{post\.time\} \/>/gu) ?? []).length >= 2)
-  assert.match(channelRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? <time>\{post\.time\}<\/time> : null/u)
+  assert.ok((channelRoomSource.match(/<BubbleTextInlineMeta time=\{renderedPostTime\} \/>/gu) ?? []).length >= 2)
+  assert.match(channelRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? <time>\{renderedPostTime\}<\/time> : null/u)
+  assert.doesNotMatch(channelRoomSource, /<time>\{post\.time\}<\/time>/u)
   assert.match(
     appSource,
     /const shouldUseInlineTextMeta =\s*!hasImageAttachment &&\s*\(comment\.text\.trim\(\)\.length > 0 \|\| Boolean\(comment\.attachment\)\)/u,
@@ -2557,7 +2565,15 @@ test('text bubbles use inline meta so time does not force a separate footer row'
   assert.match(appSource, /!usesInlineTimeLayout && \(!hasImageAttachment \|\| usesCaptionedImageCardLayout \|\| usesImageOnlyCardLayout\) \? \(\s*<time>\{threadSourceTime\}<\/time>/u)
   assert.match(
     overlaySource,
+    /const renderedPostTime = formatMessageTimeLabel\(props\.post\.createdAt, props\.post\.time\)/u,
+  )
+  assert.match(
+    overlaySource,
     /const shouldUseInlineTextMeta =\s*!hasImageAttachment && \(props\.post\.text\.trim\(\)\.length > 0 \|\| Boolean\(props\.post\.attachment\)\)/u,
+  )
+  assert.match(
+    overlaySource,
+    /const renderedCommentTime = formatMessageTimeLabel\(props\.comment\.createdAt, props\.comment\.time\)/u,
   )
   assert.match(
     overlaySource,
@@ -2565,8 +2581,13 @@ test('text bubbles use inline meta so time does not force a separate footer row'
   )
   assert.match(
     overlaySource,
+    /const renderedMessageTime = formatMessageTimeLabel\(props\.message\.createdAt, props\.message\.time\)/u,
+  )
+  assert.match(
+    overlaySource,
     /const shouldUseInlineTextMeta =\s*!hasImageAttachment &&\s*!isStandaloneEmojiOnlyMessage &&\s*!showDeliveryCaption &&\s*\(props\.message\.text\.trim\(\)\.length > 0 \|\| Boolean\(props\.message\.attachment\)\)/u,
   )
+  assert.doesNotMatch(overlaySource, /<time>\{props\.(?:message|post|comment)\.time\}<\/time>/u)
   assert.match(appCss, /\.bubble-text-paragraph-with-inline-meta \{\s*position: relative;\s*padding-right: 44px;\s*min-height: 14px;/u)
   assert.match(appCss, /\.bubble\.has-delivery-indicator \.bubble-text-paragraph-with-inline-meta \{\s*padding-right: 64px;/u)
   assert.match(appCss, /\.bubble \.bubble-text-inline-meta \{\s*position: absolute;\s*right: 0;\s*bottom: 0;/u)

@@ -16,6 +16,7 @@ import type {
 import {
   formatChannelAvatarLabel,
   formatConversationDayLabel,
+  formatMessageTimeLabel,
   getConversationDayKey,
   insertComposerTextAtCursor,
   isImageMimeType,
@@ -544,6 +545,8 @@ export function GroupRoom({
             }
 
             const replyReference = message.replyTo
+            // Keep every room surface on the same createdAt-first time contract.
+            const renderedMessageTime = formatMessageTimeLabel(message.createdAt, message.time)
 
           return (
               <Fragment key={message.id}>
@@ -553,7 +556,7 @@ export function GroupRoom({
                 {message.system ? (
                   <div className="group-system-message" data-group-message-id={message.id}>
                     {renderGroupSystemMessageContent(message, openGroupSystemActorContact)}
-                    <time>{message.time}</time>
+                    <time>{renderedMessageTime}</time>
                   </div>
                 ) : (
                   <div className={groupMessageRowClassName}>
@@ -604,7 +607,7 @@ export function GroupRoom({
                                                 : '/icons/double-tick-50.png'
                                             : null
                                         }
-                                        time={message.time}
+                                        time={renderedMessageTime}
                                       />
                                     ) : undefined
                                   }
@@ -662,7 +665,7 @@ export function GroupRoom({
                                             : null
                                         }
                                         emoji={standaloneEmojiGlyph}
-                                        time={message.time}
+                                        time={renderedMessageTime}
                                       />
                                     ) : (
                                       <>
@@ -679,7 +682,7 @@ export function GroupRoom({
                                                         : '/icons/double-tick-50.png'
                                                     : null
                                                 }
-                                                time={message.time}
+                                                time={renderedMessageTime}
                                               />
                                             ) : undefined
                                           }
@@ -690,7 +693,7 @@ export function GroupRoom({
                                                 deliveryIndicatorSrc={
                                                   showDeliveryIndicator ? bubbleDeliveryIndicatorSrc : null
                                                 }
-                                                time={message.time}
+                                                time={renderedMessageTime}
                                               />
                                             ) : undefined
                                           }
@@ -717,7 +720,7 @@ export function GroupRoom({
                                           uploadProgress={messageUploadProgress ?? undefined}
                                         />
                                         {!hasImageAttachment && !shouldUseInlineTextMeta ? (
-                                          <time>{message.time}</time>
+                                          <time>{renderedMessageTime}</time>
                                         ) : null}
                                         {!hasImageAttachment && showDeliveryCaption ? (
                                           <span className="bubble-delivery-caption">Сообщение не отправлено</span>
