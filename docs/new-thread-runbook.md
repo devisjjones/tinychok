@@ -12,6 +12,10 @@
 4. [docs/staging-rollout-status.md](/Users/devisjjones/Documents/tinychok/docs/staging-rollout-status.md)
 5. [docs/collaboration-instructions.md](/Users/devisjjones/Documents/tinychok/docs/collaboration-instructions.md)
 
+Если задача касается infra / storage / runtime / migration / deploy, дополнительно перечитать:
+
+6. [docs/yandex-production-architecture.md](/Users/devisjjones/Documents/tinychok/docs/yandex-production-architecture.md)
+
 Этого набора достаточно, чтобы быстро восстановить:
 
 - текущее устройство staging
@@ -21,6 +25,7 @@
 
 ## Как работать с владельцем проекта
 
+- если задача понятна, не останавливаться на плане и сразу переходить к реализации
 - работать предметно по текущему запросу, не съезжать на соседнюю задачу
 - не смешивать несколько незавершённых задач в одном ответе
 - если задача не сделана, писать это прямо
@@ -39,7 +44,28 @@
 - не писать `на staging уже выкачено`, пока это не подтверждено по live URL
 - не считать `git push` эквивалентом deploy
 - не считать `healthz=ok` достаточным доказательством фронтенд-выкатки
+- не считать staging обновлённым только потому, что:
+  - код изменён
+  - локально тесты зелёные
+  - dist собрался
+  - staging VM на новом commit
 - при длинной сессии регулярно переоценивать контекст, чтобы не начать отвечать не на тот запрос
+
+## Чувствительные зоны
+
+Особенно внимательно относиться к этим зонам и по умолчанию усиливать там проверки и тесты:
+
+- realtime / websocket
+- unread / read state
+- thread inbox / thread notifications
+- storage / archive / auto-cleanup / restore
+- billing / premium / quota
+- group / channel ownership
+- admin exports / audit / csv / legal export
+- staging deploy / runtime config / analytics
+- legal/public pages
+- mobile layout
+- media / file / image / video flows
 
 ## Staging — обязательная часть работы
 
@@ -53,7 +79,36 @@
 4. live `assets/main-*.js`
 5. `healthz` / `readyz`
 
+Если правка касается frontend / backend / runtime, staging-проверка должна включать не только ассеты и health, но и живой или максимально прямой user-facing сценарий.
+
 Подробный чеклист лежит в [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md).
+
+## Обязательный инженерный workflow
+
+На каждую задачу придерживаться одного и того же порядка:
+
+1. быстро прочитать relevant code и актуальные docs
+2. найти реальную точку изменений в коде
+3. внести кодовые изменения
+4. добавить или обновить автотесты
+5. прогнать тесты локально
+6. если задача влияет на frontend / backend / runtime, выкатить на staging
+7. после выкладки проверить staging:
+   - `healthz`
+   - `readyz`
+   - если это frontend, убедиться, что реально отдаются новые ассеты
+   - если это backend / runtime, проверить живой сценарий, а не только сборку
+8. после этого обновить high-signal docs
+9. только потом давать финальный ответ
+
+Если для серьёзного изменения отсутствует хотя бы один из пунктов:
+
+- код
+- тесты
+- staging
+- docs
+
+задача считается незавершённой.
 
 ## Что обязательно актуализировать после значимых правок
 
@@ -69,6 +124,8 @@
   - если обнаружено новое устойчивое правило совместной работы или ручной проверки
 - [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md)
   - если меняется deploy discipline, access recovery или proof-points
+- [docs/yandex-production-architecture.md](/Users/devisjjones/Documents/tinychok/docs/yandex-production-architecture.md)
+  - если меняется infra / storage layout / runtime topology / deploy path / migration contract
 
 Не надо механически трогать все `.md`. Обновлять только те документы, где реально изменился контракт.
 
@@ -102,3 +159,20 @@
 - `считаем выкаченным`
 
 если live host ещё старый.
+
+## Что должно быть в финальном ответе
+
+Если задача не docs-only, в финальном ответе обязательно должны быть:
+
+- что именно изменено
+- какие файлы были затронуты
+- какие автотесты прошли
+- что именно проверено на staging
+- какие есть ограничения, риски или недоделки
+
+Если staging не обновился, писать прямо:
+
+- что сделано локально
+- что запушено
+- что не доехало
+- где именно блокер
