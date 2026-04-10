@@ -4395,6 +4395,7 @@ test('narrow mobile view keeps settings, room headers and admin panels from over
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;[\s\S]*overscroll-behavior:\s*none;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-room\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;[\s\S]*overscroll-behavior:\s*none;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.rail\s*\{[\s\S]*overflow:\s*hidden;/u)
+  assert.match(appCss, /\.shell-settings,\s*[\s\S]*\.message-feed,\s*[\s\S]*\.emoji-picker-gif-grid\s*\{[\s\S]*-webkit-overflow-scrolling:\s*touch;[\s\S]*touch-action:\s*pan-y;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.chat-list\s*\{[\s\S]*padding-top:\s*3px;[\s\S]*padding-inline:\s*8px;[\s\S]*padding-bottom:\s*2px;[\s\S]*overscroll-behavior-y:\s*contain;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.account-headline\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.account-name\s*\{[\s\S]*grid-template-columns:\s*auto minmax\(0, 1fr\);/u)
