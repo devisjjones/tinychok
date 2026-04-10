@@ -244,6 +244,8 @@ export type AdminReportDetailResponse = {
     canHide: boolean
     canRestrictUser: boolean
     notes: AdminReportNote[]
+    relatedUser?: AdminLinkedUser
+    reporter: AdminLinkedUser
     resolutionAction?: AdminReportAction
     resolutionReason?: string
   }

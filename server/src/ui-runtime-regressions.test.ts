@@ -5330,6 +5330,33 @@ test('group and channel people dialogs expose owner invite shortcuts into the ex
   assert.match(channelDialogSource, /closeChannelSubscribersDialog\(\)\s*openChannelShareDialog\(\)/u)
 })
 
+test('admin report detail resolves reporter and related user as linked user cards', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const adminAppSource = readFileSync(join(repoRoot, 'src', 'AdminApp.tsx'), 'utf8')
+  const adminCssSource = readFileSync(join(repoRoot, 'src', 'admin.css'), 'utf8')
+  const sharedBackendSource = readFileSync(join(repoRoot, 'src', 'shared', 'backend.ts'), 'utf8')
+  const storeSource = readFileSync(join(repoRoot, 'server', 'src', 'store.ts'), 'utf8')
+
+  assert.match(sharedBackendSource, /reporter: AdminLinkedUser/u)
+  assert.match(sharedBackendSource, /relatedUser\?: AdminLinkedUser/u)
+  assert.match(
+    storeSource,
+    /reporter: buildAdminLinkedUserSummary\(reporterAccount \?\? undefined, summary\.reporterIdentifier\)/u,
+  )
+  assert.match(storeSource, /relatedUser: summary\.relatedUserIdentifier/u)
+  assert.match(
+    adminAppSource,
+    /function renderAdminLinkedUserDetailCard\(user\?: AdminLinkedUser \| null, emptyLabel = 'Нет'\)/u,
+  )
+  assert.match(adminAppSource, /renderAdminLinkedUserDetailCard\(selectedReport\.reporter\)/u)
+  assert.match(adminAppSource, /renderAdminLinkedUserDetailCard\(selectedReport\.relatedUser, 'Нет'\)/u)
+  assert.match(adminAppSource, /const lookupIdentifier = user\.lookupIdentifier/u)
+  assert.match(adminAppSource, /onClick=\{\(\) => void openUserFromAdmin\(lookupIdentifier\)\}/u)
+  assert.match(adminCssSource, /\.admin-detail-link-card-user/u)
+  assert.match(adminCssSource, /\.admin-detail-link-meta/u)
+  assert.doesNotMatch(adminAppSource, /<dd>\{selectedReport\.reporterIdentifier\}<\/dd>/u)
+})
+
 test('group and thread message menus expose direct-dialog actions for other participants', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')

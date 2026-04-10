@@ -1204,6 +1204,16 @@
   border-radius: 12px;
 }
 
+.admin-detail-link-card-user {
+  display: block;
+}
+
+.admin-detail-link-meta {
+  color: var(--admin-text-soft);
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
 .admin-related-users {
   display: flex;
   flex-wrap: wrap;

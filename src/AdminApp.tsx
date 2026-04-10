@@ -1841,6 +1841,35 @@ export default function AdminApp() {
     )
   }
 
+  function renderAdminLinkedUserDetailCard(user?: AdminLinkedUser | null, emptyLabel = 'Нет') {
+    if (!user) {
+      return <span>{emptyLabel}</span>
+    }
+
+    const content = (
+      <span className="admin-cell-stack">
+        <span>{user.displayName}</span>
+        <span className="admin-detail-link-meta">{user.identifier}</span>
+      </span>
+    )
+
+    if (!user.lookupIdentifier) {
+      return content
+    }
+
+    const lookupIdentifier = user.lookupIdentifier
+
+    return (
+      <button
+        type="button"
+        className="admin-detail-link-card admin-detail-link-card-user"
+        onClick={() => void openUserFromAdmin(lookupIdentifier)}
+      >
+        {content}
+      </button>
+    )
+  }
+
   async function openChannelFromAdmin(handleToOpen: string) {
     if (!sessionToken || !handleToOpen) return
 
@@ -2624,11 +2653,11 @@ export default function AdminApp() {
                     </div>
                     <div>
                       <dt>Репортёр</dt>
-                      <dd>{selectedReport.reporterIdentifier}</dd>
+                      <dd>{renderAdminLinkedUserDetailCard(selectedReport.reporter)}</dd>
                     </div>
                     <div>
                       <dt>Связанный пользователь</dt>
-                      <dd>{selectedReport.relatedUserIdentifier || 'Нет'}</dd>
+                      <dd>{renderAdminLinkedUserDetailCard(selectedReport.relatedUser, 'Нет')}</dd>
                     </div>
                     <div>
                       <dt>Создана</dt>

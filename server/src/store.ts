@@ -12602,6 +12602,10 @@ export class TinychokStore {
 
   private buildAdminReportDetail(report: AdminReportRecord): AdminReportDetailResponse['report'] {
     const summary = this.buildAdminReportSummary(report)
+    const reporterAccount = this.findAccountForAdmin(summary.reporterIdentifier)
+    const relatedUserAccount = summary.relatedUserIdentifier
+      ? this.findAccountForAdmin(summary.relatedUserIdentifier)
+      : null
 
     return {
       ...summary,
@@ -12609,6 +12613,10 @@ export class TinychokStore {
       canHide: summary.entityType !== 'user',
       canRestrictUser: Boolean(summary.relatedUserIdentifier || summary.entityType === 'user'),
       notes: report.notes.map((note) => ({ ...note })),
+      relatedUser: summary.relatedUserIdentifier
+        ? buildAdminLinkedUserSummary(relatedUserAccount ?? undefined, summary.relatedUserIdentifier)
+        : undefined,
+      reporter: buildAdminLinkedUserSummary(reporterAccount ?? undefined, summary.reporterIdentifier),
       resolutionAction: report.resolutionAction,
       resolutionReason: report.resolutionReason,
     }
