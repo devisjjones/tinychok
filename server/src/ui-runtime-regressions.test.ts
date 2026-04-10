@@ -1004,6 +1004,23 @@ test('group settings keep avatar change wired through the existing group avatar 
   assert.match(appSource, /Можно загрузить JPG, PNG либо WebP до 5 МБ\./u)
 })
 
+test('channel title length stays aligned with the group title limit across sanitizing and editor inputs', () => {
+  const constantsSource = readFileSync(join(process.cwd(), 'src/shared/constants.ts'), 'utf8')
+  const sharedUtilsSource = readFileSync(join(process.cwd(), 'src/shared/utils.ts'), 'utf8')
+  const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
+  const storeSource = readFileSync(join(process.cwd(), 'server/src/store.ts'), 'utf8')
+
+  assert.match(constantsSource, /export const groupTitleMaxLength = 48/u)
+  assert.match(constantsSource, /export const channelTitleMaxLength = groupTitleMaxLength/u)
+  assert.match(sharedUtilsSource, /export function sanitizeChannelTitle\(value: string\) \{[\s\S]*slice\(0, channelTitleMaxLength\)/u)
+  assert.match(appSource, /maxLength=\{channelTitleMaxLength\}/u)
+  assert.match(appSource, /event\.target\.value\.slice\(0, channelTitleMaxLength\)/u)
+  assert.match(appSource, /sanitizeChannelTitle\(creatingChannelTitle\) \|\| `Новый канал/u)
+  assert.match(appSource, /const nextTitle = sanitizeChannelTitle\(editingChannelTitleValue\)/u)
+  assert.match(storeSource, /const title = sanitizeChannelTitle\(payload\.title\) \|\| `Новый канал/u)
+  assert.match(storeSource, /const nextTitle = sanitizeChannelTitle\(payload\.title\)/u)
+})
+
 test('owner-only admin storage exports stay wired to password-confirmed ZIP download and archive controls', () => {
   const adminAppSource = readFileSync(join(process.cwd(), 'src/AdminApp.tsx'), 'utf8')
   const backendSource = readFileSync(join(process.cwd(), 'src/app/backend.ts'), 'utf8')
