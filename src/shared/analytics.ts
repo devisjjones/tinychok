@@ -265,11 +265,11 @@ export const analyticsEventCatalog: Record<
   },
   thread_comment_send_succeeded: {
     category: 'messaging',
-    description: 'Комментарий в треде подтверждён backend-ом.',
+    description: 'Комментарий подтверждён backend-ом.',
   },
   thread_comment_send_failed: {
     category: 'messaging',
-    description: 'Комментарий в треде не подтвердился backend-ом.',
+    description: 'Комментарий не подтвердился backend-ом.',
   },
   realtime_connected: {
     category: 'realtime',

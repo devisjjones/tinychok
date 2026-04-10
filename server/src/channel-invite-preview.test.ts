@@ -1431,7 +1431,7 @@ test('admin archived thread disappears from user snapshots and unarchive restore
     store.sendGroupThreadComment(invitedToken, invitedGroup!.id, invitedRootBefore!.id, {
       text: 'Комментарий после архива',
     }),
-    /Тред находится в архиве и недоступен пользователям/u,
+    /Обсуждение находится в архиве и недоступно пользователям/u,
   )
 
   const restoredThreads = await store.adminSetThreadArchived(actorToken, thread!.id, {

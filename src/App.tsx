@@ -336,7 +336,7 @@ const quietModeSettingsOptions: Array<{
   { key: 'dialogs', label: 'Уведомления диалогов' },
   { key: 'channels', label: 'Уведомления каналов' },
   { key: 'groups', label: 'Уведомления групп' },
-  { key: 'threads', label: 'Уведомления тредов' },
+  { key: 'threads', label: 'Уведомления комментариев' },
   { key: 'contactRequests', label: 'Заявки от контактов' },
   { key: 'autoInvisibility', label: 'Авто-режим невидимки' },
 ]
@@ -504,7 +504,7 @@ function buildBrowserNotificationDigest(
 
   threadInbox.forEach((item) => {
     digest.set(`thread:${item.threadId}`, {
-      body: item.kind === 'group' ? 'Новый ответ в треде' : 'Новый комментарий к посту',
+      body: item.kind === 'group' ? 'Новый комментарий' : 'Новый комментарий к посту',
       target: {
         item,
         kind: 'thread',
@@ -3029,7 +3029,7 @@ function App() {
     return item.kind === 'group' ? item.groupTitle : item.channelTitle
   }
   const formatThreadInboxActivityLabel = (item: ThreadInboxItem) =>
-    item.commentCount > 0 ? formatThreadCommentCountLabel(item.commentCount) : 'Подписка на тред'
+    item.commentCount > 0 ? formatThreadCommentCountLabel(item.commentCount) : 'Подписка на комментарии'
   const resolveThreadInboxAvatarImage = (item: ThreadInboxItem) => {
     if (item.kind === 'group') {
       return groups.find((group) => group.id === item.groupId)?.avatarImage ?? item.avatarImage
@@ -3040,7 +3040,7 @@ function App() {
   const formatThreadInboxPreviewText = (item: ThreadInboxItem) => {
     const latestCommentText = item.latestCommentText.trim()
     if (!latestCommentText) {
-      return item.commentCount > 0 ? 'Пока без комментариев' : 'Подписка на тред'
+      return item.commentCount > 0 ? 'Пока без комментариев' : 'Подписка на комментарии'
     }
 
     return latestCommentText
@@ -15626,8 +15626,8 @@ function App() {
                   setSearchOpen(false)
                   setQuery('')
                 }}
-                aria-label="Треды"
-                title="Треды"
+                aria-label="Комментарии"
+                title="Комментарии"
               >
                 <span
                   className={
@@ -16077,9 +16077,9 @@ function App() {
             ) : (
               <article className="chat-card search-card">
                 <span className="chat-copy">
-                  <strong>Тредов пока нет</strong>
+                  <strong>Комментариев пока нет</strong>
                   <span className="chat-handle">
-                    Ответьте в любом треде или подпишитесь на него, чтобы он появился здесь.
+                    Оставьте комментарий или подпишитесь на обсуждение, чтобы оно появилось здесь.
                   </span>
                 </span>
               </article>
@@ -18107,7 +18107,7 @@ function App() {
                           compact: true,
                           deletingId: deletingChannelStorageItemId,
                           emptyCopy:
-                            'Хранилище канала пока свободно. Здесь будут появляться только вложения постов этого канала. Комментарии в тредах считаются в хранилище автора.',
+                            'Хранилище канала пока свободно. Здесь будут появляться только вложения постов этого канала. Комментарии считаются в хранилище автора.',
                           error: channelStorageItemsError,
                           items: channelStorageItems,
                           onDelete: (item) => {

@@ -1740,7 +1740,7 @@ export default function AdminApp() {
 
   async function handleDownloadThreadCsv(thread: AdminThreadSummary) {
     if (!sessionToken) return
-    const reason = getActionReason('Причина выгрузки CSV треда', 'Проверка треда')
+    const reason = getActionReason('Причина выгрузки CSV комментариев', 'Проверка комментариев')
     if (!reason) return
 
     try {
@@ -1757,12 +1757,18 @@ export default function AdminApp() {
 
     const enableArchive = !thread.archivedAt
     const reason = getActionReason(
-      enableArchive ? 'Причина архивирования треда' : 'Причина разархивирования треда',
-      enableArchive ? 'Архивирование треда staff-командой' : 'Возврат треда из staff-архива',
+      enableArchive ? 'Причина архивирования комментариев' : 'Причина разархивирования комментариев',
+      enableArchive
+        ? 'Архивирование комментариев staff-командой'
+        : 'Возврат комментариев из staff-архива',
     )
     if (!reason) return
 
-    if (!window.confirm(`${enableArchive ? 'Архивировать' : 'Разархивировать'} тред ${thread.title}?`)) {
+    if (
+      !window.confirm(
+        `${enableArchive ? 'Архивировать' : 'Разархивировать'} комментарии ${thread.title}?`,
+      )
+    ) {
       return
     }
 
@@ -2096,7 +2102,7 @@ export default function AdminApp() {
             ['reports', 'Жалобы'],
             ['channels', 'Каналы'],
             ['groups', 'Группы'],
-            ['threads', 'Треды'],
+            ['threads', 'Комментарии'],
             ['support', 'Поддержка'],
             ['dialogs', 'Диалоги'],
             ['media', 'Медиа'],
@@ -2182,7 +2188,7 @@ export default function AdminApp() {
                 <strong>{dashboard?.metrics.totalChannels ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
-                <span>Треды</span>
+                <span>Комментарии</span>
                 <strong>{dashboard?.metrics.totalThreads ?? '...'}</strong>
               </article>
               <article className="admin-metric-card">
@@ -3161,9 +3167,9 @@ export default function AdminApp() {
           <section className="admin-two-column admin-section-split">
             <div className="admin-panel admin-list-panel">
               <div className="admin-panel-heading">
-                <h2>Треды</h2>
+                <h2>Комментарии</h2>
               </div>
-              <div className="admin-filter-tabs" role="tablist" aria-label="Фильтр тредов">
+              <div className="admin-filter-tabs" role="tablist" aria-label="Фильтр комментариев">
                 <button
                   type="button"
                   className={threadListFilter === 'all' ? 'admin-filter-tab active' : 'admin-filter-tab'}
@@ -3176,8 +3182,8 @@ export default function AdminApp() {
                   type="button"
                   className={threadListFilter === 'archived' ? 'admin-filter-tab active archive' : 'admin-filter-tab archive'}
                   onClick={() => setThreadListFilter('archived')}
-                  title={`Архивированные треды (${archivedThreadsCount})`}
-                  aria-label={`Архивированные треды (${archivedThreadsCount})`}
+                  title={`Архивированные комментарии (${archivedThreadsCount})`}
+                  aria-label={`Архивированные комментарии (${archivedThreadsCount})`}
                 >
                   <img src="/icons/archive.png" alt="" aria-hidden="true" className="admin-filter-tab-icon admin-filter-tab-icon-archive" />
                   <span className="admin-filter-count">{archivedThreadsCount}</span>
@@ -3186,8 +3192,8 @@ export default function AdminApp() {
                   type="button"
                   className={threadListFilter === 'active' ? 'admin-filter-tab active entity' : 'admin-filter-tab entity'}
                   onClick={() => setThreadListFilter('active')}
-                  title={`Активные треды (${activeThreadsCount})`}
-                  aria-label={`Активные треды (${activeThreadsCount})`}
+                  title={`Активные комментарии (${activeThreadsCount})`}
+                  aria-label={`Активные комментарии (${activeThreadsCount})`}
                 >
                   <img src="/icons/omnichannel100.png" alt="" aria-hidden="true" className="admin-filter-tab-icon" />
                   <span className="admin-filter-count">{activeThreadsCount}</span>
@@ -3196,7 +3202,7 @@ export default function AdminApp() {
               <input
                 className="admin-search-input"
                 type="search"
-                placeholder="Поиск по треду, источнику или владельцу"
+                placeholder="Поиск по комментарию, источнику или владельцу"
                 value={threadQuery}
                 onChange={(event) => setThreadQuery(event.target.value)}
               />
@@ -3219,10 +3225,10 @@ export default function AdminApp() {
                 {visibleThreads.length === 0 ? (
                   <div className="admin-empty-state admin-empty-state-inline">
                     {threadListFilter === 'archived'
-                      ? 'Архивированные треды по текущему поиску не найдены.'
+                      ? 'Архивированные комментарии по текущему поиску не найдены.'
                       : threadListFilter === 'active'
-                        ? 'Активные треды по текущему поиску не найдены.'
-                        : 'Треды по текущему поиску не найдены.'}
+                        ? 'Активные комментарии по текущему поиску не найдены.'
+                        : 'Комментарии по текущему поиску не найдены.'}
                   </div>
                 ) : null}
               </div>
@@ -3235,7 +3241,7 @@ export default function AdminApp() {
                     <div className="admin-user-identity">
                       <h2>{selectedThread.title}</h2>
                       <div className="admin-user-identity-meta">
-                        <span>{selectedThread.kind === 'group' ? 'Источник треда: группа' : 'Источник треда: канал'}</span>
+                        <span>{selectedThread.kind === 'group' ? 'Источник комментариев: группа' : 'Источник комментариев: канал'}</span>
                         {selectedThread.archivedAt ? renderAdminArchiveMeta(formatDateTime(selectedThread.archivedAt)) : null}
                         <button
                           type="button"
@@ -3315,7 +3321,7 @@ export default function AdminApp() {
                         >
                           <span className="admin-button-with-icon">
                             <img src="/icons/archive.png" alt="" aria-hidden="true" className="admin-button-with-icon-archive" />
-                            <span>{selectedThread.archivedAt ? 'Разархивировать тред' : 'Архивировать тред'}</span>
+                            <span>{selectedThread.archivedAt ? 'Разархивировать комментарии' : 'Архивировать комментарии'}</span>
                           </span>
                         </button>
                       ) : null}
@@ -3326,7 +3332,7 @@ export default function AdminApp() {
                   </div>
                 </>
               ) : (
-                <div className="admin-empty-state">Выберите тред слева.</div>
+                <div className="admin-empty-state">Выберите комментарии слева.</div>
               )}
             </div>
           </section>

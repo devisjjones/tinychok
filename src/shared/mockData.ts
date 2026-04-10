@@ -35,7 +35,7 @@ const initialChatFixtures: Chat[] = [
     premium: true,
     messages: [
       { id: 1, author: 'them', text: 'Нужен мессенджер без лишнего шума.', time: '21:03' },
-      { id: 2, author: 'me', text: 'Делаем. Только свои люди и приватные треды.', time: '21:05' },
+      { id: 2, author: 'me', text: 'Делаем. Только свои люди и приватные комментарии.', time: '21:05' },
       {
         id: 3,
         author: 'them',
@@ -173,7 +173,7 @@ const initialChatFixtures: Chat[] = [
     phone: '+79214445566',
     accent: '#ff9db1',
     mood: 'Смотрит макет',
-    status: 'сохранила тред',
+    status: 'сохранила комментарий',
     online: true,
     unread: 5,
     messages: [
@@ -552,7 +552,7 @@ function buildChannelThreadComments(
           '22:21',
           dayOffset,
         ),
-        buildMyThreadComment(2, 'Оставим тред как тихую ветку без засорения основной ленты.', '22:24', dayOffset),
+        buildMyThreadComment(2, 'Оставим комментарии как тихую ветку без засорения основной ленты.', '22:24', dayOffset),
       ]
     }
 
@@ -561,7 +561,7 @@ function buildChannelThreadComments(
         buildThreadCommentFromChat(
           1,
           3,
-          'Проверил: карточка треда читается спокойно и без визуального шума.',
+          'Проверил: карточка комментариев читается спокойно и без визуального шума.',
           '20:53',
           dayOffset,
         ),
@@ -572,7 +572,7 @@ function buildChannelThreadComments(
       return [
         buildThreadCommentFromChat(1, 1, 'Хорошо бы держать обсуждение именно под этим сообщением.', '18:58', dayOffset),
         buildThreadCommentFromChat(2, 5, 'Да, так основной канал не превращается в чат.', '19:02', dayOffset),
-        buildMyThreadComment(3, 'Согласен. Для длинных обсуждений тред здесь самый понятный сценарий.', '19:07', dayOffset),
+        buildMyThreadComment(3, 'Согласен. Для длинных обсуждений комментарии здесь самый понятный сценарий.', '19:07', dayOffset),
       ]
     }
   }
@@ -593,7 +593,7 @@ function buildChannelThreadComments(
 
     if (postIndex === 6) {
       return [
-        buildMyThreadComment(1, 'Этот тред оставлен как fixture для проверки premium-only режима.', '19:41', dayOffset),
+        buildMyThreadComment(1, 'Этот комментарий оставлен как fixture для проверки premium-only режима.', '19:41', dayOffset),
       ]
     }
   }
@@ -801,7 +801,7 @@ const initialGroupFixtures: GroupPreview[] = [
         groupParticipantId: 3,
         text: 'Тогда здесь же проверим, как ведёт себя меню действий у сообщений в групповом потоке.',
         threadComments: [
-          buildThreadCommentFromChat(1, 6, 'Я бы ещё сразу смотрела на unread и тихие нотификации тредов.', '21:28', 0),
+          buildThreadCommentFromChat(1, 6, 'Я бы ещё сразу смотрела на unread и тихие нотификации комментариев.', '21:28', 0),
           buildMyThreadComment(2, 'И на то, как аккуратно выглядит счётчик комментариев под сообщением.', '21:31', 0),
         ],
         time: '21:24',

@@ -7153,7 +7153,7 @@ export class TinychokStore {
       }
 
       if (!canonicalThreadId || !sharedId) {
-        throw new Error('Тред не найден.')
+        throw new Error('Обсуждение не найдено.')
       }
 
       for (const message of this.database.groupMessages) {
@@ -7178,7 +7178,7 @@ export class TinychokStore {
       }
 
       if (!canonicalThreadId || !normalizedHandle) {
-        throw new Error('Тред не найден.')
+        throw new Error('Обсуждение не найдено.')
       }
 
       for (const post of this.database.subscriptionPosts) {
@@ -7191,14 +7191,14 @@ export class TinychokStore {
         broadcastIdentifiers.add(channel.ownerIdentifier)
       }
     } else {
-      throw new Error('Тред не найден.')
+      throw new Error('Обсуждение не найдено.')
     }
 
     await this.persist()
     await this.appendAdminAuditLog(actor, {
       action: payload.enabled ? 'admin.thread.archive' : 'admin.thread.unarchive',
       reason: normalizedReason,
-      summary: `${payload.enabled ? 'Архивирован' : 'Разархивирован'} тред ${summaryLabel} · ${normalizedReason}`,
+      summary: `${payload.enabled ? 'Архивировано' : 'Разархивировано'} обсуждение ${summaryLabel} · ${normalizedReason}`,
       targetId: threadId,
       targetType: 'thread',
     })
@@ -7213,7 +7213,7 @@ export class TinychokStore {
     const actor = this.getStaffAccountByTokenOrThrow(actorToken)
     const groupThread = this.adminListThreads('').find((thread) => thread.id === threadId)
     if (!groupThread) {
-      throw new Error('Тред не найден.')
+      throw new Error('Обсуждение не найдено.')
     }
 
     const csvRows: string[][] = [['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл']]
@@ -7223,7 +7223,7 @@ export class TinychokStore {
         const group = this.findGroup(candidate.ownerIdentifier, candidate.groupId)
         return Boolean(group && buildAdminGroupThreadKey(group, candidate) === threadId)
       })
-      if (!message) throw new Error('Тред группы не найден.')
+      if (!message) throw new Error('Обсуждение группы не найдено.')
 
       csvRows.push([
         message.createdAt ?? '',
@@ -7250,7 +7250,7 @@ export class TinychokStore {
         const channel = this.findSubscriptionChannel(candidate.ownerIdentifier, candidate.channelId)
         return Boolean(channel && buildAdminChannelThreadKey(channel, candidate) === threadId)
       })
-      if (!post) throw new Error('Тред канала не найден.')
+      if (!post) throw new Error('Обсуждение канала не найдено.')
 
       csvRows.push([
         post.createdAt ?? '',
@@ -7278,7 +7278,7 @@ export class TinychokStore {
     await this.appendAdminAuditLog(actor, {
       action: 'admin.thread.export.csv',
       reason: normalizedReason || undefined,
-      summary: `Экспортирован CSV треда ${threadId}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
+      summary: `Экспортирован CSV комментариев ${threadId}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
       targetId: threadId,
       targetType: 'thread',
     })
@@ -7732,7 +7732,7 @@ export class TinychokStore {
             kind: 'group',
             latestActivityAt: message.comments.at(-1)?.createdAt ?? message.createdAt,
             ownerIdentifier: primaryGroup.ownerIdentifier,
-            title: message.text || `Тред группы ${primaryGroup.title}`,
+            title: message.text || `Обсуждение группы ${primaryGroup.title}`,
           })
         }
       }
@@ -7887,7 +7887,7 @@ export class TinychokStore {
             kind: 'channel',
             latestActivityAt: post.comments.at(-1)?.createdAt ?? post.createdAt,
             ownerIdentifier: managedChannel?.ownerIdentifier ?? primaryCopy?.ownerIdentifier ?? post.authorIdentifier,
-            title: post.text || `Тред канала ${channelTitle}`,
+            title: post.text || `Обсуждение канала ${channelTitle}`,
           })
         }
       }
@@ -10154,7 +10154,7 @@ export class TinychokStore {
       throw new Error('Сообщение группы не найдено.')
     }
     if (isArchivedThread(target.message)) {
-      throw new Error('Тред находится в архиве и недоступен пользователям.')
+      throw new Error('Обсуждение находится в архиве и недоступно пользователям.')
     }
 
     this.assertCanCommentInGroup(target.group, account)
@@ -11246,7 +11246,7 @@ export class TinychokStore {
       throw new Error('Сообщение группы не найдено.')
     }
     if (isArchivedThread(target.message)) {
-      throw new Error('Тред находится в архиве и недоступен пользователям.')
+      throw new Error('Обсуждение находится в архиве и недоступно пользователям.')
     }
 
     const threadId = getGroupMessageThreadId(target.group, target.message)
@@ -11505,7 +11505,7 @@ export class TinychokStore {
       throw new Error('Пост канала не найден.')
     }
     if (isArchivedThread(target.post)) {
-      throw new Error('Тред находится в архиве и недоступен пользователям.')
+      throw new Error('Обсуждение находится в архиве и недоступно пользователям.')
     }
     this.assertSubscriptionChannelWritable(target.channel)
     if (target.post.system) {
@@ -11586,10 +11586,10 @@ export class TinychokStore {
       throw new Error('Пост канала не найден.')
     }
     if (isArchivedThread(target.post)) {
-      throw new Error('Тред находится в архиве и недоступен пользователям.')
+      throw new Error('Обсуждение находится в архиве и недоступно пользователям.')
     }
     if (target.post.system) {
-      throw new Error('Техническое сообщение канала не поддерживает тред.')
+      throw new Error('Техническое сообщение канала не поддерживает комментарии.')
     }
 
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
@@ -11622,7 +11622,7 @@ export class TinychokStore {
       throw new Error('Пост канала не найден.')
     }
     if (target.post.system) {
-      throw new Error('Техническое сообщение канала не поддерживает тред.')
+      throw new Error('Техническое сообщение канала не поддерживает комментарии.')
     }
 
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
@@ -12745,7 +12745,7 @@ export class TinychokStore {
 
     if (entry.targetType === 'thread') {
       const thread = this.adminListThreads('').find((candidate) => candidate.id === entry.targetId)
-      return thread ? `Тред · ${thread.contextLabel} · ${thread.title}` : `Тред · ${entry.targetId}`
+      return thread ? `Комментарии · ${thread.contextLabel} · ${thread.title}` : `Комментарии · ${entry.targetId}`
     }
 
     if (entry.targetType === 'support-ticket') {
