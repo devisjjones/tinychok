@@ -9199,6 +9199,7 @@ html[data-theme='dark'] .room-confirm-danger {
 html[data-theme='dark'] .settings-item,
 html[data-theme='dark'] .settings-support-ticket-item,
 html[data-theme='dark'] .settings-support-ticket-bubble,
+html[data-theme='dark'] .channel-card,
 html[data-theme='dark'] .room-forward-item,
 html[data-theme='dark'] .room-forward-item-existing-member,
 html[data-theme='dark'] .group-create-member-item.active,
@@ -9214,6 +9215,10 @@ html[data-theme='dark'] .room-participant-role {
   border-color: rgba(255, 255, 255, 0.1);
   color: var(--ink);
   box-shadow: 0 16px 34px rgba(0, 0, 0, 0.2);
+}
+
+html[data-theme='dark'] .channel-card:hover {
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.24);
 }
 
 html[data-theme='dark'] .filter {
@@ -9288,6 +9293,10 @@ html[data-theme='dark'] .room-members-link:hover,
 html[data-theme='dark'] .room-members-link:focus-visible {
   color: var(--ink);
   text-decoration-color: rgba(255, 255, 255, 0.34);
+}
+
+html[data-theme='dark'] .channel-card-title > span:first-child {
+  color: var(--ink);
 }
 
 html[data-theme='dark'] .search input,

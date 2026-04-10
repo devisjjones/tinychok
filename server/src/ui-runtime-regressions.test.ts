@@ -2132,6 +2132,20 @@ test('channels list view copy contract matches current UX', () => {
   assert.doesNotMatch(listViewSource, /<article className="settings-item">[\s\S]*Пока нет каналов/u)
 })
 
+test('channel management popup keeps cards dark and titles readable in dark theme', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.settings-item,\s*[\s\S]*html\[data-theme='dark'\] \.channel-card,\s*[\s\S]*background:\s*rgba\(36,\s*37,\s*43,\s*0\.94\);[\s\S]*border-color:\s*rgba\(255,\s*255,\s*255,\s*0\.1\);[\s\S]*color:\s*var\(--ink\);/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.channel-card-title > span:first-child\s*\{[\s\S]*color:\s*var\(--ink\);/u,
+  )
+})
+
 test('channel transfer UI is hidden while backend transfer stays dark-launched', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
