@@ -4950,6 +4950,44 @@ test('group participants dialog supports searchable owner moderation with remove
   assert.match(storeSource, /async blacklistGroupParticipant\(/u)
 })
 
+test('group and channel people dialogs expose owner invite shortcuts into the existing invite flows', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+
+  const groupDialogStart = appSource.indexOf('const groupParticipantsDialog =')
+  const groupDialogEnd = appSource.indexOf('const selectedActiveGroupParticipantDialog =')
+  const channelDialogStart = appSource.indexOf(
+    '{channelSubscribersOpen && currentSubscriptionChannel && isCurrentSubscriptionChannelOwner ? (',
+  )
+  const channelDialogEnd = appSource.indexOf(
+    '{selectedCurrentSubscriptionChannelSubscriber && currentSubscriptionChannel && isCurrentSubscriptionChannelOwner ? (',
+  )
+
+  assert.ok(groupDialogStart >= 0)
+  assert.ok(groupDialogEnd > groupDialogStart)
+  assert.ok(channelDialogStart >= 0)
+  assert.ok(channelDialogEnd > channelDialogStart)
+
+  const groupDialogSource = appSource.slice(groupDialogStart, groupDialogEnd)
+  const channelDialogSource = appSource.slice(channelDialogStart, channelDialogEnd)
+
+  assert.match(groupDialogSource, /isActiveGroupCreator && !activeGroupArchived/u)
+  assert.match(groupDialogSource, /Пригласить пользователя/u)
+  assert.match(groupDialogSource, /closeGroupParticipantsDialog\(\)\s*openGroupInvitePopup\(\)/u)
+  assert.match(
+    groupDialogSource,
+    /room-confirm-button room-confirm-button-primary\$\{activeGroupAtMemberLimit \? ' disabled' : ''\}/u,
+  )
+
+  assert.match(
+    appSource,
+    /function openChannelShareDialog\(\)\s*\{[\s\S]*closeChannelActions\(\)[\s\S]*setChannelShareOpen\(true\)[\s\S]*setChannelShareBusy\(false\)[\s\S]*setChannelShareError\(''\)[\s\S]*setChannelShareChatIds\(\[\]\)[\s\S]*setChannelReportOpen\(false\)[\s\S]*setChannelReportError\(''\)/u,
+  )
+  assert.match(channelDialogSource, /!currentSubscriptionChannelArchived/u)
+  assert.match(channelDialogSource, /Пригласить пользователя/u)
+  assert.match(channelDialogSource, /closeChannelSubscribersDialog\(\)\s*openChannelShareDialog\(\)/u)
+})
+
 test('group and thread message menus expose direct-dialog actions for other participants', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')

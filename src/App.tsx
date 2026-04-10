@@ -10517,6 +10517,16 @@ function App() {
     setChannelShareChatIds([])
   }
 
+  function openChannelShareDialog() {
+    closeChannelActions()
+    setChannelShareOpen(true)
+    setChannelShareBusy(false)
+    setChannelShareError('')
+    setChannelShareChatIds([])
+    setChannelReportOpen(false)
+    setChannelReportError('')
+  }
+
   function closeChannelSubscribersDialog() {
     setChannelSubscribersOpen(false)
     setChannelSubscribersSearchQuery('')
@@ -13908,14 +13918,7 @@ function App() {
               <button
                 type="button"
                 className="message-menu-item"
-                onClick={() => {
-                  setChannelShareOpen(true)
-                  setChannelShareBusy(false)
-                  setChannelShareError('')
-                  setChannelShareChatIds([])
-                  setChannelReportOpen(false)
-                  setChannelReportError('')
-                }}
+                onClick={openChannelShareDialog}
               >
                 Пригласить подписаться
               </button>
@@ -14199,7 +14202,24 @@ function App() {
               )}
             </div>
             {channelSubscriberActionError ? <p className="auth-error">{channelSubscriberActionError}</p> : null}
-            <div className="room-confirm-actions room-confirm-actions-single">
+            <div
+              className={`room-confirm-actions ${
+                currentSubscriptionChannelArchived ? 'room-confirm-actions-single' : 'room-confirm-actions-dual'
+              }`}
+            >
+              {!currentSubscriptionChannelArchived ? (
+                <button
+                  type="button"
+                  className="room-confirm-button room-confirm-button-primary"
+                  onClick={() => {
+                    closeChannelSubscribersDialog()
+                    openChannelShareDialog()
+                  }}
+                  disabled={channelSubscriberActionBusy}
+                >
+                  Пригласить пользователя
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="room-confirm-button"
@@ -15030,14 +15050,36 @@ function App() {
             )}
           </div>
           {groupParticipantActionError ? <p className="auth-error">{groupParticipantActionError}</p> : null}
-          <button
-            type="button"
-            className="room-confirm-button"
-            onClick={closeGroupParticipantsDialog}
-            disabled={groupParticipantActionBusy}
+          <div
+            className={`room-confirm-actions ${
+              isActiveGroupCreator && !activeGroupArchived
+                ? 'room-confirm-actions-dual'
+                : 'room-confirm-actions-single'
+            }`}
           >
-            Закрыть
-          </button>
+            {isActiveGroupCreator && !activeGroupArchived ? (
+              <button
+                type="button"
+                className={`room-confirm-button room-confirm-button-primary${activeGroupAtMemberLimit ? ' disabled' : ''}`}
+                aria-disabled={activeGroupAtMemberLimit}
+                onClick={() => {
+                  closeGroupParticipantsDialog()
+                  openGroupInvitePopup()
+                }}
+                disabled={groupParticipantActionBusy}
+              >
+                Пригласить пользователя
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="room-confirm-button"
+              onClick={closeGroupParticipantsDialog}
+              disabled={groupParticipantActionBusy}
+            >
+              Закрыть
+            </button>
+          </div>
         </div>
       </>
     ) : null
