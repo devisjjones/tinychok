@@ -4174,6 +4174,8 @@ test('premium footer keeps legal links on the right and cards align their CTA ro
   assert.match(appSource, /<article className="premium-card premium-card-monthly">/u)
   assert.match(appCss, /\.premium-card-monthly\s*\{[\s\S]*background:\s*rgba\(244, 234, 226, 0\.94\);/u)
   assert.match(appCss, /\.premium-card-annual\s*\{[\s\S]*background:\s*rgba\(255, 253, 249, 0\.98\);/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.premium-card-annual\s*\{[\s\S]*linear-gradient\([\s\S]*rgba\(255,\s*255,\s*255,\s*0\.13\)[\s\S]*rgba\(255,\s*255,\s*255,\s*0\.1\)[\s\S]*border-color:\s*rgba\(255,\s*255,\s*255,\s*0\.16\);/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.premium-annual-badge,[\s\S]*background:\s*rgba\(164,\s*91,\s*78,\s*0\.18\);/u)
   assert.match(appCss, /\.premium-stack\s*\{[\s\S]*align-items:\s*stretch;/u)
 })
 
