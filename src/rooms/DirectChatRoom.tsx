@@ -182,6 +182,7 @@ export function DirectChatRoom({
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
   const roomPresenceBlockRef = useRef<HTMLDivElement | null>(null)
   const roomPresenceMeasureRef = useRef<HTMLDivElement | null>(null)
+  const roomTitleHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const effectiveVisibleMessages = activeChat.archivedAccount ? [] : visibleMessages
   const effectiveComposerDisabledNotice =
     composerDisabledNotice ?? (activeChat.archivedAccount ? 'Аккаунт удалён. Переписка недоступна.' : null)
@@ -203,6 +204,7 @@ export function DirectChatRoom({
   const roomPresenceText = roomPresenceParts.join(' · ').trim() || '\u00A0'
   const [roomStatusExpanded, setRoomStatusExpanded] = useState(false)
   const [roomStatusExpandable, setRoomStatusExpandable] = useState(false)
+  const [roomStatusCollapsedLines, setRoomStatusCollapsedLines] = useState<1 | 2>(2)
   const composerPlaceholder = attachmentDraft
     ? isImageMimeType(attachmentDraft.mimeType)
       ? 'Добавьте подпись к фотографии...'
@@ -263,8 +265,10 @@ export function DirectChatRoom({
 
     const block = roomPresenceBlockRef.current
     const measure = roomPresenceMeasureRef.current
+    const titleHeading = roomTitleHeadingRef.current
     if (!block || !measure || !roomPresenceText.trim()) {
       setRoomStatusExpandable(false)
+      setRoomStatusCollapsedLines(2)
       return
     }
 
@@ -281,9 +285,19 @@ export function DirectChatRoom({
       const computedMeasureStyles = window.getComputedStyle(measure)
       const fontSize = Number.parseFloat(computedMeasureStyles.fontSize) || 16
       const lineHeight = Number.parseFloat(computedMeasureStyles.lineHeight) || fontSize * 1.25
-      const maxCollapsedHeight = lineHeight * 2 + 1
+      const computedTitleStyles = titleHeading ? window.getComputedStyle(titleHeading) : null
+      const titleFontSize = computedTitleStyles ? Number.parseFloat(computedTitleStyles.fontSize) || 16 : 16
+      const titleLineHeight = computedTitleStyles
+        ? Number.parseFloat(computedTitleStyles.lineHeight) || titleFontSize * 1.05
+        : 0
+      const titleUsesMultipleLines = titleHeading
+        ? titleLineHeight > 0 && titleHeading.scrollHeight > titleLineHeight * 1.5
+        : false
+      const nextCollapsedLines: 1 | 2 = titleUsesMultipleLines ? 1 : 2
+      const maxCollapsedHeight = lineHeight * nextCollapsedLines + 1
       const nextExpandable = measure.scrollHeight > maxCollapsedHeight
 
+      setRoomStatusCollapsedLines((previous) => (previous === nextCollapsedLines ? previous : nextCollapsedLines))
       setRoomStatusExpandable((previous) => (previous === nextExpandable ? previous : nextExpandable))
       if (!nextExpandable) {
         setRoomStatusExpanded(false)
@@ -301,6 +315,9 @@ export function DirectChatRoom({
     if ('ResizeObserver' in window) {
       resizeObserver = new ResizeObserver(scheduleSync)
       resizeObserver.observe(block)
+      if (titleHeading) {
+        resizeObserver.observe(titleHeading)
+      }
     }
 
     return () => {
@@ -310,7 +327,14 @@ export function DirectChatRoom({
       }
       window.cancelAnimationFrame(animationFrameId)
     }
-  }, [roomPresenceText])
+  }, [
+    roomPresenceText,
+    activeChat.archivedAccount,
+    activeChat.blockedByAdmin,
+    activeChat.muted,
+    activeChat.premium,
+    activeChat.title,
+  ])
 
   function jumpToMessage(messageId: number) {
     if (onReplyReferenceJump) {
@@ -351,7 +375,7 @@ export function DirectChatRoom({
           <div>
             <div className="room-title">
               <div className="room-title-name">
-                <h3>{activeChat.title}</h3>
+                <h3 ref={roomTitleHeadingRef}>{activeChat.title}</h3>
                 {activeChat.archivedAccount ? <span className="room-archive-badge">Архив</span> : null}
                 {activeChat.blockedByAdmin ? (
                   <span className="blocked-contact-badge" aria-label="Пользователь заблокирован администрацией">
@@ -377,7 +401,11 @@ export function DirectChatRoom({
               <p
                 className={`room-presence-text${
                   roomStatusExpandable ? ' room-presence-text-toggleable' : ''
-                }${roomStatusExpanded ? ' room-presence-text-expanded' : ' room-presence-text-collapsed'}`}
+                }${
+                  roomStatusExpanded
+                    ? ' room-presence-text-expanded'
+                    : ` room-presence-text-collapsed room-presence-text-collapsed-${roomStatusCollapsedLines}`
+                }`}
               >
                 {roomPresenceText}
               </p>
