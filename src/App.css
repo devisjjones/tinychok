@@ -5060,6 +5060,10 @@
 
 .composer-attachment-preview-status.error {
   color: rgba(170, 71, 52, 0.92);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
 }
 
 .composer-attachment-checkbox {
@@ -8596,6 +8600,32 @@
 
   .composer-tools {
     min-height: 44px;
+  }
+
+  .composer-attachment-preview {
+    gap: 10px;
+    padding-right: 10px;
+  }
+
+  .composer-attachment-preview-copy {
+    gap: 6px;
+    padding: 12px 0;
+  }
+
+  .composer-attachment-preview-title-row {
+    min-height: 34px;
+    padding-right: 44px;
+  }
+
+  .composer-attachment-preview-clear {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    align-self: auto;
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    z-index: 1;
   }
 
   .room-confirm {
