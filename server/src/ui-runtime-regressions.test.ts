@@ -4110,6 +4110,12 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
     appCss,
     /html\[data-theme='dark'\] \.room-mobile-back-icon,[\s\S]*\.room-menu-icon,[\s\S]*\.room-crown img,[\s\S]*\.bubble-sender-crown img,[\s\S]*filter:\s*var\(--icon-filter\);/u,
   )
+  assert.match(appCss, /html\[data-theme='dark'\] \.settings-inline-copy-button img,/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.settings-actions \.icon-button img,/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.storage-usage-upsell-icon img,/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.chat-star img,/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.thread-pill-icon,/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.room-thread-subscribe-icon,/u)
   assert.match(
     appCss,
     /html\[data-theme='dark'\] \.room-thread-source > \.bubble-stack > \.bubble-stack-main > \.room-thread-source-bubble,[\s\S]*\.room-thread-source > \.room-thread-source-bubble/u,
