@@ -4184,6 +4184,14 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   )
   assert.match(
     appCss,
+    /html\[data-theme='dark'\] \.emoji-picker-tab,\s*[\s\S]*\.emoji-picker-gif-upload-button,\s*[\s\S]*\.emoji-picker-expand-button,\s*[\s\S]*\.room-menu-item,\s*[\s\S]*\.message-menu-item\s*\{[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.08\);[\s\S]*color:\s*var\(--ink\);/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.composer-attachment-storage-warning-link:hover,\s*[\s\S]*\.emoji-picker-gif-upload-button:hover:not\(:disabled\),\s*[\s\S]*\.emoji-picker-expand-button:hover,\s*[\s\S]*\.emoji-picker-tab:hover,\s*[\s\S]*\.emoji-picker-tab.active,\s*[\s\S]*\.room-menu-item:hover\s*\{[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.14\);[\s\S]*color:\s*#ffffff;/u,
+  )
+  assert.match(
+    appCss,
     /html\[data-theme='dark'\] \.channel-avatar-picker-popover,[\s\S]*\.message-menu,[\s\S]*\.composer-attachment-popover/u,
   )
   assert.match(appCss, /html\[data-theme='dark'\] \.room-confirm\s*\{/u)

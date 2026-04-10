@@ -9002,6 +9002,8 @@ html[data-theme='dark'] .composer-attachment-rename-trigger,
 html[data-theme='dark'] .composer-attachment-checkbox,
 html[data-theme='dark'] .composer-attachment-option,
 html[data-theme='dark'] .emoji-picker-tab,
+html[data-theme='dark'] .emoji-picker-gif-upload-button,
+html[data-theme='dark'] .emoji-picker-expand-button,
 html[data-theme='dark'] .room-menu-item,
 html[data-theme='dark'] .message-menu-item {
   background: rgba(255, 255, 255, 0.08);
@@ -9037,6 +9039,8 @@ html[data-theme='dark'] .composer-attachment-storage-warning {
 html[data-theme='dark'] .composer-attachment-storage-warning-link:hover,
 html[data-theme='dark'] .composer-attachment-storage-warning-link:focus-visible,
 html[data-theme='dark'] .composer-attachment-option:hover,
+html[data-theme='dark'] .emoji-picker-gif-upload-button:hover:not(:disabled),
+html[data-theme='dark'] .emoji-picker-expand-button:hover,
 html[data-theme='dark'] .emoji-picker-tab:hover,
 html[data-theme='dark'] .emoji-picker-tab.active,
 html[data-theme='dark'] .room-menu-item:hover {
