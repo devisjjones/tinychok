@@ -1100,18 +1100,26 @@
   position: absolute;
   top: 2px;
   right: 2px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #8f2b1e;
+  background: var(--ink);
   color: #fff8f0;
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.68rem;
   line-height: 1;
+  pointer-events: none;
+  flex: 0 0 auto;
+}
+
+.icon-button-badge.icon-button-badge-wide {
+  width: auto;
+  min-width: 26px;
+  padding: 0 6px;
 }
 
 .premium-button-label {
@@ -9221,7 +9229,8 @@ html[data-theme='dark'] .filter.active {
 }
 
 html[data-theme='dark'] .filter-badge,
-html[data-theme='dark'] .filter-badge.filter-badge-light {
+html[data-theme='dark'] .filter-badge.filter-badge-light,
+html[data-theme='dark'] .icon-button-badge {
   background: rgba(164, 91, 78, 0.92);
   color: #fff7f4;
 }

@@ -2903,6 +2903,10 @@ test('contacts screen splits incoming requests from accepted contacts', () => {
   assert.match(appSource, /icon-button-badge/u)
   assert.match(appSource, /quietContactRequestsSuppressed/u)
   assert.match(appSource, /!quietContactRequestsSuppressed && incomingContactRequestCount > 0/u)
+  assert.match(
+    appSource,
+    /incomingContactRequestCount > 9\s*\?\s*'icon-button-badge icon-button-badge-wide'\s*:\s*'icon-button-badge'/u,
+  )
   assert.match(contactsPaneSource, /normalizeIdentifier\(activeContactIdentifier\) === normalizeIdentifier\(request\.identifier\)/u)
   assert.match(contactRequestCardSource, /chat-card chat-card-request active/u)
   assert.match(appSource, /filter-inline-content filter-inline-content-compact/u)
@@ -2926,6 +2930,8 @@ test('contacts screen splits incoming requests from accepted contacts', () => {
   assert.match(appCss, /\.filter-with-inline-badge \.filter-inline-content-compact \.filter-icon/u)
   assert.match(appCss, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/u)
   assert.match(appCss, /\.filter-badge\.filter-badge-light\s*\{/u)
+  assert.match(appCss, /\.icon-button-badge\s*\{[\s\S]*width:\s*18px;[\s\S]*min-width:\s*18px;[\s\S]*height:\s*18px;[\s\S]*background:\s*var\(--ink\);[\s\S]*font-size:\s*0\.68rem;/u)
+  assert.match(appCss, /\.icon-button-badge\.icon-button-badge-wide\s*\{[\s\S]*min-width:\s*26px;[\s\S]*padding:\s*0 6px;/u)
   assert.match(appCss, /\.contact-request-card-icon\.incoming img/u)
   assert.match(appCss, /\.contact-request-card-icon\.outgoing img/u)
   assert.match(handoffDoc, /contact links считаются server-authoritative direct contract/u)
@@ -3178,6 +3184,7 @@ test('support chat contract stays wired through app, store, admin surface and do
   assert.match(appSource, /Keep support unread mirrored on the settings launcher/u)
   assert.match(appSource, /supportUnreadCount > 0/u)
   assert.match(appSource, /icon-button-badge/u)
+  assert.match(appSource, /supportUnreadCount > 9 \? 'icon-button-badge icon-button-badge-wide' : 'icon-button-badge'/u)
   assert.match(adminSource, /section === 'support'/u)
   assert.match(adminSource, /fetchAdminSupportTickets/u)
   assert.match(adminSource, /fetchAdminSupportTicket/u)

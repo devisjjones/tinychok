@@ -16190,7 +16190,13 @@ function App() {
                 only the contact-request quiet setting may hide this badge. The incoming count
                 itself must stay intact so request rooms and counters survive quiet-mode toggles. */}
             {!quietContactRequestsSuppressed && incomingContactRequestCount > 0 ? (
-              <span className="icon-button-badge">
+              <span
+                className={
+                  incomingContactRequestCount > 9
+                    ? 'icon-button-badge icon-button-badge-wide'
+                    : 'icon-button-badge'
+                }
+              >
                 {formatUnreadBadgeCount(incomingContactRequestCount)}
               </span>
             ) : null}
@@ -16268,7 +16274,9 @@ function App() {
             {/* Keep support unread mirrored on the settings launcher. Support lives inside Settings,
                 so users must be able to notice fresh staff replies before opening the scene. */}
             {supportUnreadCount > 0 ? (
-              <span className="icon-button-badge">
+              <span
+                className={supportUnreadCount > 9 ? 'icon-button-badge icon-button-badge-wide' : 'icon-button-badge'}
+              >
                 {formatUnreadBadgeCount(supportUnreadCount)}
               </span>
             ) : null}
