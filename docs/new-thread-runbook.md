@@ -23,6 +23,24 @@
 - правила общения с владельцем проекта
 - обязательный deploy discipline
 
+## Роли Документов
+
+Чтобы не держать один и тот же контракт в двух местах:
+
+- [docs/new-thread-runbook.md](/Users/devisjjones/Documents/tinychok/docs/new-thread-runbook.md)
+  - главный файл с инвариантами работы
+  - definition of done
+  - test / deploy / staging discipline
+  - порядок прохождения задач
+  - правила для feature gates, scroll и других чувствительных зон
+- [docs/collaboration-instructions.md](/Users/devisjjones/Documents/tinychok/docs/collaboration-instructions.md)
+  - только правила общения с владельцем проекта
+  - формат ручных инструкций
+  - формат визуальных и smoke-check проверок
+  - когда и какие скрины просить
+
+Если правило отвечает на вопрос `можно ли считать задачу завершённой`, оно должно жить здесь, а не в `collaboration-instructions.md`.
+
 ## Как работать с владельцем проекта
 
 - если задача понятна, не останавливаться на плане и сразу переходить к реализации
