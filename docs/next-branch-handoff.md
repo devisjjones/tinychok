@@ -1174,6 +1174,10 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
 - avatar upload для профиля, канала и группы
 - storage quota auto-cleanup / warning при превышении лимита
 - storage-screen с удалением вложений / GIF и исключением аватарок из пользовательской квоты
+- premium archive restore:
+  - выдача premium должна пытаться вернуть `storage-quota` архив обратно в исходные сообщения, если enlarged quota позволяет
+  - legacy archived rows без `restoreTargets` больше нельзя считать "безнадёжными": backend обязан уметь backfill restore-route через unresolved `attachmentRemovedNotice.reason = storage-quota`
+  - при частично очищенном archive storage restore не должен заполнять более старые orphan placeholders; оставшиеся archive rows матчятся по контексту и tail chronology
 - websocket reconnect must never let a stale close event mark a newer live socket offline
 - query-token websocket auth is legacy and must stay behind strict origin allowlisting
 - session TTL = 30 дней для user bearer sessions; expired session должна одинаково падать в bootstrap, HTTP API и `/ws`

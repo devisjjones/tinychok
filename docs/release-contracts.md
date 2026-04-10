@@ -228,6 +228,8 @@
   - backend обязан попытаться вернуть такие auto-archived вложения обратно в исходные сообщения / посты / комментарии
   - это server-side restore контракт, а не ручная клиентская операция
   - новые auto-archive записи обязаны хранить достаточный restore-route, чтобы восстановление было воспроизводимым
+  - legacy `storage-quota` архив без `restoreTargets` тоже обязан восстанавливаться через unresolved `attachmentRemovedNotice` holes
+  - если часть старых archive rows уже успела исчезнуть из archive storage, restore не должен промахиваться в более старые orphan placeholders; матчинг обязан идти по контексту и tail chronology оставшихся archive items
 - auto-cleanup не должен удалять сообщение / комментарий / пост целиком:
   - в UI обязана оставаться viewer-aware заметка:
   - владелец видит `Вложение скрыто. У вас закончилось место. Оформите подписку.` с маленькой inline-иконкой `crown64`

@@ -872,6 +872,10 @@ curl -s https://api.staging.tinychok.ru/healthz
 - mobile media/video bubble:
   - отправленное видео не должно раздвигать direct room вправо
   - `media-bubble-row` остаётся зажатым в viewport, bubble track shrinkable, horizontal overflow отсутствует
+- premium archive restore:
+  - при выдаче premium пользователю auto-archived `storage-quota` вложения должны возвращаться в primary storage, если квота позволяет
+  - это должно работать и для legacy archived rows без `restoreTargets`
+  - если часть старых archived rows уже исчезла из archive storage, restore не должен попадать в более старые orphan placeholders; восстанавливаются только реально оставшиеся archive rows
 - thread root source:
   - в открытом треде корневое сообщение не должно показывать author-strip автора
   - author/avatar допустимы только у самих комментариев, а не у `room-thread-source`

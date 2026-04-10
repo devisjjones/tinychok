@@ -353,6 +353,125 @@ test('premium upgrade restores storage-quota archived attachments back into visi
   )
 })
 
+test('premium upgrade backfills legacy restore targets for newer archived attachments without restoring older orphan placeholders', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const sender = createAccount('+79991110027')
+  const peer = createAccount('+79991110028')
+  database.accounts.push(sender, peer)
+  const senderToken = createSession(database, sender.identifier, 'storage-legacy-restore-sender')
+  const peerToken = createSession(database, peer.identifier, 'storage-legacy-restore-peer')
+  seedAcceptedContactLink(database, sender.identifier, peer.identifier)
+
+  const opened = await store.openDirectDialog(senderToken, { identifier: peer.identifier })
+
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'legacy-first.jpg',
+    mediaUrl: 'uploads/attachment/legacy-first.jpg',
+    mimeType: 'image/jpeg',
+    size: 50 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'legacy-first.jpg',
+      mediaUrl: 'uploads/attachment/legacy-first.jpg',
+      mimeType: 'image/jpeg',
+      size: 50 * 1024 * 1024,
+    },
+    text: '',
+  })
+
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'legacy-second.jpg',
+    mediaUrl: 'uploads/attachment/legacy-second.jpg',
+    mimeType: 'image/jpeg',
+    size: 40 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'legacy-second.jpg',
+      mediaUrl: 'uploads/attachment/legacy-second.jpg',
+      mimeType: 'image/jpeg',
+      size: 40 * 1024 * 1024,
+    },
+    text: '',
+  })
+
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'legacy-third.jpg',
+    mediaUrl: 'uploads/attachment/legacy-third.jpg',
+    mimeType: 'image/jpeg',
+    size: 30 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'legacy-third.jpg',
+      mediaUrl: 'uploads/attachment/legacy-third.jpg',
+      mimeType: 'image/jpeg',
+      size: 30 * 1024 * 1024,
+    },
+    text: '',
+  })
+
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'legacy-fourth.jpg',
+    mediaUrl: 'uploads/attachment/legacy-fourth.jpg',
+    mimeType: 'image/jpeg',
+    size: 40 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'legacy-fourth.jpg',
+      mediaUrl: 'uploads/attachment/legacy-fourth.jpg',
+      mimeType: 'image/jpeg',
+      size: 40 * 1024 * 1024,
+    },
+    text: '',
+  })
+
+  assert.equal(database.archivedMedia.length, 2)
+  for (const item of database.archivedMedia) {
+    item.restoreTargets = undefined
+  }
+
+  database.archivedMedia = database.archivedMedia.filter(
+    (item) => item.mediaUrl !== 'uploads/attachment/legacy-first.jpg',
+  )
+
+  const upgradeResult = await store.setDebugPremiumState(senderToken, {
+    durationDays: 30,
+    enabled: true,
+  })
+
+  assert.match(upgradeResult.broadcastIdentifiers.join(','), new RegExp(peer.identifier.replace('+', '\\+')))
+  assert.equal(database.archivedMedia.length, 0)
+
+  const senderMessages = database.dialogMessages
+    .filter((message) => message.ownerIdentifier === sender.identifier && message.dialogId === opened.dialogId)
+    .sort((left, right) => left.id - right.id)
+  assert.equal(senderMessages[0]?.attachment, undefined)
+  assert.equal(senderMessages[0]?.attachmentRemovedNotice?.reason, 'storage-quota')
+  assert.equal(senderMessages[1]?.attachment?.mediaUrl, 'uploads/attachment/legacy-second.jpg')
+  assert.equal(senderMessages[1]?.attachmentRemovedNotice, undefined)
+  assert.equal(senderMessages[2]?.attachment?.mediaUrl, 'uploads/attachment/legacy-third.jpg')
+  assert.equal(senderMessages[3]?.attachment?.mediaUrl, 'uploads/attachment/legacy-fourth.jpg')
+
+  const peerDialogId = store
+    .getSnapshotByToken(peerToken)
+    ?.chats.find((chat) => chat.phone === sender.identifier)?.id
+  assert.ok(peerDialogId)
+
+  const peerMessages = database.dialogMessages
+    .filter((message) => message.ownerIdentifier === peer.identifier && message.dialogId === peerDialogId)
+    .sort((left, right) => left.id - right.id)
+  assert.equal(peerMessages[0]?.attachment, undefined)
+  assert.equal(peerMessages[0]?.attachmentRemovedNotice?.reason, 'storage-quota')
+  assert.equal(peerMessages[1]?.attachment?.mediaUrl, 'uploads/attachment/legacy-second.jpg')
+  assert.equal(peerMessages[1]?.attachmentRemovedNotice, undefined)
+  assert.equal(peerMessages[2]?.attachment?.mediaUrl, 'uploads/attachment/legacy-third.jpg')
+  assert.equal(peerMessages[3]?.attachment?.mediaUrl, 'uploads/attachment/legacy-fourth.jpg')
+})
+
 test('user storage inventory excludes avatars, deduplicates media and manual delete leaves placeholder', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)

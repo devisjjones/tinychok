@@ -448,6 +448,12 @@ type StorageCleanupCandidate = {
   storageSubjectKind: StorageSubjectKind
 }
 
+type LegacyArchivedMediaRestoreCandidate = {
+  buildTargets: (attachment: MessageAttachment) => PersistedArchivedMediaRestoreTarget[]
+  kind: PersistedArchivedMediaRestoreTarget['kind']
+  removedAtTimestamp: number
+}
+
 type LegacyAccountState = {
   channels: Channel[]
   chats: Chat[]
@@ -15024,7 +15030,361 @@ export class TinychokStore {
     return [...affectedIdentifiers]
   }
 
+  private buildArchivedMediaAttachmentForRestore(item: PersistedArchivedMediaRecord): MessageAttachment {
+    return {
+      fileName: item.fileName,
+      height: item.height,
+      mediaUrl: item.mediaUrl,
+      mimeType: item.mimeType,
+      size: item.size,
+      width: item.width,
+    }
+  }
+
+  private getArchivedMediaRestoreKind(
+    item: Pick<PersistedArchivedMediaRecord, 'originalContext' | 'primaryLabel'>,
+  ): PersistedArchivedMediaRestoreTarget['kind'] | null {
+    const context = item.primaryLabel || item.originalContext
+    switch (context) {
+      case 'Вложение в диалоге':
+        return 'dialog-message'
+      case 'Вложение в группе':
+        return 'group-message'
+      case 'Комментарий в группе':
+        return 'group-thread-comment'
+      case 'Пост в канале':
+        return 'channel-post'
+      case 'Комментарий в канале':
+        return 'channel-thread-comment'
+      case 'Обращение в поддержку':
+        return 'support-ticket'
+      case 'Комментарий в поддержке':
+        return 'support-ticket-comment'
+      default:
+        return null
+    }
+  }
+
+  private collectLegacyArchivedMediaRestoreCandidates(subject: StorageSubjectDescriptor) {
+    const candidatesByKind = new Map<
+      PersistedArchivedMediaRestoreTarget['kind'],
+      LegacyArchivedMediaRestoreCandidate[]
+    >()
+
+    const pushCandidate = (
+      kind: PersistedArchivedMediaRestoreTarget['kind'],
+      candidate: LegacyArchivedMediaRestoreCandidate,
+    ) => {
+      const existing = candidatesByKind.get(kind)
+      if (existing) {
+        existing.push(candidate)
+        return
+      }
+      candidatesByKind.set(kind, [candidate])
+    }
+
+    const directGroups = new Map<
+      string,
+      {
+        removedAtTimestamp: number
+        rows: PersistedDialogMessage[]
+      }
+    >()
+
+    for (const message of this.database.dialogMessages) {
+      if (message.attachment || message.attachmentRemovedNotice?.reason !== 'storage-quota') {
+        continue
+      }
+      const messageSubject = this.getUserStorageSubject(this.getDirectMessageAttachmentOwnerIdentifier(message))
+      if (messageSubject.kind !== subject.kind || messageSubject.id !== subject.id) {
+        continue
+      }
+      const removedAt = message.attachmentRemovedNotice?.removedAt
+      const removedAtTimestamp = parseIsoDate(removedAt)
+      if (removedAtTimestamp === null) {
+        continue
+      }
+      const groupKey =
+        message.deliveryId ||
+        [
+          removedAt,
+          message.createdAt,
+          message.time,
+          sanitizeMessageText(message.text).slice(0, 80),
+          message.forwardedAuthorName ?? '',
+        ].join(':')
+      const existing = directGroups.get(groupKey)
+      if (existing) {
+        existing.rows.push(message)
+        continue
+      }
+      directGroups.set(groupKey, {
+        removedAtTimestamp,
+        rows: [message],
+      })
+    }
+
+    for (const group of directGroups.values()) {
+      pushCandidate('dialog-message', {
+        buildTargets: (attachment) =>
+          group.rows.map((message) => ({
+            attachment: { ...attachment },
+            dialogId: message.dialogId,
+            kind: 'dialog-message',
+            messageId: message.id,
+            ownerIdentifier: message.ownerIdentifier,
+          })),
+        kind: 'dialog-message',
+        removedAtTimestamp: group.removedAtTimestamp,
+      })
+    }
+
+    for (const message of this.database.groupMessages) {
+      if (
+        !message.attachment &&
+        message.attachmentRemovedNotice?.reason === 'storage-quota'
+      ) {
+        const messageSubject = this.getUserStorageSubject(this.getGroupMessageAttachmentOwnerIdentifier(message))
+        if (messageSubject.kind === subject.kind && messageSubject.id === subject.id) {
+          const removedAtTimestamp = parseIsoDate(message.attachmentRemovedNotice?.removedAt)
+          if (removedAtTimestamp !== null) {
+            pushCandidate('group-message', {
+              buildTargets: (attachment) => [
+                {
+                  attachment: { ...attachment },
+                  groupId: message.groupId,
+                  kind: 'group-message',
+                  messageId: message.id,
+                  ownerIdentifier: message.ownerIdentifier,
+                },
+              ],
+              kind: 'group-message',
+              removedAtTimestamp,
+            })
+          }
+        }
+      }
+
+      for (const comment of compactThreadComments(message.threadComments)) {
+        if (comment.attachment || comment.attachmentRemovedNotice?.reason !== 'storage-quota') {
+          continue
+        }
+        const commentSubject = this.getUserStorageSubject(
+          normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier,
+        )
+        if (commentSubject.kind !== subject.kind || commentSubject.id !== subject.id) {
+          continue
+        }
+        const removedAtTimestamp = parseIsoDate(comment.attachmentRemovedNotice?.removedAt)
+        if (removedAtTimestamp === null) {
+          continue
+        }
+        pushCandidate('group-thread-comment', {
+          buildTargets: (attachment) => [
+            {
+              attachment: { ...attachment },
+              commentId: comment.id,
+              groupId: message.groupId,
+              kind: 'group-thread-comment',
+              messageId: message.id,
+              ownerIdentifier: message.ownerIdentifier,
+            },
+          ],
+          kind: 'group-thread-comment',
+          removedAtTimestamp,
+        })
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      if (!post.attachment && post.attachmentRemovedNotice?.reason === 'storage-quota') {
+        const postSubject = this.getSubscriptionPostStorageSubject(post)
+        if (postSubject.kind === subject.kind && postSubject.id === subject.id) {
+          const removedAtTimestamp = parseIsoDate(post.attachmentRemovedNotice?.removedAt)
+          if (removedAtTimestamp !== null) {
+            pushCandidate('channel-post', {
+              buildTargets: (attachment) => [
+                {
+                  attachment: { ...attachment },
+                  channelId: post.channelId,
+                  kind: 'channel-post',
+                  ownerIdentifier: post.ownerIdentifier,
+                  postId: post.id,
+                },
+              ],
+              kind: 'channel-post',
+              removedAtTimestamp,
+            })
+          }
+        }
+      }
+
+      for (const comment of compactThreadComments(post.threadComments)) {
+        if (comment.attachment || comment.attachmentRemovedNotice?.reason !== 'storage-quota') {
+          continue
+        }
+        const commentSubject = this.getUserStorageSubject(
+          normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier,
+        )
+        if (commentSubject.kind !== subject.kind || commentSubject.id !== subject.id) {
+          continue
+        }
+        const removedAtTimestamp = parseIsoDate(comment.attachmentRemovedNotice?.removedAt)
+        if (removedAtTimestamp === null) {
+          continue
+        }
+        pushCandidate('channel-thread-comment', {
+          buildTargets: (attachment) => [
+            {
+              attachment: { ...attachment },
+              channelId: post.channelId,
+              commentId: comment.id,
+              kind: 'channel-thread-comment',
+              ownerIdentifier: post.ownerIdentifier,
+              postId: post.id,
+            },
+          ],
+          kind: 'channel-thread-comment',
+          removedAtTimestamp,
+        })
+      }
+    }
+
+    for (const ticket of this.database.supportTickets) {
+      if (
+        subject.kind === 'user' &&
+        ticket.ownerIdentifier === subject.id &&
+        !ticket.attachment &&
+        ticket.attachmentRemovedNotice?.reason === 'storage-quota'
+      ) {
+        const removedAtTimestamp = parseIsoDate(ticket.attachmentRemovedNotice?.removedAt)
+        if (removedAtTimestamp !== null) {
+          pushCandidate('support-ticket', {
+            buildTargets: (attachment) => [
+              {
+                attachment: { ...attachment },
+                kind: 'support-ticket',
+                ownerIdentifier: ticket.ownerIdentifier,
+                ticketId: ticket.id,
+              },
+            ],
+            kind: 'support-ticket',
+            removedAtTimestamp,
+          })
+        }
+      }
+
+      for (const comment of compactThreadComments(ticket.comments)) {
+        if (comment.attachment || comment.attachmentRemovedNotice?.reason !== 'storage-quota') {
+          continue
+        }
+        const commentSubject = this.getUserStorageSubject(
+          normalizeIdentifier(comment.authorIdentifier ?? '') || ticket.ownerIdentifier,
+        )
+        if (commentSubject.kind !== subject.kind || commentSubject.id !== subject.id) {
+          continue
+        }
+        const removedAtTimestamp = parseIsoDate(comment.attachmentRemovedNotice?.removedAt)
+        if (removedAtTimestamp === null) {
+          continue
+        }
+        pushCandidate('support-ticket-comment', {
+          buildTargets: (attachment) => [
+            {
+              attachment: { ...attachment },
+              commentId: comment.id,
+              kind: 'support-ticket-comment',
+              ownerIdentifier: ticket.ownerIdentifier,
+              ticketId: ticket.id,
+            },
+          ],
+          kind: 'support-ticket-comment',
+          removedAtTimestamp,
+        })
+      }
+    }
+
+    for (const candidates of candidatesByKind.values()) {
+      candidates.sort((left, right) => left.removedAtTimestamp - right.removedAtTimestamp)
+    }
+
+    return candidatesByKind
+  }
+
+  private backfillLegacyArchivedMediaRestoreTargetsForSubject(subject: StorageSubjectDescriptor) {
+    const legacyItemsByKind = new Map<
+      PersistedArchivedMediaRestoreTarget['kind'],
+      PersistedArchivedMediaRecord[]
+    >()
+
+    for (const item of this.database.archivedMedia) {
+      if (
+        item.storageSubjectKind !== subject.kind ||
+        item.storageSubjectId !== subject.id ||
+        item.archiveReason !== 'storage-quota' ||
+        (item.restoreTargets?.length ?? 0) > 0
+      ) {
+        continue
+      }
+      const kind = this.getArchivedMediaRestoreKind(item)
+      if (!kind) {
+        continue
+      }
+      const existing = legacyItemsByKind.get(kind)
+      if (existing) {
+        existing.push(item)
+        continue
+      }
+      legacyItemsByKind.set(kind, [item])
+    }
+
+    if (legacyItemsByKind.size === 0) {
+      return
+    }
+
+    const candidatesByKind = this.collectLegacyArchivedMediaRestoreCandidates(subject)
+    const maxMatchWindowMs = 60 * 1000
+
+    for (const [kind, items] of legacyItemsByKind.entries()) {
+      const candidates = candidatesByKind.get(kind)
+      if (!candidates || candidates.length === 0) {
+        continue
+      }
+      items.sort((left, right) => (parseIsoDate(left.archivedAt) ?? 0) - (parseIsoDate(right.archivedAt) ?? 0))
+
+      let itemIndex = items.length - 1
+      let candidateIndex = candidates.length - 1
+
+      while (itemIndex >= 0 && candidateIndex >= 0) {
+        const item = items[itemIndex]
+        const itemTimestamp = parseIsoDate(item.archivedAt)
+        if (itemTimestamp === null) {
+          itemIndex -= 1
+          continue
+        }
+
+        const candidate = candidates[candidateIndex]
+        const timestampDelta = itemTimestamp - candidate.removedAtTimestamp
+
+        if (Math.abs(timestampDelta) <= maxMatchWindowMs) {
+          item.restoreTargets = candidate.buildTargets(this.buildArchivedMediaAttachmentForRestore(item))
+          itemIndex -= 1
+          candidateIndex -= 1
+          continue
+        }
+
+        if (timestampDelta > 0) {
+          itemIndex -= 1
+          continue
+        }
+
+        candidateIndex -= 1
+      }
+    }
+  }
+
   private restoreArchivedMediaIntoPrimaryStorageIfQuotaAllows(subject: StorageSubjectDescriptor) {
+    this.backfillLegacyArchivedMediaRestoreTargetsForSubject(subject)
     const affectedIdentifiers = new Set<string>()
     const archivedItems = [...this.database.archivedMedia]
       .filter(
