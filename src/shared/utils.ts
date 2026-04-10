@@ -3,6 +3,7 @@ import {
   channelDirectLinkMaxLength,
   channelDescriptionMaxLength,
   channelTitleMaxLength,
+  groupTitleMaxLength,
   nicknameFieldMaxLength,
   statusFieldMaxLength,
 } from './constants'
@@ -536,6 +537,10 @@ export function sanitizeStatusField(value: string) {
 
 export function sanitizeChannelTitle(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, channelTitleMaxLength)
+}
+
+export function sanitizeGroupTitle(value: string) {
+  return value.replace(/\s+/g, ' ').trim().slice(0, groupTitleMaxLength)
 }
 
 function normalizeChannelDirectLinkCore(

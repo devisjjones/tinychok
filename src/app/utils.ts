@@ -55,6 +55,7 @@ export {
   sanitizeChannelDescription,
   sanitizeChannelDirectLink,
   sanitizeChannelTitle,
+  sanitizeGroupTitle,
   sanitizePersonField,
   sanitizeStatusField,
   shouldAutoFocusTextInputOnSceneOpen,

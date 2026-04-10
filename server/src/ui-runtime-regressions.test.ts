@@ -966,6 +966,7 @@ test('group settings and admin no longer expose group storage, while channel sto
 test('group settings keep avatar change wired through the existing group avatar picker flow', () => {
   const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
   const groupSettingsFlowSource = readFileSync(join(process.cwd(), 'src/app/useGroupSettingsFlow.ts'), 'utf8')
+  const sharedUtilsSource = readFileSync(join(process.cwd(), 'src/shared/utils.ts'), 'utf8')
 
   assert.match(groupSettingsFlowSource, /export type GroupSettingsDraft = Pick<[\s\S]*\| 'avatarImage'/u)
   assert.match(groupSettingsFlowSource, /avatarImage: group\.avatarImage,/u)
@@ -974,6 +975,11 @@ test('group settings keep avatar change wired through the existing group avatar 
     /\(groupSettingsDraft\.avatarImage \|\| undefined\) !== \(activeGroup\.avatarImage \|\| undefined\)/u,
   )
   assert.match(groupSettingsFlowSource, /avatarImage: groupSettingsDraft\.avatarImage,/u)
+  assert.match(sharedUtilsSource, /export function sanitizeGroupTitle\(value: string\)/u)
+  assert.match(groupSettingsFlowSource, /import \{ sanitizeGroupTitle \} from '\.\/utils'/u)
+  assert.match(groupSettingsFlowSource, /sanitizeGroupTitle\(groupSettingsDraft\.title\) !== activeGroup\.title/u)
+  assert.match(groupSettingsFlowSource, /const nextTitle = sanitizeGroupTitle\(groupSettingsDraft\.title\)/u)
+  assert.doesNotMatch(groupSettingsFlowSource, /sanitizeChannelTitle/u)
   assert.match(appSource, /type GroupAvatarPickerTarget =[\s\S]*\| \{ scope: 'existing'; groupId: number \}/u)
   assert.match(appSource, /setGroupSettingsAvatarDraft/u)
   assert.match(appSource, /updateGroupSettingsDraft\(\{ avatarImage: nextDraft\.previewUrl \}\)/u)

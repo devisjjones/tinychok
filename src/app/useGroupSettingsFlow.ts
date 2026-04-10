@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { GroupPreview } from '../shared/types'
 import type { UpdateGroupBody } from '../shared/backend'
-import { sanitizeChannelTitle } from './utils'
+import { sanitizeGroupTitle } from './utils'
 
 export type GroupSettingsDraft = Pick<
   GroupPreview,
@@ -76,7 +76,7 @@ export function useGroupSettingsFlow({
       groupSettingsDraft !== null &&
       (
         (groupSettingsDraft.avatarImage || undefined) !== (activeGroup.avatarImage || undefined) ||
-        sanitizeChannelTitle(groupSettingsDraft.title) !== activeGroup.title ||
+        sanitizeGroupTitle(groupSettingsDraft.title) !== activeGroup.title ||
         (groupSettingsDraft.description ?? '') !== (activeGroup.description ?? '') ||
         Boolean(groupSettingsDraft.showHistoryToNewMembers !== false) !==
           Boolean(activeGroup.showHistoryToNewMembers !== false) ||
@@ -167,7 +167,7 @@ export function useGroupSettingsFlow({
     if (!activeGroup || !groupSettingsDraft) return false
     if (!groupSettingsDirty) return true
 
-    const nextTitle = sanitizeChannelTitle(groupSettingsDraft.title)
+    const nextTitle = sanitizeGroupTitle(groupSettingsDraft.title)
     if (!nextTitle) {
       setGroupSettingsError('Название группы не может быть пустым.')
       return false
