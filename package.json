@@ -18,6 +18,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start:server": "node dist-server/index.js",
+    "test:ui-contracts": "node --test --import tsx server/src/ui-runtime-regressions.test.ts",
+    "test:gate": "npm test && npm run audit:release && npm run build:staging",
     "test": "node --test --import tsx server/src/*.test.ts",
     "audit:release": "npm audit --audit-level=high",
     "verify:staging-dist": "node scripts/verify-staging-dist.mjs",

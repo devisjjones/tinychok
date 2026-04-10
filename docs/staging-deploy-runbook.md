@@ -31,10 +31,9 @@
 ## Стандартный deploy flow
 
 1. Убедиться, что локальный worktree чистый.
-2. Прогнать:
-   - `npm test`
-   - `npm run audit:release`
-   - `npm run build:staging`
+2. Прогнать локальный gate:
+   - быстрый контрактный прогон при работе: `npm run test:ui-contracts`
+   - обязательный gate перед push и deploy: `npm run test:gate`
 3. Запушить `codex/staging-deploy`.
 4. На staging VM выполнить:
    - `cd /home/devis/tinychok`

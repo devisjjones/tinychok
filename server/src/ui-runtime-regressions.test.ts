@@ -4445,6 +4445,41 @@ test('staging frontend build contract protects against same-origin api auth loop
   assert.match(rolloutDoc, /git@github\.com:devisjjones\/tinychok\.git/u)
 })
 
+test('runbooks keep the autotest gate explicit before final answers and staging deploys', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const packageJson = readFileSync(join(repoRoot, 'package.json'), 'utf8')
+  const newThreadRunbook = readFileSync(join(repoRoot, 'docs', 'new-thread-runbook.md'), 'utf8')
+  const collaborationDoc = readFileSync(join(repoRoot, 'docs', 'collaboration-instructions.md'), 'utf8')
+  const deployRunbook = readFileSync(join(repoRoot, 'docs', 'staging-deploy-runbook.md'), 'utf8')
+
+  assert.match(packageJson, /"test:ui-contracts": "node --test --import tsx server\/src\/ui-runtime-regressions\.test\.ts"/u)
+  assert.match(packageJson, /"test:gate": "npm test && npm run audit:release && npm run build:staging"/u)
+
+  assert.match(newThreadRunbook, /быстрый контрактный прогон во время работы: `npm run test:ui-contracts`/u)
+  assert.match(newThreadRunbook, /перед финальным ответом и любым staging deploy: `npm run test:gate`/u)
+  assert.match(
+    newThreadRunbook,
+    /нельзя писать `готово`, `исправлено` или `задеплоено`, пока локально не зелёный `npm run test:gate`/iu,
+  )
+
+  assert.match(collaborationDoc, /## Автотесты Как Gate/u)
+  assert.match(
+    collaborationDoc,
+    /если задача не `docs-only`, нельзя писать `готово`, `исправлено` или `задеплоено`, пока локально не зелёный `npm run test:gate`/u,
+  )
+  assert.match(
+    collaborationDoc,
+    /во время коротких итераций можно отдельно гонять `npm run test:ui-contracts`, но он не заменяет полный gate/u,
+  )
+  assert.match(
+    collaborationDoc,
+    /если меняется продуктовый или UI-контракт, перед `npm run test:gate` сначала нужно добавить или обновить автотест/u,
+  )
+
+  assert.match(deployRunbook, /быстрый контрактный прогон при работе: `npm run test:ui-contracts`/u)
+  assert.match(deployRunbook, /обязательный gate перед push и deploy: `npm run test:gate`/u)
+})
+
 test('main entry lazy-loads user and admin frontends to keep the staging bootstrap bundle split', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const mainSource = readFileSync(join(repoRoot, 'src', 'main.tsx'), 'utf8')
