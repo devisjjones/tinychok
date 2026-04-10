@@ -3100,6 +3100,7 @@ test('profile settings fields keep lightweight label-and-input layout instead of
   assert.match(appCss, /\.settings-stack-profile\s*\{\s*gap:\s*2px;/u)
   assert.match(appCss, /\.settings-item-profile-field \.settings-input,\s*\n\s*\.settings-item-profile-field \.settings-handle\s*\{\s*min-height:\s*56px;/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.settings-item-profile-field\s*\{[\s\S]*border-radius:\s*24px;[\s\S]*overflow:\s*hidden;/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.settings-item-profile-field \.settings-label\s*\{[\s\S]*padding-top:\s*8px;[\s\S]*padding-left:\s*12px;/u)
   assert.match(appCss, /@media \(max-width:\s*420px\)\s*\{[\s\S]*?\.settings-profile-copy h2\s*\{\s*font-size:\s*clamp\(0\.98rem,\s*4\.8vw,\s*1\.18rem\);/u)
   assert.match(appSource, /const adjustSettingsProfileNameFontSize = useCallback\(\(\) => \{[\s\S]*?nameNode\.style\.removeProperty\('font-size'\)[\s\S]*?const responsiveFontSize = Number\.parseFloat\(window\.getComputedStyle\(nameNode\)\.fontSize\)[\s\S]*?Math\.min\(accountNameMaxFontSize, responsiveFontSize\)/u)
   assert.match(appCss, /\.settings-action-card-subtle\s*\{/u)
