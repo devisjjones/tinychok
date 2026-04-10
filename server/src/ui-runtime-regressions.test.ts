@@ -2437,7 +2437,10 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   )
   assert.match(overlaySource, /const compactOverlayClassName = ' bubble-overlay-compact'/u)
   assert.match(overlaySource, /bubbleClassNames\.push\('bubble-overlay-compact'\)/u)
-  assert.match(appCss, /\.direct-room-feed,\s*\.group-room-feed,\s*\.room-thread-feed \{\s*gap: 3px;/u)
+  assert.match(
+    appCss,
+    /\.direct-room-feed,\s*\.group-room-feed,\s*\.room-thread-feed \{\s*justify-content: flex-end;\s*gap: 3px;/u,
+  )
   assert.match(appCss, /\.group-message-row-author-break,\s*\.thread-comment-row-author-break \{\s*margin-top: 9px;/u)
   assert.match(appCss, /\.group-room-feed \.bubble-author-layout,\s*\.room-thread-feed \.bubble-author-layout \{\s*gap: 3px;\s*padding-top: 0;/u)
   assert.match(
