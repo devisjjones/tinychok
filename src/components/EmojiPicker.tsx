@@ -33,6 +33,7 @@ export function EmojiPicker({
   premiumUnlocked = false,
 }: EmojiPickerProps) {
   const gifUploadHint = `Только GIF, до ${Math.round(messageGifUploadMaxSizeBytes / (1024 * 1024))} МБ.`
+  const gifUploadLocked = !premiumUnlocked
   const [activeTab, setActiveTab] = useState<'emoji' | 'gifs'>('emoji')
   const [gifError, setGifError] = useState('')
   const [gifNotice, setGifNotice] = useState('')
@@ -96,11 +97,6 @@ export function EmojiPicker({
   }
 
   function handleGifTabOpen() {
-    if (!premiumUnlocked) {
-      onOpenPremiumUpsell?.()
-      return
-    }
-
     setActiveTab('gifs')
     setGifError('')
     setGifNotice('')
@@ -126,7 +122,7 @@ export function EmojiPicker({
     const requestToken = gifSearchRequestTokenRef.current + 1
     gifSearchRequestTokenRef.current = requestToken
 
-    if (!query || !onSearchGifs || !premiumUnlocked) {
+    if (!query || !onSearchGifs) {
       setGifSearchBusy(false)
       setGifSearchResults([])
       return
@@ -156,7 +152,7 @@ export function EmojiPicker({
     return () => {
       window.clearTimeout(timeoutId)
     }
-  }, [activeTab, gifSearchQuery, onSearchGifs, open, premiumUnlocked])
+  }, [activeTab, gifSearchQuery, onSearchGifs, open])
 
   async function handleGifUploadChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -245,17 +241,12 @@ export function EmojiPicker({
             </button>
             <button
               type="button"
-              className={activeTab === 'gifs' ? 'emoji-picker-tab active premium' : 'emoji-picker-tab premium'}
+              className={activeTab === 'gifs' ? 'emoji-picker-tab active' : 'emoji-picker-tab'}
               onClick={handleGifTabOpen}
-              aria-label={premiumUnlocked ? 'GIFs' : 'GIFs доступны в премиуме'}
-              title={premiumUnlocked ? 'GIFs' : 'GIFs доступны в премиуме'}
+              aria-label="GIFs"
+              title="GIFs"
             >
               <span>GIFs</span>
-              {!premiumUnlocked ? (
-                <span className="premium-crown emoji-picker-tab-crown" aria-hidden="true">
-                  <img src="/icons/crown64.png" alt="" />
-                </span>
-              ) : null}
             </button>
           </div>
 
@@ -363,8 +354,15 @@ export function EmojiPicker({
                       className="emoji-picker-gif-upload-button centered"
                       onClick={openGifFileDialog}
                       disabled={gifUploadBusy}
+                      title={gifUploadLocked ? 'Загрузка своих GIF доступна в премиуме' : 'Загрузить GIF'}
                     >
-                      <span className="emoji-picker-gif-upload-plus" aria-hidden="true">+</span>
+                      {gifUploadLocked ? (
+                        <span className="premium-crown" aria-hidden="true">
+                          <img src="/icons/crown64.png" alt="" />
+                        </span>
+                      ) : (
+                        <span className="emoji-picker-gif-upload-plus" aria-hidden="true">+</span>
+                      )}
                       {gifUploadBusy ? 'Загружаем GIF...' : 'Загрузить GIF'}
                     </button>
                     <p className="emoji-picker-gif-upload-hint">{gifUploadHint}</p>
@@ -417,7 +415,13 @@ export function EmojiPicker({
                         className="emoji-picker-gif-upload-button"
                         onClick={openGifFileDialog}
                         disabled={gifUploadBusy}
+                        title={gifUploadLocked ? 'Загрузка своих GIF доступна в премиуме' : 'Добавить GIF'}
                       >
+                        {gifUploadLocked ? (
+                          <span className="premium-crown" aria-hidden="true">
+                            <img src="/icons/crown64.png" alt="" />
+                          </span>
+                        ) : null}
                         {gifUploadBusy ? 'Загружаем GIF...' : 'Добавить GIF'}
                       </button>
                       <p className="emoji-picker-gif-upload-hint">{gifUploadHint}</p>

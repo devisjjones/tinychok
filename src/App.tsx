@@ -6731,11 +6731,6 @@ function App() {
       throw new Error('Нужна активная сессия.')
     }
 
-    if (!sessionHasPremium) {
-      openPremiumUpsell()
-      throw new Error('GIF доступны только в премиуме.')
-    }
-
     const existingDuplicate = findDuplicateUserGif(session.gifLibrary ?? [], attachment)
     if (existingDuplicate) {
       throw new Error(duplicateUserGifMessage)

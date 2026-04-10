@@ -815,7 +815,9 @@ export type UploadMediaResponse = {
   storageKey: string
 }
 
-export type RegisterUserGifBody = UserGifLibraryItem
+export type RegisterUserGifBody = UserGifLibraryItem & {
+  source?: 'upload' | 'viewer'
+}
 
 export type SearchUserGifsResponse = {
   items: UserGifLibraryItem[]

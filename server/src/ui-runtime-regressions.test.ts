@@ -54,7 +54,7 @@ function createAccount(
     soundsDisabled?: boolean
     staffRole?: 'owner' | 'moderator' | 'support'
   },
-) {
+): Database['accounts'][number] {
   return {
     accountId: `account_${identifier}`,
     avatarImage: options?.avatarImage,
@@ -5872,4 +5872,132 @@ test('reply previews render only the quoted text and no longer inject ambiguous 
     /ReplyReferenceBlock[\s\S]*className =[\s\S]*bubble-reply-reference-copy/u,
   )
   assert.doesNotMatch(bubbleSource, /bubble-reply-reference-label/u)
+})
+
+test('GIF picker keeps the tab/search open for free accounts and leaves premium only on library upload', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const pickerSource = readFileSync(join(repoRoot, 'src', 'components', 'EmojiPicker.tsx'), 'utf8')
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const releaseDoc = readFileSync(join(repoRoot, 'docs', 'release-contracts.md'), 'utf8')
+  const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
+  const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
+
+  const handleGifTabOpenStart = pickerSource.indexOf('function handleGifTabOpen()')
+  const gifNoticeEffectStart = pickerSource.indexOf('useEffect(() => {\n    if (!gifNotice) return')
+  assert.ok(handleGifTabOpenStart >= 0 && gifNoticeEffectStart > handleGifTabOpenStart)
+  const handleGifTabOpenBlock = pickerSource.slice(handleGifTabOpenStart, gifNoticeEffectStart)
+
+  assert.match(
+    handleGifTabOpenBlock,
+    /function handleGifTabOpen\(\) \{[\s\S]*setActiveTab\('gifs'\)[\s\S]*setGifError\(''\)[\s\S]*setGifNotice\(''\)/u,
+  )
+  assert.doesNotMatch(
+    handleGifTabOpenBlock,
+    /onOpenPremiumUpsell\?\.\(\)[\s\S]*return/u,
+  )
+  assert.match(pickerSource, /aria-label="GIFs"/u)
+  assert.match(pickerSource, /title="GIFs"/u)
+  assert.doesNotMatch(pickerSource, /GIFs доступны в премиуме/u)
+  assert.match(
+    pickerSource,
+    /if \(!query \|\| !onSearchGifs\) \{[\s\S]*setGifSearchBusy\(false\)[\s\S]*setGifSearchResults\(\[\]\)/u,
+  )
+  assert.match(
+    pickerSource,
+    /function openGifFileDialog\(\) \{[\s\S]*if \(!premiumUnlocked\) \{[\s\S]*onOpenPremiumUpsell\?\.\(\)[\s\S]*return/u,
+  )
+  assert.match(pickerSource, /Загрузка своих GIF доступна в премиуме/u)
+
+  const addGifToLibraryStart = appSource.indexOf('async function addGifAttachmentToLibrary')
+  const attachChatGifStart = appSource.indexOf('function attachChatGif')
+  assert.ok(addGifToLibraryStart >= 0 && attachChatGifStart > addGifToLibraryStart)
+  const addGifToLibraryBlock = appSource.slice(addGifToLibraryStart, attachChatGifStart)
+  assert.doesNotMatch(addGifToLibraryBlock, /openPremiumUpsell\(\)/u)
+  assert.doesNotMatch(addGifToLibraryBlock, /GIF доступны только в премиуме/u)
+
+  assert.match(releaseDoc, /вход во вкладку, поиск и отправка GIF не требуют premium/u)
+  assert.match(handoffDoc, /GIF-вкладка открыта всем, поиск и отправка GIF не требуют premium/u)
+  assert.match(rolloutDoc, /GIF picker больше не блокирует сам вход во вкладку для бесплатного аккаунта/u)
+})
+
+test('free accounts can search and reuse existing GIFs but still cannot upload their own GIF files into the library', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const viewer = createAccount('+79990007201')
+  const source = createAccount('+79990007202', {
+    premium: true,
+    premiumExpiresAt: daysFromNow(30),
+  })
+  source.gifLibrary = [
+    {
+      createdAt: '2026-04-11T18:00:00.000Z',
+      fileName: 'pikachu-party.gif',
+      id: 'gif-source-1',
+      mediaUrl: 'https://cdn.example.com/user-gifs/pikachu-party.gif',
+      mimeType: 'image/gif',
+      size: 1024,
+      width: 320,
+      height: 180,
+    },
+  ]
+  database.accounts.push(viewer, source)
+
+  const viewerToken = createSession(database, viewer.identifier, 'gif-free-viewer')
+
+  const searchResult = store.searchUserGifs(viewerToken, 'pikachu')
+  assert.equal(searchResult.items.length, 1)
+  assert.equal(searchResult.items[0]?.mediaUrl, 'https://cdn.example.com/user-gifs/pikachu-party.gif')
+
+  const reusedGifResult = await store.addUserGif(viewerToken, {
+    createdAt: '2026-04-11T18:05:00.000Z',
+    fileName: 'pikachu-party.gif',
+    id: 'gif-viewer-copy-1',
+    mediaUrl: 'https://cdn.example.com/user-gifs/pikachu-party.gif',
+    mimeType: 'image/gif',
+    size: 1024,
+    source: 'viewer',
+    width: 320,
+    height: 180,
+  })
+  assert.equal(reusedGifResult.snapshot.session.gifLibrary?.length ?? 0, 1)
+  assert.equal(reusedGifResult.snapshot.session.gifLibrary?.[0]?.mediaUrl, 'https://cdn.example.com/user-gifs/pikachu-party.gif')
+
+  await assert.rejects(
+    store.addUserGif(viewerToken, {
+      createdAt: '2026-04-11T18:05:30.000Z',
+      fileName: 'unknown.gif',
+      id: 'gif-viewer-copy-unknown',
+      mediaUrl: 'https://cdn.example.com/user-gifs/unknown.gif',
+      mimeType: 'image/gif',
+      size: 512,
+      source: 'viewer',
+      width: 120,
+      height: 120,
+    }),
+    /GIF не найдена в библиотеке Тайничка\./u,
+  )
+
+  await store.registerPendingMediaUpload(viewerToken, {
+    fileName: 'my-own-upload.gif',
+    kind: 'user-gif',
+    mediaUrl: 'https://cdn.example.com/user-gifs/my-own-upload.gif',
+    mimeType: 'image/gif',
+    size: 2048,
+    storageKey: 'user-gifs/my-own-upload.gif',
+  })
+
+  await assert.rejects(
+    store.addUserGif(viewerToken, {
+      createdAt: '2026-04-11T18:06:00.000Z',
+      fileName: 'my-own-upload.gif',
+      id: 'gif-upload-copy-1',
+      mediaUrl: 'https://cdn.example.com/user-gifs/my-own-upload.gif',
+      mimeType: 'image/gif',
+      size: 2048,
+      source: 'upload',
+      width: 240,
+      height: 240,
+    }),
+    /Загрузка своих GIF доступна только в премиуме\./u,
+  )
 })

@@ -87,6 +87,7 @@ export function buildUserGifRegistrationBody(
     mediaUrl: uploadedMedia.mediaUrl,
     mimeType: 'image/gif',
     size: uploadedMedia.size,
+    source: 'upload',
     width: dimensions.width,
   }
 }
@@ -102,6 +103,7 @@ export function buildUserGifRegistrationBodyFromAttachment(
     mediaUrl: attachment.mediaUrl,
     mimeType: 'image/gif',
     size: attachment.size,
+    source: 'viewer',
     width: attachment.width,
   }
 }

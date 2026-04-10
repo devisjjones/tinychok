@@ -423,6 +423,10 @@
   - зарегистрирован в `pendingMediaUploads` как его upload
   - совпадает по `fileName / mimeType / size` с серверной записью
 - reuse из GIF library допустим только через server-owned gif flow того же владельца
+- GIF picker contract:
+  - вход во вкладку, поиск и отправка GIF не требуют premium
+  - локальный upload новой GIF в личную библиотеку остаётся premium-only
+  - add-to-library из viewer допустим только для уже существующего в Tinychok GIF mediaUrl; произвольный чужой `mediaUrl` сервер принимать не должен
 - при провале ownership-check сервер обязан жёстко отклонять send с явной ошибкой, а не пытаться молча отправить сообщение без файла
 
 ### 11.4. Pending Upload Linking Invariant

@@ -511,7 +511,9 @@
 - attach modal разделяет:
   - `Приложить фотографию`
   - `Приложить файл`
-- GIF идут отдельной premium-вкладкой в emoji picker
+- GIF идут отдельной вкладкой в emoji picker
+- вход во вкладку, поиск и отправка GIF доступны без premium
+- premium остаётся только на локальном upload своих GIF в личную библиотеку
 - фото в composer сначала живут локально как draft preview
 - upload делается только в send-path
 - фото пережимаются на клиенте перед отправкой
@@ -600,10 +602,11 @@
 
 ### GIF Library
 
-- GIF-вкладка целиком premium-only
-- локальный upload `.gif` остаётся основным способом пополнения библиотеки
+- GIF-вкладка открыта всем, поиск и отправка GIF не требуют premium
+- локальный upload `.gif` в личную библиотеку остаётся premium-only
 - библиотека GIF привязана к конкретному пользователю, но поиск может показывать GIF из общего Tinychok pool
 - новые GIF после upload сразу подготавливаются к отправке в текущую комнату
+- добавление GIF себе из fullscreen viewer не должно требовать premium, если media уже существует в Tinychok
 - защита от дублей идёт по `normalized fileName + size`
 - GIF можно удалить из личной библиотеки
 - fullscreen viewer для GIF не даёт обычный download, а предлагает `Добавить ГИФ себе`
@@ -1183,7 +1186,10 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - `только фото`
   - `текст + фото`
   - fullscreen viewer
-- GIF flow для premium
+- GIF flow:
+  - вход во вкладку / поиск / отправка free
+  - локальный upload своей GIF в библиотеку premium-only
+  - add-to-library из viewer для уже существующей GIF не должен требовать premium
 - browser notifications prompt + permission flow
 - avatar upload для профиля, канала и группы
 - storage quota auto-cleanup / warning при превышении лимита

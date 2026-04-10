@@ -448,14 +448,15 @@
   - support-thread и channel-thread надо проверять отдельно, потому что это разные UI-ветки
   - корневая card-плашка треда должна доходить по ширине до тех же краёв, что и header comments-room
   - между source-card и scrolling comments не должно оставаться пустой clip-полосы
-- GIF работают через premium-вкладку picker-а
+- GIF picker больше не блокирует сам вход во вкладку для бесплатного аккаунта
 - GIF library умеет:
-  - локальный upload `.gif`
+  - поиск и отправку GIF без premium
+  - локальный upload `.gif` в личную библиотеку только с premium
   - дедуп по имени и размеру
   - auto-attach сразу после upload
   - поиск по общему Tinychok GIF pool по имени файла
   - удаление GIF из личной библиотеки
-  - добавление GIF себе из fullscreen viewer
+  - добавление GIF себе из fullscreen viewer без premium, если GIF уже хранится в Tinychok
 - аватарки профиля, группы и канала обновляются через единый crop/resize pipeline
 - `/avatar-upload-rules.html` явно говорит, что аватарка является пользовательским контентом под ответственность автора
 - правила аватарок прямо разрешают Tinychok удалить аватарку без уведомления и заблокировать аккаунт за тяжёлое или повторное нарушение
@@ -818,8 +819,9 @@ curl -s https://api.staging.tinychok.ru/healthz
 - thread comment send
 - delete message / post / comment с повторным входом
 - photo send и viewer
-- GIF send для premium
-- GIF search, delete и add-to-library из viewer
+- GIF send без premium
+- GIF search, delete и add-to-library из viewer без premium
+- локальный GIF upload в личную библиотеку premium-only
 - avatar update
 - storage quota warning / block
 - session expiry now applies equally to HTTP bootstrap and websocket realtime

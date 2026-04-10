@@ -8964,11 +8964,30 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    if (!hasActivePremium(account.premium, account.premiumExpiresAt)) {
-      throw new Error('GIF доступны только в премиуме.')
+    const nextGif = sanitizeUserGifLibraryItem(payload)
+    const hasPendingUpload = this.database.pendingMediaUploads.some(
+      (upload) =>
+        upload.ownerIdentifier === account.identifier &&
+        upload.mediaUrl === nextGif.mediaUrl &&
+        upload.kind === 'user-gif',
+    )
+    const uploadSource = payload.source === 'upload' || (payload.source == null && hasPendingUpload)
+
+    if (uploadSource && !hasActivePremium(account.premium, account.premiumExpiresAt)) {
+      throw new Error('Загрузка своих GIF доступна только в премиуме.')
     }
 
-    const nextGif = sanitizeUserGifLibraryItem(payload)
+    if (!uploadSource) {
+      const canReuseExistingGif = this.collectOwnedMediaReferences().some(
+        (reference) =>
+          reference.mediaUrl === nextGif.mediaUrl &&
+          (reference.kind === 'user-gif' || reference.mimeType === 'image/gif'),
+      )
+      if (!canReuseExistingGif) {
+        throw new Error('GIF не найдена в библиотеке Тайничка.')
+      }
+    }
+
     const currentLibrary = account.gifLibrary ?? []
     const duplicateKey = buildUserGifDuplicateKey(nextGif.fileName, nextGif.size)
 
@@ -9001,10 +9020,6 @@ export class TinychokStore {
     const account = this.findAccountByToken(token)
     if (!account) {
       throw new Error('Сессия не найдена.')
-    }
-
-    if (!hasActivePremium(account.premium, account.premiumExpiresAt)) {
-      throw new Error('GIF доступны только в премиуме.')
     }
 
     const normalizedQuery = normalizeGifFileNameForMatching(query)
