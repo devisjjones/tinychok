@@ -700,9 +700,9 @@
   - `healthz` / `readyz`
 - полный anti-confusion checklist лежит в [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md)
 - текущее подтверждённое состояние staging после live deploy `2026-04-10`:
-  - `origin/codex/staging-deploy = 61f8db3`
-  - staging VM `HEAD = 61f8db3`
-  - live frontend bundle = `assets/main-CaKkRSBQ.js`
+  - `origin/codex/staging-deploy = e5dc0e4`
+  - staging VM `HEAD = e5dc0e4`
+  - live frontend bundle = `assets/main-_QqNNVPz.js`
 
 ## Автоматические проверки
 

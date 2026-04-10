@@ -682,7 +682,7 @@ bash scripts/deploy-staging.sh
   - `/home/devis/tinychok` на VM чистый
   - live commit на VM совпадает с `origin/codex/staging-deploy`
 
-### Verified Staging Checkpoint — 2026-04-08
+### Verified Staging Checkpoint — 2026-04-10
 
 - локально и на VM полные gates снова зелёные:
   - `npm test`
@@ -692,9 +692,9 @@ bash scripts/deploy-staging.sh
   - `https://api.staging.tinychok.ru/healthz` → `{"status":"ok"}`
   - `https://api.staging.tinychok.ru/readyz` → `storage.layout = hybrid-normalized`
   - `https://api.staging.tinychok.ru/api/client-config` → `analytics.enabled=true`, `provider=log`, `metricaCounterId=108249405`
-  - `https://staging.tinychok.ru` реально отдаёт `assets/main-CaKkRSBQ.js`
+  - `https://staging.tinychok.ru` реально отдаёт `assets/main-_QqNNVPz.js`
   - dist bootstrap больше не монолитный: runtime URLs подтверждаются через split assets, а не через один giant main chunk
-  - подтверждённый staging VM commit после live deploy `2026-04-10`: `61f8db3`
+  - подтверждённый staging VM commit после live deploy `2026-04-10`: `e5dc0e4`
 
 ## Minimal Post-Deploy Check
 

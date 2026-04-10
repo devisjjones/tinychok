@@ -7,6 +7,8 @@
 - `git push` не равен deploy
 - свежий commit на VM не равен live frontend rollout
 - staging нельзя считать обновлённым, пока web-host реально не начал отдавать новый `assets/main-*.js`
+- локальный запуск `scripts/deploy-staging.sh` на macOS не равен staging deploy:
+  - релизный запуск должен происходить на staging VM, где реально существуют `systemctl`, `tinychok-staging` и `/var/www/tinychok-staging`
 
 ## Пять обязательных proof-points
 
@@ -35,9 +37,11 @@
    - быстрый контрактный прогон при работе: `npm run test:ui-contracts`
    - обязательный gate перед push и deploy: `npm run test:gate`
 3. Запушить `codex/staging-deploy`.
-4. На staging VM выполнить:
-   - `cd /home/devis/tinychok`
-   - `bash scripts/deploy-staging.sh`
+4. Выполнить релизный deploy на staging VM:
+   - `ssh devis@158.160.197.255 'cd /home/devis/tinychok && bash scripts/deploy-staging.sh'`
+   - или зайти на VM и выполнить:
+     - `cd /home/devis/tinychok`
+     - `bash scripts/deploy-staging.sh`
 5. После deploy подтвердить все пять proof-points сверху.
 
 ## Что нельзя больше путать
@@ -46,6 +50,8 @@
   - deploy не завершён
 - VM fast-forward'нулась, но live bundle старый:
   - frontend rollout не завершён
+- локально `npm run deploy:staging` дошёл до build, но VM release-script не выполнялся:
+  - deploy не начинался
 - `systemd` зелёный, но `readyz`/`healthz` не пройдены:
   - deploy не завершён
 - `healthz=ok`, но live HTML всё ещё ссылается на старый asset:

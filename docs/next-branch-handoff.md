@@ -54,6 +54,10 @@
   - перед staging deploy должны быть зелёными `npm test`, `npm run audit:release` и `npm run build:staging`
 - `scripts/deploy-staging.sh` теперь должен стартовать только из чистого commit-backed worktree:
   - rsync из dirty workspace больше не считается валидным staging rollout
+- релизный запуск `scripts/deploy-staging.sh` считается валидным только на staging VM:
+  - локальный запуск на macOS может собрать `dist`, но не является rollout, потому что `systemctl` и `/var/www/tinychok-staging` существуют только на VM
+- рабочий deploy-path для нового треда:
+  - `ssh devis@158.160.197.255 'cd /home/devis/tinychok && bash scripts/deploy-staging.sh'`
 - staging VM git remote `origin` должен быть прямым:
   - `git@github.com:devisjjones/tinychok.git`
   - alias `github-tinychok` больше не использовать, потому что он уже ломал commit-backed sync с origin
@@ -64,9 +68,9 @@
   - `staging.tinychok.ru/api/*` и `staging.tinychok.ru/ws` должны проксироваться на backend без повторного basic-auth challenge
   - even so, этот proxy не отменяет requirement собирать staging именно через `build:staging`
 - текущий подтверждённый user-frontend asset на staging после deploy `2026-04-10`:
-  - `assets/main-CaKkRSBQ.js`
+  - `assets/main-_QqNNVPz.js`
 - подтверждённый staging VM commit после live deploy `2026-04-10`:
-  - `61f8db3`
+  - `e5dc0e4`
 - временное review-исключение активно с `2026-04-07`:
   - public user frontend `https://staging.tinychok.ru` намеренно открыт без user `basic auth`
   - причина: внешний review с новых устройств без логин/пароль prompt
