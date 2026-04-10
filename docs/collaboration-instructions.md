@@ -2,6 +2,8 @@
 
 Короткая памятка по тому, как давать владельцу проекта ручные инструкции и как формулировать проверки.
 
+Для продолжения работы в новом чате есть отдельная операционная памятка: [docs/new-thread-runbook.md](/Users/devisjjones/Documents/tinychok/docs/new-thread-runbook.md).
+
 ## Формат Ручных Инструкций
 
 - если действие должен выполнять человек, инструкции разбиваются на отдельные блоки `Шаг 1`, `Шаг 2`, `Шаг 3`
@@ -95,7 +97,7 @@ Delete-path нельзя считать проверенным только по
 - тестируется locked-state или unlocked-state
 - используется ли debug purchase layer
 
-Debug-механизмы и ограничения production rollout описаны отдельно в [docs/debug-flags.md](/Users/devisjones/Documents/New%20project/tinychok/docs/debug-flags.md).
+Debug-механизмы и ограничения production rollout описаны отдельно в [docs/debug-flags.md](/Users/devisjjones/Documents/tinychok/docs/debug-flags.md).
 
 ## Ограничения И Безопасность
 

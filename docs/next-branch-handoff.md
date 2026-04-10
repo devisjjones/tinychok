@@ -3,6 +3,7 @@
 Короткая техническая точка входа для следующего треда или новой ветки. Документ описывает только текущее устройство системы и рабочие инварианты, без истории коммитов и списков прошлых правок.
 
 Отдельный staging rollout discipline-checklist лежит в [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md).
+Отдельная памятка по продолжению работы в новом чате лежит в [docs/new-thread-runbook.md](/Users/devisjjones/Documents/tinychok/docs/new-thread-runbook.md).
 
 ## Runtime Topology
 
