@@ -21,6 +21,7 @@ import {
   isImageMimeType,
   isStandaloneEmojiMessageText,
   isVideoMimeType,
+  normalizeIdentifier,
   resizeComposerTextarea,
   scrollFeedChildIntoView,
   shouldAutoFocusTextInputOnSceneOpen,
@@ -44,7 +45,42 @@ import { EmojiPicker } from '../components/EmojiPicker'
 import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
 import { ThreadedBubble } from '../components/ThreadedBubble'
 
-function renderGroupSystemMessageContent(message: Message) {
+type GroupSystemEventActor = NonNullable<NonNullable<Message['groupSystemEvent']>['actor']>
+
+function renderGroupSystemActor(
+  actor: GroupSystemEventActor,
+  onOpenActorContact?: ((actor: GroupSystemEventActor) => void),
+) {
+  const actorBody = (
+    <>
+      <span>{actor.title}</span>
+      {actor.premium ? (
+        <span className="premium-crown group-system-message-crown" aria-label="Премиум">
+          <img src="/icons/crown64.png" alt="" />
+        </span>
+      ) : null}
+    </>
+  )
+
+  if (!actor.identifier || !onOpenActorContact) {
+    return <span className="group-system-message-actor">{actorBody}</span>
+  }
+
+  return (
+    <button
+      type="button"
+      className="group-system-message-actor group-system-message-actor-link"
+      onClick={() => onOpenActorContact(actor)}
+    >
+      {actorBody}
+    </button>
+  )
+}
+
+function renderGroupSystemMessageContent(
+  message: Message,
+  onOpenActorContact?: (actor: GroupSystemEventActor) => void,
+) {
   const event = message.groupSystemEvent
   if (!event) {
     return <span className="group-system-message-label">{message.text}</span>
@@ -54,14 +90,7 @@ function renderGroupSystemMessageContent(message: Message) {
     return (
       <span className="group-system-message-copy">
         <span>К группе присоединился </span>
-        <span className="group-system-message-actor">
-          <span>{event.actor.title}</span>
-          {event.actor.premium ? (
-            <span className="premium-crown group-system-message-crown" aria-label="Премиум">
-              <img src="/icons/crown64.png" alt="" />
-            </span>
-          ) : null}
-        </span>
+        {renderGroupSystemActor(event.actor, onOpenActorContact)}
       </span>
     )
   }
@@ -69,14 +98,7 @@ function renderGroupSystemMessageContent(message: Message) {
   if (event.kind === 'member-left') {
     return (
       <span className="group-system-message-copy">
-        <span className="group-system-message-actor">
-          <span>{event.actor.title}</span>
-          {event.actor.premium ? (
-            <span className="premium-crown group-system-message-crown" aria-label="Премиум">
-              <img src="/icons/crown64.png" alt="" />
-            </span>
-          ) : null}
-        </span>
+        {renderGroupSystemActor(event.actor, onOpenActorContact)}
         <span> покинул группу</span>
       </span>
     )
@@ -85,14 +107,7 @@ function renderGroupSystemMessageContent(message: Message) {
   return (
     <span className="group-system-message-copy">
       <span>У группы новый организатор: </span>
-      <span className="group-system-message-actor">
-        <span>{event.actor.title}</span>
-        {event.actor.premium ? (
-          <span className="premium-crown group-system-message-crown" aria-label="Премиум">
-            <img src="/icons/crown64.png" alt="" />
-          </span>
-        ) : null}
-      </span>
+      {renderGroupSystemActor(event.actor, onOpenActorContact)}
     </span>
   )
 }
@@ -262,6 +277,28 @@ export function GroupRoom({
     return (
       group.participants.find((participant) => participant.title === message.displayAuthor) ?? null
     )
+  }
+
+  function openGroupSystemActorContact(actor: GroupSystemEventActor) {
+    const normalizedActorIdentifier = normalizeIdentifier(actor.identifier ?? '')
+    if (!normalizedActorIdentifier) return
+
+    const matchingParticipant =
+      group.participants.find(
+        (participant) =>
+          normalizeIdentifier(participant.identifier ?? '') === normalizedActorIdentifier,
+      ) ??
+      group.participants.find((participant) => participant.title === actor.title) ??
+      null
+
+    onOpenSourceContact({
+      accent: matchingParticipant?.accent,
+      avatarImage: matchingParticipant?.avatarImage,
+      handle: matchingParticipant?.nickname ? `@${matchingParticipant.nickname}` : undefined,
+      identifier: normalizedActorIdentifier,
+      status: matchingParticipant?.status,
+      title: matchingParticipant?.title ?? actor.title,
+    })
   }
 
   function renderGroupMediaAuthor(message: Message, participant: GroupParticipant | null) {
@@ -511,7 +548,7 @@ export function GroupRoom({
                 ) : null}
                 {message.system ? (
                   <div className="group-system-message" data-group-message-id={message.id}>
-                    {renderGroupSystemMessageContent(message)}
+                    {renderGroupSystemMessageContent(message, openGroupSystemActorContact)}
                     <time>{message.time}</time>
                   </div>
                 ) : (

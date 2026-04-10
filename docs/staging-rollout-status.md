@@ -797,6 +797,8 @@ curl -s https://api.staging.tinychok.ru/healthz
   - normal leave => видно `... покинул группу`
   - quiet leave => системной надписи нет
   - owner transfer => видно `У группы новый организатор: ...`
+  - UI показывает эти события plain info-row без pill-подложки
+  - actor name в group system event открывает direct chat / contact-request flow
   - если у актёра есть premium, у system event видна crown-иконка
 - channel post send
 - room feed autoscroll:

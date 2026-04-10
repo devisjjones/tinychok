@@ -2553,7 +2553,7 @@ test('direct room exposes contact sharing with recipient selection and signature
   assert.match(appSource, /const sourceContact = buildSourceContactFromChat\(activeChat\)/u)
 })
 
-test('group system events render as dedicated system rows with premium crown support', () => {
+test('group system events stay plain info rows with clickable actor links and premium crown support', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
@@ -2562,8 +2562,21 @@ test('group system events render as dedicated system rows with premium crown sup
   assert.match(groupRoomSource, /className="group-system-message"/u)
   assert.match(groupRoomSource, /message\.groupSystemEvent/u)
   assert.match(groupRoomSource, /group-system-message-crown/u)
-  assert.match(appCss, /\.group-system-message\s*\{/u)
+  assert.match(groupRoomSource, /group-system-message-actor-link/u)
+  assert.match(groupRoomSource, /openGroupSystemActorContact/u)
+  assert.match(groupRoomSource, /normalizeIdentifier\(actor\.identifier \?\? ''\)/u)
+  assert.match(groupRoomSource, /onOpenSourceContact\(\{\s*accent:\s*matchingParticipant\?\.accent,/u)
+  assert.match(
+    appCss,
+    /\.group-system-message\s*\{[\s\S]*justify-content:\s*center;[\s\S]*background:\s*transparent;[\s\S]*box-shadow:\s*none;[\s\S]*text-align:\s*center;/u,
+  )
   assert.match(appCss, /\.group-system-message-actor\s*\{/u)
+  assert.match(appCss, /\.group-system-message-actor-link\s*\{/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.group-system-message-actor-link\s*\{/u)
+  assert.doesNotMatch(
+    appCss,
+    /html\[data-theme='dark'\] \.channel-system-post,\s*[\s\S]*html\[data-theme='dark'\] \.conversation-day-divider span,\s*[\s\S]*html\[data-theme='dark'\] \.group-system-message,\s*[\s\S]*html\[data-theme='dark'\] \.direct-system-message-label,\s*[\s\S]*background:\s*rgba\(36,\s*37,\s*43,\s*0\.94\);/u,
+  )
 })
 
 test('channel system posts keep the shared dark-theme pill contract', () => {

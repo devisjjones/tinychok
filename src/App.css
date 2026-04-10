@@ -4636,19 +4636,22 @@
   display: inline-flex;
   align-self: center;
   align-items: center;
-  gap: 10px;
-  margin: 2px auto 8px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(255, 251, 245, 0.88);
-  border: 1px solid rgba(141, 89, 57, 0.12);
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px auto 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: rgba(95, 66, 46, 0.78);
-  box-shadow: 0 10px 24px rgba(72, 52, 33, 0.04);
+  box-shadow: none;
+  text-align: center;
 }
 
 .group-system-message-copy {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   flex-wrap: wrap;
   gap: 4px;
 }
@@ -4664,6 +4667,31 @@
   gap: 5px;
   font-size: 0.92rem;
   font-weight: 600;
+  color: var(--ink);
+}
+
+.group-system-message-actor-link {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  line-height: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.14em;
+  text-decoration-color: rgba(95, 66, 46, 0.42);
+}
+
+.group-system-message-actor-link:hover,
+.group-system-message-actor-link:focus-visible {
+  color: rgba(95, 66, 46, 0.96);
+  text-decoration-color: currentColor;
+}
+
+.group-system-message-actor-link:focus-visible {
+  outline: none;
 }
 
 .group-system-message-crown {
@@ -9240,7 +9268,6 @@ html[data-theme='dark'] .group-create-member-item.active,
 html[data-theme='dark'] .browser-notification-banner,
 html[data-theme='dark'] .channel-system-post,
 html[data-theme='dark'] .conversation-day-divider span,
-html[data-theme='dark'] .group-system-message,
 html[data-theme='dark'] .direct-system-message-label,
 html[data-theme='dark'] .filters,
 html[data-theme='dark'] .chat-card.active,
@@ -9264,6 +9291,17 @@ html[data-theme='dark'] .settings-item-profile-field .settings-label {
 
 html[data-theme='dark'] .channel-card:hover {
   box-shadow: 0 18px 36px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme='dark'] .group-system-message-actor-link {
+  color: var(--ink);
+  text-decoration-color: rgba(239, 240, 243, 0.42);
+}
+
+html[data-theme='dark'] .group-system-message-actor-link:hover,
+html[data-theme='dark'] .group-system-message-actor-link:focus-visible {
+  color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.72);
 }
 
 html[data-theme='dark'] .filter {
