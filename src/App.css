@@ -6658,10 +6658,45 @@
   width: 100%;
 }
 
-.settings-checkbox input {
-  width: 18px;
-  height: 18px;
-  accent-color: #8c5738;
+.settings-checkbox input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  flex: 0 0 auto;
+  border: 1px solid rgba(120, 88, 64, 0.24);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.9);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 13px 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+  cursor: pointer;
+}
+
+.settings-checkbox input[type='checkbox']:checked {
+  border-color: #8c5738;
+  background-color: #8c5738;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='10' viewBox='0 0 13 10' fill='none'%3E%3Cpath d='M1.5 5L4.5 8L11.5 1.5' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  box-shadow: 0 10px 22px rgba(140, 87, 56, 0.22);
+}
+
+.settings-checkbox input[type='checkbox']:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(140, 87, 56, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.46);
+}
+
+.settings-checkbox input[type='checkbox']:disabled {
+  cursor: default;
+  opacity: 0.62;
 }
 
 .settings-item-invisibility {
@@ -9196,8 +9231,22 @@ html[data-theme='dark'] .message-menu-note {
   color: var(--muted);
 }
 
-html[data-theme='dark'] .settings-checkbox input {
-  accent-color: #7f8490;
+html[data-theme='dark'] .settings-checkbox input[type='checkbox'] {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme='dark'] .settings-checkbox input[type='checkbox']:checked {
+  border-color: #a45b4e;
+  background-color: #a45b4e;
+  box-shadow: 0 10px 22px rgba(70, 28, 20, 0.34);
+}
+
+html[data-theme='dark'] .settings-checkbox input[type='checkbox']:focus-visible {
+  box-shadow:
+    0 0 0 3px rgba(164, 91, 78, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 html[data-theme='dark'] .storage-usage-card-button:hover,
