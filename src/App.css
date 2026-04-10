@@ -4448,11 +4448,13 @@
 }
 
 .bubble.mine.has-delivery-issue {
-  background: #b97c50;
+  background: var(--surface-bubble-mine);
+  color: var(--surface-bubble-mine-ink);
 }
 
 .bubble.mine.delivery-failed {
-  background: #b06e45;
+  background: var(--surface-bubble-mine);
+  color: var(--surface-bubble-mine-ink);
 }
 
 .channel-post {
@@ -5697,6 +5699,11 @@
 
 .bubble-delivery-indicator-light {
   filter: brightness(0) invert(1);
+}
+
+.bubble.mine .bubble-delivery-indicator-light,
+.bubble.mine .bubble-text-inline-meta-indicator-light {
+  filter: var(--icon-filter);
 }
 
 .bubble-delivery-caption {

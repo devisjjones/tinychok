@@ -4023,7 +4023,7 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(appCss, /\.bubble-text-format-strike/u)
 })
 
-test('delivery check icons use light tint contract on dark bubbles', () => {
+test('delivery check icons adapt to light and dark outgoing bubbles', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
   const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
@@ -4038,6 +4038,10 @@ test('delivery check icons use light tint contract on dark bubbles', () => {
   assert.match(selectedOverlaySource, /bubble-delivery-indicator bubble-delivery-indicator-light/u)
   assert.match(appCss, /\.bubble-delivery-indicator-light\s*\{[\s\S]*filter:\s*brightness\(0\)\s*invert\(1\);/u)
   assert.match(appCss, /\.bubble-attachment-image-indicator-light\s*\{[\s\S]*filter:\s*brightness\(0\)\s*invert\(1\);/u)
+  assert.match(
+    appCss,
+    /\.bubble\.mine \.bubble-delivery-indicator-light,\s*[\s\S]*\.bubble\.mine \.bubble-text-inline-meta-indicator-light\s*\{[\s\S]*filter:\s*var\(--icon-filter\);/u,
+  )
 })
 
 test('former contacts reopen through hidden dialogs with preserved history contract', () => {
@@ -4486,7 +4490,10 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(appSource, /themeColorMeta\.content = darkThemeEnabled \? '#17181c' : '#f7efe5'/u)
   assert.match(appSource, /<span>Тёмная тема<\/span>/u)
   assert.match(appSource, /Перекрасить интерфейс в спокойные серые оттенки\./u)
-  assert.match(indexCss, /:root\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(244,\s*229,\s*217,\s*0\.96\);[\s\S]*--surface-bubble-mine-ink:\s*#5a4032;/u)
+  assert.match(
+    indexCss,
+    /:root\s*\{[\s\S]*--surface-bubble:\s*rgba\(248,\s*237,\s*227,\s*0\.94\);[\s\S]*--surface-bubble-mine:\s*rgba\(255,\s*255,\s*255,\s*0\.96\);[\s\S]*--surface-bubble-mine-ink:\s*#5a4032;/u,
+  )
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*color-scheme:\s*dark;[\s\S]*--app-background:[\s\S]*#111214/u)
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(55,\s*57,\s*65,\s*0\.96\);/u)
   assert.match(appCss, /\.bubble\.mine \.bubble-delivery-caption\s*\{[\s\S]*color:\s*rgba\(90,\s*64,\s*50,\s*0\.76\);/u)
@@ -4574,6 +4581,22 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
     true,
   )
   assert.equal(store.getSnapshotByToken(token)?.session.darkThemeEnabled, true)
+})
+
+test('light theme keeps outgoing pending bubbles on the same white surface as delivered messages', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    appCss,
+    /\.bubble\.mine\.has-delivery-issue\s*\{[\s\S]*background:\s*var\(--surface-bubble-mine\);[\s\S]*color:\s*var\(--surface-bubble-mine-ink\);/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble\.mine\.delivery-failed\s*\{[\s\S]*background:\s*var\(--surface-bubble-mine\);[\s\S]*color:\s*var\(--surface-bubble-mine-ink\);/u,
+  )
+  assert.doesNotMatch(appCss, /\.bubble\.mine\.has-delivery-issue\s*\{[\s\S]*#b97c50/u)
+  assert.doesNotMatch(appCss, /\.bubble\.mine\.delivery-failed\s*\{[\s\S]*#b06e45/u)
 })
 
 test('search pane keeps the main search heading aligned with search results heading rhythm', () => {

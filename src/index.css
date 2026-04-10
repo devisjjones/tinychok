@@ -36,9 +36,9 @@
   --surface-button-hover: rgba(77, 58, 46, 0.14);
   --surface-button-active: var(--accent);
   --surface-button-active-ink: #fff9f3;
-  --surface-bubble: rgba(255, 255, 255, 0.82);
+  --surface-bubble: rgba(248, 237, 227, 0.94);
   --surface-bubble-selected: rgba(255, 255, 255, 0.98);
-  --surface-bubble-mine: rgba(244, 229, 217, 0.96);
+  --surface-bubble-mine: rgba(255, 255, 255, 0.96);
   --surface-bubble-mine-ink: #5a4032;
   --surface-reply: rgba(77, 58, 46, 0.08);
   --surface-reply-mine: rgba(176, 129, 91, 0.16);
