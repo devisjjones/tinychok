@@ -2962,8 +2962,14 @@ test('contacts screen splits incoming requests from accepted contacts', () => {
   assert.match(appCss, /\.filter-with-inline-badge \.filter-inline-content-compact \.filter-icon/u)
   assert.match(appCss, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/u)
   assert.match(appCss, /\.filter-badge\.filter-badge-light\s*\{/u)
+  assert.match(appCss, /\.chat-topline-badge\s*\{[\s\S]*width:\s*24px;[\s\S]*height:\s*24px;[\s\S]*background:\s*var\(--ink\);/u)
+  assert.match(appCss, /\.badge\s*\{[\s\S]*width:\s*28px;[\s\S]*height:\s*28px;[\s\S]*background:\s*var\(--ink\);/u)
   assert.match(appCss, /\.icon-button-badge\s*\{[\s\S]*width:\s*18px;[\s\S]*min-width:\s*18px;[\s\S]*height:\s*18px;[\s\S]*background:\s*var\(--ink\);[\s\S]*font-size:\s*0\.68rem;/u)
   assert.match(appCss, /\.icon-button-badge\.icon-button-badge-wide\s*\{[\s\S]*min-width:\s*26px;[\s\S]*padding:\s*0 6px;/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.filter-badge,\s*[\s\S]*html\[data-theme='dark'\] \.icon-button-badge,\s*[\s\S]*html\[data-theme='dark'\] \.chat-topline-badge,\s*[\s\S]*html\[data-theme='dark'\] \.badge\s*\{[\s\S]*background:\s*rgba\(164,\s*91,\s*78,\s*0\.92\);[\s\S]*color:\s*#fff7f4;/u,
+  )
   assert.match(appCss, /\.contact-request-card-icon\.incoming img/u)
   assert.match(appCss, /\.contact-request-card-icon\.outgoing img/u)
   assert.match(

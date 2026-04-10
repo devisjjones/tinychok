@@ -9236,7 +9236,9 @@ html[data-theme='dark'] .filter.active {
 
 html[data-theme='dark'] .filter-badge,
 html[data-theme='dark'] .filter-badge.filter-badge-light,
-html[data-theme='dark'] .icon-button-badge {
+html[data-theme='dark'] .icon-button-badge,
+html[data-theme='dark'] .chat-topline-badge,
+html[data-theme='dark'] .badge {
   background: rgba(164, 91, 78, 0.92);
   color: #fff7f4;
 }
