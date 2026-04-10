@@ -3056,6 +3056,7 @@ test('contacts screen splits incoming requests from accepted contacts', () => {
   assert.match(appCss, /\.contacts-section \+ \.contacts-section\s*\{/u)
   assert.match(appCss, /\.contacts-section\s*\{[\s\S]*gap: 3px;/u)
   assert.match(appCss, /\.contacts-section \.chat-card\s*\{[\s\S]*padding: 12px 13px 12px 10px;[\s\S]*gap: 10px;[\s\S]*border-radius: 20px;/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.contacts-section \.chat-card\s*\{[\s\S]*background:\s*rgba\(33,\s*35,\s*43,\s*0\.98\);[\s\S]*border-color:\s*rgba\(255,\s*255,\s*255,\s*0\.07\);/u)
   assert.match(appCss, /\.filter-inline-content\s*\{/u)
   assert.match(appCss, /\.filter-inline-content-compact\s*\{/u)
   assert.match(appCss, /\.filter-with-inline-badge \.filter-inline-content-compact \.filter-icon/u)
