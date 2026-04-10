@@ -32,6 +32,7 @@ import type {
   AdminUserAvatarBody,
   AdminUserAvatarResponse,
   AdminUserDetailResponse,
+  AdminUserReportIntakeBody,
   AdminUserPremiumBody,
   AdminUsersResponse,
   AdminThreadsResponse,
@@ -827,6 +828,19 @@ export async function setAdminUserPremium(
 ) {
   const response = await fetch(
     makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/premium`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminUserDetailResponse>(response)
+}
+
+export async function setAdminUserReportIntake(
+  sessionToken: string,
+  identifier: string,
+  body: AdminUserReportIntakeBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/report-intake`),
     makeJsonRequestInit('POST', body, sessionToken),
   )
 

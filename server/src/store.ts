@@ -3318,6 +3318,7 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
       passwordSetAt: legacyAccount.passwordSetAt || undefined,
       premium: legacyPremium,
       premiumExpiresAt: legacyPremiumExpiresAt,
+      reportsMutedInAdmin: Boolean((legacyAccount as { reportsMutedInAdmin?: boolean }).reportsMutedInAdmin),
       retainedArchiveStorageQuotaBytes: normalizeRetainedArchiveStorageQuotaBytes({
         premium: legacyPremium,
         premiumExpiresAt: legacyPremiumExpiresAt,
@@ -4582,6 +4583,7 @@ export class TinychokStore {
       passwordSetAt: new Date().toISOString(),
       premium: false,
       premiumExpiresAt: undefined,
+      reportsMutedInAdmin: false,
       quietModeSettings: normalizeQuietModeSettings(undefined),
       soundsDisabled: true,
       staffRole: undefined,
@@ -5793,8 +5795,9 @@ export class TinychokStore {
       }
     }
 
-    const openReports = this.database.adminReports.filter((report) => report.status === 'open').length
-    const closedReports = this.database.adminReports.filter((report) => report.status === 'closed').length
+    const visibleAdminReports = this.getVisibleAdminReports()
+    const openReports = visibleAdminReports.filter((report) => report.status === 'open').length
+    const closedReports = visibleAdminReports.filter((report) => report.status === 'closed').length
     const mediaItems = this.collectAdminMediaItems()
     const totalChannels = new Set(this.database.managedChannels.map((channel) => buildAdminChannelAggregateKey(channel))).size
     const totalGroups = new Set(this.database.groups.map((group) => buildAdminGroupAggregateKey(group))).size
@@ -6071,9 +6074,36 @@ export class TinychokStore {
     return this.buildAdminUserSummary(target)
   }
 
+  async adminSetUserReportsMutedInAdmin(
+    actorToken: string,
+    identifier: string,
+    options: {
+      muted: boolean
+    },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const target = this.findAccountForAdmin(identifier)
+    if (!target) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    const previousValue = this.buildAdminUserSummary(target)
+    target.reportsMutedInAdmin = Boolean(options.muted)
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.user.report-intake.toggle',
+      nextValue: this.buildAdminUserSummary(target),
+      previousValue,
+      summary: `${target.reportsMutedInAdmin ? 'Отключён' : 'Включён'} показ жалоб от пользователя ${buildAdminAuditAccountLabel(target)}`,
+      targetId: target.identifier,
+      targetType: 'user',
+    })
+
+    return this.buildAdminUserSummary(target)
+  }
+
   adminListReports(status?: AdminReportSummary['status']) {
-    return this.database.adminReports
-      .filter((report) => (status ? report.status === status : true))
+    return this.getVisibleAdminReports(status)
       .sort((left, right) => compareIsoDateDesc(left.updatedAt, right.updatedAt))
       .slice(0, 20)
       .map((report) => this.buildAdminReportSummary(report))
@@ -6081,7 +6111,7 @@ export class TinychokStore {
 
   async adminGetReport(actorToken: string, reportId: string): Promise<AdminReportDetailResponse['report']> {
     const actor = this.getStaffAccountByTokenOrThrow(actorToken)
-    const report = this.findAdminReport(reportId)
+    const report = this.findVisibleAdminReport(reportId)
     if (!report) {
       throw new Error('Жалоба не найдена.')
     }
@@ -6100,7 +6130,7 @@ export class TinychokStore {
 
   async adminViewReportEntity(actorToken: string, reportId: string, reason?: string) {
     const actor = this.getStaffAccountByTokenOrThrow(actorToken)
-    const report = this.findAdminReport(reportId)
+    const report = this.findVisibleAdminReport(reportId)
     if (!report) {
       throw new Error('Жалоба не найдена.')
     }
@@ -6130,7 +6160,7 @@ export class TinychokStore {
 
   async adminAddReportNote(actorToken: string, reportId: string, text: string) {
     const actor = this.getStaffAccountByTokenOrThrow(actorToken)
-    const report = this.findAdminReport(reportId)
+    const report = this.findVisibleAdminReport(reportId)
     if (!report) {
       throw new Error('Жалоба не найдена.')
     }
@@ -6163,7 +6193,7 @@ export class TinychokStore {
     },
   ) {
     const actor = this.getStaffAccountByTokenOrThrow(actorToken)
-    const report = this.findAdminReport(reportId)
+    const report = this.findVisibleAdminReport(reportId)
     if (!report) {
       throw new Error('Жалоба не найдена.')
     }
@@ -6220,7 +6250,7 @@ export class TinychokStore {
     const trimmedQuery = query.trim().toLowerCase()
     const reportCountByHandle = new Map<string, number>()
 
-    for (const report of this.database.adminReports) {
+    for (const report of this.getVisibleAdminReports()) {
       if (report.entityType !== 'channel') continue
       const handle = sanitizeChannelDirectLink(report.entityKey) || report.entityKey
       reportCountByHandle.set(handle, (reportCountByHandle.get(handle) ?? 0) + 1)
@@ -6303,7 +6333,7 @@ export class TinychokStore {
     const trimmedQuery = query.trim().toLowerCase()
     const reportCountBySharedId = new Map<string, number>()
 
-    for (const report of this.database.adminReports) {
+    for (const report of this.getVisibleAdminReports()) {
       if (report.entityType !== 'group') continue
       reportCountBySharedId.set(report.entityKey, (reportCountBySharedId.get(report.entityKey) ?? 0) + 1)
     }
@@ -7909,7 +7939,7 @@ export class TinychokStore {
       ]),
     ])
 
-    const relatedReports = this.database.adminReports
+    const relatedReports = this.getVisibleAdminReports()
       .filter((report) => {
         if (!isTimestampWithinRange(report.updatedAt || report.createdAt, fromTimestamp, toTimestamp)) {
           return false
@@ -12561,6 +12591,7 @@ export class TinychokStore {
       originalIdentifier: account.archivedOriginalIdentifier,
       premium: hasActivePremium(account.premium, account.premiumExpiresAt),
       premiumExpiresAt: account.premiumExpiresAt,
+      reportsMutedInAdmin: Boolean(account.reportsMutedInAdmin),
       staffRole: sanitizeStaffRole(account.staffRole),
       status: adminVisible.status,
       storageUsage: this.getStorageSubjectUsage(subject),
@@ -12891,6 +12922,26 @@ export class TinychokStore {
     return this.database.adminReports.find((report) => report.id === reportId) ?? null
   }
 
+  private isAdminReportVisible(report: AdminReportRecord) {
+    const reporter = this.findAccountForAdmin(report.reporterIdentifier)
+    return !reporter?.reportsMutedInAdmin
+  }
+
+  private getVisibleAdminReports(status?: AdminReportSummary['status']) {
+    return this.database.adminReports.filter(
+      (report) => this.isAdminReportVisible(report) && (status ? report.status === status : true),
+    )
+  }
+
+  private findVisibleAdminReport(reportId: string) {
+    const report = this.findAdminReport(reportId)
+    if (!report || !this.isAdminReportVisible(report)) {
+      return null
+    }
+
+    return report
+  }
+
   private async appendAdminAuditLog(
     actor: Pick<Account, 'identifier'> & { staffRole: StaffRole },
     entry: Omit<AdminAuditLogRecord, 'actorIdentifier' | 'actorRole' | 'createdAt' | 'id'>,
@@ -12955,7 +13006,7 @@ export class TinychokStore {
     const items: AdminMediaItem[] = []
     const reportCountByKey = new Map<string, number>()
 
-    for (const report of this.database.adminReports) {
+    for (const report of this.getVisibleAdminReports()) {
       reportCountByKey.set(report.entityKey, (reportCountByKey.get(report.entityKey) ?? 0) + 1)
     }
 
@@ -19488,6 +19539,7 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
         passwordHash: account.passwordHash?.trim() || undefined,
         passwordSetAt: account.passwordSetAt || undefined,
         publicDeleted: Boolean(account.publicDeleted),
+        reportsMutedInAdmin: Boolean(account.reportsMutedInAdmin),
         retainedArchiveStorageQuotaBytes: normalizeRetainedArchiveStorageQuotaBytes(account),
         retainedStorageQuotaBytes: normalizeRetainedStorageQuotaBytes(account),
         staffRole: sanitizeStaffRole(account.staffRole),

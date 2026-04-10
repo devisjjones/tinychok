@@ -43,6 +43,7 @@ import {
   setAdminChannelArchived,
   setAdminThreadArchived,
   setAdminStorageArchiveUnlimited,
+  setAdminUserReportIntake,
   setAdminUserPremium,
   unblockAdminUser,
   viewAdminReportEntity,
@@ -1202,6 +1203,36 @@ export default function AdminApp() {
       await refreshSelectedUser(response.user.identifier)
       await refreshUsers()
       await refreshDashboard()
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleToggleUserReportIntake(user: AdminUserSummary) {
+    if (!sessionToken) return
+
+    try {
+      const muted = !user.reportsMutedInAdmin
+      if (
+        !window.confirm(
+          muted
+            ? `Скрыть из админки все жалобы от ${getAdminUserLookupIdentifier(user)}?`
+            : `Снова показывать в админке жалобы от ${getAdminUserLookupIdentifier(user)}?`,
+        )
+      ) {
+        return
+      }
+
+      const response = await setAdminUserReportIntake(sessionToken, user.identifier, { muted })
+      setSelectedUser(response.user)
+      await refreshSelectedUser(response.user.identifier)
+      await refreshUsers()
+      await refreshReports()
+      await refreshDashboard()
+      await refreshChannels()
+      await refreshGroups()
+      await refreshMedia()
       await refreshAuditLog()
     } catch (error) {
       setAppError(getErrorMessage(error))
@@ -2537,6 +2568,18 @@ export default function AdminApp() {
                         <span className="admin-toggle-row-copy">
                           <img src="/icons/eyeon.png" alt="" aria-hidden="true" />
                           <span>Выключить ограничение архивного хранилища</span>
+                        </span>
+                      </label>
+                    ) : null}
+                    {bootstrap.actor.permissions.includes('users.block') ? (
+                      <label className="admin-toggle-row">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedUser.reportsMutedInAdmin)}
+                          onChange={() => void handleToggleUserReportIntake(selectedUser)}
+                        />
+                        <span className="admin-toggle-row-copy">
+                          <span>Перестать принимать жалобы от пользователя</span>
                         </span>
                       </label>
                     ) : null}

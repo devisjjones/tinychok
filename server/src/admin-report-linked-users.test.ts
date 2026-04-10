@@ -102,3 +102,50 @@ test('admin report detail materializes reporter and related user linked cards', 
   assert.equal(report.relatedUser?.identifier, target.identifier)
   assert.equal(report.relatedUser?.lookupIdentifier, target.identifier)
 })
+
+test('admin can hide and restore reports from a noisy reporter without deleting them', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const reporter = createAccount('+79990102001', {
+    displayName: 'Спамер',
+    surname: 'Репортёр',
+  })
+  const target = createAccount('+79990102002', {
+    displayName: 'Жертва',
+    surname: 'Жалобы',
+  })
+  const staff = createAccount('+79990102003', {
+    displayName: 'Owner',
+    staffRole: 'owner',
+    surname: 'Staff',
+  })
+
+  database.accounts.push(reporter, target, staff)
+
+  const reporterToken = createSession(database, reporter.identifier, 'reporter-muted')
+  const staffToken = createSession(database, staff.identifier, 'staff-muted')
+  const openedDialog = await store.openDirectDialog(reporterToken, { identifier: target.identifier })
+
+  await store.reportContact(reporterToken, openedDialog.dialogId, { reason: 'spam' })
+
+  const initialReportId = store.adminListReports('open').at(0)?.id
+  assert.ok(initialReportId)
+  assert.equal(store.getAdminDashboard().metrics.openReports, 1)
+
+  await store.adminSetUserReportsMutedInAdmin(staffToken, reporter.identifier, { muted: true })
+
+  assert.equal(store.adminListReports('open').length, 0)
+  assert.equal(store.getAdminDashboard().metrics.openReports, 0)
+  await assert.rejects(
+    async () => store.adminGetReport(staffToken, initialReportId),
+    /Жалоба не найдена\./u,
+  )
+
+  await store.adminSetUserReportsMutedInAdmin(staffToken, reporter.identifier, { muted: false })
+
+  const restoredReport = store.adminListReports('open').at(0)
+  assert.equal(restoredReport?.id, initialReportId)
+  assert.equal(store.getAdminDashboard().metrics.openReports, 1)
+  const report = await store.adminGetReport(staffToken, initialReportId)
+  assert.equal(report.reporter.identifier, reporter.identifier)
+})

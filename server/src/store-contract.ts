@@ -56,6 +56,7 @@ export type AppStore = Pick<
   | 'adminModerateMedia'
   | 'adminSearchUsers'
   | 'adminSetUserBlocked'
+  | 'adminSetUserReportsMutedInAdmin'
   | 'adminSetUserPremium'
   | 'adminViewUserAvatar'
   | 'getAdminDashboard'

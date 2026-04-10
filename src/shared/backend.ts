@@ -177,6 +177,7 @@ export type AdminUserSummary = {
   originalIdentifier?: string
   premium: boolean
   premiumExpiresAt?: string
+  reportsMutedInAdmin?: boolean
   staffRole?: StaffRole
   status?: string
   storageUsage: StorageQuotaUsage
@@ -210,6 +211,10 @@ export type AdminUserPremiumBody = {
   durationDays?: number
   enabled: boolean
   reason: string
+}
+
+export type AdminUserReportIntakeBody = {
+  muted: boolean
 }
 
 export type AdminReportNote = {

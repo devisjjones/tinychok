@@ -37,6 +37,7 @@ import type {
   AdminUserAvatarBody,
   AdminUserAvatarResponse,
   AdminUserBlockBody,
+  AdminUserReportIntakeBody,
   AdminUserPremiumBody,
   AdminUsersResponse,
   AdminThreadsResponse,
@@ -442,6 +443,20 @@ export async function registerAdminRoutes(
       const body = parseJsonPayload<AdminUserPremiumBody>(request.body)
       const identifier = getRouteParam(request, 'identifier')
       await store.adminSetUserPremium(auth.token, identifier, body)
+      return store.adminGetUser(identifier)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/users/:identifier/report-intake', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.block')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminUserReportIntakeBody>(request.body)
+      const identifier = getRouteParam(request, 'identifier')
+      await store.adminSetUserReportsMutedInAdmin(auth.token, identifier, body)
       return store.adminGetUser(identifier)
     } catch (error) {
       return sendError(reply, error)

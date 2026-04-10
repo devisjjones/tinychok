@@ -475,6 +475,7 @@ export type Account = {
   isTestEntity?: boolean
   premium?: boolean
   premiumExpiresAt?: string
+  reportsMutedInAdmin?: boolean
   retainedStorageQuotaBytes?: number
   retainedArchiveStorageQuotaBytes?: number
   staffRole?: StaffRole
