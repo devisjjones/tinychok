@@ -721,7 +721,10 @@ test('group and channel left-rail cards share avatar layout and group previews u
   assert.match(appSource, /className="avatar group-preview-author-avatar"/u)
   assert.doesNotMatch(appSource, /formatGroupLatestAuthor\(group\)/u)
   assert.match(appCss, /\.chat-card\.dialog-list-card \.chat-avatar-stack\s*\{[\s\S]*align-self:\s*center;/u)
-  assert.match(appCss, /\.chat-card\.dialog-list-card\s*\{[\s\S]*padding:\s*7px 12px;[\s\S]*gap:\s*10px;/u)
+  assert.match(
+    appCss,
+    /\.chat-card\.dialog-list-card\s*\{[\s\S]*align-items:\s*center;[\s\S]*padding:\s*8px 12px 7px 10px;[\s\S]*gap:\s*9px;[\s\S]*border-radius:\s*18px;/u,
+  )
   assert.match(appCss, /\.chat-card\.dialog-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;[\s\S]*border-radius:\s*20px;/u)
   assert.match(appCss, /\.chat-card\.channel-list-card,\s*[\r\n]+\s*\.chat-card\.group-list-card\s*\{[\s\S]*padding:\s*9px 14px 9px 10px;[\s\S]*gap:\s*12px;/u)
   assert.match(appCss, /\.chat-card\.channel-list-card \.avatar,\s*[\r\n]+\s*\.chat-card\.group-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;/u)
@@ -737,6 +740,35 @@ test('group and channel left-rail cards share avatar layout and group previews u
   assert.match(releaseDoc, /group\/channel cards в левом списке должны использовать одинаковую avatar-геометрию/u)
   assert.match(releaseDoc, /### 11\.1\.3\. Direct Dialog Left Rail Avatar Contract/u)
   assert.match(releaseDoc, /direct dialog cards в левом списке должны использовать отдельный [`']?dialog-list-card[`']? avatar-slot/u)
+})
+
+test('direct dialog cards keep compact preview layout and lighter dark-theme surface', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    appSource,
+    /orderedVisibleChats\.map\(\(chat\) => \{[\s\S]*const latestMessage = chat\.messages\.at\(-1\)[\s\S]*const chatPreview = chat\.messages\.length > 0 \? formatPreview\(chat\) : formatContactStatus\(chat\)/u,
+  )
+  assert.match(appSource, /<span className="chat-preview chat-status-preview">\{chatPreview\}<\/span>/u)
+  assert.match(
+    appCss,
+    /\.chat-card\.dialog-list-card \.chat-copy\s*\{[\s\S]*gap:\s*2px;[\s\S]*align-self:\s*center;/u,
+  )
+  assert.match(
+    appCss,
+    /\.chat-card\.dialog-list-card \.chat-topline\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto;[\s\S]*gap:\s*10px;/u,
+  )
+  assert.match(appCss, /\.chat-card\.dialog-list-card \.chat-preview\s*\{[\s\S]*line-height:\s*1\.18;/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.chat-card\.dialog-list-card\s*\{[\s\S]*background:\s*rgba\(40,\s*42,\s*50,\s*0\.98\);[\s\S]*border-color:\s*rgba\(255,\s*255,\s*255,\s*0\.1\);/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.chat-card\.dialog-list-card\.active\s*\{[\s\S]*background:\s*rgba\(52,\s*55,\s*65,\s*0\.98\);/u,
+  )
 })
 
 test('group snapshots materialize participant avatar images for left-rail preview authors', () => {
@@ -4646,6 +4678,21 @@ test('favicon and home-screen icon contract stays wired to the new logo assets',
   assert.match(staticVerifySource, /favicon 32x32/u)
   assert.match(staticVerifySource, /192x192/u)
   assert.match(staticVerifySource, /512x512/u)
+})
+
+test('staging deploy proof resolves the live lazy app asset chain instead of guessing css filenames', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const deployScriptSource = readFileSync(join(repoRoot, 'scripts', 'deploy-staging.sh'), 'utf8')
+  const liveAssetVerifySource = readFileSync(join(repoRoot, 'scripts', 'verify-live-app-assets.mjs'), 'utf8')
+
+  assert.match(deployScriptSource, /verify-live-app-assets\.mjs/u)
+  assert.match(liveAssetVerifySource, /main-\[\^"\]\+\\\.js/u)
+  assert.match(liveAssetVerifySource, /assets\\\/\(\?:App\|AdminApp\)-/u)
+  assert.match(liveAssetVerifySource, /user app js/u)
+  assert.match(liveAssetVerifySource, /user app css/u)
+  assert.match(liveAssetVerifySource, /admin app js/u)
+  assert.match(liveAssetVerifySource, /admin app css/u)
+  assert.match(liveAssetVerifySource, /actual lazy-loaded app assets, not guessed filenames/u)
 })
 
 test('avatar upload rules keep moderation, removal and blocking contract explicit', () => {

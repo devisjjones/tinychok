@@ -229,6 +229,7 @@ import {
   formatMessagePreview,
   formatChannelAvatarLabel,
   formatContactStatus,
+  formatPreview,
   formatSidebarActivityLabel,
   extendPremiumExpiry,
   formatGroupPreview,
@@ -16143,73 +16144,79 @@ function App() {
                   renderAvatarContent={renderAccountAvatarContent}
                 />
               ) : (
-                orderedVisibleChats.map((chat) => (
-                  <button
-                    key={chat.id}
-                    type="button"
-                    className={[
-                      'chat-card',
-                      'chat-card-compact',
-                      'dialog-list-card',
-                      chat.id === activeChat?.id ? 'active' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    onClick={() => openChat(chat.id)}
-                  >
-                    <span className="chat-avatar-stack">
-                      <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                        {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
-                      </span>
-                      {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
-                    </span>
-                    <span className="chat-copy">
-                      <span className="chat-topline">
-                        <span className="chat-name-row">
-                          <strong className="chat-name-text">{chat.title}</strong>
-                          {chat.archivedAccount ? <span className="chat-archive-badge">Удалён</span> : null}
-                          {renderAdminBlockedChatBadge(chat)}
-                          {chat.muted ? (
-                            <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
-                              <img src="/icons/bell-100.png" alt="" />
-                            </span>
-                          ) : null}
-                          {chat.premium ? (
-                            <span className="premium-crown chat-crown" aria-label="Премиум">
-                              <img src="/icons/crown64.png" alt="" />
-                            </span>
-                          ) : null}
-                          {chat.pinned ? (
-                            <span className="chat-star">
-                              <img src="/icons/star100.png" alt="Избранный контакт" />
-                            </span>
-                          ) : null}
+                orderedVisibleChats.map((chat) => {
+                  const latestMessage = chat.messages.at(-1)
+                  const chatPreview = chat.messages.length > 0 ? formatPreview(chat) : formatContactStatus(chat)
+
+                  return (
+                    <button
+                      key={chat.id}
+                      type="button"
+                      className={[
+                        'chat-card',
+                        'chat-card-compact',
+                        'dialog-list-card',
+                        chat.id === activeChat?.id ? 'active' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick={() => openChat(chat.id)}
+                    >
+                      <span className="chat-avatar-stack">
+                        <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                          {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
                         </span>
-                        {chat.typing && !quietMode ? (
-                          <span className="chat-topline-typing" aria-label={`${chat.title} печатает`}>
-                            <span className="typing-dot" />
-                            <span className="typing-dot" />
-                            <span className="typing-dot" />
-                          </span>
-                        ) : !quietDialogsSuppressed && chat.unread > 0 ? (
-                          <span
-                            className={
-                              chat.unread > 9
-                                ? 'chat-topline-badge chat-topline-badge-wide'
-                                : 'chat-topline-badge'
-                            }
-                          >
-                            {formatUnreadBadgeCount(chat.unread)}
-                          </span>
-                        ) : (
-                          <span className="chat-topline-meta">
-                            {formatSidebarActivityLabel(chat.messages.at(-1)?.createdAt, chat.messages.at(-1)?.time ?? '')}
-                          </span>
-                        )}
+                        {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
                       </span>
-                    </span>
-                  </button>
-                ))
+                      <span className="chat-copy">
+                        <span className="chat-topline">
+                          <span className="chat-name-row">
+                            <strong className="chat-name-text">{chat.title}</strong>
+                            {chat.archivedAccount ? <span className="chat-archive-badge">Удалён</span> : null}
+                            {renderAdminBlockedChatBadge(chat)}
+                            {chat.muted ? (
+                              <span className="chat-star group-muted-indicator" aria-label="Уведомления выключены">
+                                <img src="/icons/bell-100.png" alt="" />
+                              </span>
+                            ) : null}
+                            {chat.premium ? (
+                              <span className="premium-crown chat-crown" aria-label="Премиум">
+                                <img src="/icons/crown64.png" alt="" />
+                              </span>
+                            ) : null}
+                            {chat.pinned ? (
+                              <span className="chat-star">
+                                <img src="/icons/star100.png" alt="Избранный контакт" />
+                              </span>
+                            ) : null}
+                          </span>
+                          {chat.typing && !quietMode ? (
+                            <span className="chat-topline-typing" aria-label={`${chat.title} печатает`}>
+                              <span className="typing-dot" />
+                              <span className="typing-dot" />
+                              <span className="typing-dot" />
+                            </span>
+                          ) : !quietDialogsSuppressed && chat.unread > 0 ? (
+                            <span
+                              className={
+                                chat.unread > 9
+                                  ? 'chat-topline-badge chat-topline-badge-wide'
+                                  : 'chat-topline-badge'
+                              }
+                            >
+                              {formatUnreadBadgeCount(chat.unread)}
+                            </span>
+                          ) : (
+                            <span className="chat-topline-meta">
+                              {formatSidebarActivityLabel(latestMessage?.createdAt, latestMessage?.time ?? '')}
+                            </span>
+                          )}
+                        </span>
+                        <span className="chat-preview chat-status-preview">{chatPreview}</span>
+                      </span>
+                    </button>
+                  )
+                })
               )}
             </div>
           </>

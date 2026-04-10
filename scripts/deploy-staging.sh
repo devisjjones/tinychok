@@ -179,6 +179,10 @@ echo "==> Verifying staging static web icon contracts"
 node scripts/verify-web-static-assets.mjs \
   --root-url https://staging.tinychok.ru
 
+echo "==> Verifying live user/admin app asset chain"
+node scripts/verify-live-app-assets.mjs \
+  --root-url https://staging.tinychok.ru
+
 echo "==> Done"
 echo "Commit: $CURRENT_HEAD"
 echo "Next check:"
