@@ -57,6 +57,7 @@ export {
   sanitizeChannelTitle,
   sanitizePersonField,
   sanitizeStatusField,
+  shouldAutoFocusTextInputOnSceneOpen,
   shouldShowDeliveryCaption,
   shouldSubmitComposerWithEnter,
   sortChatsByRecentActivity,

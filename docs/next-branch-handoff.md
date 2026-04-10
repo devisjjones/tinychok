@@ -1223,3 +1223,6 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
 - thread root source:
   - корневая карточка в открытом треде не должна рендерить имя/аватар автора сообщения
   - author-strip остаётся только у комментариев внутри треда
+- `shouldAutoFocusTextInputOnSceneOpen()` — единый guard для scene-open autofocus:
+  - direct/group/channel/thread/support composer на mobile browser не должны фокуситься сами при входе в экран
+  - это правило не распространяется на intentional flows вроде `Ответ`, где пользователь уже явно инициировал набор

@@ -23,6 +23,7 @@ import {
   isVideoMimeType,
   resizeComposerTextarea,
   scrollFeedChildIntoView,
+  shouldAutoFocusTextInputOnSceneOpen,
   stripMessageFormattingMarkup,
   shouldShowDeliveryCaption,
   shouldSubmitComposerWithEnter,
@@ -302,6 +303,7 @@ export function GroupRoom({
 
   useEffect(() => {
     if (composerDisabledNotice) return
+    if (!shouldAutoFocusTextInputOnSceneOpen()) return
 
     window.requestAnimationFrame(() => {
       draftInputRef.current?.focus()

@@ -10,6 +10,7 @@ import {
   isVideoMimeType,
   resizeComposerTextarea,
   scrollFeedChildIntoView,
+  shouldAutoFocusTextInputOnSceneOpen,
   shouldSubmitComposerWithEnter,
 } from '../app/utils'
 import type { Message, ReplyTarget, SubscriptionChannel, UserGifLibraryItem } from '../app/types'
@@ -196,6 +197,7 @@ export function SubscriptionChannelRoom({
 
   useEffect(() => {
     if (!publisher) return
+    if (!shouldAutoFocusTextInputOnSceneOpen()) return
 
     window.requestAnimationFrame(() => {
       publisherInputRef.current?.focus()

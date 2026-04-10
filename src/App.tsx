@@ -268,6 +268,7 @@ import {
   sanitizePersonField,
   sanitizeStatusField,
   scrollFeedChildIntoView,
+  shouldAutoFocusTextInputOnSceneOpen,
   shouldSubmitComposerWithEnter,
   sortChatsByRecentActivity,
   sortGroupsByRecentActivity,
@@ -3616,6 +3617,7 @@ function App() {
 
   useEffect(() => {
     if (!threadTarget) return
+    if (!shouldAutoFocusTextInputOnSceneOpen()) return
 
     window.requestAnimationFrame(() => {
       threadComposerInputRef.current?.focus()
@@ -3624,6 +3626,7 @@ function App() {
 
   useEffect(() => {
     if (!isSettingsView || settingsView !== 'support' || supportCooldownActive) return
+    if (!shouldAutoFocusTextInputOnSceneOpen()) return
 
     window.requestAnimationFrame(() => {
       supportComposerInputRef.current?.focus()

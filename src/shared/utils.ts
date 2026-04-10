@@ -185,6 +185,10 @@ function isMobileKeyboardEnvironment() {
   return mobileUserAgent || (coarsePointer && navigator.maxTouchPoints > 0)
 }
 
+export function shouldAutoFocusTextInputOnSceneOpen() {
+  return !isMobileKeyboardEnvironment()
+}
+
 export function shouldSubmitComposerWithEnter(options: {
   key: string
   altKey: boolean
@@ -197,7 +201,7 @@ export function shouldSubmitComposerWithEnter(options: {
   if (options.altKey || options.ctrlKey || options.metaKey || options.shiftKey) return false
   if (options.isComposing) return false
 
-  return !isMobileKeyboardEnvironment()
+  return shouldAutoFocusTextInputOnSceneOpen()
 }
 
 export function formatAttachmentSize(size: number) {

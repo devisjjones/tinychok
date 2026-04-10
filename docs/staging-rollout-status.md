@@ -879,3 +879,6 @@ curl -s https://api.staging.tinychok.ru/healthz
 - thread root source:
   - в открытом треде корневое сообщение не должно показывать author-strip автора
   - author/avatar допустимы только у самих комментариев, а не у `room-thread-source`
+- mobile browser scene-open contract: dialog, group, channel, thread и support composer не должны автозахватывать фокус при входе в экран
+  - клавиатура на телефоне не должна открываться сама при первом входе в сцену
+  - отдельные intentional flows вроде `Ответ` остаются вне этого ограничения

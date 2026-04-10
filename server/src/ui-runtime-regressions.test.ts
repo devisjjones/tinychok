@@ -3229,6 +3229,28 @@ test('support chat contract stays wired through app, store, admin surface and do
   assert.match(rolloutDoc, /`Решён` у пользователя виден зелёной плашкой/u)
 })
 
+test('scene-open composer autofocus stays desktop-only across direct, group, channel, thread and support flows', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const sharedUtilsSource = readFileSync(join(repoRoot, 'src', 'shared', 'utils.ts'), 'utf8')
+  const appUtilsSource = readFileSync(join(repoRoot, 'src', 'app', 'utils.ts'), 'utf8')
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const channelRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'SubscriptionChannelRoom.tsx'), 'utf8')
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
+  const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
+
+  assert.match(sharedUtilsSource, /export function shouldAutoFocusTextInputOnSceneOpen\(\)\s*\{\s*return !isMobileKeyboardEnvironment\(\)\s*\}/u)
+  assert.match(appUtilsSource, /shouldAutoFocusTextInputOnSceneOpen/u)
+  assert.match(directRoomSource, /if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return[\s\S]*draftInputRef\.current\?\.focus\(\)/u)
+  assert.match(groupRoomSource, /if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return[\s\S]*draftInputRef\.current\?\.focus\(\)/u)
+  assert.match(channelRoomSource, /if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return[\s\S]*publisherInputRef\.current\?\.focus\(\)/u)
+  assert.match(appSource, /if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return[\s\S]*threadComposerInputRef\.current\?\.focus\(\)/u)
+  assert.match(appSource, /if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return[\s\S]*supportComposerInputRef\.current\?\.focus\(\)/u)
+  assert.match(rolloutDoc, /mobile browser scene-open contract: dialog, group, channel, thread и support composer не должны автозахватывать фокус при входе в экран/u)
+  assert.match(handoffDoc, /`shouldAutoFocusTextInputOnSceneOpen\(\)` — единый guard для scene-open autofocus/u)
+})
+
 test('self presence and invisibility contract stay wired through app, css and docs', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')

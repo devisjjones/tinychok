@@ -719,3 +719,7 @@
 - в открытом треде корневая `room-thread-source` карточка не должна показывать автора сообщения:
   - author-strip и media-header автора допустимы только у комментариев внутри треда
   - root source остаётся compact reference-card без имени/аватарки автора
+- mobile browser scene-open contract:
+  - dialog, group, channel, thread и support composer не должны автозахватывать фокус при входе в экран
+  - клавиатура не должна открываться без явного тапа по полю ввода
+  - intentional action-flow вроде `Ответ` может фокусить поле отдельно и не подпадает под этот запрет

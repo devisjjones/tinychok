@@ -16,6 +16,7 @@ import {
   isStandaloneEmojiMessageText,
   isVideoMimeType,
   scrollFeedChildIntoView,
+  shouldAutoFocusTextInputOnSceneOpen,
   shouldSubmitComposerWithEnter,
   shouldShowDeliveryCaption,
   stripMessageFormattingMarkup,
@@ -246,6 +247,7 @@ export function DirectChatRoom({
 
   useEffect(() => {
     if (effectiveComposerDisabledNotice || effectiveComposerGate || activeChat.archivedAccount) return
+    if (!shouldAutoFocusTextInputOnSceneOpen()) return
 
     window.requestAnimationFrame(() => {
       draftInputRef.current?.focus()
