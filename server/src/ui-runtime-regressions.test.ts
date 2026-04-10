@@ -4113,6 +4113,7 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*color-scheme:\s*dark;[\s\S]*--app-background:[\s\S]*#111214/u)
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(55,\s*57,\s*65,\s*0\.96\);/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.room-header\s*\{/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.channel-description-dialog-text\s*\{[\s\S]*color:\s*var\(--ink\);/u)
   assert.match(
     appCss,
     /html\[data-theme='dark'\] \.channel-avatar-picker-popover,[\s\S]*\.message-menu,[\s\S]*\.composer-attachment-popover/u,

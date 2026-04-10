@@ -8917,6 +8917,10 @@ html[data-theme='dark'] .storage-usage-open-copy {
   color: var(--muted);
 }
 
+html[data-theme='dark'] .channel-description-dialog-text {
+  color: var(--ink);
+}
+
 html[data-theme='dark'] .channel-avatar-picker-popover,
 html[data-theme='dark'] .channel-title-popover,
 html[data-theme='dark'] .settings-popover,
