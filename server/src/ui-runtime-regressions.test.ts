@@ -2657,12 +2657,12 @@ test('pending attachment delivery keeps progress UI separate from failed-send ca
   assert.match(appCss, /\.bubble-attachment-upload-progress \{[\s\S]*height: 9px;/u)
   assert.match(
     appCss,
-    /\.bubble\.mine \.bubble-attachment-upload-progress \{[\s\S]*background: rgba\(76, 48, 29, 0\.2\);/u,
+    /\.bubble\.mine \.bubble-attachment-upload-progress \{[\s\S]*background: rgba\(125, 86, 58, 0\.14\);/u,
   )
   assert.match(appCss, /\.bubble-attachment-upload-progress-fill \{/u)
   assert.match(
     appCss,
-    /\.bubble\.mine \.bubble-attachment-upload-progress-fill \{[\s\S]*rgba\(255, 244, 236, 0\.92\)[\s\S]*rgba\(255, 255, 255, 0\.99\)/u,
+    /\.bubble\.mine \.bubble-attachment-upload-progress-fill \{[\s\S]*rgba\(140, 89, 57, 0\.82\)[\s\S]*rgba\(204, 163, 128, 0\.98\)/u,
   )
   assert.match(appCss, /\.bubble-attachment-upload-progress-overlay \{[\s\S]*height: 8px;/u)
   assert.match(
@@ -4468,8 +4468,10 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(appSource, /themeColorMeta\.content = darkThemeEnabled \? '#17181c' : '#f7efe5'/u)
   assert.match(appSource, /<span>Тёмная тема<\/span>/u)
   assert.match(appSource, /Перекрасить интерфейс в спокойные серые оттенки\./u)
+  assert.match(indexCss, /:root\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(244,\s*229,\s*217,\s*0\.96\);[\s\S]*--surface-bubble-mine-ink:\s*#5a4032;/u)
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*color-scheme:\s*dark;[\s\S]*--app-background:[\s\S]*#111214/u)
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(55,\s*57,\s*65,\s*0\.96\);/u)
+  assert.match(appCss, /\.bubble\.mine \.bubble-delivery-caption\s*\{[\s\S]*color:\s*rgba\(90,\s*64,\s*50,\s*0\.76\);/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.room-header\s*\{/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.channel-description-dialog-text\s*\{[\s\S]*color:\s*var\(--ink\);/u)
   assert.match(

@@ -38,10 +38,10 @@
   --surface-button-active-ink: #fff9f3;
   --surface-bubble: rgba(255, 255, 255, 0.82);
   --surface-bubble-selected: rgba(255, 255, 255, 0.98);
-  --surface-bubble-mine: #b97c50;
-  --surface-bubble-mine-ink: #fff8f2;
+  --surface-bubble-mine: rgba(244, 229, 217, 0.96);
+  --surface-bubble-mine-ink: #5a4032;
   --surface-reply: rgba(77, 58, 46, 0.08);
-  --surface-reply-mine: #a96d43;
+  --surface-reply-mine: rgba(176, 129, 91, 0.16);
   --surface-selection-outline: rgba(141, 89, 57, 0.22);
   --shadow-soft: rgba(64, 35, 18, 0.08);
   --shadow-panel: rgba(64, 35, 18, 0.07);
