@@ -3782,6 +3782,7 @@
 
 .room-id > div {
   display: grid;
+  flex: 1 1 auto;
   align-content: center;
   gap: 1px;
   min-width: 0;
@@ -3830,7 +3831,11 @@
 
 .room-title-name h3 {
   margin: 0;
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .room-owner-edit-badge img {
@@ -8883,6 +8888,10 @@
     row-gap: 5px;
   }
 
+  .room-title-name h3 {
+    line-height: 1.02;
+  }
+
   .room-members-link,
   .room-channel-status,
   .room-archive-note {
@@ -9066,6 +9075,10 @@
   .room-header h3 {
     font-size: 1rem;
     line-height: 1.05;
+  }
+
+  .room-title-name {
+    align-items: flex-start;
   }
 
   .room-header p,

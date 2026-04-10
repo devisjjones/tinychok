@@ -5796,6 +5796,32 @@ test('mobile direct-room status adapts to wrapped titles and keeps explicit expa
   assert.match(handoffDoc, /без `В сети` в direct room header/u)
 })
 
+test('mobile direct-room header shrinks long names before they can run into the action buttons', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(directRoomSource, /const roomTitleNameRef = useRef<HTMLDivElement \| null>\(null\)/u)
+  assert.match(directRoomSource, /if \(!titleBlock \|\| !titleHeading \|\| !activeChat\.title\.trim\(\)\)/u)
+  assert.match(directRoomSource, /const isCompactViewport = window\.matchMedia\('\(max-width: 640px\)'\)\.matches/u)
+  assert.match(directRoomSource, /const minFontSize = isCompactViewport \? 12\.5 : 15/u)
+  assert.match(directRoomSource, /const widthOverflow = titleHeading\.scrollWidth > titleHeading\.clientWidth \+ 1/u)
+  assert.match(directRoomSource, /const heightOverflow = titleHeading\.scrollHeight > maxHeight/u)
+  assert.match(
+    directRoomSource,
+    /while \(nextFontSize > minFontSize\) \{[\s\S]*if \(!widthOverflow && !heightOverflow\) \{[\s\S]*break/u,
+  )
+  assert.match(directRoomSource, /resizeObserver\.observe\(titleBlock\)/u)
+  assert.match(directRoomSource, /<div ref=\{roomTitleNameRef\} className="room-title-name">/u)
+
+  assert.match(appCss, /\.room-id > div\s*\{[\s\S]*flex:\s*1 1 auto;[\s\S]*min-width:\s*0;/u)
+  assert.match(
+    appCss,
+    /\.room-title-name h3\s*\{[\s\S]*flex:\s*1 1 auto;[\s\S]*max-width:\s*100%;[\s\S]*overflow-wrap:\s*anywhere;[\s\S]*word-break:\s*break-word;/u,
+  )
+  assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.room-title-name\s*\{[\s\S]*align-items:\s*flex-start;/u)
+})
+
 test('owned groups and channels show the edit badge in the left rail and room headers', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')

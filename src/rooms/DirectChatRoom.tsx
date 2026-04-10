@@ -184,6 +184,7 @@ export function DirectChatRoom({
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
   const roomPresenceBlockRef = useRef<HTMLDivElement | null>(null)
   const roomPresenceMeasureRef = useRef<HTMLDivElement | null>(null)
+  const roomTitleNameRef = useRef<HTMLDivElement | null>(null)
   const roomTitleHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const effectiveVisibleMessages = activeChat.archivedAccount ? [] : visibleMessages
   const effectiveComposerDisabledNotice =
@@ -261,6 +262,74 @@ export function DirectChatRoom({
   useEffect(() => {
     setRoomStatusExpanded(false)
   }, [activeChat.id, roomPresenceText])
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const titleBlock = roomTitleNameRef.current
+    const titleHeading = roomTitleHeadingRef.current
+    if (!titleBlock || !titleHeading || !activeChat.title.trim()) {
+      if (titleHeading) {
+        titleHeading.style.removeProperty('font-size')
+      }
+      return
+    }
+
+    let animationFrameId = 0
+    let resizeObserver: ResizeObserver | null = null
+
+    const syncTitleFontSize = () => {
+      titleHeading.style.removeProperty('font-size')
+
+      const computedStyles = window.getComputedStyle(titleHeading)
+      const responsiveFontSize = Number.parseFloat(computedStyles.fontSize)
+      const maxFontSize =
+        Number.isFinite(responsiveFontSize) && responsiveFontSize > 0 ? responsiveFontSize : 18
+      const isCompactViewport = window.matchMedia('(max-width: 640px)').matches
+      const minFontSize = isCompactViewport ? 12.5 : 15
+      let nextFontSize = maxFontSize
+
+      titleHeading.style.fontSize = `${nextFontSize}px`
+
+      while (nextFontSize > minFontSize) {
+        const nextComputedStyles = window.getComputedStyle(titleHeading)
+        const nextLineHeight =
+          Number.parseFloat(nextComputedStyles.lineHeight) || nextFontSize * 1.05
+        const maxHeight = nextLineHeight * 2 + 1
+        const widthOverflow = titleHeading.scrollWidth > titleHeading.clientWidth + 1
+        const heightOverflow = titleHeading.scrollHeight > maxHeight
+
+        if (!widthOverflow && !heightOverflow) {
+          break
+        }
+
+        nextFontSize -= 0.5
+        titleHeading.style.fontSize = `${nextFontSize}px`
+      }
+    }
+
+    const scheduleSync = () => {
+      window.cancelAnimationFrame(animationFrameId)
+      animationFrameId = window.requestAnimationFrame(syncTitleFontSize)
+    }
+
+    scheduleSync()
+    window.addEventListener('resize', scheduleSync)
+
+    if ('ResizeObserver' in window) {
+      resizeObserver = new ResizeObserver(scheduleSync)
+      resizeObserver.observe(titleBlock)
+      resizeObserver.observe(titleHeading)
+    }
+
+    return () => {
+      window.removeEventListener('resize', scheduleSync)
+      if (resizeObserver) {
+        resizeObserver.disconnect()
+      }
+      window.cancelAnimationFrame(animationFrameId)
+    }
+  }, [activeChat.archivedAccount, activeChat.blockedByAdmin, activeChat.muted, activeChat.premium, activeChat.title])
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return
@@ -376,7 +445,7 @@ export function DirectChatRoom({
           </span>
           <div>
             <div className="room-title">
-              <div className="room-title-name">
+              <div ref={roomTitleNameRef} className="room-title-name">
                 <h3 ref={roomTitleHeadingRef}>{activeChat.title}</h3>
                 {activeChat.archivedAccount ? <span className="room-archive-badge">Архив</span> : null}
                 {activeChat.blockedByAdmin ? (
