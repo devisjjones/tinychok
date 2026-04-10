@@ -2562,6 +2562,24 @@ test('group system events render as dedicated system rows with premium crown sup
   assert.match(appCss, /\.group-system-message-actor\s*\{/u)
 })
 
+test('channel system posts keep the shared dark-theme pill contract', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const channelRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'SubscriptionChannelRoom.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(channelRoomSource, /className="channel-system-post"/u)
+  assert.match(channelRoomSource, /className="channel-system-post-label"/u)
+  assert.match(appCss, /\.channel-system-post\s*\{/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.browser-notification-banner,\s*[\s\S]*html\[data-theme='dark'\] \.channel-system-post,\s*[\s\S]*html\[data-theme='dark'\] \.conversation-day-divider span,\s*[\s\S]*background:\s*rgba\(36,\s*37,\s*43,\s*0\.94\);/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.room-forward-item-status,\s*[\s\S]*html\[data-theme='dark'\] \.channel-system-post,\s*[\s\S]*html\[data-theme='dark'\] \.direct-system-message-label,\s*[\s\S]*color:\s*#bcc1ca;/u,
+  )
+})
+
 test('group actions menu keeps leave action at the bottom for non-owners', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
