@@ -3329,6 +3329,10 @@ function App() {
     creatingGroupMemberChatIds.includes(chat.id),
   )
   const canCreateGroup = selectedGroupCreateChats.length > 0
+  const creatingGroupSelectionRequiredMessage =
+    creatableGroupChats.length === 0
+      ? 'Сначала добавьте хотя бы один контакт, чтобы создать группу.'
+      : 'Чтобы создать группу, добавьте хотя бы одного человека кроме себя.'
   const activeManagedChannelParticipantIdentifiers = new Set(
     activeChannel
       ? (
@@ -12318,7 +12322,7 @@ function App() {
     }
 
     if (!canCreateGroup) {
-      setCreatingGroupSelectionHint('Добавьте хотя бы одного пользователя в группу с вами.')
+      setCreatingGroupSelectionHint(creatingGroupSelectionRequiredMessage)
       return
     }
 
@@ -19486,63 +19490,6 @@ function App() {
               </article>
 
               <article className="settings-item">
-                <span className="settings-label">Добавить участников</span>
-                <div className="group-create-members-list">
-                  {creatableGroupChats.length > 0 ? (
-                    creatableGroupChats.map((chat) => {
-                      const isSelected = creatingGroupMemberChatIds.includes(chat.id)
-
-                      return (
-                        <button
-                          key={`group-create-member-${chat.id}`}
-                          type="button"
-                          className={`room-forward-item group-create-member-item${isSelected ? ' active' : ''}`}
-                          onClick={() => toggleGroupCreateMember(chat.id)}
-                          disabled={creatingGroupBusy}
-                        >
-                          <span className="chat-avatar-stack">
-                            <span className="avatar" style={{ backgroundColor: chat.accent }}>
-                              {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
-                            </span>
-                            {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
-                          </span>
-                          <span className="group-create-member-copy">
-                            <strong className="group-create-member-name-row">
-                              <span>{chat.title}</span>
-                              {chat.premium ? (
-                                <span className="premium-crown chat-crown" aria-label="Премиум">
-                                  <img src="/icons/crown64.png" alt="" />
-                                </span>
-                              ) : null}
-                              {chat.pinned ? (
-                                <span className="chat-star" aria-label="Избранный контакт">
-                                  <img src="/icons/star100.png" alt="" />
-                                </span>
-                              ) : null}
-                            </strong>
-                            <span>{chat.handle || chat.phone}</span>
-                          </span>
-                          <input
-                            type="checkbox"
-                            className="group-create-member-checkbox"
-                            checked={isSelected}
-                            readOnly
-                            tabIndex={-1}
-                          />
-                        </button>
-                      )
-                    })
-                  ) : (
-                    <article className="settings-item room-transfer-empty">
-                      <p className="settings-text">
-                        Сначала добавьте хотя бы один контакт, чтобы создать группу.
-                      </p>
-                    </article>
-                  )}
-                </div>
-              </article>
-
-              <article className="settings-item">
                 <span className="settings-label">Комментарии</span>
                 <label className="settings-checkbox">
                   <input
@@ -19610,6 +19557,60 @@ function App() {
                   <p className="auth-error">{getGroupCreationLimitError(creatingGroupsPerUserLimit)}</p>
                 ) : null}
               </article>
+              <article className="settings-item">
+                <span className="settings-label">Добавить участников</span>
+                <div className="group-create-members-list">
+                  {creatableGroupChats.length > 0 ? (
+                    creatableGroupChats.map((chat) => {
+                      const isSelected = creatingGroupMemberChatIds.includes(chat.id)
+
+                      return (
+                        <button
+                          key={`group-create-member-${chat.id}`}
+                          type="button"
+                          className={`room-forward-item group-create-member-item${isSelected ? ' active' : ''}`}
+                          onClick={() => toggleGroupCreateMember(chat.id)}
+                          disabled={creatingGroupBusy}
+                        >
+                          <span className="chat-avatar-stack">
+                            <span className="avatar" style={{ backgroundColor: chat.accent }}>
+                              {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
+                            </span>
+                            {chat.online ? <span className="presence-dot" aria-label="В сети" /> : null}
+                          </span>
+                          <span className="group-create-member-copy">
+                            <strong className="group-create-member-name-row">
+                              <span>{chat.title}</span>
+                              {chat.premium ? (
+                                <span className="premium-crown chat-crown" aria-label="Премиум">
+                                  <img src="/icons/crown64.png" alt="" />
+                                </span>
+                              ) : null}
+                              {chat.pinned ? (
+                                <span className="chat-star" aria-label="Избранный контакт">
+                                  <img src="/icons/star100.png" alt="" />
+                                </span>
+                              ) : null}
+                            </strong>
+                            <span>{chat.handle || chat.phone}</span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            className="group-create-member-checkbox"
+                            checked={isSelected}
+                            readOnly
+                            tabIndex={-1}
+                          />
+                        </button>
+                      )
+                    })
+                  ) : (
+                    <article className="settings-item room-transfer-empty">
+                      <p className="settings-text">{creatingGroupSelectionRequiredMessage}</p>
+                    </article>
+                  )}
+                </div>
+              </article>
             </div>
             {creatingGroupSelectionHint ? (
               <p className="auth-error">{creatingGroupSelectionHint}</p>
@@ -19626,10 +19627,10 @@ function App() {
               </button>
               <button
                 type="button"
-                className={`room-confirm-button room-confirm-button-primary${canCreateGroup && !creatingGroupLimitReached ? '' : ' disabled'}`}
-                aria-disabled={!canCreateGroup || creatingGroupLimitReached}
+                className={`room-confirm-button room-confirm-button-primary${creatingGroupLimitReached ? ' disabled' : ''}`}
+                aria-disabled={creatingGroupBusy || creatingGroupLimitReached}
                 onClick={() => {
-                  if (creatingGroupBusy || !canCreateGroup || creatingGroupLimitReached) return
+                  if (creatingGroupBusy || creatingGroupLimitReached) return
                   void createGroup()
                 }}
               >

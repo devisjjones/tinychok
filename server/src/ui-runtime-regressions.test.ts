@@ -3545,6 +3545,23 @@ test('premium screen and create-group modal keep tariff group-count copy wired',
   )
 })
 
+test('create-group modal explains missing members on submit and keeps the picker right above the action buttons', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+
+  assert.match(appSource, /const creatingGroupSelectionRequiredMessage =/u)
+  assert.match(appSource, /Сначала добавьте хотя бы один контакт, чтобы создать группу\./u)
+  assert.match(appSource, /Чтобы создать группу, добавьте хотя бы одного человека кроме себя\./u)
+  assert.match(appSource, /if \(!canCreateGroup\) \{\s*setCreatingGroupSelectionHint\(creatingGroupSelectionRequiredMessage\)/u)
+  assert.match(
+    appSource,
+    /group-create-limit-card[\s\S]*<span className="settings-label">Добавить участников<\/span>[\s\S]*room-confirm-actions room-confirm-actions-dual/u,
+  )
+  assert.match(appSource, /aria-disabled=\{creatingGroupBusy \|\| creatingGroupLimitReached\}/u)
+  assert.match(appSource, /if \(creatingGroupBusy \|\| creatingGroupLimitReached\) return/u)
+  assert.doesNotMatch(appSource, /if \(creatingGroupBusy \|\| !canCreateGroup \|\| creatingGroupLimitReached\) return/u)
+})
+
 test('attachment picker keeps premium upsell crown inline with premium copy', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const pickerSource = readFileSync(join(repoRoot, 'src', 'components', 'ComposerAttachmentPicker.tsx'), 'utf8')
