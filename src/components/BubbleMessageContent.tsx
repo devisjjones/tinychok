@@ -544,6 +544,15 @@ export function BubbleMessageContent({
     Boolean(message.attachment) &&
     !hasVisualAttachment &&
     trimmedText.length === 0
+  const isFileAttachmentOnlyBubble =
+    Boolean(message.attachment) &&
+    !hasVisualAttachment &&
+    !message.replyTo &&
+    !linkedChannel &&
+    !message.sourceContact &&
+    !message.sourceGroup &&
+    !message.attachmentRemovedNotice &&
+    trimmedText.length === 0
   const attachmentStatusCopy = message.attachment
     ? `${formatAttachmentSize(message.attachment.size)}${
         message.attachment.width && message.attachment.height
@@ -635,7 +644,7 @@ export function BubbleMessageContent({
       </div>
     ) : (
       <div
-        className="bubble-attachment bubble-attachment-link"
+        className={`bubble-attachment bubble-attachment-link${isFileAttachmentOnlyBubble ? ' bubble-attachment-link-file-only' : ''}`}
         onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
           event.stopPropagation()
           onOpenAttachment?.(message.attachment!)

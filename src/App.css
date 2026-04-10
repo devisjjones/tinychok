@@ -4834,9 +4834,17 @@
 
 .bubble-attachment-link {
   display: grid;
-  grid-template-columns: 60px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.bubble-attachment-link-file-only {
+  min-height: 52px;
+}
+
+.bubble:has(> .bubble-attachment-link-file-only) {
+  padding: 9px 14px 8px 12px;
 }
 
 .bubble-attachment-image {
@@ -4924,23 +4932,23 @@
   display: inline-grid;
   align-content: center;
   justify-items: center;
-  gap: 5px;
-  width: 60px;
-  min-width: 60px;
-  height: 60px;
-  padding: 7px 6px;
-  border-radius: 18px;
+  gap: 4px;
+  width: 52px;
+  min-width: 52px;
+  height: 52px;
+  padding: 6px 4px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.55);
   color: rgba(95, 66, 46, 0.82);
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-align: center;
 }
 
 .bubble-attachment-badge-icon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   object-fit: contain;
   opacity: 0.68;
 }
@@ -4951,29 +4959,30 @@
 
 .bubble-attachment-copy {
   display: grid;
-  align-content: center;
-  gap: 3px;
+  align-content: start;
+  gap: 2px;
   min-width: 0;
+  padding-top: 1px;
 }
 
 .bubble-attachment-copy strong {
   font-size: 0.94rem;
   color: inherit;
-  line-height: 1.16;
+  line-height: 1.12;
   overflow-wrap: anywhere;
 }
 
 .bubble-attachment-copy span {
   font-size: 0.82rem;
-  line-height: 1.18;
+  line-height: 1.12;
   opacity: 0.72;
 }
 
 .bubble-attachment-copy-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 

@@ -2546,7 +2546,10 @@ test('file attachment bubbles keep a left badge layout with inline bottom-right 
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
-  assert.match(bubbleSource, /className="bubble-attachment bubble-attachment-link"/u)
+  assert.match(
+    bubbleSource,
+    /className=\{`bubble-attachment bubble-attachment-link\$\{isFileAttachmentOnlyBubble \? ' bubble-attachment-link-file-only' : ''\}`\}/u,
+  )
   assert.match(bubbleSource, /className="bubble-attachment-badge-icon" src="\/icons\/dwnl\.png"/u)
   assert.match(bubbleSource, /className="bubble-attachment-copy-row"/u)
   assert.match(bubbleSource, /className="bubble-attachment-copy-status"/u)
@@ -2585,19 +2588,21 @@ test('file attachment bubbles keep a left badge layout with inline bottom-right 
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-link \{\s*display: grid;\s*grid-template-columns: 60px minmax\(0, 1fr\);[\s\S]*align-items: center;[\s\S]*gap: 10px;/u,
+    /\.bubble-attachment-link \{\s*display: grid;\s*grid-template-columns: 52px minmax\(0, 1fr\);[\s\S]*align-items: start;[\s\S]*gap: 8px;/u,
+  )
+  assert.match(appCss, /\.bubble-attachment-link-file-only \{[\s\S]*min-height: 52px;/u)
+  assert.match(appCss, /\.bubble:has\(> \.bubble-attachment-link-file-only\) \{[\s\S]*padding: 9px 14px 8px 12px;/u)
+  assert.match(
+    appCss,
+    /\.bubble-attachment-badge \{[\s\S]*width: 52px;[\s\S]*height: 52px;[\s\S]*border-radius: 16px;/u,
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-badge \{[\s\S]*width: 60px;[\s\S]*height: 60px;[\s\S]*border-radius: 18px;/u,
+    /\.bubble-attachment-badge-icon \{[\s\S]*width: 16px;[\s\S]*height: 16px;/u,
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-badge-icon \{[\s\S]*width: 18px;[\s\S]*height: 18px;/u,
-  )
-  assert.match(
-    appCss,
-    /\.bubble-attachment-copy-row \{\s*display: flex;[\s\S]*align-items: center;[\s\S]*justify-content: space-between;/u,
+    /\.bubble-attachment-copy-row \{\s*display: flex;[\s\S]*align-items: flex-end;[\s\S]*justify-content: space-between;/u,
   )
   assert.match(
     appCss,
@@ -2671,16 +2676,24 @@ test('file attachment bubbles keep compact download affordance and reserve 100 p
   const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
+  assert.match(bubbleSource, /const isFileAttachmentOnlyBubble =/u)
+  assert.match(
+    bubbleSource,
+    /className=\{`bubble-attachment bubble-attachment-link\$\{isFileAttachmentOnlyBubble \? ' bubble-attachment-link-file-only' : ''\}`\}/u,
+  )
   assert.match(bubbleSource, /className="bubble-attachment-badge-icon" src="\/icons\/dwnl\.png"/u)
   assert.match(bubbleSource, /Отправляем файл\.\.\./u)
   assert.match(
     appCss,
-    /\.bubble-attachment-link \{[\s\S]*grid-template-columns: 60px minmax\(0, 1fr\);[\s\S]*gap: 10px;/u,
+    /\.bubble-attachment-link \{[\s\S]*grid-template-columns: 52px minmax\(0, 1fr\);[\s\S]*align-items: start;[\s\S]*gap: 8px;/u,
   )
+  assert.match(appCss, /\.bubble-attachment-link-file-only \{[\s\S]*min-height: 52px;/u)
+  assert.match(appCss, /\.bubble:has\(> \.bubble-attachment-link-file-only\) \{[\s\S]*padding: 9px 14px 8px 12px;/u)
   assert.match(
     appCss,
-    /\.bubble-attachment-badge \{[\s\S]*width: 60px;[\s\S]*height: 60px;[\s\S]*border-radius: 18px;/u,
+    /\.bubble-attachment-badge \{[\s\S]*width: 52px;[\s\S]*height: 52px;[\s\S]*border-radius: 16px;/u,
   )
+  assert.match(appCss, /\.bubble-attachment-badge-icon \{[\s\S]*width: 16px;[\s\S]*height: 16px;/u)
   assert.match(appCss, /\.bubble-attachment-upload-progress \{[\s\S]*height: 9px;/u)
   assert.match(appCss, /\.bubble-attachment-upload-progress-overlay \{[\s\S]*height: 8px;/u)
   assert.match(outboxSource, /export const PENDING_ATTACHMENT_FINALIZING_PROGRESS = 0\.99/u)
