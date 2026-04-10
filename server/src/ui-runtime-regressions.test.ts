@@ -3582,6 +3582,11 @@ test('premium screen and create-group modal keep tariff group-count copy wired',
   assert.match(appSource, /Открыть премиум/u)
   assert.match(appCss, /\.group-create-limit-upsell\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*align-items:\s*center;[\s\S]*gap:\s*10px;/u)
   assert.match(appCss, /\.group-create-limit-upsell \.premium-crown img\s*\{[\s\S]*width:\s*16px;[\s\S]*height:\s*16px;/u)
+  assert.match(appCss, /\.premium-gift-title img\s*\{[\s\S]*width:\s*22px;[\s\S]*height:\s*22px;/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.group-create-limit-upsell \.premium-crown img,\s*[\s\S]*html\[data-theme='dark'\] \.premium-gift-title img,\s*[\s\S]*html\[data-theme='dark'\] \.premium-crown img \{\s*filter:\s*var\(--icon-filter\);/u,
+  )
   assert.match(appCss, /\.group-create-limit-upsell > span:last-child\s*\{[\s\S]*line-height:\s*1;/u)
   assert.match(appSource, /defaultGroupsPerUserLimit/u)
   assert.match(appSource, /getGroupCreationLimitError/u)
