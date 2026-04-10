@@ -5022,12 +5022,21 @@
   background: rgba(95, 66, 46, 0.14);
 }
 
+.bubble.mine .bubble-attachment-upload-progress {
+  background: rgba(76, 48, 29, 0.2);
+  box-shadow: inset 0 1px 1px rgba(48, 29, 17, 0.14);
+}
+
 .bubble-attachment-upload-progress-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, rgba(141, 89, 57, 0.72), rgba(202, 163, 132, 0.98));
   transition: width 160ms linear;
+}
+
+.bubble.mine .bubble-attachment-upload-progress-fill {
+  background: linear-gradient(90deg, rgba(255, 244, 236, 0.92), rgba(255, 255, 255, 0.99));
 }
 
 .bubble-attachment-upload-progress-overlay {
@@ -9368,8 +9377,17 @@ html[data-theme='dark'] .bubble-attachment-upload-progress {
   background: rgba(255, 255, 255, 0.12);
 }
 
+html[data-theme='dark'] .bubble.mine .bubble-attachment-upload-progress {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 1px rgba(10, 11, 16, 0.26);
+}
+
 html[data-theme='dark'] .bubble-attachment-upload-progress-fill {
   background: linear-gradient(90deg, rgba(164, 91, 78, 0.82), rgba(232, 210, 193, 0.98));
+}
+
+html[data-theme='dark'] .bubble.mine .bubble-attachment-upload-progress-fill {
+  background: linear-gradient(90deg, rgba(232, 220, 213, 0.9), rgba(255, 255, 255, 0.99));
 }
 
 html[data-theme='dark'] .bubble-attachment-upload-progress-overlay {

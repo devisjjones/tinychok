@@ -2647,8 +2647,20 @@ test('pending attachment delivery keeps progress UI separate from failed-send ca
   assert.match(bubbleSource, /bubble-attachment-upload-progress/u)
   assert.match(bubbleSource, /aria-valuenow=\{uploadProgressPercent \?\? 0\}/u)
   assert.match(appCss, /\.bubble-attachment-upload-progress \{[\s\S]*height: 9px;/u)
+  assert.match(
+    appCss,
+    /\.bubble\.mine \.bubble-attachment-upload-progress \{[\s\S]*background: rgba\(76, 48, 29, 0\.2\);/u,
+  )
   assert.match(appCss, /\.bubble-attachment-upload-progress-fill \{/u)
+  assert.match(
+    appCss,
+    /\.bubble\.mine \.bubble-attachment-upload-progress-fill \{[\s\S]*rgba\(255, 244, 236, 0\.92\)[\s\S]*rgba\(255, 255, 255, 0\.99\)/u,
+  )
   assert.match(appCss, /\.bubble-attachment-upload-progress-overlay \{[\s\S]*height: 8px;/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.bubble\.mine \.bubble-attachment-upload-progress-fill \{[\s\S]*rgba\(232, 220, 213, 0\.9\)[\s\S]*rgba\(255, 255, 255, 0\.99\)/u,
+  )
 })
 
 test('file attachment bubbles keep compact download affordance and reserve 100 percent for confirmed sends', () => {
