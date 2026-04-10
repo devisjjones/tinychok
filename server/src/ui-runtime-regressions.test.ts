@@ -2515,6 +2515,7 @@ test('file attachment bubbles keep a left badge layout with inline bottom-right 
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(bubbleSource, /className="bubble-attachment bubble-attachment-link"/u)
+  assert.match(bubbleSource, /className="bubble-attachment-badge-icon" src="\/icons\/dwnl\.png"/u)
   assert.match(bubbleSource, /className="bubble-attachment-copy-row"/u)
   assert.match(bubbleSource, /className="bubble-attachment-copy-status"/u)
   assert.match(bubbleSource, /className="bubble-attachment-inline-meta"/u)
@@ -2552,15 +2553,19 @@ test('file attachment bubbles keep a left badge layout with inline bottom-right 
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-link \{\s*display: grid;\s*grid-template-columns: 72px minmax\(0, 1fr\);/u,
+    /\.bubble-attachment-link \{\s*display: grid;\s*grid-template-columns: 60px minmax\(0, 1fr\);[\s\S]*align-items: center;[\s\S]*gap: 10px;/u,
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-badge \{[\s\S]*width: 72px;[\s\S]*height: 72px;[\s\S]*border-radius: 20px;/u,
+    /\.bubble-attachment-badge \{[\s\S]*width: 60px;[\s\S]*height: 60px;[\s\S]*border-radius: 18px;/u,
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-copy-row \{\s*display: flex;[\s\S]*justify-content: space-between;/u,
+    /\.bubble-attachment-badge-icon \{[\s\S]*width: 18px;[\s\S]*height: 18px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-copy-row \{\s*display: flex;[\s\S]*align-items: center;[\s\S]*justify-content: space-between;/u,
   )
   assert.match(
     appCss,
@@ -2583,11 +2588,16 @@ test('pending attachment delivery keeps progress UI separate from failed-send ca
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(outboxSource, /uploadProgress\?: number/u)
+  assert.match(outboxSource, /export const PENDING_ATTACHMENT_FINALIZING_PROGRESS = 0\.99/u)
   assert.match(outboxSource, /setPendingDirectMessageUploadProgress/u)
   assert.match(outboxSource, /setPendingGroupMessageUploadProgress/u)
+  assert.match(outboxSource, /message\.attachmentDraft\.mediaUrl[\s\S]*PENDING_ATTACHMENT_FINALIZING_PROGRESS/u)
   assert.match(outboxSource, /uploadProgress:\s*undefined/u)
   assert.match(backendSource, /type UploadMediaFileOptions = \{[\s\S]*onProgress\?: \(progress: number\) => void/u)
+  assert.match(backendSource, /const ATTACHMENT_UPLOAD_TRANSFER_PROGRESS_MAX = 0\.97/u)
+  assert.match(backendSource, /const ATTACHMENT_UPLOAD_FINALIZING_PROGRESS = 0\.99/u)
   assert.match(backendSource, /request\.upload\.onprogress = \(event\) => \{/u)
+  assert.match(backendSource, /onProgress\(ATTACHMENT_UPLOAD_FINALIZING_PROGRESS\)/u)
   assert.match(directRoomSource, /const showDeliveryCaption = messageFailed && shouldShowDeliveryCaption\(message\)/u)
   assert.match(groupRoomSource, /const showDeliveryCaption = messageFailed && shouldShowDeliveryCaption\(message\)/u)
   assert.match(
@@ -2598,12 +2608,42 @@ test('pending attachment delivery keeps progress UI separate from failed-send ca
   assert.match(groupRoomSource, /const messageUploadProgress =[\s\S]*getMessageUploadProgress\(message\.id\)/u)
   assert.match(appSource, /setPendingDirectMessageUploadProgress\(localId,\s*progress\)/u)
   assert.match(appSource, /setPendingGroupMessageUploadProgress\(localId,\s*progress\)/u)
+  assert.match(appSource, /uploadProgress:\s*PENDING_ATTACHMENT_FINALIZING_PROGRESS/u)
   assert.match(bubbleSource, /uploadProgress\?: number/u)
+  assert.match(bubbleSource, /const ATTACHMENT_UPLOAD_FINALIZING_PROGRESS = 0\.99/u)
+  assert.match(bubbleSource, /Отправляем файл\.\.\./u)
   assert.match(bubbleSource, /bubble-attachment-upload-progress/u)
   assert.match(bubbleSource, /aria-valuenow=\{uploadProgressPercent \?\? 0\}/u)
-  assert.match(appCss, /\.bubble-attachment-upload-progress \{/u)
+  assert.match(appCss, /\.bubble-attachment-upload-progress \{[\s\S]*height: 9px;/u)
   assert.match(appCss, /\.bubble-attachment-upload-progress-fill \{/u)
-  assert.match(appCss, /\.bubble-attachment-upload-progress-overlay \{/u)
+  assert.match(appCss, /\.bubble-attachment-upload-progress-overlay \{[\s\S]*height: 8px;/u)
+})
+
+test('file attachment bubbles keep compact download affordance and reserve 100 percent for confirmed sends', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const backendSource = readFileSync(join(repoRoot, 'src', 'app', 'backend.ts'), 'utf8')
+  const outboxSource = readFileSync(join(repoRoot, 'src', 'app', 'usePendingMessageOutbox.ts'), 'utf8')
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(bubbleSource, /className="bubble-attachment-badge-icon" src="\/icons\/dwnl\.png"/u)
+  assert.match(bubbleSource, /Отправляем файл\.\.\./u)
+  assert.match(
+    appCss,
+    /\.bubble-attachment-link \{[\s\S]*grid-template-columns: 60px minmax\(0, 1fr\);[\s\S]*gap: 10px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-badge \{[\s\S]*width: 60px;[\s\S]*height: 60px;[\s\S]*border-radius: 18px;/u,
+  )
+  assert.match(appCss, /\.bubble-attachment-upload-progress \{[\s\S]*height: 9px;/u)
+  assert.match(appCss, /\.bubble-attachment-upload-progress-overlay \{[\s\S]*height: 8px;/u)
+  assert.match(outboxSource, /export const PENDING_ATTACHMENT_FINALIZING_PROGRESS = 0\.99/u)
+  assert.match(appSource, /uploadProgress:\s*PENDING_ATTACHMENT_FINALIZING_PROGRESS/u)
+  assert.match(backendSource, /onProgress\(ATTACHMENT_UPLOAD_FINALIZING_PROGRESS\)/u)
+  assert.doesNotMatch(appSource, /uploadProgress:\s*1/u)
+  assert.doesNotMatch(backendSource, /onProgress\(1\)/u)
 })
 
 test('standalone emoji messages stay bubbleless only in direct and unthreaded group room feeds', () => {

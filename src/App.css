@@ -4816,9 +4816,9 @@
 
 .bubble-attachment-link {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  align-items: stretch;
-  gap: 12px;
+  grid-template-columns: 60px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
 }
 
 .bubble-attachment-image {
@@ -4903,14 +4903,15 @@
 }
 
 .bubble-attachment-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 72px;
-  min-width: 72px;
-  height: 72px;
-  padding: 0 8px;
-  border-radius: 20px;
+  display: inline-grid;
+  align-content: center;
+  justify-items: center;
+  gap: 5px;
+  width: 60px;
+  min-width: 60px;
+  height: 60px;
+  padding: 7px 6px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.55);
   color: rgba(95, 66, 46, 0.82);
   font-size: 0.74rem;
@@ -4919,29 +4920,42 @@
   text-align: center;
 }
 
+.bubble-attachment-badge-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  opacity: 0.68;
+}
+
+.bubble-attachment-badge-label {
+  line-height: 1;
+}
+
 .bubble-attachment-copy {
   display: grid;
   align-content: center;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
 .bubble-attachment-copy strong {
   font-size: 0.94rem;
   color: inherit;
+  line-height: 1.16;
   overflow-wrap: anywhere;
 }
 
 .bubble-attachment-copy span {
   font-size: 0.82rem;
+  line-height: 1.18;
   opacity: 0.72;
 }
 
 .bubble-attachment-copy-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -4970,8 +4984,8 @@
 
 .bubble-attachment-upload-row {
   display: grid;
-  gap: 6px;
-  margin-top: 2px;
+  gap: 7px;
+  margin-top: 3px;
 }
 
 .bubble-attachment-upload-label {
@@ -4984,7 +4998,7 @@
   position: relative;
   display: block;
   width: 100%;
-  height: 6px;
+  height: 9px;
   border-radius: 999px;
   overflow: hidden;
   background: rgba(95, 66, 46, 0.14);
@@ -5002,9 +5016,9 @@
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: 12px;
+  bottom: 10px;
   width: auto;
-  height: 5px;
+  height: 8px;
   background: rgba(255, 248, 242, 0.18);
   backdrop-filter: blur(8px);
   box-shadow: 0 8px 18px rgba(16, 10, 8, 0.16);
@@ -9320,6 +9334,11 @@ html[data-theme='dark'] .settings-storage-file-badge,
 html[data-theme='dark'] .bubble-attachment-badge {
   background: rgba(255, 255, 255, 0.1);
   color: var(--muted);
+}
+
+html[data-theme='dark'] .bubble-attachment-badge-icon {
+  filter: var(--icon-filter);
+  opacity: 0.88;
 }
 
 html[data-theme='dark'] .bubble-attachment-upload-label {

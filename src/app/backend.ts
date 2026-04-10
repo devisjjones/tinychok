@@ -353,6 +353,9 @@ type UploadMediaFileOptions = {
   onProgress?: (progress: number) => void
 }
 
+const ATTACHMENT_UPLOAD_TRANSFER_PROGRESS_MAX = 0.97
+const ATTACHMENT_UPLOAD_FINALIZING_PROGRESS = 0.99
+
 function uploadMediaFileWithProgress(
   sessionToken: string,
   kind: UploadMediaKind,
@@ -371,7 +374,12 @@ function uploadMediaFileWithProgress(
 
     request.upload.onprogress = (event) => {
       if (!event.lengthComputable || event.total <= 0) return
-      onProgress(event.loaded / event.total)
+      onProgress(
+        Math.min(
+          ATTACHMENT_UPLOAD_TRANSFER_PROGRESS_MAX,
+          (event.loaded / event.total) * ATTACHMENT_UPLOAD_TRANSFER_PROGRESS_MAX,
+        ),
+      )
     }
 
     request.onerror = () => {
@@ -414,7 +422,7 @@ function uploadMediaFileWithProgress(
         return
       }
 
-      onProgress(1)
+      onProgress(ATTACHMENT_UPLOAD_FINALIZING_PROGRESS)
       resolve(payload as UploadMediaResponse)
     }
 

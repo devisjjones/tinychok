@@ -62,12 +62,14 @@ export function shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc: string
   )
 }
 
+const ATTACHMENT_UPLOAD_FINALIZING_PROGRESS = 0.99
+
 function normalizeUploadProgress(progress: number | undefined) {
   if (typeof progress !== 'number' || Number.isNaN(progress)) {
     return null
   }
 
-  return Math.min(1, Math.max(0, progress))
+  return Math.min(ATTACHMENT_UPLOAD_FINALIZING_PROGRESS, Math.max(0, progress))
 }
 
 function buildVideoPreviewUrl(mediaUrl: string) {
@@ -550,12 +552,27 @@ export function BubbleMessageContent({
       }`
     : ''
   const uploadProgressValue = normalizeUploadProgress(uploadProgress)
-  const uploadProgressPercent = uploadProgressValue === null ? null : Math.round(uploadProgressValue * 100)
+  const uploadProgressPercent =
+    uploadProgressValue === null
+      ? null
+      : Math.min(99, Math.max(0, Math.round(uploadProgressValue * 100)))
   const showAttachmentUploadProgress = Boolean(message.attachment) && uploadProgressPercent !== null
+  const attachmentUploadStage =
+    uploadProgressValue === null
+      ? null
+      : uploadProgressValue >= ATTACHMENT_UPLOAD_FINALIZING_PROGRESS
+        ? 'finalizing'
+        : 'uploading'
   const attachmentUploadCopy =
-    uploadProgressPercent === null
+    attachmentUploadStage === null
       ? ''
-      : `${isVideoAttachment ? 'Загрузка видео' : isImageAttachment ? 'Загрузка фото' : 'Загрузка файла'} ${uploadProgressPercent}%`
+      : attachmentUploadStage === 'finalizing'
+        ? isVideoAttachment
+          ? 'Отправляем видео...'
+          : isImageAttachment
+            ? 'Отправляем фото...'
+            : 'Отправляем файл...'
+        : `${isVideoAttachment ? 'Загрузка видео' : isImageAttachment ? 'Загрузка фото' : 'Загрузка файла'} ${uploadProgressPercent}%`
   const attachmentNode = message.attachment ? (
     hasVisualAttachment ? (
       <div
@@ -624,7 +641,10 @@ export function BubbleMessageContent({
           onOpenAttachment?.(message.attachment!)
         }}
       >
-        <span className="bubble-attachment-badge">Файл</span>
+        <span className="bubble-attachment-badge">
+          <img className="bubble-attachment-badge-icon" src="/icons/dwnl.png" alt="" aria-hidden="true" />
+          <span className="bubble-attachment-badge-label">Файл</span>
+        </span>
         <div className="bubble-attachment-copy">
           <strong>{message.attachment.fileName}</strong>
           {shouldRenderAttachmentInlineMeta ? (

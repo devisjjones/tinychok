@@ -295,6 +295,7 @@ import { SelectedBubbleOverlay } from './components/SelectedBubbleOverlay'
 import { ThreadedBubble } from './components/ThreadedBubble'
 import { useCookieConsent } from './app/useCookieConsent'
 import {
+  PENDING_ATTACHMENT_FINALIZING_PROGRESS,
   type PendingAttachmentDraft,
   type PendingDirectMessage,
   type PendingGroupMessage,
@@ -6453,7 +6454,7 @@ function App() {
         mediaUrl: uploadedMedia.mediaUrl,
         mimeType: uploadedMedia.mimeType,
         size: uploadedMedia.size,
-        uploadProgress: 1,
+        uploadProgress: PENDING_ATTACHMENT_FINALIZING_PROGRESS,
         width: attachmentDraft.width,
       } satisfies PendingAttachmentDraft,
     }

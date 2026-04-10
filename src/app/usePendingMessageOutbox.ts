@@ -3,6 +3,7 @@ import type { Message } from '../shared/types'
 
 export type DeliveryIssue = 'pending' | 'failed'
 export type PendingMessageStatus = 'sending' | DeliveryIssue
+export const PENDING_ATTACHMENT_FINALIZING_PROGRESS = 0.99
 
 export type PendingAttachmentDraft = {
   file?: File
@@ -64,7 +65,7 @@ function normalizeUploadProgress(progress: number | undefined) {
     return undefined
   }
 
-  return Math.min(1, Math.max(0, progress))
+  return Math.min(PENDING_ATTACHMENT_FINALIZING_PROGRESS, Math.max(0, progress))
 }
 
 function getFailedDirectMessagesStorageKey(identifier: string) {
@@ -266,9 +267,11 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
         ? {
             ...message.attachmentDraft,
             uploadProgress:
-              message.attachmentDraft.mediaUrl || !message.attachmentDraft.file
-                ? undefined
-                : 0,
+              message.attachmentDraft.mediaUrl
+                ? PENDING_ATTACHMENT_FINALIZING_PROGRESS
+                : !message.attachmentDraft.file
+                  ? undefined
+                  : 0,
           }
         : message.attachmentDraft,
       status: 'sending',
@@ -316,9 +319,11 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
         ? {
             ...message.attachmentDraft,
             uploadProgress:
-              message.attachmentDraft.mediaUrl || !message.attachmentDraft.file
-                ? undefined
-                : 0,
+              message.attachmentDraft.mediaUrl
+                ? PENDING_ATTACHMENT_FINALIZING_PROGRESS
+                : !message.attachmentDraft.file
+                  ? undefined
+                  : 0,
           }
         : message.attachmentDraft,
       status: 'sending',
