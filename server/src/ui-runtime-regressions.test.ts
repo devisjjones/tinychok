@@ -4128,6 +4128,7 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(appCss, /html\[data-theme='dark'\] \.filter\s*\{[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.08\);/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.chat-card\.active,\s*[\s\S]*\.room-participant-action,\s*[\s\S]*\.room-participant-role/u)
   assert.match(appCss, /\.composer-tool img\s*\{[\s\S]*filter:\s*var\(--icon-filter\);/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.room-menu-item-premium img/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.room-members-link,[\s\S]*\.room-channel-status a,[\s\S]*color:\s*#bcc1ca;/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.room-id a,[\s\S]*\.room-channel-status a,[\s\S]*\.room-members-link\s*\{[\s\S]*text-decoration-color:\s*rgba\(255,\s*255,\s*255,\s*0\.22\);/u)
   assert.match(
