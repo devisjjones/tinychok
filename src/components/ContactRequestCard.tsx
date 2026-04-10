@@ -24,8 +24,8 @@ export function ContactRequestCard({
   const iconPath = getContactRequestCardIconPath(direction)
   const isIncoming = direction === 'incoming'
   const cardClassName = active
-    ? 'chat-card chat-card-request active'
-    : 'chat-card chat-card-request'
+    ? 'chat-card contact-list-card chat-card-request active'
+    : 'chat-card contact-list-card chat-card-request'
 
   return (
     <div

@@ -1587,9 +1587,13 @@
 
 .contacts-section .contact-list-card {
   align-items: center;
-  padding: 10px 12px 9px 10px;
+  padding: 8px 12px 7px 10px;
   gap: 9px;
   border-radius: 18px;
+}
+
+.contacts-section .contact-list-card .chat-avatar-stack {
+  align-self: center;
 }
 
 .contacts-section .contact-list-card .chat-copy {
@@ -1608,7 +1612,53 @@
   line-height: 1.18;
 }
 
-.contacts-section .chat-card .avatar {
+.contacts-section .contact-list-card .avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 20px;
+  font-size: 1.08rem;
+}
+
+.contacts-section .chat-card.chat-card-request.contact-list-card {
+  align-items: center;
+}
+
+.contacts-section .chat-card-request.contact-list-card .chat-card-request-main {
+  gap: 9px;
+  align-items: center;
+}
+
+.contacts-section .contact-request-card-action,
+.contacts-section .contact-request-card-open {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+}
+
+.contacts-section .contact-request-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+}
+
+.contacts-section .contact-request-card-icon img {
+  width: 22px;
+  height: 22px;
+}
+
+.contacts-section .contact-request-card-icon.outgoing {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  padding-right: 0;
+}
+
+.contacts-section .contact-request-card-icon.outgoing img {
+  width: 24px;
+  height: 24px;
+}
+
+.contacts-section .chat-card:not(.contact-list-card) .avatar {
   border-radius: 15px;
 }
 

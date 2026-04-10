@@ -3177,7 +3177,7 @@ test('contacts screen splits incoming requests from accepted contacts', () => {
     /incomingContactRequestCount > 9\s*\?\s*'icon-button-badge icon-button-badge-wide'\s*:\s*'icon-button-badge'/u,
   )
   assert.match(contactsPaneSource, /normalizeIdentifier\(activeContactIdentifier\) === normalizeIdentifier\(request\.identifier\)/u)
-  assert.match(contactRequestCardSource, /chat-card chat-card-request active/u)
+  assert.match(contactRequestCardSource, /chat-card contact-list-card chat-card-request active/u)
   assert.match(appSource, /filter-inline-content filter-inline-content-compact/u)
   assert.match(appSource, /filter-with-inline-badge filter-with-inline-badge-compact/u)
   assert.doesNotMatch(appSource, /icon-button-badge[\s\S]{0,200}outgoingContactRequestCount/u)
@@ -3259,9 +3259,22 @@ test('accepted contact cards keep compact preview layout and lighter dark-theme 
   assert.match(contactsPaneSource, /<span className="chat-preview chat-status-preview">\{chatPreview\}<\/span>/u)
   assert.match(
     appCss,
-    /\.contacts-section \.contact-list-card\s*\{[\s\S]*padding:\s*10px 12px 9px 10px;[\s\S]*gap:\s*9px;[\s\S]*border-radius:\s*18px;/u,
+    /\.contacts-section \.contact-list-card\s*\{[\s\S]*padding:\s*8px 12px 7px 10px;[\s\S]*gap:\s*9px;[\s\S]*border-radius:\s*18px;/u,
   )
+  assert.match(appCss, /\.contacts-section \.contact-list-card \.chat-avatar-stack\s*\{[\s\S]*align-self:\s*center;/u)
   assert.match(appCss, /\.contacts-section \.contact-list-card \.chat-copy\s*\{[\s\S]*gap:\s*2px;/u)
+  assert.match(
+    appCss,
+    /\.contacts-section \.contact-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;[\s\S]*border-radius:\s*20px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.contacts-section \.chat-card-request\.contact-list-card \.chat-card-request-main\s*\{[\s\S]*gap:\s*9px;[\s\S]*align-items:\s*center;/u,
+  )
+  assert.match(
+    appCss,
+    /\.contacts-section \.contact-request-card-action,\s*\n\.contacts-section \.contact-request-card-open\s*\{[\s\S]*width:\s*40px;[\s\S]*height:\s*40px;/u,
+  )
   assert.match(
     appCss,
     /html\[data-theme='dark'\] \.contacts-section \.contact-list-card\s*\{[\s\S]*background:\s*rgba\(40,\s*42,\s*50,\s*0\.98\);[\s\S]*border-color:\s*rgba\(255,\s*255,\s*255,\s*0\.1\);/u,
