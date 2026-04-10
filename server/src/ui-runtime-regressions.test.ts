@@ -2934,6 +2934,10 @@ test('contacts screen splits incoming requests from accepted contacts', () => {
   assert.match(appCss, /\.icon-button-badge\.icon-button-badge-wide\s*\{[\s\S]*min-width:\s*26px;[\s\S]*padding:\s*0 6px;/u)
   assert.match(appCss, /\.contact-request-card-icon\.incoming img/u)
   assert.match(appCss, /\.contact-request-card-icon\.outgoing img/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.contact-request-card-icon\.incoming img,\s*[\s\S]*\.contact-request-card-icon\.outgoing img\s*\{[\s\S]*filter:\s*var\(--icon-filter\);/u,
+  )
   assert.match(handoffDoc, /contact links считаются server-authoritative direct contract/u)
   assert.match(handoffDoc, /карточка входящей заявки открывает общую direct-room/u)
   assert.match(handoffDoc, /карточка исходящей заявки тоже открывает общую direct-room/u)

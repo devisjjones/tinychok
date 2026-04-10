@@ -9381,6 +9381,11 @@ html[data-theme='dark'] .premium-crown img {
   filter: var(--icon-filter);
 }
 
+html[data-theme='dark'] .contact-request-card-icon.incoming img,
+html[data-theme='dark'] .contact-request-card-icon.outgoing img {
+  filter: var(--icon-filter);
+}
+
 html[data-theme='dark'] .filter.active .filter-icon,
 html[data-theme='dark'] .quiet-toggle.active img,
 html[data-theme='dark'] .room-star.active img {
