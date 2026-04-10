@@ -468,7 +468,7 @@ export function GroupRoom({
               !hasImageAttachment &&
               !isStandaloneEmojiOnlyMessage &&
               !showDeliveryCaption &&
-              message.text.trim().length > 0
+              (message.text.trim().length > 0 || Boolean(message.attachment))
             const isGroupCaptionedImageBubble =
               hasImageAttachment &&
               message.text.trim().length > 0 &&

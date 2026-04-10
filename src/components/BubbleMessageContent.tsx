@@ -526,6 +526,18 @@ export function BubbleMessageContent({
   const hasBodyBelowAttachment = Boolean(
     linkedChannel || message.sourceContact || message.sourceGroup || trimmedText || message.attachmentRemovedNotice,
   )
+  const shouldRenderAttachmentInlineMeta =
+    Boolean(inlineMeta) &&
+    Boolean(message.attachment) &&
+    !hasVisualAttachment &&
+    trimmedText.length === 0
+  const attachmentStatusCopy = message.attachment
+    ? `${formatAttachmentSize(message.attachment.size)}${
+        message.attachment.width && message.attachment.height
+          ? `, ${formatAttachmentImageDimensions(message.attachment.width, message.attachment.height)}`
+          : ''
+      }`
+    : ''
   const attachmentNode = message.attachment ? (
     hasVisualAttachment ? (
       <div
@@ -582,12 +594,14 @@ export function BubbleMessageContent({
         <span className="bubble-attachment-badge">Файл</span>
         <div className="bubble-attachment-copy">
           <strong>{message.attachment.fileName}</strong>
-          <span>
-            {formatAttachmentSize(message.attachment.size)}
-            {message.attachment.width && message.attachment.height
-              ? `, ${formatAttachmentImageDimensions(message.attachment.width, message.attachment.height)}`
-              : ''}
-          </span>
+          {shouldRenderAttachmentInlineMeta ? (
+            <div className="bubble-attachment-copy-row">
+              <span className="bubble-attachment-copy-status">{attachmentStatusCopy}</span>
+              <span className="bubble-attachment-inline-meta">{inlineMeta}</span>
+            </div>
+          ) : (
+            <span>{attachmentStatusCopy}</span>
+          )}
         </div>
       </div>
     )

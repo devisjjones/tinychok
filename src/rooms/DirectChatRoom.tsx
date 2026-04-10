@@ -564,7 +564,7 @@ export function DirectChatRoom({
             !hasImageAttachment &&
             !isStandaloneEmojiOnlyMessage &&
             !showDeliveryCaption &&
-            message.text.trim().length > 0
+            (message.text.trim().length > 0 || Boolean(message.attachment))
           const bubbleClassNames = ['bubble', 'bubble-button']
 
           if (message.author === 'me') {

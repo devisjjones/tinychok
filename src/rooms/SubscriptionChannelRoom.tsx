@@ -286,7 +286,8 @@ export function SubscriptionChannelRoom({
             (isImageMimeType(post.attachment.mimeType) || isVideoMimeType(post.attachment.mimeType)),
           )
           const isImageOnlyBubble = hasImageAttachment && post.text.trim().length === 0
-          const shouldUseInlineTextMeta = !hasImageAttachment && post.text.trim().length > 0
+          const shouldUseInlineTextMeta =
+            !hasImageAttachment && (post.text.trim().length > 0 || Boolean(post.attachment))
 
           return (
               <Fragment key={post.id}>

@@ -2463,16 +2463,31 @@ test('text bubbles use inline meta so time does not force a separate footer row'
   assert.match(groupRoomSource, /const shouldUseInlineTextMeta =/u)
   assert.match(groupRoomSource, /<BubbleTextInlineMeta/u)
   assert.match(groupRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? \(\s*<time>\{message\.time\}<\/time>/u)
-  assert.match(channelRoomSource, /const shouldUseInlineTextMeta = !hasImageAttachment && post\.text\.trim\(\)\.length > 0/u)
+  assert.match(
+    channelRoomSource,
+    /const shouldUseInlineTextMeta =\s*!hasImageAttachment && \(post\.text\.trim\(\)\.length > 0 \|\| Boolean\(post\.attachment\)\)/u,
+  )
   assert.ok((channelRoomSource.match(/<BubbleTextInlineMeta time=\{post\.time\} \/>/gu) ?? []).length >= 2)
   assert.match(channelRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? <time>\{post\.time\}<\/time> : null/u)
-  assert.match(appSource, /const shouldUseInlineTextMeta =\s*!hasImageAttachment && comment\.text\.trim\(\)\.length > 0/u)
+  assert.match(
+    appSource,
+    /const shouldUseInlineTextMeta =\s*!hasImageAttachment &&\s*\(comment\.text\.trim\(\)\.length > 0 \|\| Boolean\(comment\.attachment\)\)/u,
+  )
   assert.match(appSource, /<BubbleTextInlineMeta time=\{comment\.time\} \/>/u)
   assert.ok((appSource.match(/<BubbleTextInlineMeta time=\{threadSourceTime\} \/>/gu) ?? []).length >= 3)
   assert.match(appSource, /!usesInlineTimeLayout && \(!hasImageAttachment \|\| usesCaptionedImageCardLayout \|\| usesImageOnlyCardLayout\) \? \(\s*<time>\{threadSourceTime\}<\/time>/u)
-  assert.match(overlaySource, /const shouldUseInlineTextMeta = !hasImageAttachment && props\.post\.text\.trim\(\)\.length > 0/u)
-  assert.match(overlaySource, /const shouldUseInlineTextMeta = !hasImageAttachment && props\.comment\.text\.trim\(\)\.length > 0/u)
-  assert.match(overlaySource, /const shouldUseInlineTextMeta =\s*!hasImageAttachment &&\s*!isStandaloneEmojiOnlyMessage &&\s*!showDeliveryCaption &&\s*props\.message\.text\.trim\(\)\.length > 0/u)
+  assert.match(
+    overlaySource,
+    /const shouldUseInlineTextMeta =\s*!hasImageAttachment && \(props\.post\.text\.trim\(\)\.length > 0 \|\| Boolean\(props\.post\.attachment\)\)/u,
+  )
+  assert.match(
+    overlaySource,
+    /const shouldUseInlineTextMeta =\s*!hasImageAttachment &&\s*\(props\.comment\.text\.trim\(\)\.length > 0 \|\| Boolean\(props\.comment\.attachment\)\)/u,
+  )
+  assert.match(
+    overlaySource,
+    /const shouldUseInlineTextMeta =\s*!hasImageAttachment &&\s*!isStandaloneEmojiOnlyMessage &&\s*!showDeliveryCaption &&\s*\(props\.message\.text\.trim\(\)\.length > 0 \|\| Boolean\(props\.message\.attachment\)\)/u,
+  )
   assert.match(appCss, /\.bubble-text-paragraph-with-inline-meta \{\s*position: relative;\s*padding-right: 44px;\s*min-height: 14px;/u)
   assert.match(appCss, /\.bubble\.has-delivery-indicator \.bubble-text-paragraph-with-inline-meta \{\s*padding-right: 64px;/u)
   assert.match(appCss, /\.bubble \.bubble-text-inline-meta \{\s*position: absolute;\s*right: 0;\s*bottom: 0;/u)
@@ -2480,6 +2495,73 @@ test('text bubbles use inline meta so time does not force a separate footer row'
   assert.match(
     appCss,
     /\.bubble \.bubble-text-inline-meta time,\s*\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-text-inline-meta time,\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-text-inline-meta time,\s*\.bubble-overlay\.bubble-overlay-compact:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \.bubble-text-inline-meta time \{\s*display: block;\s*margin: 0;\s*padding: 0;/u,
+  )
+})
+
+test('file attachment bubbles keep a left badge layout with inline bottom-right meta', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const channelRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'SubscriptionChannelRoom.tsx'), 'utf8')
+  const overlaySource = readFileSync(
+    join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'),
+    'utf8',
+  )
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(bubbleSource, /className="bubble-attachment bubble-attachment-link"/u)
+  assert.match(bubbleSource, /className="bubble-attachment-copy-row"/u)
+  assert.match(bubbleSource, /className="bubble-attachment-copy-status"/u)
+  assert.match(bubbleSource, /className="bubble-attachment-inline-meta"/u)
+  assert.match(
+    directRoomSource,
+    /message\.text\.trim\(\)\.length > 0 \|\| Boolean\(message\.attachment\)/u,
+  )
+  assert.match(
+    groupRoomSource,
+    /message\.text\.trim\(\)\.length > 0 \|\| Boolean\(message\.attachment\)/u,
+  )
+  assert.match(
+    channelRoomSource,
+    /post\.text\.trim\(\)\.length > 0 \|\| Boolean\(post\.attachment\)/u,
+  )
+  assert.match(
+    overlaySource,
+    /props\.post\.text\.trim\(\)\.length > 0 \|\| Boolean\(props\.post\.attachment\)/u,
+  )
+  assert.match(
+    overlaySource,
+    /props\.comment\.text\.trim\(\)\.length > 0 \|\| Boolean\(props\.comment\.attachment\)/u,
+  )
+  assert.match(
+    overlaySource,
+    /props\.message\.text\.trim\(\)\.length > 0 \|\| Boolean\(props\.message\.attachment\)/u,
+  )
+  assert.match(
+    appSource,
+    /threadSourceText\.trim\(\)\.length > 0 \|\| Boolean\(threadGroupMessage\.attachment\)/u,
+  )
+  assert.match(
+    appSource,
+    /threadSourceText\.trim\(\)\.length > 0 \|\| Boolean\(threadChannelPost\.attachment\)/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-link \{\s*display: grid;\s*grid-template-columns: 72px minmax\(0, 1fr\);/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-badge \{[\s\S]*width: 72px;[\s\S]*height: 72px;[\s\S]*border-radius: 20px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-copy-row \{\s*display: flex;[\s\S]*justify-content: space-between;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble \.bubble-attachment-inline-meta > \.bubble-text-inline-meta \{\s*position: static;/u,
   )
 })
 

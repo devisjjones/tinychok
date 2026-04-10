@@ -4791,6 +4791,13 @@
   cursor: pointer;
 }
 
+.bubble-attachment-link {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
 .bubble-attachment-image {
   width: 100%;
   max-height: min(360px, 62vw);
@@ -4873,19 +4880,27 @@
 }
 
 .bubble-attachment-badge {
-  width: fit-content;
-  padding: 6px 10px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  min-width: 72px;
+  height: 72px;
+  padding: 0 8px;
+  border-radius: 20px;
   background: rgba(255, 255, 255, 0.55);
   color: rgba(95, 66, 46, 0.82);
   font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+  text-align: center;
 }
 
 .bubble-attachment-copy {
   display: grid;
-  gap: 2px;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
 }
 
 .bubble-attachment-copy strong {
@@ -4897,6 +4912,37 @@
 .bubble-attachment-copy span {
   font-size: 0.82rem;
   opacity: 0.72;
+}
+
+.bubble-attachment-copy-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.bubble-attachment-copy-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bubble .bubble-attachment-inline-meta {
+  flex: 0 0 auto;
+  align-self: end;
+}
+
+.bubble .bubble-attachment-inline-meta > .bubble-text-inline-meta {
+  position: static;
+  opacity: 0.72;
+}
+
+.bubble .bubble-attachment-inline-meta > .bubble-text-inline-meta time {
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+  opacity: 1;
 }
 
 .bubble-attachment-removed-note {

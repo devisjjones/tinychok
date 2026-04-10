@@ -13183,7 +13183,7 @@ function App() {
               const useMediaOnlyBubble = isImageOnlyBubble && !hasImageAttachment
               const usesInlineTimeLayout =
                 !hasImageAttachment &&
-                threadSourceText.trim().length > 0 &&
+                (threadSourceText.trim().length > 0 || Boolean(threadGroupMessage.attachment)) &&
                 !resolveEmbeddedChannelFromMessage(threadGroupMessage) &&
                 !threadGroupMessage.sourceChannel &&
                 !threadGroupMessage.sourceGroup &&
@@ -13325,7 +13325,7 @@ function App() {
               const useMediaOnlyBubble = isImageOnlyBubble && !hasImageAttachment
               const usesInlineTimeLayout =
                 !hasImageAttachment &&
-                threadSourceText.trim().length > 0 &&
+                (threadSourceText.trim().length > 0 || Boolean(threadChannelPost.attachment)) &&
                 !threadChannelPost.sourceContact &&
                 !threadChannelPost.attachmentRemovedNotice
               const usesCaptionedImageCardLayout =
@@ -13421,7 +13421,7 @@ function App() {
               </div>
               <BubbleMessageContent
                 inlineMeta={
-                  !activeSupportTicket.attachment && threadSourceText.trim().length > 0 ? (
+                  threadSourceText.trim().length > 0 || activeSupportTicket.attachment ? (
                     <BubbleTextInlineMeta time={threadSourceTime} />
                   ) : undefined
                 }
@@ -13437,7 +13437,7 @@ function App() {
                 onOpenPremiumUpsell={openPremiumUpsell}
                 showReplyInline={false}
               />
-              {activeSupportTicket.attachment || threadSourceText.trim().length === 0 ? (
+              {threadSourceText.trim().length === 0 && !activeSupportTicket.attachment ? (
                 <time>{threadSourceTime}</time>
               ) : null}
             </article>
@@ -13545,7 +13545,8 @@ function App() {
                       ) : (
                         (() => {
                           const shouldUseInlineTextMeta =
-                            !hasImageAttachment && comment.text.trim().length > 0
+                            !hasImageAttachment &&
+                            (comment.text.trim().length > 0 || Boolean(comment.attachment))
                           const threadCommentBubbleButton = (
                             <button
                               type="button"

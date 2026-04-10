@@ -145,7 +145,8 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       (isImageMimeType(props.post.attachment.mimeType) || isVideoMimeType(props.post.attachment.mimeType)),
     )
     const isImageOnlyBubble = hasImageAttachment && props.post.text.trim().length === 0
-    const shouldUseInlineTextMeta = !hasImageAttachment && props.post.text.trim().length > 0
+    const shouldUseInlineTextMeta =
+      !hasImageAttachment && (props.post.text.trim().length > 0 || Boolean(props.post.attachment))
 
     return (
       <div
@@ -180,7 +181,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       (isImageMimeType(props.comment.attachment.mimeType) || isVideoMimeType(props.comment.attachment.mimeType)),
     )
     const isImageOnlyBubble = hasImageAttachment && props.comment.text.trim().length === 0
-    const shouldUseInlineTextMeta = !hasImageAttachment && props.comment.text.trim().length > 0
+    const shouldUseInlineTextMeta =
+      !hasImageAttachment &&
+      (props.comment.text.trim().length > 0 || Boolean(props.comment.attachment))
     const authorNode = renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
     const shouldRenderExternalAuthor = Boolean(authorNode) && !isImageOnlyBubble
     const compactOverlayClassName = ' bubble-overlay-compact'
@@ -282,7 +285,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     !hasImageAttachment &&
     !isStandaloneEmojiOnlyMessage &&
     !showDeliveryCaption &&
-    props.message.text.trim().length > 0
+    (props.message.text.trim().length > 0 || Boolean(props.message.attachment))
 
   if (props.mine) {
     bubbleClassNames.push('mine', 'has-delivery-indicator')
