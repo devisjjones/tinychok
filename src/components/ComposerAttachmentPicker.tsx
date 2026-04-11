@@ -81,8 +81,13 @@ export function ComposerAttachmentPicker({
               className="composer-attachment-option"
               onClick={() => handleSelect('photo')}
             >
+              <span className="composer-attachment-option-icon" aria-hidden="true">
+                <img src="/icons/picture.svg" alt="" />
+              </span>
               <strong>Приложить фотографию</strong>
-              <span>До 10 МБ. Поддерживаются JPG, PNG и WebP.</span>
+              <span className="composer-attachment-option-description">
+                До 10 МБ. Поддерживаются JPG, PNG и WebP.
+              </span>
             </button>
           ) : null}
           {supportsFileAttachments ? (
@@ -91,8 +96,11 @@ export function ComposerAttachmentPicker({
               className="composer-attachment-option"
               onClick={() => handleSelect('file')}
             >
+              <span className="composer-attachment-option-icon" aria-hidden="true">
+                <img src="/icons/videofile.png" alt="" />
+              </span>
               <strong>Приложить файл</strong>
-              <span>
+              <span className="composer-attachment-option-description">
                 {premiumUnlocked
                   ? 'Документы, архивы и видео до 200 МБ.'
                   : (

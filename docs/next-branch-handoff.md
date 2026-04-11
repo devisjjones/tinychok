@@ -1179,6 +1179,7 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - visible scrollbar в room feed считается дефектом layout и не должен ложиться поверх bubbles
   - scroll / overflow fixes нельзя закрывать только по source-contract тестам; нужен runtime smoke и на desktop, и на mobile
   - широкий `touch-action` на `.message-feed`, `.chat-list` и других реальных scroll-контейнерах считается рискованной правкой, пока не доказан живой сценарий на обеих платформах
+  - `justify-content:flex-end` на реальном scroll-контейнере комнаты запрещён: в Chromium/Firefox это может сделать старую историю сверху недостижимой; для bottom-align короткой ленты использовать auto-margin/spacer, а не end-alignment самого overflow-контейнера
 - premium debug state может использоваться на staging, но не должен попадать в production без отдельного решения
 - production deploy обязан идти в режиме `TINYCHOK_APP_ENV=production`, чтобы тестовые сущности не попадали в боевой runtime
 - admin production нельзя включать без отдельного ручного решения по env и rollout-проверке staging

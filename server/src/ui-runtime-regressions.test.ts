@@ -2489,9 +2489,18 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   )
   assert.match(overlaySource, /const compactOverlayClassName = ' bubble-overlay-compact'/u)
   assert.match(overlaySource, /bubbleClassNames\.push\('bubble-overlay-compact'\)/u)
+  assert.match(appCss, /\.direct-room-feed,\s*\.group-room-feed,\s*\.room-thread-feed \{\s*gap: 3px;/u)
+  assert.doesNotMatch(
+    appCss,
+    /\.direct-room-feed,\s*\.group-room-feed,\s*\.room-thread-feed \{[^}]*justify-content:\s*flex-end;/u,
+  )
   assert.match(
     appCss,
-    /\.direct-room-feed,\s*\.group-room-feed,\s*\.room-thread-feed \{\s*justify-content: flex-end;\s*gap: 3px;/u,
+    /Cross-browser scroll invariant:[\s\S]*older history above the scroll origin unreachable/u,
+  )
+  assert.match(
+    appCss,
+    /\.direct-room-feed > :first-child,\s*\.group-room-feed > :first-child,\s*\.room-thread-feed > :first-child \{\s*margin-top: auto;/u,
   )
   assert.match(appCss, /\.group-message-row-author-break,\s*\.thread-comment-row-author-break \{\s*margin-top: 9px;/u)
   assert.match(appCss, /\.group-room-feed \.bubble-author-layout,\s*\.room-thread-feed \.bubble-author-layout \{\s*gap: 3px;\s*padding-top: 0;/u)
@@ -3994,7 +4003,7 @@ test('create-group modal explains missing members on submit and keeps the picker
   assert.doesNotMatch(appSource, /if \(creatingGroupBusy \|\| !canCreateGroup \|\| creatingGroupLimitReached\) return/u)
 })
 
-test('attachment picker keeps premium upsell crown inline with premium copy', () => {
+test('attachment picker keeps premium upsell crown inline with premium copy and shows themed action icons', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const pickerSource = readFileSync(join(repoRoot, 'src', 'components', 'ComposerAttachmentPicker.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
@@ -4008,12 +4017,20 @@ test('attachment picker keeps premium upsell crown inline with premium copy', ()
   assert.match(pickerSource, /Документы, архивы и видео до 10 МБ\./u)
   assert.match(pickerSource, /Документы, архивы и видео до 200 МБ\./u)
   assert.match(pickerSource, /composer-attachment-inline-premium/u)
+  assert.match(pickerSource, /composer-attachment-option-icon/u)
+  assert.match(pickerSource, /composer-attachment-option-description/u)
+  assert.match(pickerSource, /\/icons\/picture\.svg/u)
+  assert.match(pickerSource, /\/icons\/videofile\.png/u)
   assert.match(pickerSource, /\/icons\/crown64\.png/u)
   assert.match(pickerSource, /<span>С премиумом<\/span>/u)
   assert.match(appCss, /\.composer-attachment-inline-premium/u)
   assert.match(appCss, /white-space:\s*nowrap/u)
   assert.match(appCss, /vertical-align:\s*baseline/u)
   assert.match(appCss, /\.composer-attachment-premium-crown/u)
+  assert.match(appCss, /\.composer-attachment-option-icon/u)
+  assert.match(appCss, /\.composer-attachment-option-icon img\s*\{[\s\S]*filter:\s*var\(--icon-filter\);/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.composer-attachment-option-icon/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.composer-attachment-option:hover \.composer-attachment-option-icon/u)
 })
 
 test('composers stay on plain textarea inputs without formatting toolbar', () => {
