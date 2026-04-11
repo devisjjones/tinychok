@@ -6679,9 +6679,22 @@
 }
 
 .video-note-recorder-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 42px;
   min-width: 42px;
   height: 42px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.video-note-recorder-close img {
+  width: 18px;
+  height: 18px;
+  display: block;
+  object-fit: contain;
+  filter: var(--icon-filter);
 }
 
 .video-note-recorder-preview-shell {

@@ -5855,6 +5855,23 @@ test('mobile direct-room header shrinks long names before they can run into the 
   assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.room-title-name\s*\{[\s\S]*align-items:\s*flex-start;/u)
 })
 
+test('video-note recorder close button keeps the cancel icon centered inside the pill button', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(recorderSource, /className="soft-button video-note-recorder-close"/u)
+  assert.match(recorderSource, /<img src="\/icons\/cancel\.png" alt="" aria-hidden="true" \/>/u)
+  assert.match(
+    appCss,
+    /\.video-note-recorder-close\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*align-items:\s*center;[\s\S]*justify-content:\s*center;[\s\S]*width:\s*42px;[\s\S]*height:\s*42px;[\s\S]*padding:\s*0;/u,
+  )
+  assert.match(
+    appCss,
+    /\.video-note-recorder-close img\s*\{[\s\S]*width:\s*18px;[\s\S]*height:\s*18px;[\s\S]*display:\s*block;[\s\S]*object-fit:\s*contain;/u,
+  )
+})
+
 test('owned groups and channels show the edit badge in the left rail and room headers', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
