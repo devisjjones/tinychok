@@ -3428,6 +3428,7 @@ function migrateLegacyDatabase(value: LegacyDatabase): Database {
       blockedAt: legacyAccount.blockedAt,
       blockedReason: legacyAccount.blockedReason,
       blockedContactIds: legacyAccount.blockedContactIds ?? [],
+      browserNotificationsEnabled: legacyAccount.browserNotificationsEnabled !== false,
       createdAt: legacyAccount.createdAt,
       darkThemeEnabled: Boolean(legacyAccount.darkThemeEnabled),
       deletedAt: undefined,
@@ -4693,6 +4694,7 @@ export class TinychokStore {
       blockedAt: undefined,
       blockedReason: undefined,
       blockedContactIds: [],
+      browserNotificationsEnabled: true,
       createdAt: new Date().toISOString(),
       deletedAt: undefined,
       deletedBySelfService: undefined,
@@ -9039,6 +9041,10 @@ export class TinychokStore {
       account.avatarImage = payload.avatarImage.trim() || undefined
     }
 
+    if (payload.browserNotificationsEnabled !== undefined) {
+      account.browserNotificationsEnabled = Boolean(payload.browserNotificationsEnabled)
+    }
+
     if (payload.darkThemeEnabled !== undefined) {
       account.darkThemeEnabled = Boolean(payload.darkThemeEnabled)
     }
@@ -12730,6 +12736,7 @@ export class TinychokStore {
         blockedAt: account.blockedAt,
         blockedReason: account.blockedReason,
         blockedContactIds: [...(account.blockedContactIds ?? [])],
+        browserNotificationsEnabled: account.browserNotificationsEnabled !== false,
         darkThemeEnabled: Boolean(account.darkThemeEnabled),
         displayName: account.displayName,
         gifLibrary: [...(account.gifLibrary ?? [])],

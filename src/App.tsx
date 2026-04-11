@@ -16,7 +16,6 @@ import {
   accountStatusMinFontSize,
   accountsStorageKey,
   browserNotificationsBannerDismissedStorageKey,
-  browserNotificationsEnabledStorageKey,
   defaultGroupsPerUserLimit,
   defaultGroupMemberLimit,
   channelActionMenuHeight,
@@ -263,6 +262,7 @@ import {
   getPremiumDaysLeft,
   hasActivePremium,
   isPhoneQuery,
+  isMobileBrowserEnvironment,
   makeDraftChannel,
   matchesQuery,
   moveUnreadItemsFirst,
@@ -526,15 +526,6 @@ function buildBrowserNotificationDigest(
   })
 
   return digest
-}
-
-function loadBrowserNotificationsEnabledPreference() {
-  if (typeof window === 'undefined') return true
-
-  const storedValue = window.localStorage.getItem(browserNotificationsEnabledStorageKey)
-  if (storedValue === null) return true
-
-  return storedValue === 'true'
 }
 
 function buildGroupParticipantFromChat(chat: Chat, participantId?: number): GroupParticipant {
@@ -1361,6 +1352,7 @@ function App() {
   const browserNotificationDigestRef = useRef<BrowserNotificationDigest | null>(null)
   const browserNotificationOpenTargetRef = useRef<(target: BrowserNotificationTarget) => void>(() => {})
   const suppressNextBrowserNotificationDiffRef = useRef(false)
+  const mobileBrowserNotificationsAutoRequestAttemptedRef = useRef(false)
   const previousBrowserNotificationStatusRef = useRef<BrowserNotificationStatus>(
     getBrowserNotificationStatus(),
   )
@@ -1418,8 +1410,8 @@ function App() {
       window.localStorage.getItem(browserNotificationsBannerDismissedStorageKey) === 'true'
     )
   })
-  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(() =>
-    loadBrowserNotificationsEnabledPreference(),
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(
+    () => loadSession()?.browserNotificationsEnabled !== false,
   )
   const [authStep, setAuthStep] = useState<AuthStep>('phone')
   const [displayName, setDisplayName] = useState('')
@@ -2916,8 +2908,16 @@ function App() {
       : null
   const searchShowsPhone = isPhoneQuery(query)
   const browserNotificationsSupported = browserNotificationStatus !== 'unsupported'
+  const mobileBrowserNotificationsEnabledByDefault =
+    Boolean(session) && isMobileBrowserEnvironment() && browserNotificationsEnabled
+  const shouldAutoRequestBrowserNotificationsOnMobile =
+    mobileBrowserNotificationsEnabledByDefault &&
+    browserNotificationsSupported &&
+    browserNotificationStatus === 'default'
   const showBrowserNotificationsBanner =
     browserNotificationsSupported &&
+    browserNotificationsEnabled &&
+    !mobileBrowserNotificationsEnabledByDefault &&
     browserNotificationStatus !== 'granted' &&
     !browserNotificationsBannerDismissed &&
     !searchOpen &&
@@ -2927,10 +2927,8 @@ function App() {
     browserNotificationStatus === 'denied'
       ? 'Разрешение сейчас запрещено браузером. Откройте настройки сайта и включите уведомления.'
       : 'Включите уведомления в браузере, чтобы быть в курсе новых сообщений.'
-  const browserNotificationsDisabled =
-    browserNotificationStatus !== 'granted' || !browserNotificationsEnabled
-  const browserNotificationsToggleDisabled =
-    browserNotificationStatus === 'denied' || browserNotificationStatus === 'unsupported'
+  const browserNotificationsDisabled = !browserNotificationsEnabled
+  const browserNotificationsToggleDisabled = browserNotificationStatus === 'unsupported'
   const totalUnreadCount = availableChats.reduce((sum, chat) => sum + chat.unread, 0)
   // Contacts keep two pending-request buckets, but the bottom-nav badge intentionally
   // reflects only incoming requests. Outgoing pending items are a Contacts-local counter.
@@ -4048,6 +4046,7 @@ function App() {
             ? {
                 ...account,
                 avatarImage: nextSession.avatarImage,
+                browserNotificationsEnabled: nextSession.browserNotificationsEnabled !== false,
                 darkThemeEnabled: Boolean(nextSession.darkThemeEnabled),
                 displayName: nextSession.displayName,
                 surname: nextSession.surname ?? '',
@@ -4072,6 +4071,7 @@ function App() {
           {
             avatarImage: nextSession.avatarImage,
             blockedContactIds: nextSession.blockedContactIds ?? [],
+            browserNotificationsEnabled: nextSession.browserNotificationsEnabled !== false,
             createdAt: new Date().toISOString(),
             darkThemeEnabled: Boolean(nextSession.darkThemeEnabled),
             displayName: nextSession.displayName,
@@ -4098,54 +4098,6 @@ function App() {
   const syncBrowserNotificationStatus = useCallback(() => {
     setBrowserNotificationStatus(getBrowserNotificationStatus())
   }, [])
-
-  const persistBrowserNotificationsEnabled = useCallback((enabled: boolean) => {
-    setBrowserNotificationsEnabled(enabled)
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(browserNotificationsEnabledStorageKey, String(enabled))
-    }
-  }, [])
-
-  const dismissBrowserNotificationsBanner = useCallback(() => {
-    setBrowserNotificationsBannerDismissed(true)
-    trackAnalyticsEvent('browser_notifications_prompt_dismissed', {})
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(browserNotificationsBannerDismissedStorageKey, 'true')
-    }
-  }, [])
-
-  const requestBrowserNotificationsAccess = useCallback(async () => {
-    const nextStatus = await requestBrowserNotificationPermission()
-    setBrowserNotificationStatus(nextStatus)
-    if (nextStatus === 'granted') {
-      persistBrowserNotificationsEnabled(true)
-      trackAnalyticsEvent('browser_notifications_enabled', {
-        source: 'browser-permission-prompt',
-      })
-    }
-    return nextStatus
-  }, [persistBrowserNotificationsEnabled])
-
-  const enableBrowserNotifications = useCallback(async () => {
-    if (browserNotificationStatus === 'granted') {
-      persistBrowserNotificationsEnabled(true)
-      trackAnalyticsEvent('browser_notifications_enabled', {
-        source: 'settings-toggle',
-      })
-      return 'granted'
-    }
-
-    return requestBrowserNotificationsAccess()
-  }, [browserNotificationStatus, persistBrowserNotificationsEnabled, requestBrowserNotificationsAccess])
-
-  const disableBrowserNotifications = useCallback(() => {
-    persistBrowserNotificationsEnabled(false)
-    trackAnalyticsEvent('browser_notifications_disabled', {
-      source: 'settings-toggle',
-    })
-  }, [persistBrowserNotificationsEnabled])
 
   const logout = useCallback(async () => {
     const activeSessionToken = session?.sessionToken
@@ -4266,6 +4218,14 @@ function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [syncBrowserNotificationStatus])
+
+  useEffect(() => {
+    setBrowserNotificationsEnabled(session?.browserNotificationsEnabled !== false)
+  }, [session?.browserNotificationsEnabled])
+
+  useEffect(() => {
+    mobileBrowserNotificationsAutoRequestAttemptedRef.current = false
+  }, [session?.identifier])
 
   useEffect(() => {
     const previousStatus = previousBrowserNotificationStatusRef.current
@@ -4549,6 +4509,89 @@ function App() {
     mergePendingGroupThreadCommentsIntoGroups,
     syncSession,
   ])
+
+  const persistBrowserNotificationsEnabled = useCallback(async (enabled: boolean) => {
+    setBrowserNotificationsEnabled(enabled)
+
+    if (!session) {
+      return
+    }
+
+    if (backendReady && session.sessionToken) {
+      try {
+        const response = await updateSessionRequest(session.sessionToken, {
+          browserNotificationsEnabled: enabled,
+        })
+        applySnapshot(response.snapshot)
+        return
+      } catch (error) {
+        console.error('Failed to update browser notifications preference', error)
+      }
+    }
+
+    syncSession({
+      ...session,
+      browserNotificationsEnabled: enabled,
+    })
+  }, [applySnapshot, backendReady, session, syncSession])
+
+  const dismissBrowserNotificationsBanner = useCallback(() => {
+    setBrowserNotificationsBannerDismissed(true)
+    trackAnalyticsEvent('browser_notifications_prompt_dismissed', {})
+
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(browserNotificationsBannerDismissedStorageKey, 'true')
+    }
+  }, [])
+
+  const requestBrowserNotificationsAccess = useCallback(async (source: string) => {
+    const nextStatus = await requestBrowserNotificationPermission()
+    setBrowserNotificationStatus(nextStatus)
+    if (nextStatus === 'granted') {
+      await persistBrowserNotificationsEnabled(true)
+      trackAnalyticsEvent('browser_notifications_enabled', {
+        source,
+      })
+    }
+    return nextStatus
+  }, [persistBrowserNotificationsEnabled])
+
+  const enableBrowserNotifications = useCallback(async () => {
+    if (browserNotificationStatus === 'granted') {
+      await persistBrowserNotificationsEnabled(true)
+      trackAnalyticsEvent('browser_notifications_enabled', {
+        source: 'settings-toggle',
+      })
+      return 'granted'
+    }
+
+    return requestBrowserNotificationsAccess('settings-toggle')
+  }, [browserNotificationStatus, persistBrowserNotificationsEnabled, requestBrowserNotificationsAccess])
+
+  const disableBrowserNotifications = useCallback(async () => {
+    await persistBrowserNotificationsEnabled(false)
+    trackAnalyticsEvent('browser_notifications_disabled', {
+      source: 'settings-toggle',
+    })
+  }, [persistBrowserNotificationsEnabled])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    if (!shouldAutoRequestBrowserNotificationsOnMobile) return undefined
+    if (mobileBrowserNotificationsAutoRequestAttemptedRef.current) return undefined
+
+    const handleAutoRequest = () => {
+      if (mobileBrowserNotificationsAutoRequestAttemptedRef.current) return
+      mobileBrowserNotificationsAutoRequestAttemptedRef.current = true
+      void requestBrowserNotificationsAccess('mobile-auto-request')
+    }
+
+    window.addEventListener('pointerdown', handleAutoRequest, { once: true })
+
+    return () => {
+      window.removeEventListener('pointerdown', handleAutoRequest)
+    }
+  }, [requestBrowserNotificationsAccess, shouldAutoRequestBrowserNotificationsOnMobile])
 
   const removeStorageItem = useCallback(async (storageItem: UserStorageItem) => {
     if (!backendReady || !session?.sessionToken) {
@@ -16701,7 +16744,7 @@ function App() {
                   type="button"
                   className="browser-notification-banner-main"
                   onClick={() => {
-                    void requestBrowserNotificationsAccess()
+                    void requestBrowserNotificationsAccess('browser-permission-prompt')
                   }}
                 >
                   <span className="browser-notification-banner-icon-wrap" aria-hidden="true">
@@ -17192,7 +17235,7 @@ function App() {
                         disabled={browserNotificationsToggleDisabled}
                         onChange={(event) => {
                           if (event.target.checked) {
-                            disableBrowserNotifications()
+                            void disableBrowserNotifications()
                             return
                           }
 

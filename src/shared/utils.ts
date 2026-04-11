@@ -174,7 +174,7 @@ export function shouldShowDeliveryCaption(message: Pick<Message, 'text' | 'attac
   return formatMessagePreview(message).length >= 18
 }
 
-function isMobileKeyboardEnvironment() {
+export function isMobileBrowserEnvironment() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return false
   }
@@ -188,7 +188,7 @@ function isMobileKeyboardEnvironment() {
 }
 
 export function shouldAutoFocusTextInputOnSceneOpen() {
-  return !isMobileKeyboardEnvironment()
+  return !isMobileBrowserEnvironment()
 }
 
 export function shouldSubmitComposerWithEnter(options: {

@@ -260,6 +260,7 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
       avatarImage: snapshot.session.avatarImage
         ? resolveMediaUrl(snapshot.session.avatarImage)
         : snapshot.session.avatarImage,
+      browserNotificationsEnabled: snapshot.session.browserNotificationsEnabled !== false,
       gifLibrary: snapshot.session.gifLibrary?.map((gif) => normalizeAttachmentMedia(gif)),
       invisibilityAutoEnabled: Boolean(snapshot.session.invisibilityAutoEnabled),
       quietModeSettings: normalizeQuietModeSettings(snapshot.session.quietModeSettings),

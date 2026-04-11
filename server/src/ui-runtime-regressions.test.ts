@@ -36,6 +36,7 @@ function createAccount(
   identifier: string,
   options?: {
     avatarImage?: string
+    browserNotificationsEnabled?: boolean
     darkThemeEnabled?: boolean
     invisibilityAutoEnabled?: boolean
     invisibilityEnabled?: boolean
@@ -63,6 +64,7 @@ function createAccount(
     blockedAt: undefined,
     blockedReason: undefined,
     blockedContactIds: [],
+    browserNotificationsEnabled: options?.browserNotificationsEnabled,
     createdAt: '2026-03-28T00:00:00.000Z',
     deletedAt: undefined,
     deletedBySelfService: undefined,
@@ -1793,6 +1795,27 @@ test('session snapshot persists explicit invisibility preference updates', async
   assert.equal(store.getSnapshotByToken(token)?.session.invisibilityAutoEnabled, false)
 })
 
+test('browser notifications preference persists server-side and defaults to enabled', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const account = createAccount('+79990005053')
+
+  database.accounts.push(account)
+  const token = createSession(database, account.identifier, 'browser-notifications-preference')
+
+  assert.equal(store.getSnapshotByToken(token)?.session.browserNotificationsEnabled, true)
+
+  await store.updateSession(token, {
+    browserNotificationsEnabled: false,
+  })
+  assert.equal(store.getSnapshotByToken(token)?.session.browserNotificationsEnabled, false)
+
+  await store.updateSession(token, {
+    browserNotificationsEnabled: true,
+  })
+  assert.equal(store.getSnapshotByToken(token)?.session.browserNotificationsEnabled, true)
+})
+
 test('self-unsubscribe syncs owner channel readers immediately', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
@@ -3492,6 +3515,43 @@ test('quiet settings scene keeps category-specific notification contract wired t
   assert.match(rolloutDoc, /`Авто-режим невидимки` в non-premium сцене визуально выключен и locked/u)
 })
 
+test('browser notifications preference is server-side and mobile skips the promo banner in favor of one auto-request', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const appStorageSource = readFileSync(join(repoRoot, 'src', 'app', 'storage.ts'), 'utf8')
+  const backendSource = readFileSync(join(repoRoot, 'src', 'app', 'backend.ts'), 'utf8')
+  const appUtilsSource = readFileSync(join(repoRoot, 'src', 'app', 'utils.ts'), 'utf8')
+  const sharedUtilsSource = readFileSync(join(repoRoot, 'src', 'shared', 'utils.ts'), 'utf8')
+  const sharedTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'types.ts'), 'utf8')
+  const sharedBackendSource = readFileSync(join(repoRoot, 'src', 'shared', 'backend.ts'), 'utf8')
+  const storeSource = readFileSync(join(repoRoot, 'server', 'src', 'store.ts'), 'utf8')
+  const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
+  const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
+
+  assert.match(sharedTypesSource, /browserNotificationsEnabled\?: boolean/u)
+  assert.match(sharedBackendSource, /'browserNotificationsEnabled'/u)
+  assert.match(sharedUtilsSource, /export function isMobileBrowserEnvironment/u)
+  assert.match(appUtilsSource, /isMobileBrowserEnvironment/u)
+  assert.match(appStorageSource, /browserNotificationsEnabled: account\.browserNotificationsEnabled !== false/u)
+  assert.match(appStorageSource, /browserNotificationsEnabled: parsed\.browserNotificationsEnabled !== false/u)
+  assert.match(backendSource, /browserNotificationsEnabled: snapshot\.session\.browserNotificationsEnabled !== false/u)
+  assert.match(storeSource, /browserNotificationsEnabled: legacyAccount\.browserNotificationsEnabled !== false/u)
+  assert.match(storeSource, /browserNotificationsEnabled: true/u)
+  assert.match(storeSource, /browserNotificationsEnabled: account\.browserNotificationsEnabled !== false/u)
+  assert.match(storeSource, /payload\.browserNotificationsEnabled !== undefined/u)
+  assert.match(appSource, /const mobileBrowserNotificationsEnabledByDefault =\s*Boolean\(session\) && isMobileBrowserEnvironment\(\) && browserNotificationsEnabled/u)
+  assert.match(appSource, /const shouldAutoRequestBrowserNotificationsOnMobile =/u)
+  assert.match(appSource, /!mobileBrowserNotificationsEnabledByDefault/u)
+  assert.match(appSource, /mobileBrowserNotificationsAutoRequestAttemptedRef/u)
+  assert.match(appSource, /requestBrowserNotificationsAccess\('mobile-auto-request'\)/u)
+  assert.match(appSource, /browserNotificationsDisabled = !browserNotificationsEnabled/u)
+  assert.match(appSource, /browserNotificationsEnabled: enabled/u)
+  assert.match(handoffDoc, /on\/off preference хранится server-side/u)
+  assert.match(handoffDoc, /mobile browser не должен показывать верхнюю promo-card-просьбу/u)
+  assert.match(rolloutDoc, /mobile не показывает promo-card/u)
+  assert.match(rolloutDoc, /`browserNotificationsEnabled` хранится server-side/u)
+})
+
 test('profile settings fields keep lightweight label-and-input layout instead of large wrapper cards', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
@@ -3714,7 +3774,8 @@ test('scene-open composer autofocus stays desktop-only across direct, group, cha
   const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
   const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
 
-  assert.match(sharedUtilsSource, /export function shouldAutoFocusTextInputOnSceneOpen\(\)\s*\{\s*return !isMobileKeyboardEnvironment\(\)\s*\}/u)
+  assert.match(sharedUtilsSource, /export function isMobileBrowserEnvironment\(\)/u)
+  assert.match(sharedUtilsSource, /export function shouldAutoFocusTextInputOnSceneOpen\(\)\s*\{\s*return !isMobileBrowserEnvironment\(\)\s*\}/u)
   assert.match(appUtilsSource, /shouldAutoFocusTextInputOnSceneOpen/u)
   assert.match(directRoomSource, /if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return[\s\S]*draftInputRef\.current\?\.focus\(\)/u)
   assert.match(groupRoomSource, /if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return[\s\S]*draftInputRef\.current\?\.focus\(\)/u)

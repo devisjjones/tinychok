@@ -832,7 +832,11 @@ curl -s https://api.staging.tinychok.ru/healthz
 - password change / reset revokes every other session and should kick old devices out immediately
 - duplicate retries with the same `clientDeliveryId` no longer create duplicate messages / tickets / comments
 - websocket reconnect must not briefly flip `В сети` to offline when an older socket closes after a newer one is already live
-- browser notification prompt / enable / disable / quiet-mode suppress
+- browser notification prompt / enable / disable / quiet-mode suppress:
+  - `browserNotificationsEnabled` хранится server-side и наследуется между desktop/mobile
+  - desktop показывает promo-card включения уведомлений, пока permission не `granted` и настройка не выключена вручную
+  - mobile не показывает promo-card; при включенной настройке permission спрашивается один раз на первом пользовательском тапе
+  - ручное выключение в настройках должно отключать и desktop promo-card, и mobile auto-request
 - admin login под staff account
 - dashboard cards в admin:
   - пользователи

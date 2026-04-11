@@ -11,6 +11,7 @@ export function loadAccounts() {
   try {
     return (JSON.parse(raw) as Account[]).map((account) => ({
       ...account,
+      browserNotificationsEnabled: account.browserNotificationsEnabled !== false,
       darkThemeEnabled: Boolean(account.darkThemeEnabled),
       quietModeEnabled: Boolean(account.quietModeEnabled),
       quietModeSettings: normalizeQuietModeSettings(account.quietModeSettings),
@@ -36,6 +37,7 @@ export function loadSession() {
     const parsed = JSON.parse(raw) as Session
     return {
       ...parsed,
+      browserNotificationsEnabled: parsed.browserNotificationsEnabled !== false,
       darkThemeEnabled: Boolean(parsed.darkThemeEnabled),
       quietModeEnabled: Boolean(parsed.quietModeEnabled),
       quietModeSettings: normalizeQuietModeSettings(parsed.quietModeSettings),

@@ -40,6 +40,7 @@ export {
   hasActivePremium,
   insertComposerTextAtCursor,
   isImageMimeType,
+  isMobileBrowserEnvironment,
   isStandaloneEmojiMessageText,
   isVideoNoteAttachment,
   isVideoMimeType,
