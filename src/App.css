@@ -9781,6 +9781,17 @@ html[data-theme='dark'] .emoji-picker-gif-blocked p {
   color: var(--muted);
 }
 
+html[data-theme='dark'] .emoji-picker-gif-search-input {
+  color: var(--ink);
+  caret-color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+}
+
+html[data-theme='dark'] .emoji-picker-gif-search-input::placeholder {
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+}
+
 html[data-theme='dark'] .premium-annual-badge,
 html[data-theme='dark'] .composer-attachment-storage-warning-link {
   background: rgba(164, 91, 78, 0.18);

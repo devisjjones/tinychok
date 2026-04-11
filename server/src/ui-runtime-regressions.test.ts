@@ -4583,6 +4583,14 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   )
   assert.match(
     appCss,
+    /html\[data-theme='dark'\] \.emoji-picker-gif-search-input\s*\{[\s\S]*color:\s*var\(--ink\);[\s\S]*caret-color:\s*var\(--ink\);[\s\S]*-webkit-text-fill-color:\s*var\(--ink\);/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.emoji-picker-gif-search-input::placeholder\s*\{[\s\S]*color:\s*var\(--muted\);[\s\S]*-webkit-text-fill-color:\s*var\(--muted\);/u,
+  )
+  assert.match(
+    appCss,
     /html\[data-theme='dark'\] \.emoji-picker-tab,\s*[\s\S]*\.emoji-picker-gif-upload-button,\s*[\s\S]*\.emoji-picker-expand-button,\s*[\s\S]*\.room-menu-item,\s*[\s\S]*\.message-menu-item,\s*[\s\S]*\.video-note-recorder-preview-shell,\s*[\s\S]*\.bubble-attachment-video-fallback\s*\{[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.08\);[\s\S]*color:\s*var\(--ink\);/u,
   )
   assert.match(
