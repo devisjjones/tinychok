@@ -4973,6 +4973,19 @@
   border-radius: inherit;
 }
 
+.bubble-attachment-video-note-progress {
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, transparent calc(100% - 4px), rgba(255, 255, 255, 0.14) calc(100% - 4px)),
+    conic-gradient(
+      rgba(245, 226, 209, 0.94) calc(var(--video-note-playback-progress, 0) * 1turn),
+      rgba(255, 255, 255, 0.14) 0
+    );
+  pointer-events: none;
+}
+
 .bubble-attachment-video-note-shell {
   display: inline-grid;
   justify-items: end;

@@ -5945,15 +5945,17 @@ test('video-note messages render as standalone circles without a rectangular med
 test('video-note bubbles play inline inside the circle instead of opening the global media viewer overlay', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(bubbleSource, /const \[isVideoNotePlaying, setIsVideoNotePlaying\] = useState\(false\)/u)
+  assert.match(bubbleSource, /const \[videoNotePlaybackProgress, setVideoNotePlaybackProgress\] = useState\(0\)/u)
   assert.match(
     bubbleSource,
     /onClick=\{\(event: ReactMouseEvent<HTMLDivElement>\) => \{[\s\S]*if \(isVideoNote\) \{[\s\S]*setIsVideoNotePlaying\(\(current\) => !current\)[\s\S]*return[\s\S]*\}[\s\S]*onOpenAttachment\?\.\(message\.attachment!\)/u,
   )
   assert.match(
     bubbleSource,
-    /<VideoAttachmentPreview[\s\S]*isInlinePlaying=\{isVideoNotePlaying\}[\s\S]*onInlinePlaybackStateChange=\{setIsVideoNotePlaying\}/u,
+    /<VideoAttachmentPreview[\s\S]*isInlinePlaying=\{isVideoNotePlaying\}[\s\S]*onInlinePlaybackProgressChange=\{setVideoNotePlaybackProgress\}[\s\S]*onInlinePlaybackStateChange=\{setIsVideoNotePlaying\}/u,
   )
   assert.match(
     bubbleSource,
@@ -5961,10 +5963,33 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   )
   assert.match(
     bubbleSource,
-    /if \(isVideoNote && isInlinePlaying\) \{[\s\S]*<video[\s\S]*ref=\{inlineVideoRef\}[\s\S]*src=\{mediaUrl\}[\s\S]*playsInline[\s\S]*preload="metadata"[\s\S]*onEnded=\{\(event\) => \{[\s\S]*currentTime = 0[\s\S]*onInlinePlaybackStateChange\?\.\(false\)/u,
+    /isVideoNote && isVideoNotePlaying \? \([\s\S]*className="bubble-attachment-video-note-progress"[\s\S]*'--video-note-playback-progress': `\$\{videoNotePlaybackProgress\}`/u,
+  )
+  assert.match(
+    bubbleSource,
+    /function normalizeInlinePlaybackProgress\(currentTime: number, duration: number\) \{[\s\S]*return Math\.min\(1, Math\.max\(0, currentTime \/ duration\)\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /if \(isVideoNote && isInlinePlaying\) \{[\s\S]*<video[\s\S]*ref=\{inlineVideoRef\}[\s\S]*src=\{mediaUrl\}[\s\S]*playsInline[\s\S]*preload="metadata"/u,
+  )
+  assert.match(
+    bubbleSource,
+    /onLoadedMetadata=\{\(event\) => \{[\s\S]*onInlinePlaybackProgressChange\?\.\([\s\S]*normalizeInlinePlaybackProgress\(event\.currentTarget\.currentTime,\s*event\.currentTarget\.duration\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /onTimeUpdate=\{\(event\) => \{[\s\S]*onInlinePlaybackProgressChange\?\.\([\s\S]*normalizeInlinePlaybackProgress\(event\.currentTarget\.currentTime,\s*event\.currentTarget\.duration\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /onEnded=\{\(event\) => \{[\s\S]*event\.currentTarget\.currentTime = 0[\s\S]*onInlinePlaybackProgressChange\?\.\(0\)[\s\S]*onInlinePlaybackStateChange\?\.\(false\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /onError=\{\(\) => \{[\s\S]*setPreviewFailed\(true\)[\s\S]*onInlinePlaybackProgressChange\?\.\(0\)[\s\S]*onInlinePlaybackStateChange\?\.\(false\)/u,
   )
   assert.match(bubbleSource, /isVideoNote && isVideoNotePlaying \? null : \(/u)
-  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
   assert.match(
     appCss,
     /\.bubble\.media-only-bubble:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*min\(440px,\s*100%\);[\s\S]*max-width:\s*min\(440px,\s*100%\);/u,
@@ -5972,6 +5997,10 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   assert.match(
     appCss,
     /\.bubble-attachment-video-note-shell\.is-inline-playing\s*\{[\s\S]*width:\s*min\(440px,\s*100%\);[\s\S]*max-width:\s*min\(440px,\s*calc\(100vw - 72px\),\s*100%\);[\s\S]*justify-items:\s*stretch;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-video-note-progress\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*-4px;[\s\S]*border-radius:\s*999px;[\s\S]*conic-gradient\([\s\S]*--video-note-playback-progress/u,
   )
 })
 

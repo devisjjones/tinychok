@@ -1,4 +1,5 @@
 import React, {
+  type CSSProperties,
   useEffect,
   useRef,
   type MouseEvent as ReactMouseEvent,
@@ -106,7 +107,16 @@ type VideoAttachmentPreviewProps = {
   isInlinePlaying?: boolean
   isVideoNote: boolean
   mediaUrl: string
+  onInlinePlaybackProgressChange?: (progress: number) => void
   onInlinePlaybackStateChange?: (playing: boolean) => void
+}
+
+function normalizeInlinePlaybackProgress(currentTime: number, duration: number) {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return 0
+  }
+
+  return Math.min(1, Math.max(0, currentTime / duration))
 }
 
 function VideoAttachmentPreview({
@@ -114,6 +124,7 @@ function VideoAttachmentPreview({
   isInlinePlaying = false,
   isVideoNote,
   mediaUrl,
+  onInlinePlaybackProgressChange,
   onInlinePlaybackStateChange,
 }: VideoAttachmentPreviewProps) {
   const [previewFailed, setPreviewFailed] = useState(false)
@@ -138,10 +149,11 @@ function VideoAttachmentPreview({
     const playResult = inlineVideo.play()
     if (playResult && typeof playResult.catch === 'function') {
       void playResult.catch(() => {
+        onInlinePlaybackProgressChange?.(0)
         onInlinePlaybackStateChange?.(false)
       })
     }
-  }, [isInlinePlaying, isVideoNote, mediaUrl, onInlinePlaybackStateChange])
+  }, [isInlinePlaying, isVideoNote, mediaUrl, onInlinePlaybackProgressChange, onInlinePlaybackStateChange])
 
   if (previewFailed) {
     return <span className={`${imageClassName} bubble-attachment-video-fallback`} aria-hidden="true" />
@@ -156,12 +168,24 @@ function VideoAttachmentPreview({
         playsInline
         preload="metadata"
         poster={/^(blob:|data:)/u.test(mediaUrl) ? undefined : previewUrl}
+        onLoadedMetadata={(event) => {
+          onInlinePlaybackProgressChange?.(
+            normalizeInlinePlaybackProgress(event.currentTarget.currentTime, event.currentTarget.duration),
+          )
+        }}
+        onTimeUpdate={(event) => {
+          onInlinePlaybackProgressChange?.(
+            normalizeInlinePlaybackProgress(event.currentTarget.currentTime, event.currentTarget.duration),
+          )
+        }}
         onEnded={(event) => {
           event.currentTarget.currentTime = 0
+          onInlinePlaybackProgressChange?.(0)
           onInlinePlaybackStateChange?.(false)
         }}
         onError={() => {
           setPreviewFailed(true)
+          onInlinePlaybackProgressChange?.(0)
           onInlinePlaybackStateChange?.(false)
         }}
       />
@@ -625,6 +649,7 @@ export function BubbleMessageContent({
   const trimmedText = message.text.trim()
   const isVideoNote = Boolean(message.attachment && isVideoNoteAttachment(message.attachment))
   const [isVideoNotePlaying, setIsVideoNotePlaying] = useState(false)
+  const [videoNotePlaybackProgress, setVideoNotePlaybackProgress] = useState(0)
   const isVideoAttachment = Boolean(
     message.attachment && isVideoMimeType(message.attachment.mimeType),
   )
@@ -685,7 +710,14 @@ export function BubbleMessageContent({
 
   useEffect(() => {
     setIsVideoNotePlaying(false)
+    setVideoNotePlaybackProgress(0)
   }, [isVideoNote, message.attachment?.mediaUrl])
+
+  useEffect(() => {
+    if (!isVideoNotePlaying) {
+      setVideoNotePlaybackProgress(0)
+    }
+  }, [isVideoNotePlaying])
 
   const visualAttachmentNode = hasVisualAttachment ? (
     <div
@@ -709,6 +741,17 @@ export function BubbleMessageContent({
         onOpenAttachment?.(message.attachment!)
       }}
     >
+      {isVideoNote && isVideoNotePlaying ? (
+        <span
+          className="bubble-attachment-video-note-progress"
+          aria-hidden="true"
+          style={
+            {
+              '--video-note-playback-progress': `${videoNotePlaybackProgress}`,
+            } as CSSProperties
+          }
+        />
+      ) : null}
       {isVideoAttachment ? (
         <>
           <VideoAttachmentPreview
@@ -716,6 +759,7 @@ export function BubbleMessageContent({
             isInlinePlaying={isVideoNotePlaying}
             isVideoNote={isVideoNote}
             mediaUrl={message.attachment!.mediaUrl}
+            onInlinePlaybackProgressChange={setVideoNotePlaybackProgress}
             onInlinePlaybackStateChange={setIsVideoNotePlaying}
           />
           {isVideoNote && isVideoNotePlaying ? null : (

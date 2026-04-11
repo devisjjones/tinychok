@@ -228,6 +228,9 @@
 - inline playback кружочка должен расширять сам круг примерно до `440px`, но не ломать room layout:
   - playing-state обязан расти только в пределах доступной ширины комнаты
   - если room уже уже этого значения, кружочек должен упереться в width комнаты, а не обрезаться прямоугольным bubble max-width из общего text/media path
+- во время inline playback по краю кружочка должен идти визуальный progress-ring:
+  - он показывает оставшуюся длину ролика
+  - это отдельный кастомный UI-слой, а не browser video controls
 
 ### PostgreSQL Runtime Layout
 
