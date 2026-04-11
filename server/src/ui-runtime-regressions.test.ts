@@ -6025,6 +6025,8 @@ test('video-note recorder auto-sends after stop and keeps retry on the same clip
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
 
+  assert.match(recorderSource, /state === 'recording'[\s\S]*\?\s*'Отправить'/u)
+  assert.doesNotMatch(recorderSource, /state === 'recording'[\s\S]*\?\s*'Остановить запись'/u)
   assert.match(
     recorderSource,
     /recorder\.onstop = \(\) => \{[\s\S]*reviewBlobRef\.current = nextBlob[\s\S]*setPreviewUrl\(URL\.createObjectURL\(nextBlob\)\)[\s\S]*setState\('review'\)[\s\S]*void handleUse\(\)/u,

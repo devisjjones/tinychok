@@ -323,7 +323,7 @@ export function VideoNoteRecorderOverlay({
   const showingRecordedPreview = Boolean(previewUrl) && (state === 'review' || state === 'error')
   const mainActionLabel =
     state === 'recording'
-      ? 'Остановить запись'
+      ? 'Отправить'
       : state === 'error' && recordedClipAvailable
         ? 'Отправить снова'
       : state === 'review'
