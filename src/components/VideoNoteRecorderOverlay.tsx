@@ -359,7 +359,6 @@ export function VideoNoteRecorderOverlay({
             <video
               src={previewUrl}
               className="video-note-recorder-preview"
-              controls
               playsInline
               preload="metadata"
             />

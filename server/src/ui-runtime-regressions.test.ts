@@ -5872,6 +5872,20 @@ test('video-note recorder close button keeps the cancel icon centered inside the
   )
 })
 
+test('video-note recorder review preview stays control-free inside the circular bubble', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
+
+  assert.match(
+    recorderSource,
+    /state === 'review' && previewUrl \? \([\s\S]*<video[\s\S]*src=\{previewUrl\}[\s\S]*className="video-note-recorder-preview"[\s\S]*playsInline[\s\S]*preload="metadata"[\s\S]*\/>/u,
+  )
+  assert.doesNotMatch(
+    recorderSource,
+    /state === 'review' && previewUrl \? \([\s\S]*<video[\s\S]*controls[\s\S]*className="video-note-recorder-preview"/u,
+  )
+})
+
 test('video-note recorder sends immediately after confirm instead of parking the clip in composer draft state', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
