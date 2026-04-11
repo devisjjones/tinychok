@@ -7,6 +7,10 @@ export const videoNoteRecorderMimeTypeCandidates = [
   'video/mp4',
 ] as const
 
+function normalizeVideoNoteMimeType(mimeType: string) {
+  return mimeType.split(';', 1)[0]?.trim().toLowerCase() || 'video/webm'
+}
+
 type MediaRecorderSupportLike = {
   isTypeSupported?: (mimeType: string) => boolean
 }
@@ -51,7 +55,7 @@ export function isVideoNoteRecordingSupported(
 }
 
 export function getVideoNoteFileExtension(mimeType: string) {
-  const normalizedMimeType = mimeType.trim().toLowerCase()
+  const normalizedMimeType = normalizeVideoNoteMimeType(mimeType)
 
   if (normalizedMimeType.includes('mp4')) {
     return '.mp4'
@@ -80,7 +84,7 @@ export function buildVideoNoteFile(
   },
 ) {
   const now = options?.now ?? new Date()
-  const mimeType = blob.type.trim() || options?.mimeType?.trim() || 'video/webm'
+  const mimeType = normalizeVideoNoteMimeType(blob.type || options?.mimeType || 'video/webm')
   const fileName = buildVideoNoteFileName(now, mimeType)
 
   return new File([blob], fileName, {

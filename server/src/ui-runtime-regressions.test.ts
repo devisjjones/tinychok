@@ -5878,15 +5878,35 @@ test('video-note recorder review preview stays control-free inside the circular 
 
   assert.match(
     recorderSource,
-    /state === 'review' && previewUrl \? \([\s\S]*<video[\s\S]*src=\{previewUrl\}[\s\S]*className="video-note-recorder-preview"[\s\S]*playsInline[\s\S]*preload="metadata"[\s\S]*\/>/u,
+    /showingRecordedPreview \? \([\s\S]*<video[\s\S]*src=\{previewUrl\}[\s\S]*className="video-note-recorder-preview"[\s\S]*playsInline[\s\S]*preload="metadata"[\s\S]*\/>/u,
   )
   assert.doesNotMatch(
     recorderSource,
-    /state === 'review' && previewUrl \? \([\s\S]*<video[\s\S]*controls[\s\S]*className="video-note-recorder-preview"/u,
+    /showingRecordedPreview \? \([\s\S]*<video[\s\S]*controls[\s\S]*className="video-note-recorder-preview"/u,
+  )
+  assert.match(
+    recorderSource,
+    /const showingRecordedPreview = Boolean\(previewUrl\) && \(state === 'review' \|\| state === 'error'\)/u,
+  )
+  assert.match(recorderSource, /showingRecordedPreview \? null : \(/u)
+})
+
+test('video-note recorder auto-sends after stop and keeps retry on the same clip after an error', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
+
+  assert.match(
+    recorderSource,
+    /recorder\.onstop = \(\) => \{[\s\S]*reviewBlobRef\.current = nextBlob[\s\S]*setPreviewUrl\(URL\.createObjectURL\(nextBlob\)\)[\s\S]*setState\('review'\)[\s\S]*void handleUse\(\)/u,
+  )
+  assert.match(recorderSource, /state === 'error' && recordedClipAvailable[\s\S]*'Отправить снова'/u)
+  assert.match(
+    recorderSource,
+    /if \(state === 'review' \|\| \(state === 'error' && reviewBlobRef\.current\)\) \{[\s\S]*void handleUse\(\)/u,
   )
 })
 
-test('video-note recorder sends immediately after confirm instead of parking the clip in composer draft state', () => {
+test('video-note recorder still routes immediate sends through the shared room send pipeline instead of composer draft parking', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
 

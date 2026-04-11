@@ -116,7 +116,7 @@ function sanitizeAttachmentFileBaseName(baseName: string) {
 }
 
 function resolveComposerAttachmentMimeType(fileName: string, mimeType: string | undefined) {
-  const normalizedMimeType = mimeType?.trim().toLowerCase() ?? ''
+  const normalizedMimeType = mimeType?.split(';', 1)[0]?.trim().toLowerCase() ?? ''
 
   if (normalizedMimeType && normalizedMimeType !== 'application/octet-stream') {
     return normalizedMimeType

@@ -203,6 +203,7 @@ export function VideoNoteRecorderOverlay({
       }
       recorder.onstop = () => {
         clearTimers()
+        const nextElapsedMs = Math.min(videoNoteRecordingLimitMs, Math.max(0, Date.now() - startedAtRef.current))
 
         const nextBlob = new Blob(chunksRef.current, {
           type: recorder.mimeType || resolveSupportedVideoNoteMimeType(MediaRecorder) || 'video/webm',
@@ -219,8 +220,9 @@ export function VideoNoteRecorderOverlay({
 
         reviewBlobRef.current = nextBlob
         setPreviewUrl(URL.createObjectURL(nextBlob))
-        setElapsedMs(videoNoteRecordingLimitMs)
+        setElapsedMs(nextElapsedMs)
         setState('review')
+        void handleUse()
       }
 
       recorder.start(250)
@@ -303,7 +305,7 @@ export function VideoNoteRecorderOverlay({
       return
     }
 
-    if (!streamRef.current || state === 'review') {
+    if (!streamRef.current || state === 'review' || state === 'error') {
       livePreviewElement.srcObject = null
       return
     }
@@ -317,9 +319,13 @@ export function VideoNoteRecorderOverlay({
   }, [state, streamVersion])
 
   const recordingProgress = clampVideoNoteRecordingProgress(elapsedMs)
+  const recordedClipAvailable = Boolean(reviewBlobRef.current)
+  const showingRecordedPreview = Boolean(previewUrl) && (state === 'review' || state === 'error')
   const mainActionLabel =
     state === 'recording'
       ? 'Остановить запись'
+      : state === 'error' && recordedClipAvailable
+        ? 'Отправить снова'
       : state === 'review'
         ? 'Использовать'
         : 'Начать запись'
@@ -355,7 +361,7 @@ export function VideoNoteRecorderOverlay({
         </div>
 
         <div className="video-note-recorder-preview-shell">
-          {state === 'review' && previewUrl ? (
+          {showingRecordedPreview ? (
             <video
               src={previewUrl}
               className="video-note-recorder-preview"
@@ -371,20 +377,22 @@ export function VideoNoteRecorderOverlay({
               autoPlay
             />
           )}
-          <div className="video-note-recorder-preview-overlay">
-            <span className={`video-note-recorder-state video-note-recorder-state-${state}`}>
-              {state === 'requesting-permission'
-                ? 'Запрашиваем доступ к камере...'
-                : state === 'ready'
-                  ? 'Готово к записи'
-                  : state === 'recording'
-                    ? 'Идёт запись'
-                    : state === 'review'
-                      ? 'Проверьте запись'
-                      : 'Ошибка'}
-            </span>
-            <span className="video-note-recorder-timer">{formatRecordingTimer(elapsedMs)}</span>
-          </div>
+          {showingRecordedPreview ? null : (
+            <div className="video-note-recorder-preview-overlay">
+              <span className={`video-note-recorder-state video-note-recorder-state-${state}`}>
+                {state === 'requesting-permission'
+                  ? 'Запрашиваем доступ к камере...'
+                  : state === 'ready'
+                    ? 'Готово к записи'
+                    : state === 'recording'
+                      ? 'Идёт запись'
+                      : state === 'review'
+                        ? 'Проверьте запись'
+                        : 'Ошибка'}
+              </span>
+              <span className="video-note-recorder-timer">{formatRecordingTimer(elapsedMs)}</span>
+            </div>
+          )}
         </div>
 
         <div
@@ -418,7 +426,7 @@ export function VideoNoteRecorderOverlay({
               state === 'recording' ? ' recording' : ''
             }`}
             onClick={() => {
-              if (state === 'review') {
+              if (state === 'review' || (state === 'error' && reviewBlobRef.current)) {
                 void handleUse()
                 return
               }

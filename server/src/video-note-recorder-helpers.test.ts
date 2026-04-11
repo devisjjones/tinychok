@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { buildComposerAttachmentDraft } from '../../src/app/composerAttachments'
 import {
+  buildVideoNoteFile,
   buildVideoNoteFileName,
   clampVideoNoteRecordingProgress,
   resolveSupportedVideoNoteMimeType,
@@ -22,6 +24,22 @@ test('video-note recorder prefers the strongest supported mime candidate first',
 test('video-note recorder filename uses deterministic timestamp and extension', () => {
   const fileName = buildVideoNoteFileName(new Date(2026, 3, 11, 12, 34, 56), 'video/mp4')
   assert.equal(fileName, 'video-note-20260411-123456.mp4')
+})
+
+test('video-note recorder normalizes codec mime parameters into a sendable ready draft', async () => {
+  const file = buildVideoNoteFile(new Blob(['video-note'], { type: 'video/webm;codecs=vp8,opus' }), {
+    now: new Date(2026, 3, 11, 12, 34, 56),
+  })
+  const draft = await buildComposerAttachmentDraft(file, {
+    presentation: 'video-note',
+    previewUrl: 'blob:video-note-preview',
+  })
+
+  assert.equal(file.name, 'video-note-20260411-123456.webm')
+  assert.equal(file.type, 'video/webm')
+  assert.equal(draft.status, 'ready')
+  assert.equal(draft.kind, 'video-note')
+  assert.equal(draft.mimeType, 'video/webm')
 })
 
 test('video-note recorder progress clamps and auto-stop triggers at the 30-second limit', () => {
