@@ -692,6 +692,8 @@ export function BubbleMessageContent({
       className={`bubble-attachment bubble-attachment-photo bubble-attachment-button${
         hasBodyBelowAttachment ? ' has-body-below' : ' image-only'
       }${isVideoNote ? ' bubble-attachment-photo-video-note' : ''}${
+        isVideoNote && isVideoNotePlaying ? ' is-inline-playing' : ''
+      }${
         attachmentLayout === 'thread-source-thumbnail'
           ? ' bubble-attachment-photo-thread-source-thumbnail'
           : attachmentLayout === 'thread-source-card'
@@ -758,7 +760,11 @@ export function BubbleMessageContent({
   const attachmentNode = message.attachment ? (
     hasVisualAttachment ? (
       isVideoNote ? (
-        <div className="bubble-attachment-video-note-shell">
+        <div
+          className={`bubble-attachment-video-note-shell${
+            isVideoNotePlaying ? ' is-inline-playing' : ''
+          }`}
+        >
           {visualAttachmentNode}
           {imageOverlay ? <span className="bubble-attachment-video-note-meta">{imageOverlay}</span> : null}
         </div>

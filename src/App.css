@@ -4374,6 +4374,14 @@
   color: inherit;
 }
 
+.bubble.media-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
+.bubble-overlay.bubble-button.selected.media-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
+.channel-post.media-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
+.channel-post.media-only-bubble.selected:has(.bubble-attachment-photo-video-note.is-inline-playing) {
+  width: min(440px, 100%);
+  max-width: min(440px, 100%);
+}
+
 .threaded-bubble.has-thread .threaded-bubble-main > .bubble.media-only-bubble,
 .threaded-bubble.has-thread
   .threaded-bubble-main
@@ -4946,6 +4954,7 @@
   aspect-ratio: 1;
   border-radius: 999px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: width 180ms ease, box-shadow 180ms ease;
 }
 
 .bubble-attachment-photo-video-note.has-body-below {
@@ -4974,6 +4983,18 @@
 
 .bubble-attachment-video-note-shell > .bubble-attachment-photo-video-note {
   justify-self: start;
+}
+
+.bubble-attachment-video-note-shell.is-inline-playing {
+  width: min(440px, 100%);
+  max-width: min(440px, calc(100vw - 72px), 100%);
+  justify-items: stretch;
+}
+
+.bubble-attachment-video-note-shell.is-inline-playing > .bubble-attachment-photo-video-note {
+  justify-self: stretch;
+  width: 100%;
+  max-width: 100%;
 }
 
 .bubble-attachment-video-note-meta {

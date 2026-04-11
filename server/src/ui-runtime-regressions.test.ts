@@ -5924,7 +5924,10 @@ test('video-note messages render as standalone circles without a rectangular med
   const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
-  assert.match(bubbleSource, /<div className="bubble-attachment-video-note-shell">[\s\S]*<span className="bubble-attachment-video-note-meta">\{imageOverlay\}<\/span>/u)
+  assert.match(
+    bubbleSource,
+    /className=\{`bubble-attachment-video-note-shell\$\{[\s\S]*isVideoNotePlaying \? ' is-inline-playing' : ''[\s\S]*\}`\}[\s\S]*<span className="bubble-attachment-video-note-meta">\{imageOverlay\}<\/span>/u,
+  )
   assert.match(
     appCss,
     /\.bubble\.media-only-bubble:has\(\.bubble-attachment-photo-video-note\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\)\s*\{[\s\S]*background:\s*transparent;[\s\S]*box-shadow:\s*none;[\s\S]*outline:\s*none;[\s\S]*border-radius:\s*0;[\s\S]*overflow:\s*visible;/u,
@@ -5954,9 +5957,22 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   )
   assert.match(
     bubbleSource,
+    /bubble-attachment-photo-video-note' : ''\}\$\{[\s\S]*isVideoNote && isVideoNotePlaying \? ' is-inline-playing' : ''/u,
+  )
+  assert.match(
+    bubbleSource,
     /if \(isVideoNote && isInlinePlaying\) \{[\s\S]*<video[\s\S]*ref=\{inlineVideoRef\}[\s\S]*src=\{mediaUrl\}[\s\S]*playsInline[\s\S]*preload="metadata"[\s\S]*onEnded=\{\(event\) => \{[\s\S]*currentTime = 0[\s\S]*onInlinePlaybackStateChange\?\.\(false\)/u,
   )
   assert.match(bubbleSource, /isVideoNote && isVideoNotePlaying \? null : \(/u)
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  assert.match(
+    appCss,
+    /\.bubble\.media-only-bubble:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*min\(440px,\s*100%\);[\s\S]*max-width:\s*min\(440px,\s*100%\);/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-video-note-shell\.is-inline-playing\s*\{[\s\S]*width:\s*min\(440px,\s*100%\);[\s\S]*max-width:\s*min\(440px,\s*calc\(100vw - 72px\),\s*100%\);[\s\S]*justify-items:\s*stretch;/u,
+  )
 })
 
 test('video-note recorder auto-sends after stop and keeps retry on the same clip after an error', () => {
