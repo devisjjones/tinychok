@@ -5872,6 +5872,22 @@ test('video-note recorder close button keeps the cancel icon centered inside the
   )
 })
 
+test('video-note recorder sends immediately after confirm instead of parking the clip in composer draft state', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+
+  assert.match(appSource, /async function prepareVideoNoteDraftForImmediateSend\(file: File\)/u)
+  assert.match(appSource, /createComposerDraft\(file,\s*\{[\s\S]*presentation:\s*'video-note'/u)
+  assert.match(appSource, /void sendMessage\(nextAttachmentDraft\)/u)
+  assert.match(appSource, /void sendGroupMessage\(nextAttachmentDraft\)/u)
+  assert.match(appSource, /void sendManagedChannelPost\(nextAttachmentDraft\)/u)
+  assert.match(appSource, /void submitThreadComment\(nextAttachmentDraft\)/u)
+  assert.doesNotMatch(appSource, /attachVideoNoteToChat/u)
+  assert.doesNotMatch(appSource, /attachVideoNoteToGroup/u)
+  assert.doesNotMatch(appSource, /attachVideoNoteToChannel/u)
+  assert.doesNotMatch(appSource, /attachVideoNoteToThread/u)
+})
+
 test('owned groups and channels show the edit badge in the left rail and room headers', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')

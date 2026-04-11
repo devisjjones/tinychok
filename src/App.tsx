@@ -6527,27 +6527,24 @@ function App() {
     })
   }
 
-  async function attachVideoNoteDraft(
-    file: File,
-    options: {
-      clearDraftText: () => void
-      getSelectionToken: () => number
-      replaceDraft: (draft: ComposerAttachmentDraft) => void
-      restorePreparedDraft: (selectionToken: number, draft: ComposerAttachmentDraft) => void
-    },
-  ) {
-    options.clearDraftText()
-    const selectionToken = options.getSelectionToken()
-    const preparingDraft = createPreparingComposerAttachmentDraft(file, {
-      presentation: 'video-note',
-    })
-    options.replaceDraft(preparingDraft)
-
+  async function prepareVideoNoteDraftForImmediateSend(file: File) {
     const nextAttachmentDraft = await createComposerDraft(file, {
       presentation: 'video-note',
-      previewUrl: preparingDraft.previewUrl,
     })
-    options.restorePreparedDraft(selectionToken, nextAttachmentDraft)
+
+    if (nextAttachmentDraft.status === 'error') {
+      const nextErrorMessage =
+        nextAttachmentDraft.error?.trim() || 'Не удалось подготовить видеосообщение.'
+      releaseComposerAttachmentDraft(nextAttachmentDraft)
+      throw new Error(nextErrorMessage)
+    }
+
+    if (nextAttachmentDraft.status !== 'ready') {
+      releaseComposerAttachmentDraft(nextAttachmentDraft)
+      throw new Error('Не удалось подготовить видеосообщение.')
+    }
+
+    return nextAttachmentDraft
   }
 
   function getClipboardImageFile(event: ReactClipboardEvent<HTMLElement>) {
@@ -7910,13 +7907,13 @@ function App() {
     }
   }
 
-  async function sendMessage() {
+  async function sendMessage(attachmentDraftOverride?: ComposerAttachmentDraft) {
     if (!activeChat) return
     if (activeChat.blockedByAdmin) return
     if ((activeChat.contactState ?? 'accepted') !== 'accepted') return
 
     const chatId = activeChat.id
-    const attachmentDraft = chatAttachmentDrafts[chatId]
+    const attachmentDraft = attachmentDraftOverride ?? chatAttachmentDrafts[chatId]
     const text = isVideoNoteDraft(attachmentDraft) ? '' : (chatMessageDrafts[chatId] ?? '').trim()
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = replyTarget
@@ -7928,6 +7925,9 @@ function App() {
       : undefined
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
     const sourceContact = resolveEmbeddedContactFromText(text)
+    if (attachmentDraftOverride) {
+      releaseComposerAttachmentDraft(attachmentDraftOverride)
+    }
 
     if (!text && !attachment) return
 
@@ -8042,12 +8042,12 @@ function App() {
     }))
   }
 
-  async function sendGroupMessage() {
+  async function sendGroupMessage(attachmentDraftOverride?: ComposerAttachmentDraft) {
     if (!activeGroup) return
     if (activeGroupWriteBlockReason) return
 
     const groupId = activeGroup.id
-    const attachmentDraft = groupAttachmentDrafts[groupId]
+    const attachmentDraft = attachmentDraftOverride ?? groupAttachmentDrafts[groupId]
     const text = isVideoNoteDraft(attachmentDraft) ? '' : (groupMessageDrafts[groupId] ?? '').trim()
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = replyTarget
@@ -8058,6 +8058,9 @@ function App() {
         }
       : undefined
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
+    if (attachmentDraftOverride) {
+      releaseComposerAttachmentDraft(attachmentDraftOverride)
+    }
     const sourceContact = resolveEmbeddedContactFromText(text)
     if (!text && !attachment) return
 
@@ -8151,15 +8154,18 @@ function App() {
     }
   }
 
-  async function sendManagedChannelPost() {
+  async function sendManagedChannelPost(attachmentDraftOverride?: ComposerAttachmentDraft) {
     if (!ownedCurrentManagedChannel || !currentSubscriptionChannel) return
 
-    const attachmentDraft = channelAttachmentDrafts[currentSubscriptionChannel.id]
+    const attachmentDraft = attachmentDraftOverride ?? channelAttachmentDrafts[currentSubscriptionChannel.id]
     const text = isVideoNoteDraft(attachmentDraft)
       ? ''
       : (channelPostDrafts[currentSubscriptionChannel.id] ?? '').trim()
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
+    if (attachmentDraftOverride) {
+      releaseComposerAttachmentDraft(attachmentDraftOverride)
+    }
     if (!text && !attachment) return
     const replyTo = channelPostReplyTarget
       ? {
@@ -8293,164 +8299,42 @@ function App() {
     })
   }
 
-  async function attachVideoNoteToChat(chatId: number, file: File) {
-    await attachVideoNoteDraft(file, {
-      clearDraftText: () => {
-        setChatMessageDrafts((currentDrafts) => ({
-          ...currentDrafts,
-          [chatId]: '',
-        }))
-      },
-      getSelectionToken: () => ++chatAttachmentSelectionTokenRef.current,
-      replaceDraft: (draft) => {
-        setChatAttachmentDrafts((currentAttachments) => {
-          releaseComposerAttachmentDraft(currentAttachments[chatId])
-          return {
-            ...currentAttachments,
-            [chatId]: draft,
-          }
-        })
-      },
-      restorePreparedDraft: (selectionToken, draft) => {
-        setChatAttachmentDrafts((currentAttachments) => {
-          if (selectionToken !== chatAttachmentSelectionTokenRef.current) {
-            releaseComposerAttachmentDraft(draft)
-            return currentAttachments
-          }
-
-          return {
-            ...currentAttachments,
-            [chatId]: draft,
-          }
-        })
-      },
-    })
-  }
-
-  async function attachVideoNoteToGroup(groupId: number, file: File) {
-    await attachVideoNoteDraft(file, {
-      clearDraftText: () => {
-        setGroupMessageDrafts((currentDrafts) => ({
-          ...currentDrafts,
-          [groupId]: '',
-        }))
-      },
-      getSelectionToken: () => ++groupAttachmentSelectionTokenRef.current,
-      replaceDraft: (draft) => {
-        setGroupAttachmentDrafts((currentAttachments) => {
-          releaseComposerAttachmentDraft(currentAttachments[groupId])
-          return {
-            ...currentAttachments,
-            [groupId]: draft,
-          }
-        })
-      },
-      restorePreparedDraft: (selectionToken, draft) => {
-        setGroupAttachmentDrafts((currentAttachments) => {
-          if (selectionToken !== groupAttachmentSelectionTokenRef.current) {
-            releaseComposerAttachmentDraft(draft)
-            return currentAttachments
-          }
-
-          return {
-            ...currentAttachments,
-            [groupId]: draft,
-          }
-        })
-      },
-    })
-  }
-
-  async function attachVideoNoteToChannel(channelId: number, file: File) {
-    setChannelPostError('')
-    await attachVideoNoteDraft(file, {
-      clearDraftText: () => {
-        setChannelPostDrafts((currentDrafts) => ({
-          ...currentDrafts,
-          [channelId]: '',
-        }))
-      },
-      getSelectionToken: () => ++channelAttachmentSelectionTokenRef.current,
-      replaceDraft: (draft) => {
-        setChannelAttachmentDrafts((currentAttachments) => {
-          releaseComposerAttachmentDraft(currentAttachments[channelId])
-          return {
-            ...currentAttachments,
-            [channelId]: draft,
-          }
-        })
-      },
-      restorePreparedDraft: (selectionToken, draft) => {
-        setChannelAttachmentDrafts((currentAttachments) => {
-          if (selectionToken !== channelAttachmentSelectionTokenRef.current) {
-            releaseComposerAttachmentDraft(draft)
-            return currentAttachments
-          }
-
-          return {
-            ...currentAttachments,
-            [channelId]: draft,
-          }
-        })
-      },
-    })
-  }
-
-  async function attachVideoNoteToThread(file: File) {
-    await attachVideoNoteDraft(file, {
-      clearDraftText: () => {
-        setThreadDraft('')
-      },
-      getSelectionToken: () => ++threadAttachmentSelectionTokenRef.current,
-      replaceDraft: (draft) => {
-        setThreadAttachmentDraft((currentDraft) => {
-          releaseComposerAttachmentDraft(currentDraft)
-          return draft
-        })
-      },
-      restorePreparedDraft: (selectionToken, draft) => {
-        setThreadAttachmentDraft((currentDraft) => {
-          if (selectionToken !== threadAttachmentSelectionTokenRef.current) {
-            releaseComposerAttachmentDraft(draft)
-            return currentDraft
-          }
-
-          return draft
-        })
-      },
-    })
-  }
-
   async function handleVideoNoteRecorderUse(file: File) {
     if (!videoNoteRecorderTarget) {
       throw new Error('Окно записи уже не привязано к комнате. Откройте его заново.')
     }
 
+    const nextAttachmentDraft = await prepareVideoNoteDraftForImmediateSend(file)
+
     if (videoNoteRecorderTarget.kind === 'direct') {
       if (activeChatId !== videoNoteRecorderTarget.chatId) {
+        releaseComposerAttachmentDraft(nextAttachmentDraft)
         throw new Error('Откройте нужный диалог и попробуйте ещё раз.')
       }
-      await attachVideoNoteToChat(videoNoteRecorderTarget.chatId, file)
+      void sendMessage(nextAttachmentDraft)
       return
     }
 
     if (videoNoteRecorderTarget.kind === 'group') {
       if (activeGroupId !== videoNoteRecorderTarget.groupId) {
+        releaseComposerAttachmentDraft(nextAttachmentDraft)
         throw new Error('Откройте нужную группу и попробуйте ещё раз.')
       }
-      await attachVideoNoteToGroup(videoNoteRecorderTarget.groupId, file)
+      void sendGroupMessage(nextAttachmentDraft)
       return
     }
 
     if (videoNoteRecorderTarget.kind === 'channel') {
       if (currentSubscriptionChannel?.id !== videoNoteRecorderTarget.channelId) {
+        releaseComposerAttachmentDraft(nextAttachmentDraft)
         throw new Error('Откройте нужный канал и попробуйте ещё раз.')
       }
-      await attachVideoNoteToChannel(videoNoteRecorderTarget.channelId, file)
+      void sendManagedChannelPost(nextAttachmentDraft)
       return
     }
 
     if (!threadTarget || threadTarget.kind === 'support') {
+      releaseComposerAttachmentDraft(nextAttachmentDraft)
       throw new Error('Откройте нужные комментарии и попробуйте ещё раз.')
     }
 
@@ -8465,10 +8349,11 @@ function App() {
         threadTarget.postId === videoNoteRecorderTarget.postId)
 
     if (!threadTargetMatches) {
+      releaseComposerAttachmentDraft(nextAttachmentDraft)
       throw new Error('Откройте нужные комментарии и попробуйте ещё раз.')
     }
 
-    await attachVideoNoteToThread(file)
+    void submitThreadComment(nextAttachmentDraft)
   }
 
   async function handleChatAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
@@ -9760,8 +9645,8 @@ function App() {
     threadTarget,
   ])
 
-  async function submitThreadComment() {
-    const attachmentDraft = threadAttachmentDraft
+  async function submitThreadComment(attachmentDraftOverride?: ComposerAttachmentDraft) {
+    const attachmentDraft = attachmentDraftOverride ?? threadAttachmentDraft
     const text = isVideoNoteDraft(attachmentDraft) ? '' : threadDraft.trim()
     if (!threadTarget) return
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
@@ -9773,6 +9658,9 @@ function App() {
         }
       : undefined
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
+    if (attachmentDraftOverride) {
+      releaseComposerAttachmentDraft(attachmentDraftOverride)
+    }
 
     if (!text && !attachment) return
 
