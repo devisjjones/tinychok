@@ -39,7 +39,7 @@ export type UserStorageItem = {
   fileName: string
   height?: number
   id: string
-  kind: 'attachment' | 'gif'
+  kind: 'attachment'
   mediaUrl: string
   mimeType: string
   primaryLabel: string

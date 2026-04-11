@@ -117,6 +117,7 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 - `gif_deleted`
 - `gif_search_used`
 - `gif_added_from_viewer`
+- `gif_upload_monthly_limit_reached`
 - `photo_attachment_selected`
 - `photo_upload_failed`
 - `image_viewer_opened`

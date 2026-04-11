@@ -887,6 +887,10 @@ test('owner storage exports keep current media separate from retention-only dire
     size: 4096,
     width: 180,
   }]
+  database.sharedGifs = left.gifLibrary.map((gif) => ({
+    ...gif,
+    uploadedByIdentifier: left.identifier,
+  }))
 
   database.accounts.push(left, right, staff)
   const leftToken = createSession(database, left.identifier, 'media-export-left')
@@ -945,7 +949,7 @@ test('owner storage exports keep current media separate from retention-only dire
   )
   assert.equal(
     currentManifest.some((entry: { fileName: string; kind: string }) => entry.fileName === 'party.gif' && entry.kind === 'gif'),
-    true,
+    false,
   )
   assert.equal(
     currentManifest.some((entry: { fileName: string }) => entry.fileName === 'retention-export.png'),

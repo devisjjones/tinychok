@@ -594,13 +594,17 @@ test('user storage inventory excludes avatars, deduplicates media and manual del
       height: 180,
     },
   ]
+  database.sharedGifs = sender.gifLibrary.map((gif) => ({
+    ...gif,
+    uploadedByIdentifier: sender.identifier,
+  }))
 
   const usage = store.getStorageUsageByToken(senderToken)
-  assert.equal(usage.usedBytes, 20 * 1024 * 1024)
+  assert.equal(usage.usedBytes, 16 * 1024 * 1024)
 
   const storage = store.listUserStorageItems(senderToken)
-  assert.equal(storage.items.length, 3)
-  assert.ok(storage.items.every((item) => item.kind === 'attachment' || item.kind === 'gif'))
+  assert.equal(storage.items.length, 2)
+  assert.ok(storage.items.every((item) => item.kind === 'attachment'))
   assert.equal(storage.items.some((item) => /avatar/u.test(item.fileName)), false)
 
   const directAttachmentItem = storage.items.find((item) => item.fileName === 'room-photo.jpg')
@@ -613,7 +617,7 @@ test('user storage inventory excludes avatars, deduplicates media and manual del
   assert.equal(supportAttachmentItem.primaryLabel, 'Обращение в поддержку')
 
   const removeResponse = await store.removeUserStorageItem(senderToken, directAttachmentItem.id)
-  assert.equal(removeResponse.snapshot.session.storageUsage?.usedBytes, 10 * 1024 * 1024)
+  assert.equal(removeResponse.snapshot.session.storageUsage?.usedBytes, 6 * 1024 * 1024)
 
   const senderSnapshot = store.getSnapshotByToken(senderToken)
   const senderMessage = senderSnapshot?.chats
@@ -638,7 +642,7 @@ test('user storage inventory excludes avatars, deduplicates media and manual del
   assert.match(peerMessage.attachmentRemovedNotice?.text ?? '', /владельцем из хранилища/u)
 })
 
-test('manual gif deletion from user storage removes gif item and frees quota', async () => {
+test('manual gif deletion removes only the personal library entry and keeps shared gif storage intact', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
   const owner = createAccount('+79991110033')
@@ -655,16 +659,23 @@ test('manual gif deletion from user storage removes gif item and frees quota', a
       height: 200,
     },
   ]
+  database.sharedGifs = owner.gifLibrary.map((gif) => ({
+    ...gif,
+    uploadedByIdentifier: owner.identifier,
+  }))
   database.accounts.push(owner)
   const ownerToken = createSession(database, owner.identifier, 'storage-gif-owner')
 
   const before = store.listUserStorageItems(ownerToken)
-  assert.equal(before.items.length, 1)
-  assert.equal(before.items[0]?.kind, 'gif')
-  assert.equal(store.getStorageUsageByToken(ownerToken).usedBytes, 5 * 1024 * 1024)
+  assert.equal(before.items.length, 0)
+  assert.equal(store.getStorageUsageByToken(ownerToken).usedBytes, 0)
 
-  const result = await store.removeUserStorageItem(ownerToken, before.items[0].id)
+  const result = await store.removeUserStorageItem(
+    ownerToken,
+    `gif:${Buffer.from('uploads/user-gifs/party.gif', 'utf8').toString('base64url')}`,
+  )
   assert.equal(result.snapshot.session.gifLibrary?.length ?? 0, 0)
   assert.equal(result.snapshot.session.storageUsage?.usedBytes, 0)
   assert.equal(store.listUserStorageItems(ownerToken).items.length, 0)
+  assert.equal(store.searchUserGifs(ownerToken, 'party').items.length, 1)
 })

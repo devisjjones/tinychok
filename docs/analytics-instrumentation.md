@@ -135,6 +135,7 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `gif_deleted`
 - `gif_search_used`
 - `gif_added_from_viewer`
+- `gif_upload_monthly_limit_reached`
 - `photo_attachment_selected`
 - `photo_upload_failed`
 - `image_viewer_opened`
@@ -307,11 +308,23 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `gif_added_from_viewer`
   - `fileName`
   - `source`
+- `gif_upload_monthly_limit_reached`
+  - `fileName`
+  - `limit`
+  - `month`
+  - `source`
+  - `userIdentifier`
 
 `source` сейчас показывает, где произошёл action:
 
 - `local`
 - `server`
+
+`gif_upload_monthly_limit_reached` нужен для анти-абьюза общего GIF pool:
+
+- позволяет быстро увидеть, кто системно пытается заливать слишком много своих GIF в месяц
+- даёт `userIdentifier`, чтобы владельца можно было сразу найти в админке
+- помогает оценить, насколько часто скрытый лимит реально срабатывает и не душит ли обычных пользователей
 - `upload`
 
 ### Photo / Viewer Events
@@ -441,6 +454,7 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `gif_deleted`
 - `gif_search_used`
 - `gif_added_from_viewer`
+- `gif_upload_monthly_limit_reached`
 - `photo_attachment_selected`
 - `photo_upload_failed`
 - `image_viewer_opened`

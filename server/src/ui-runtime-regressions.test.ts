@@ -921,7 +921,7 @@ test('settings storage scene stays wired to user-manageable media only', () => {
 
   assert.match(sharedTypesSource, /reason: 'storage-quota' \| 'storage-manual'/u)
   assert.match(sharedTypesSource, /export type UserStorageItem = \{/u)
-  assert.match(sharedTypesSource, /kind: 'attachment' \| 'gif'/u)
+  assert.match(sharedTypesSource, /kind: 'attachment'/u)
   assert.match(sharedTypesSource, /export type SettingsView = 'profile' \| 'management' \| 'blocked' \| 'quiet' \| 'support' \| 'storage'/u)
   assert.match(sharedBackendSource, /export type UserStorageItemsResponse = StoragePrimaryItemsResponse/u)
   assert.match(appBackendSource, /fetchUserStorageItems/u)
@@ -934,7 +934,10 @@ test('settings storage scene stays wired to user-manageable media only', () => {
   assert.match(storeSource, /Вложение удалено вами из хранилища, чтобы освободить место/u)
   assert.match(storeSource, /for \(const ticket of this\.database\.supportTickets\)/u)
   assert.match(storeSource, /primaryLabel: 'Обращение в поддержку'/u)
-  assert.match(storeSource, /reference\.kind !== 'attachment' && reference\.kind !== 'user-gif'/u)
+  assert.match(
+    storeSource,
+    /buildPrimaryStorageInventoryForSubject[\s\S]*if \(reference\.kind !== 'attachment'\) continue/u,
+  )
   assert.doesNotMatch(storeSource, /kind: 'profile-avatar'[\s\S]{0,120}primaryLabel/u)
   assert.match(appSource, /settingsView === 'storage'/u)
   assert.match(appSource, /settings-panel-storage/u)
@@ -943,7 +946,7 @@ test('settings storage scene stays wired to user-manageable media only', () => {
   assert.match(appSource, /fetchUserStorageItemsRequest/u)
   assert.match(appSource, /deleteUserStorageItemRequest/u)
   assert.match(appSource, /Хранилище пока свободно/u)
-  assert.match(appSource, /Аватарки живут отдельно во внешнем хранилище Тайничка/u)
+  assert.match(appSource, /Аватарки и общая GIF-библиотека живут отдельно во внешнем хранилище Тайничка/u)
   assert.match(appCss, /\.settings-stack-storage/u)
   assert.match(appCss, /\.settings-panel-storage/u)
   assert.match(appCss, /\.settings-storage-grid/u)
@@ -951,10 +954,10 @@ test('settings storage scene stays wired to user-manageable media only', () => {
   assert.match(appCss, /\.settings-storage-delete/u)
   assert.match(appCss, /\.storage-usage-card-button/u)
   assert.match(storeSource, /must stay path-safe/u)
-  assert.match(handoffDoc, /экран `Хранилище` внутри настроек показывает только вложения и GIF/u)
+  assert.match(handoffDoc, /экран `Хранилище` внутри настроек показывает только вложения/u)
   assert.match(handoffDoc, /аватарки профиля, группы и канала считаются внешним хранилищем Tinychok/u)
   assert.match(rolloutDoc, /`Хранилище` в настройках открывает отдельный storage-screen/u)
-  assert.match(rolloutDoc, /в storage-screen попадают только message attachments, support\/thread attachments и GIF library/u)
+  assert.match(rolloutDoc, /в storage-screen попадают только message attachments и support\/thread attachments/u)
   assert.match(releaseDoc, /аватарки профиля, группы и канала не входят в пользовательскую квоту/u)
   assert.match(releaseDoc, /ручное удаление из storage-screen оставляет placeholder вместо пустого bubble/u)
 })
@@ -3957,7 +3960,9 @@ test('premium storage quotas stay sticky after downgrade and for expired premium
   const restoredAdminUser = restoredStore.adminGetUser(expiredPremiumAccount.identifier).user
   assert.equal(restoredAdminUser.archiveStorageUsage?.quotaBytes, premiumArchiveStorageQuotaBytes)
 
-  const restoredAccount = restoredDatabase.accounts.find((account) => account.identifier === expiredPremiumAccount.identifier)
+  const restoredAccount = restoredDatabase.accounts.find(
+    (account: { identifier: string }) => account.identifier === expiredPremiumAccount.identifier,
+  )
   assert.equal(restoredAccount?.retainedStorageQuotaBytes, premiumStorageQuotaBytes)
   assert.equal(restoredAccount?.retainedArchiveStorageQuotaBytes, premiumArchiveStorageQuotaBytes)
 })
@@ -6297,6 +6302,10 @@ test('free accounts can search and reuse existing GIFs but still cannot upload t
     },
   ]
   database.accounts.push(viewer, source)
+  database.sharedGifs = source.gifLibrary.map((gif) => ({
+    ...gif,
+    uploadedByIdentifier: source.identifier,
+  }))
 
   const viewerToken = createSession(database, viewer.identifier, 'gif-free-viewer')
 
@@ -6356,4 +6365,100 @@ test('free accounts can search and reuse existing GIFs but still cannot upload t
     }),
     /Загрузка своих GIF доступна только в премиуме\./u,
   )
+})
+
+test('premium gif uploads stop at 100 items per month and keep the shared pool searchable', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const uploader = createAccount('+79990007231', {
+    premium: true,
+    premiumExpiresAt: '2099-05-01T00:00:00.000Z',
+  })
+  uploader.gifUploadHistory = Array.from({ length: 100 }, (_, index) => {
+    return `2026-04-${String((index % 28) + 1).padStart(2, '0')}T12:00:00.000Z`
+  })
+  database.accounts.push(uploader)
+
+  const uploaderToken = createSession(database, uploader.identifier, 'gif-limit-owner')
+  const uploadUrl = 'https://cdn.example.com/user-gifs/limit-hit.gif'
+  await store.registerPendingMediaUpload(uploaderToken, {
+    fileName: 'limit-hit.gif',
+    kind: 'user-gif',
+    mediaUrl: uploadUrl,
+    mimeType: 'image/gif',
+    size: 2048,
+    storageKey: 'user-gifs/limit-hit.gif',
+  })
+
+  await assert.rejects(
+    store.addUserGif(uploaderToken, {
+      createdAt: '2026-04-30T18:06:00.000Z',
+      fileName: 'limit-hit.gif',
+      id: 'gif-limit-hit',
+      mediaUrl: uploadUrl,
+      mimeType: 'image/gif',
+      size: 2048,
+      source: 'upload',
+      width: 240,
+      height: 240,
+    }),
+    /Подождите конца месяца, вы пытаетесь загрузить слишком много GIF-анимаций\./u,
+  )
+
+  assert.equal(
+    getStoreDatabase(store).pendingMediaUploads.some((upload) => upload.mediaUrl === uploadUrl),
+    false,
+  )
+
+  uploader.gifUploadHistory = []
+  const seededSharedGif = {
+    createdAt: '2026-04-11T18:00:00.000Z',
+    fileName: 'shared-pikachu.gif',
+    id: 'shared-pikachu',
+    mediaUrl: 'https://cdn.example.com/user-gifs/shared-pikachu.gif',
+    mimeType: 'image/gif' as const,
+    size: 1024,
+    width: 320,
+    height: 180,
+    uploadedByIdentifier: uploader.identifier,
+  }
+  database.sharedGifs = [seededSharedGif]
+
+  const addResult = await store.addUserGif(uploaderToken, {
+    createdAt: '2026-04-30T18:07:00.000Z',
+    fileName: seededSharedGif.fileName,
+    id: 'gif-viewer-reuse-after-limit',
+    mediaUrl: seededSharedGif.mediaUrl,
+    mimeType: 'image/gif',
+    size: seededSharedGif.size,
+    source: 'viewer',
+    width: seededSharedGif.width,
+    height: seededSharedGif.height,
+  })
+
+  assert.equal(addResult.snapshot.session.gifLibrary?.length ?? 0, 1)
+  assert.equal(store.searchUserGifs(uploaderToken, 'pikachu').items.length, 1)
+})
+
+test('gif monthly upload limit is documented in analytics catalog and rollout docs', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const analyticsSource = readFileSync(join(repoRoot, 'src', 'shared', 'analytics.ts'), 'utf8')
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const analyticsDoc = readFileSync(join(repoRoot, 'docs', 'analytics-instrumentation.md'), 'utf8')
+  const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
+  const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
+
+  assert.match(analyticsSource, /'gif_upload_monthly_limit_reached'/u)
+  assert.match(
+    analyticsSource,
+    /gif_upload_monthly_limit_reached: \{[\s\S]*скрытый лимит загрузки своих GIF/u,
+  )
+  assert.match(
+    appSource,
+    /trackAnalyticsEvent\('gif_upload_monthly_limit_reached', \{[\s\S]*userIdentifier: session\.identifier/u,
+  )
+  assert.match(analyticsDoc, /gif_upload_monthly_limit_reached/u)
+  assert.match(analyticsDoc, /даёт `userIdentifier`, чтобы владельца можно было сразу найти в админке/u)
+  assert.match(rolloutDoc, /скрытый server-side лимит `100` upload своих GIF/u)
+  assert.match(handoffDoc, /upload своих GIF ограничен скрытым server-side лимитом `100`/u)
 })

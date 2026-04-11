@@ -193,6 +193,7 @@ type StoredAccountLifecycleFields = {
   deletedAt?: string
   deletedBySelfService?: boolean
   deletionMode?: AccountDeletionMode
+  gifUploadHistory?: string[]
   publicDeleted?: boolean
 }
 
@@ -392,6 +393,10 @@ type PersistedArchivedMediaRecord = {
   width?: number
 }
 
+type SharedGifCatalogItem = UserGifLibraryItem & {
+  uploadedByIdentifier?: string
+}
+
 type PersistedArchivedMediaRestoreTarget =
   | {
       attachment: MessageAttachment
@@ -488,6 +493,7 @@ export type Database = {
   pendingMediaUploads: PersistedPendingMediaUpload[]
   passwordAuthAttempts: PersistedPasswordAuthAttempt[]
   sessions: SessionRecord[]
+  sharedGifs: SharedGifCatalogItem[]
   subscriptionChannelReports: SubscriptionChannelReportRecord[]
   subscriptionChannels: PersistedSubscriptionChannel[]
   subscriptionPosts: PersistedSubscriptionPost[]
@@ -618,6 +624,7 @@ function createDefaultDatabase(): Database {
     pendingMediaUploads: [],
     passwordAuthAttempts: [],
     sessions: [],
+    sharedGifs: [],
     subscriptionChannelReports: [],
     subscriptionChannels: [],
     subscriptionPosts: [],
@@ -973,6 +980,94 @@ function sanitizeUserGifLibraryItem(item: UserGifLibraryItem) {
     size,
     width,
   } satisfies UserGifLibraryItem
+}
+
+function sanitizeUserGifLibraryItems(items?: UserGifLibraryItem[]) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return [] as UserGifLibraryItem[]
+  }
+
+  const uniqueItems = new Map<string, UserGifLibraryItem>()
+
+  for (const item of items) {
+    try {
+      const sanitizedItem = sanitizeUserGifLibraryItem(item)
+      if (!uniqueItems.has(sanitizedItem.mediaUrl)) {
+        uniqueItems.set(sanitizedItem.mediaUrl, sanitizedItem)
+      }
+    } catch {
+      // Ignore malformed legacy GIF records instead of failing the entire runtime payload.
+    }
+  }
+
+  return [...uniqueItems.values()].sort((left, right) => {
+    return Date.parse(right.createdAt) - Date.parse(left.createdAt)
+  })
+}
+
+function sanitizeGifUploadHistory(history?: string[]) {
+  if (!Array.isArray(history) || history.length === 0) {
+    return [] as string[]
+  }
+
+  return history
+    .map((timestamp) => {
+      const parsedTimestamp = parseIsoDate(timestamp)
+      return parsedTimestamp === null ? null : new Date(parsedTimestamp).toISOString()
+    })
+    .filter((timestamp): timestamp is string => Boolean(timestamp))
+    .sort((left, right) => Date.parse(left) - Date.parse(right))
+}
+
+function sanitizeSharedGifCatalogItem(item: SharedGifCatalogItem): SharedGifCatalogItem {
+  const sanitizedGif = sanitizeUserGifLibraryItem(item)
+  return {
+    ...sanitizedGif,
+    uploadedByIdentifier: normalizeIdentifier(item.uploadedByIdentifier ?? '') || undefined,
+  }
+}
+
+function sanitizeSharedGifCatalogItems(items?: SharedGifCatalogItem[]) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return [] as SharedGifCatalogItem[]
+  }
+
+  const uniqueItems = new Map<string, SharedGifCatalogItem>()
+
+  for (const item of items) {
+    try {
+      const sanitizedItem = sanitizeSharedGifCatalogItem(item)
+      if (!uniqueItems.has(sanitizedItem.mediaUrl)) {
+        uniqueItems.set(sanitizedItem.mediaUrl, sanitizedItem)
+      }
+    } catch {
+      // Ignore malformed legacy shared GIF records instead of failing the entire runtime payload.
+    }
+  }
+
+  return [...uniqueItems.values()].sort((left, right) => {
+    return Date.parse(right.createdAt) - Date.parse(left.createdAt)
+  })
+}
+
+function buildSharedGifCatalogFromAccounts(accounts: Array<Pick<AccountRecord, 'gifLibrary' | 'identifier'>>) {
+  return sanitizeSharedGifCatalogItems(
+    accounts.flatMap((account) =>
+      sanitizeUserGifLibraryItems(account.gifLibrary).map((gif) => ({
+        ...gif,
+        uploadedByIdentifier: account.identifier,
+      })),
+    ),
+  )
+}
+
+function getGifUploadHistoryMonthKey(timestamp: string) {
+  const parsedTimestamp = parseIsoDate(timestamp)
+  if (parsedTimestamp === null) {
+    return null
+  }
+
+  return new Date(parsedTimestamp).toISOString().slice(0, 7)
 }
 
 function normalizeGifFileNameForMatching(fileName: string) {
@@ -9012,6 +9107,41 @@ export class TinychokStore {
     }
   }
 
+  private getCurrentMonthGifUploadHistory(account: Account, nowIso: string) {
+    const currentMonthKey = getGifUploadHistoryMonthKey(nowIso)
+    if (!currentMonthKey) {
+      account.gifUploadHistory = []
+      return [] as string[]
+    }
+
+    const currentMonthHistory = sanitizeGifUploadHistory(account.gifUploadHistory).filter(
+      (timestamp) => getGifUploadHistoryMonthKey(timestamp) === currentMonthKey,
+    )
+    account.gifUploadHistory = currentMonthHistory
+    return currentMonthHistory
+  }
+
+  private buildSharedGifResponseItem(item: SharedGifCatalogItem): UserGifLibraryItem {
+    const { uploadedByIdentifier: _uploadedByIdentifier, ...gif } = item
+    return gif
+  }
+
+  private ensureSharedGifCatalogItem(gif: UserGifLibraryItem, uploadedByIdentifier?: string) {
+    const nextItem = sanitizeSharedGifCatalogItem({
+      ...gif,
+      uploadedByIdentifier,
+    })
+    const existingItem = this.database.sharedGifs.find((item) => item.mediaUrl === nextItem.mediaUrl)
+    if (existingItem) {
+      existingItem.uploadedByIdentifier = existingItem.uploadedByIdentifier ?? nextItem.uploadedByIdentifier
+      existingItem.width = existingItem.width ?? nextItem.width
+      existingItem.height = existingItem.height ?? nextItem.height
+      return
+    }
+
+    this.database.sharedGifs = sanitizeSharedGifCatalogItems([nextItem, ...(this.database.sharedGifs ?? [])])
+  }
+
   async addUserGif(token: string, payload: RegisterUserGifBody): Promise<MutationResult> {
     const account = this.findAccountByToken(token)
     if (!account) {
@@ -9019,6 +9149,7 @@ export class TinychokStore {
     }
 
     const nextGif = sanitizeUserGifLibraryItem(payload)
+    const nowIso = new Date().toISOString()
     const hasPendingUpload = this.database.pendingMediaUploads.some(
       (upload) =>
         upload.ownerIdentifier === account.identifier &&
@@ -9028,14 +9159,25 @@ export class TinychokStore {
     const uploadSource = payload.source === 'upload' || (payload.source == null && hasPendingUpload)
 
     if (uploadSource && !hasActivePremium(account.premium, account.premiumExpiresAt)) {
+      await this.discardPendingMediaUpload(nextGif.mediaUrl)
       throw new Error('Загрузка своих GIF доступна только в премиуме.')
     }
 
+    if (uploadSource) {
+      const currentMonthHistory = this.getCurrentMonthGifUploadHistory(account, nowIso)
+      if (currentMonthHistory.length >= 100) {
+        await this.discardPendingMediaUpload(nextGif.mediaUrl)
+        throw new HttpError(429, 'Подождите конца месяца, вы пытаетесь загрузить слишком много GIF-анимаций.')
+      }
+    }
+
     if (!uploadSource) {
-      const canReuseExistingGif = this.collectOwnedMediaReferences().some(
+      const canReuseExistingGif =
+        this.database.sharedGifs.some((item) => item.mediaUrl === nextGif.mediaUrl) ||
+        this.collectOwnedMediaReferences().some(
         (reference) =>
           reference.mediaUrl === nextGif.mediaUrl &&
-          (reference.kind === 'user-gif' || reference.mimeType === 'image/gif'),
+          reference.mimeType === 'image/gif',
       )
       if (!canReuseExistingGif) {
         throw new Error('GIF не найдена в библиотеке Тайничка.')
@@ -9060,6 +9202,10 @@ export class TinychokStore {
     account.gifLibrary = [nextGif, ...currentLibrary].sort(
       (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
     )
+    this.ensureSharedGifCatalogItem(nextGif, account.identifier)
+    if (uploadSource) {
+      account.gifUploadHistory = [...this.getCurrentMonthGifUploadHistory(account, nowIso), nowIso]
+    }
 
     await this.persist()
     this.clearPendingMediaUpload(nextGif.mediaUrl)
@@ -9071,8 +9217,7 @@ export class TinychokStore {
   }
 
   searchUserGifs(token: string, query: string) {
-    const account = this.findAccountByToken(token)
-    if (!account) {
+    if (!this.findAccountByToken(token)) {
       throw new Error('Сессия не найдена.')
     }
 
@@ -9083,16 +9228,14 @@ export class TinychokStore {
 
     const uniqueItems = new Map<string, UserGifLibraryItem>()
 
-    for (const candidateAccount of this.database.accounts) {
-      for (const gif of candidateAccount.gifLibrary ?? []) {
-        const sanitizedGif = sanitizeUserGifLibraryItem(gif)
-        if (!normalizeGifFileNameForMatching(sanitizedGif.fileName).includes(normalizedQuery)) {
-          continue
-        }
+    for (const gif of this.database.sharedGifs) {
+      const sanitizedGif = this.buildSharedGifResponseItem(gif)
+      if (!normalizeGifFileNameForMatching(sanitizedGif.fileName).includes(normalizedQuery)) {
+        continue
+      }
 
-        if (!uniqueItems.has(sanitizedGif.mediaUrl)) {
-          uniqueItems.set(sanitizedGif.mediaUrl, sanitizedGif)
-        }
+      if (!uniqueItems.has(sanitizedGif.mediaUrl)) {
+        uniqueItems.set(sanitizedGif.mediaUrl, sanitizedGif)
       }
     }
 
@@ -9127,7 +9270,6 @@ export class TinychokStore {
     account.gifLibrary = currentLibrary.filter((gif) => gif.id !== gifId.trim())
 
     await this.persist()
-    await this.deleteMediaIfUnreferenced(removedGif.mediaUrl)
 
     return {
       broadcastIdentifiers: [account.identifier],
@@ -9159,22 +9301,25 @@ export class TinychokStore {
       throw new Error('Некорректный объект хранилища.')
     }
 
-    const subject = this.getUserStorageSubject(account.identifier)
-    const storageItem = this.buildPrimaryStorageInventoryForSubject(subject).find((item) => item.id === storageItemId) ?? null
-    if (!storageItem) {
-      throw new Error('Объект хранилища не найден.')
-    }
-
     if (parsedStorageItem.kind === 'gif') {
       const currentLibrary = account.gifLibrary ?? []
-      await this.archiveReferencesForSubject(subject, parsedStorageItem.mediaUrl, 'manual-delete')
+      const removedGif = currentLibrary.find((gif) => gif.mediaUrl === parsedStorageItem.mediaUrl) ?? null
+      if (!removedGif) {
+        throw new Error('Объект хранилища не найден.')
+      }
+
       account.gifLibrary = currentLibrary.filter((gif) => gif.mediaUrl !== parsedStorageItem.mediaUrl)
       await this.persist()
-      await this.deleteMediaIfUnreferenced(parsedStorageItem.mediaUrl)
       return {
         broadcastIdentifiers: [account.identifier],
         snapshot: this.buildSnapshot(account, token),
       }
+    }
+
+    const subject = this.getUserStorageSubject(account.identifier)
+    const storageItem = this.buildPrimaryStorageInventoryForSubject(subject).find((item) => item.id === storageItemId) ?? null
+    if (!storageItem) {
+      throw new Error('Объект хранилища не найден.')
     }
 
     await this.archiveReferencesForSubject(subject, parsedStorageItem.mediaUrl, 'manual-delete')
@@ -13170,22 +13315,28 @@ export class TinychokStore {
           size: 0,
         })
       }
+    }
 
-      for (const gif of account.gifLibrary ?? []) {
-        pushItem({
-          attachment: { fileName: gif.fileName, mimeType: gif.mimeType },
-          createdAt: gif.createdAt,
-          entityLabel: `GIF-панель: ${buildAccountDisplayLabel(account)}`,
-          entityType: 'user-gif',
-          fileName: gif.fileName,
-          kindOverride: 'user-gif',
-          mediaUrl: gif.mediaUrl,
-          ownerIdentifier: account.identifier,
-          relatedReportKeys: [gif.mediaUrl],
-          relatedUsers: [buildAdminLinkedUser(account.identifier)],
-          size: gif.size,
-        })
+    for (const gif of this.database.sharedGifs) {
+      const ownerIdentifier = normalizeIdentifier(gif.uploadedByIdentifier ?? '')
+      if (!ownerIdentifier) {
+        continue
       }
+      const ownerAccount = this.findAccount(ownerIdentifier)
+
+      pushItem({
+        attachment: { fileName: gif.fileName, mimeType: gif.mimeType },
+        createdAt: gif.createdAt,
+        entityLabel: `GIF-каталог: ${ownerAccount ? buildAccountDisplayLabel(ownerAccount) : ownerIdentifier}`,
+        entityType: 'user-gif',
+        fileName: gif.fileName,
+        kindOverride: 'user-gif',
+        mediaUrl: gif.mediaUrl,
+        ownerIdentifier,
+        relatedReportKeys: [gif.mediaUrl],
+        relatedUsers: [buildAdminLinkedUser(ownerIdentifier)],
+        size: gif.size,
+      })
     }
 
     for (const group of this.database.groups) {
@@ -13785,6 +13936,14 @@ export class TinychokStore {
   private stripMediaReferences(mediaUrl: string) {
     let didChange = false
     const removedThreadIds = new Set<string>()
+
+    this.database.sharedGifs = this.database.sharedGifs.filter((gif) => {
+      const shouldKeep = gif.mediaUrl !== mediaUrl
+      if (!shouldKeep) {
+        didChange = true
+      }
+      return shouldKeep
+    })
 
     for (const account of this.database.accounts) {
       if (account.avatarImage === mediaUrl) {
@@ -14407,7 +14566,7 @@ export class TinychokStore {
   }
 
   private parseUserStorageItemId(storageItemId: string): {
-    kind: UserStorageInventoryItem['kind']
+    kind: UserStorageInventoryItem['kind'] | 'gif'
     mediaUrl: string
   } | null {
     const separatorIndex = storageItemId.indexOf(':')
@@ -14709,6 +14868,7 @@ export class TinychokStore {
     for (const upload of this.database.pendingMediaUploads) {
       if (subject.kind !== 'user') continue
       if (upload.ownerIdentifier !== subject.id) continue
+      if (upload.kind !== 'attachment') continue
       if (upload.linked) continue
       trackedMedia.set(upload.mediaUrl, upload.size)
     }
@@ -14731,6 +14891,7 @@ export class TinychokStore {
     for (const upload of this.database.pendingMediaUploads) {
       if (subject.kind !== 'user') continue
       if (upload.ownerIdentifier !== subject.id) continue
+      if (upload.kind !== 'attachment') continue
       if (upload.linked) continue
       if (upload.mediaUrl === mediaUrl) {
         return true
@@ -14752,6 +14913,7 @@ export class TinychokStore {
 
     for (const item of this.database.archivedMedia) {
       if (item.storageSubjectKind !== subject.kind || item.storageSubjectId !== subject.id) continue
+      if (item.kind === 'gif') continue
       trackedMedia.set(item.mediaUrl, item.size)
     }
 
@@ -15811,26 +15973,6 @@ export class TinychokStore {
     // Product rule: user-manageable storage excludes every avatar surface.
     // Profile/group/channel avatars live in Tinychok-owned external storage and must not
     // inflate user quota or appear in the self-service storage manager.
-    for (const account of this.database.accounts) {
-      const userSubject = this.getUserStorageSubject(account.identifier)
-      for (const gif of account.gifLibrary ?? []) {
-        references.push({
-          createdAt: gif.createdAt,
-          fileName: gif.fileName,
-          height: gif.height,
-          kind: 'user-gif',
-          mediaUrl: gif.mediaUrl,
-          mimeType: gif.mimeType,
-          ownerIdentifier: account.identifier,
-          primaryLabel: 'GIF из библиотеки',
-          size: gif.size,
-          storageSubjectId: userSubject.id,
-          storageSubjectKind: userSubject.kind,
-          width: gif.width,
-        })
-      }
-    }
-
     for (const message of this.database.dialogMessages) {
       const attachment = sanitizeMessageAttachment(message.attachment)
       if (!attachment) continue
@@ -16000,20 +16142,19 @@ export class TinychokStore {
 
     for (const reference of this.collectOwnedMediaReferences()) {
       if (reference.storageSubjectKind !== subject.kind || reference.storageSubjectId !== subject.id) continue
-      if (reference.kind !== 'attachment' && reference.kind !== 'user-gif') continue
+      if (reference.kind !== 'attachment') continue
       // Storage manager must only show actively user-manageable media, never retention-only direct archives.
       if (reference.archiveReason) continue
       if (reference.archivedAt) continue
 
-      const inventoryKind = reference.kind === 'user-gif' ? 'gif' : 'attachment'
       const existing = itemsByMediaUrl.get(reference.mediaUrl)
       if (!existing) {
         itemsByMediaUrl.set(reference.mediaUrl, {
           createdAt: reference.createdAt ?? new Date(0).toISOString(),
           fileName: reference.fileName,
           height: reference.height,
-          id: this.buildUserStorageItemId(inventoryKind, reference.mediaUrl),
-          kind: inventoryKind,
+          id: this.buildUserStorageItemId('attachment', reference.mediaUrl),
+          kind: 'attachment',
           mediaUrl: reference.mediaUrl,
           mimeType: reference.mimeType,
           primaryLabel: reference.primaryLabel,
@@ -16047,6 +16188,7 @@ export class TinychokStore {
 
     for (const item of this.database.archivedMedia) {
       if (item.storageSubjectKind !== subject.kind || item.storageSubjectId !== subject.id) continue
+      if (item.kind === 'gif') continue
       const existing = itemsByMediaUrl.get(item.mediaUrl)
       if (!existing) {
         itemsByMediaUrl.set(item.mediaUrl, {
@@ -16078,14 +16220,12 @@ export class TinychokStore {
 
     for (const reference of this.collectOwnedMediaReferences()) {
       if (reference.storageSubjectKind !== subject.kind || reference.storageSubjectId !== subject.id) continue
-      if (reference.kind !== 'attachment' && reference.kind !== 'user-gif') continue
+      if (reference.kind !== 'attachment') continue
       if (options?.archiveOnly && !reference.archiveReason && !reference.archivedAt) continue
       if (options?.currentOnly && (reference.archiveReason || reference.archivedAt)) continue
 
       // Do not reuse the self-service storage screen data here: current/admin inventory
       // still needs canonical live references, not just what the self-service tiles show.
-      const normalizedKind: AdminOwnedMediaExportItem['kind'] =
-        reference.kind === 'user-gif' ? 'gif' : 'attachment'
       const existing = itemsByMediaUrl.get(reference.mediaUrl)
 
       if (!existing) {
@@ -16097,15 +16237,15 @@ export class TinychokStore {
             primaryLabel: reference.primaryLabel,
           }],
           createdAt: reference.createdAt,
-        fileName: reference.fileName,
-        height: reference.height,
-        kind: normalizedKind,
-        mediaUrl: reference.mediaUrl,
-        mimeType: reference.mimeType,
-        ownerIdentifier: reference.ownerIdentifier ?? '',
-        primaryLabel: reference.primaryLabel,
-        retentionOnly: Boolean(reference.archiveReason),
-        size: reference.size,
+          fileName: reference.fileName,
+          height: reference.height,
+          kind: 'attachment',
+          mediaUrl: reference.mediaUrl,
+          mimeType: reference.mimeType,
+          ownerIdentifier: reference.ownerIdentifier ?? '',
+          primaryLabel: reference.primaryLabel,
+          retentionOnly: Boolean(reference.archiveReason),
+          size: reference.size,
           storageKind: reference.kind,
           usageCount: 1,
           width: reference.width,
@@ -16123,10 +16263,6 @@ export class TinychokStore {
       if (reference.archiveReason) {
         const joinedReasons = [existing.archiveReason, reference.archiveReason].filter(Boolean)
         existing.archiveReason = [...new Set(joinedReasons)].join(', ') || undefined
-      }
-      if (reference.kind === 'user-gif') {
-        existing.kind = 'gif'
-        existing.storageKind = 'user-gif'
       }
       if (Date.parse(reference.createdAt ?? '') > Date.parse(existing.createdAt ?? '')) {
         existing.createdAt = reference.createdAt ?? existing.createdAt
@@ -16265,6 +16401,9 @@ export class TinychokStore {
 
     const kind = inferStoredMediaKind(mediaUrl)
     if (!kind) return
+
+    const isSharedGif = this.database.sharedGifs.some((item) => item.mediaUrl === mediaUrl)
+    if (isSharedGif) return
 
     const hasPendingUpload = this.database.pendingMediaUploads.some(
       (upload) => upload.mediaUrl === mediaUrl && !upload.linked,
@@ -19586,55 +19725,69 @@ function dedupePersistedSubscriptionPosts(database: Database) {
   return didMutate
 }
 
-function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
+function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>): {
+  database: Database
+  needsPersistenceRewrite: boolean
+} {
   if (isLegacyDatabase(parsed)) {
-    return applyEnvironmentFixturePolicy(migrateLegacyDatabase(parsed), true)
+    const migratedState = normalizeDatabasePayload(migrateLegacyDatabase(parsed))
+    return {
+      database: migratedState.database,
+      needsPersistenceRewrite: true,
+    }
   }
 
   const normalized = parsed as Partial<Database>
+  const normalizedAccounts = (normalized.accounts ?? []).map((account) => ({
+    ...account,
+    accountId: account.accountId?.trim() || randomUUID(),
+    archiveUnlimited: Boolean(account.archiveUnlimited),
+    archivedOriginalIdentifier: normalizeIdentifier(account.archivedOriginalIdentifier ?? '') || undefined,
+    archivedProfile: account.archivedProfile
+      ? {
+          avatarImage: account.archivedProfile.avatarImage?.trim() || undefined,
+          displayName: sanitizePersonField(account.archivedProfile.displayName ?? '', displayNameFieldMaxLength),
+          nickname: normalizeNickname(account.archivedProfile.nickname ?? '') || undefined,
+          status: sanitizeStatusField(account.archivedProfile.status ?? ''),
+          surname: sanitizePersonField(account.archivedProfile.surname ?? '', surnameFieldMaxLength),
+        }
+      : undefined,
+    blockedAt: account.blockedAt || undefined,
+    blockedReason: account.blockedReason || undefined,
+    deletedAt: account.deletedAt || undefined,
+    deletedBySelfService: Boolean(account.deletedBySelfService),
+    deletionMode:
+      account.deletionMode === 'account-and-user-data-hidden'
+        ? 'account-and-user-data-hidden'
+        : account.deletionMode === 'account-only'
+          ? 'account-only'
+          : undefined as AccountDeletionMode | undefined,
+    gifLibrary: sanitizeUserGifLibraryItems(account.gifLibrary),
+    gifUploadHistory: sanitizeGifUploadHistory(account.gifUploadHistory),
+    identifier: normalizeStoredIdentifierReference(account.identifier),
+    lastActiveAt: account.lastActiveAt || account.createdAt,
+    passwordHash: account.passwordHash?.trim() || undefined,
+    passwordSetAt: account.passwordSetAt || undefined,
+    publicDeleted: Boolean(account.publicDeleted),
+    reportsMutedInAdmin: Boolean(account.reportsMutedInAdmin),
+    retainedArchiveStorageQuotaBytes: normalizeRetainedArchiveStorageQuotaBytes(account),
+    retainedStorageQuotaBytes: normalizeRetainedStorageQuotaBytes(account),
+    staffRole: sanitizeStaffRole(account.staffRole),
+    statusHistory: normalizeAccountStatusHistory(
+      account.statusHistory,
+      account.createdAt,
+      account.status ?? '',
+    ),
+  })) as StoredAccountRecord[]
+  const normalizedSharedGifs = sanitizeSharedGifCatalogItems([
+    ...(normalized.sharedGifs ?? []),
+    ...buildSharedGifCatalogFromAccounts(normalizedAccounts),
+  ])
   return applyEnvironmentFixturePolicy(
     {
       ...createDefaultDatabase(),
       ...normalized,
-      accounts: (normalized.accounts ?? []).map((account) => ({
-        ...account,
-        accountId: account.accountId?.trim() || randomUUID(),
-        archiveUnlimited: Boolean(account.archiveUnlimited),
-        archivedOriginalIdentifier: normalizeIdentifier(account.archivedOriginalIdentifier ?? '') || undefined,
-        archivedProfile: account.archivedProfile
-          ? {
-              avatarImage: account.archivedProfile.avatarImage?.trim() || undefined,
-              displayName: sanitizePersonField(account.archivedProfile.displayName ?? '', displayNameFieldMaxLength),
-              nickname: normalizeNickname(account.archivedProfile.nickname ?? '') || undefined,
-              status: sanitizeStatusField(account.archivedProfile.status ?? ''),
-              surname: sanitizePersonField(account.archivedProfile.surname ?? '', surnameFieldMaxLength),
-            }
-          : undefined,
-        blockedAt: account.blockedAt || undefined,
-        blockedReason: account.blockedReason || undefined,
-        deletedAt: account.deletedAt || undefined,
-        deletedBySelfService: Boolean(account.deletedBySelfService),
-        deletionMode:
-          account.deletionMode === 'account-and-user-data-hidden'
-            ? 'account-and-user-data-hidden'
-            : account.deletionMode === 'account-only'
-              ? 'account-only'
-              : undefined,
-        identifier: normalizeStoredIdentifierReference(account.identifier),
-        lastActiveAt: account.lastActiveAt || account.createdAt,
-        passwordHash: account.passwordHash?.trim() || undefined,
-        passwordSetAt: account.passwordSetAt || undefined,
-        publicDeleted: Boolean(account.publicDeleted),
-        reportsMutedInAdmin: Boolean(account.reportsMutedInAdmin),
-        retainedArchiveStorageQuotaBytes: normalizeRetainedArchiveStorageQuotaBytes(account),
-        retainedStorageQuotaBytes: normalizeRetainedStorageQuotaBytes(account),
-        staffRole: sanitizeStaffRole(account.staffRole),
-        statusHistory: normalizeAccountStatusHistory(
-          account.statusHistory,
-          account.createdAt,
-          account.status ?? '',
-        ),
-      })),
+      accounts: normalizedAccounts,
       adminAuditLogs: (normalized.adminAuditLogs ?? []).filter(
         (entry): entry is AdminAuditLogRecord => Boolean(sanitizeStaffRole(entry.actorRole)),
       ).map((entry) => ({
@@ -19814,6 +19967,7 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>) {
               parseIsoDate(session.expiresAt) !== null,
             ),
         ),
+      sharedGifs: normalizedSharedGifs,
       subscriptionChannelReports: normalized.subscriptionChannelReports ?? [],
       subscriptionChannels: normalized.subscriptionChannels ?? [],
       subscriptionPosts: normalized.subscriptionPosts ?? [],

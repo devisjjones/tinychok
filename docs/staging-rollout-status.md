@@ -415,8 +415,9 @@
   - без premium показывается copy `Место закончилось. Ваши прошлые фото и файлы будут скрыты. ...`
   - `Премиум подписку` в warning является контрастной подчёркнутой inline-cta и по tap открывает premium screen
 - `Хранилище` в настройках открывает отдельный storage-screen
-- в storage-screen попадают только message attachments, support/thread attachments и GIF library
+- в storage-screen попадают только message attachments и support/thread attachments
 - аватарки профиля, группы и канала считаются внешним хранилищем Tinychok и не попадают ни в storage-screen, ни в пользовательскую квоту
+- общий GIF pool Tinychok тоже хранится отдельно и не попадает в пользовательскую квоту
 - группа больше не имеет собственного storage-subject
 - корневые group attachments и group thread attachments считаются в личном хранилище автора
 - channel storage сохраняется как отдельная сущность, а primary quota канала поднята до `500 MB`
@@ -452,10 +453,12 @@
 - GIF library умеет:
   - поиск и отправку GIF без premium
   - локальный upload `.gif` в личную библиотеку только с premium
+  - скрытый server-side лимит `100` upload своих GIF в календарный месяц на одного пользователя
   - дедуп по имени и размеру
   - auto-attach сразу после upload
   - поиск по общему Tinychok GIF pool по имени файла
   - удаление GIF из личной библиотеки
+  - удаление из личной библиотеки не удаляет сам media-объект из общего GIF pool
   - добавление GIF себе из fullscreen viewer без premium, если GIF уже хранится в Tinychok
 - аватарки профиля, группы и канала обновляются через единый crop/resize pipeline
 - `/avatar-upload-rules.html` явно говорит, что аватарка является пользовательским контентом под ответственность автора
@@ -822,6 +825,7 @@ curl -s https://api.staging.tinychok.ru/healthz
 - GIF send без premium
 - GIF search, delete и add-to-library из viewer без premium
 - локальный GIF upload в личную библиотеку premium-only
+- GIF pool вынесен из пользовательского storage/quota
 - avatar update
 - storage quota warning / block
 - session expiry now applies equally to HTTP bootstrap and websocket realtime

@@ -4640,7 +4640,7 @@ function App() {
                     </div>
                   ) : (
                     <div className="settings-storage-file-card">
-                      <span className="settings-storage-file-badge">{item.kind === 'gif' ? 'GIF' : 'Файл'}</span>
+                      <span className="settings-storage-file-badge">Файл</span>
                       <strong>{item.fileName}</strong>
                       {!compact ? <span>{formatAttachmentSize(item.size)}</span> : null}
                     </div>
@@ -6748,6 +6748,17 @@ function App() {
         throw error
       }
     } catch (error) {
+      if (error instanceof ApiError && error.status === 429) {
+        trackAnalyticsEvent('gif_upload_monthly_limit_reached', {
+          fileName: file.name,
+          limit: 100,
+          month: new Date().toISOString().slice(0, 7),
+          source: 'server',
+          userIdentifier: session.identifier,
+        })
+        throw error
+      }
+
       if (error instanceof ApiError) {
         throw error
       }
@@ -17068,7 +17079,7 @@ function App() {
                 </p>
               ) : settingsView === 'storage' ? (
                 <p className="settings-copy settings-storage-scene-copy">
-                  Здесь собраны только ваши удаляемые файлы и GIF. Аватарки живут отдельно во внешнем хранилище Тайничка и сюда не попадают.
+                  Здесь собраны только ваши удаляемые файлы и вложения. Аватарки и общая GIF-библиотека живут отдельно во внешнем хранилище Тайничка и сюда не попадают.
                 </p>
               ) : null}
 
@@ -17366,7 +17377,7 @@ function App() {
                   {renderStorageItemsGrid({
                     busy: storageItemsBusy,
                     deletingId: deletingStorageItemId,
-                    emptyCopy: 'Хранилище пока свободно. Здесь будут появляться только ваши вложения и GIF.',
+                    emptyCopy: 'Хранилище пока свободно. Здесь будут появляться только ваши вложения.',
                     error: storageItemsError,
                     items: storageItems,
                     onDelete: (item) => {

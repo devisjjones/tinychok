@@ -53,6 +53,7 @@ export type AnalyticsEventName =
   | 'gif_deleted'
   | 'gif_search_used'
   | 'gif_added_from_viewer'
+  | 'gif_upload_monthly_limit_reached'
   | 'photo_attachment_selected'
   | 'photo_upload_failed'
   | 'image_viewer_opened'
@@ -310,6 +311,10 @@ export const analyticsEventCatalog: Record<
   gif_added_from_viewer: {
     category: 'media',
     description: 'Пользователь добавил GIF себе из fullscreen viewer.',
+  },
+  gif_upload_monthly_limit_reached: {
+    category: 'media',
+    description: 'Пользователь упёрся в скрытый лимит загрузки своих GIF за текущий календарный месяц.',
   },
   photo_attachment_selected: {
     category: 'media',
