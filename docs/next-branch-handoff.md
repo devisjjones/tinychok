@@ -177,6 +177,12 @@
 - клиент поднимается через bootstrap snapshot
 - realtime обновления приходят по websocket и синхронизируют текущее состояние клиента
 - timeline data считаются `server-authoritative`
+- runtime self-heal contract для stale mobile/browser tabs:
+  - `GET /api/client-config` теперь обязан отдавать `release.buildId`
+  - frontend bundle вшивает собственный `__TINYCHOK_FRONTEND_BUILD_ID__`
+  - если runtime `buildId` отличается от build id загруженного frontend, user app делает один `hard reload` с cache-bust query param и не остаётся на старом bundle
+  - все `/api/*` ответы, кроме `GET /api/media/preview`, должны приходить с `Cache-Control: no-store`, чтобы mobile Chrome не поднимал старый snapshot из HTTP cache
+  - при возврате вкладки через `pageshow` / `focus` / `visibilitychange` видимая user session должна уметь сама перезапросить свежий bootstrap snapshot, если текущий runtime выглядит устаревшим
 - клиентский `saveSnapshot` не должен воскрешать удалённые сообщения, посты или комментарии из устаревшего local state
 - открытая и видимая комната не должна копить stale unread:
   - если пользователь уже видит входящее сообщение в открытом direct / group / channel room, оно должно сразу считаться прочитанным

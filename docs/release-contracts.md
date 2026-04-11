@@ -37,6 +37,10 @@
 - недостаточно видеть только `healthz=ok`
 - deploy-script обязан переживать краткое окно `502` сразу после `systemctl restart` и retry-ить runtime verifier, пока backend заново поднимает socket
 - deploy должен падать, если runtime-check не прошёл
+- stale runtime recovery тоже считается release-blocking контрактом:
+  - `GET /api/client-config` обязан отдавать `release.buildId`
+  - все `/api/*` ответы, кроме `GET /api/media/preview`, обязаны приходить с `Cache-Control: no-store`
+  - user app обязана уметь один раз hard-refresh-нуться при build mismatch и перезапрашивать bootstrap при возврате stale вкладки из mobile Chrome / BFCache
 
 ### 3. Analytics / Yandex Metrica Contract
 

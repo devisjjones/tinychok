@@ -907,6 +907,42 @@ function areStringListsEqual(left: string[] | undefined, right: string[] | undef
 
 const PENDING_MESSAGE_RETRY_INTERVAL_MS = 2000
 const OUTGOING_CONFIRMATION_WINDOW_MS = 30_000
+const STALE_RUNTIME_RECOVERY_INTERVAL_MS = 15_000
+const runtimeReloadQueryParam = '__tinychok_reload'
+const runtimeReloadAttemptStorageKey = 'tinychok.runtime.reload-build-id'
+
+function replaceCurrentUrl(url: URL) {
+  if (typeof window === 'undefined') return
+  window.location.replace(url.toString())
+}
+
+function triggerOneShotRuntimeReload(serverBuildId: string) {
+  if (typeof window === 'undefined') return false
+
+  const previousAttemptBuildId = window.sessionStorage.getItem(runtimeReloadAttemptStorageKey)
+  if (previousAttemptBuildId === serverBuildId) {
+    return false
+  }
+
+  window.sessionStorage.setItem(runtimeReloadAttemptStorageKey, serverBuildId)
+  const nextUrl = new URL(window.location.href)
+  nextUrl.searchParams.set(runtimeReloadQueryParam, serverBuildId)
+  replaceCurrentUrl(nextUrl)
+  return true
+}
+
+function stripRuntimeReloadQueryParam() {
+  if (typeof window === 'undefined') return
+
+  const currentUrl = new URL(window.location.href)
+  if (!currentUrl.searchParams.has(runtimeReloadQueryParam)) {
+    return
+  }
+
+  currentUrl.searchParams.delete(runtimeReloadQueryParam)
+  window.history.replaceState(window.history.state, '', currentUrl.toString())
+}
+
 const defaultClientRuntimeConfig: ClientRuntimeConfigResponse = {
   analytics: {
     enabled: false,
@@ -925,6 +961,9 @@ const defaultClientRuntimeConfig: ClientRuntimeConfigResponse = {
     enabled: false,
     provider: 'disabled',
     siteKey: null,
+  },
+  release: {
+    buildId: __TINYCHOK_FRONTEND_BUILD_ID__,
   },
 }
 
@@ -1309,6 +1348,8 @@ function App() {
   const nextOptimisticMessageIdRef = useRef(-1)
   const pendingRetryInFlightRef = useRef(false)
   const sessionRecoveryTimeoutRef = useRef<number | null>(null)
+  const latestAuthoritativeSnapshotAtRef = useRef(0)
+  const staleRuntimeResyncInFlightRef = useRef<Promise<void> | null>(null)
   const pendingGroupThreadCommentsRef = useRef<PendingGroupThreadComment[]>([])
   const pendingChannelThreadCommentsRef = useRef<PendingChannelThreadComment[]>([])
   const backendSyncTimeoutRef = useRef<number | null>(null)
@@ -1841,10 +1882,32 @@ function App() {
   }, [])
 
   useEffect(() => {
+    stripRuntimeReloadQueryParam()
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
 
     void fetchClientRuntimeConfig()
       .then((nextConfig) => {
+        if (cancelled) {
+          return
+        }
+
+        if (nextConfig.release.buildId !== __TINYCHOK_FRONTEND_BUILD_ID__) {
+          const reloaded = triggerOneShotRuntimeReload(nextConfig.release.buildId)
+          if (!reloaded) {
+            console.warn(
+              'Tinychok runtime build mismatch persists after a recovery reload attempt',
+              {
+                frontendBuildId: __TINYCHOK_FRONTEND_BUILD_ID__,
+                serverBuildId: nextConfig.release.buildId,
+              },
+            )
+          }
+          return
+        }
+
         if (!cancelled) {
           setClientRuntimeConfig(nextConfig)
         }
@@ -4501,6 +4564,7 @@ function App() {
           ? currentChannelId
           : snapshot.channels[0]?.id ?? null,
     )
+    latestAuthoritativeSnapshotAtRef.current = Date.now()
     syncSession(snapshot.session)
   }, [
     mergeDirectOutboxMessagesIntoChats,
@@ -4509,6 +4573,41 @@ function App() {
     mergePendingGroupThreadCommentsIntoGroups,
     syncSession,
   ])
+
+  const refreshVisibleSessionSnapshot = useCallback(async (reason: 'focus' | 'pageshow' | 'visibilitychange') => {
+    const sessionToken = session?.sessionToken
+    if (!sessionToken) {
+      return
+    }
+
+    if (staleRuntimeResyncInFlightRef.current) {
+      return staleRuntimeResyncInFlightRef.current
+    }
+
+    const refreshTask = (async () => {
+      try {
+        const snapshot = await fetchBootstrap(sessionToken)
+        suppressNextBrowserNotificationDiffRef.current = true
+        clearQueuedSessionRecovery()
+        applySnapshot(snapshot)
+        setBackendReady(true)
+      } catch (error) {
+        console.error(`Failed to refresh Tinychok snapshot after ${reason}`, error)
+        if (isExpiredSessionError(error)) {
+          queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
+          return
+        }
+        queueSessionRecovery()
+      }
+    })()
+
+    staleRuntimeResyncInFlightRef.current = refreshTask
+    await refreshTask.finally(() => {
+      if (staleRuntimeResyncInFlightRef.current === refreshTask) {
+        staleRuntimeResyncInFlightRef.current = null
+      }
+    })
+  }, [applySnapshot, clearQueuedSessionRecovery, queueSessionRecovery, session?.sessionToken])
 
   const persistBrowserNotificationsEnabled = useCallback(async (enabled: boolean) => {
     setBrowserNotificationsEnabled(enabled)
@@ -4917,6 +5016,64 @@ function App() {
       cancelled = true
     }
   }, [applySnapshot, clearQueuedSessionRecovery, queueSessionRecovery, session?.sessionToken, sessionRecoveryVersion])
+
+  useEffect(() => {
+    if (!session?.sessionToken || typeof window === 'undefined' || typeof document === 'undefined') {
+      return
+    }
+
+    const shouldRecoverStaleRuntime = (force = false) => {
+      if (document.visibilityState !== 'visible') {
+        return false
+      }
+
+      if (force || !backendReady) {
+        return true
+      }
+
+      return Date.now() - latestAuthoritativeSnapshotAtRef.current >= STALE_RUNTIME_RECOVERY_INTERVAL_MS
+    }
+
+    const recoverIfNeeded = (reason: 'focus' | 'pageshow' | 'visibilitychange', force = false) => {
+      if (!shouldRecoverStaleRuntime(force)) {
+        return
+      }
+
+      void refreshVisibleSessionSnapshot(reason)
+    }
+
+    const handlePageshow = (event: PageTransitionEvent) => {
+      const navigationEntry = window.performance.getEntriesByType('navigation')[0]
+      const restoredFromHistory =
+        typeof PerformanceNavigationTiming !== 'undefined' &&
+        navigationEntry instanceof PerformanceNavigationTiming &&
+        navigationEntry.type === 'back_forward'
+
+      if (event.persisted || restoredFromHistory) {
+        recoverIfNeeded('pageshow', true)
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        recoverIfNeeded('visibilitychange')
+      }
+    }
+
+    const handleFocus = () => {
+      recoverIfNeeded('focus')
+    }
+
+    window.addEventListener('pageshow', handlePageshow)
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('pageshow', handlePageshow)
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [backendReady, refreshVisibleSessionSnapshot, session?.sessionToken])
 
   useEffect(() => {
     if (!searchOpen || topListView !== 'none') {

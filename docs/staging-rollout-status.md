@@ -75,6 +75,23 @@
   - `Отмена` слева
   - `Применить` справа
 
+### Stale Runtime Recovery Guard
+
+- `GET https://api.staging.tinychok.ru/api/client-config` обязан отдавать `release.buildId`
+- `GET https://api.staging.tinychok.ru/api/client-config` и `GET https://api.staging.tinychok.ru/api/bootstrap` должны возвращать anti-cache headers:
+  - `Cache-Control: no-store, max-age=0, must-revalidate`
+  - `Pragma: no-cache`
+  - `Expires: 0`
+- исключение только одно:
+  - `GET /api/media/preview` остаётся cacheable, потому что это derive-preview для video attachments
+- user app должна сама восстанавливаться от stale mobile Chrome tabs:
+  - при несовпадении server `release.buildId` и frontend build id приложение делает один safe hard-refresh с cache-bust
+  - при возврате вкладки через `pageshow` / `focus` / `visibilitychange` видимая user session заново тянет bootstrap snapshot, если текущий runtime успел устареть
+- smoke-check после runtime/frontend deploy:
+  - `curl -I https://api.staging.tinychok.ru/api/client-config`
+  - `curl -I -H 'Authorization: Bearer staging-smoke-invalid' https://api.staging.tinychok.ru/api/bootstrap`
+  - expected result = даже на `401` у `/api/bootstrap` anti-cache headers остаются на месте
+
 ### Staging Analytics Guard
 
 - staging analytics считаются release-blocking runtime-контрактом:

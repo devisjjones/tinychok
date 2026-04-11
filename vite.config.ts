@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
@@ -5,8 +6,30 @@ import react from '@vitejs/plugin-react'
 
 const viteConfigDir = dirname(fileURLToPath(import.meta.url))
 
+function resolveFrontendBuildId() {
+  const explicitBuildId = process.env.TINYCHOK_BUILD_ID?.trim()
+  if (explicitBuildId) {
+    return explicitBuildId
+  }
+
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: viteConfigDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return '0.0.0'
+  }
+}
+
+const frontendBuildId = resolveFrontendBuildId()
+
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    __TINYCHOK_FRONTEND_BUILD_ID__: JSON.stringify(frontendBuildId),
+  },
   plugins: [react()],
   server: {
     proxy: {

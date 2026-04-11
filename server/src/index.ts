@@ -413,10 +413,16 @@ await app.register(cors, {
 await app.register(multipart)
 await app.register(websocket)
 
-app.addHook('preHandler', async (request) => {
+app.addHook('preHandler', async (request, reply) => {
   const pathname = request.url.split('?', 1)[0] ?? request.url
   if (!pathname.startsWith('/api/')) {
     return
+  }
+
+  if (pathname !== '/api/media/preview') {
+    reply.header('Cache-Control', 'no-store, max-age=0, must-revalidate')
+    reply.header('Pragma', 'no-cache')
+    reply.header('Expires', '0')
   }
 
   const token = getBearerToken(request)
@@ -511,6 +517,9 @@ app.get('/api/client-config', async () => ({
     enabled: runtimeConfig.auth.captcha.provider !== 'disabled',
     provider: runtimeConfig.auth.captcha.provider,
     siteKey: runtimeConfig.auth.captcha.siteKey,
+  },
+  release: {
+    buildId: runtimeConfig.release.buildId,
   },
 }) satisfies ClientRuntimeConfigResponse)
 

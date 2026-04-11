@@ -466,6 +466,17 @@ function makeJsonRequestInit(
   }
 }
 
+function makeNoStoreReadRequestInit(token?: string): RequestInit {
+  return {
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  }
+}
+
 function isRetryableSessionUpdateFallbackError(error: unknown) {
   if (error instanceof ApiError) {
     return error.status === 404 || error.status === 405 || error.status === 501
@@ -498,7 +509,7 @@ export async function requestAuthCode(body: RequestCodeBody) {
 }
 
 export async function fetchClientRuntimeConfig() {
-  const response = await fetch(makeHttpUrl('/api/client-config'))
+  const response = await fetch(makeHttpUrl('/api/client-config'), makeNoStoreReadRequestInit())
   return readJsonResponse<ClientRuntimeConfigResponse>(response)
 }
 
@@ -570,11 +581,7 @@ export async function deleteAccount(sessionToken: string, body: DeleteAccountBod
 }
 
 export async function fetchBootstrap(sessionToken: string) {
-  const response = await fetch(makeHttpUrl('/api/bootstrap'), {
-    headers: {
-      Authorization: `Bearer ${sessionToken}`,
-    },
-  })
+  const response = await fetch(makeHttpUrl('/api/bootstrap'), makeNoStoreReadRequestInit(sessionToken))
 
   const payload = await readJsonResponse<AppSnapshot>(response)
   return normalizeSnapshot(payload)

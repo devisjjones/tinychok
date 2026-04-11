@@ -128,6 +128,9 @@ export type ClientRuntimeConfigResponse = {
     provider: CaptchaProvider
     siteKey: string | null
   }
+  release: {
+    buildId: string
+  }
 }
 
 export type AdminActor = {

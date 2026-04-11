@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
 type AppEnvironment = 'development' | 'staging' | 'production'
@@ -104,6 +105,23 @@ function readAdminEnabled(value: string | undefined, environment: AppEnvironment
   return readBoolean(value, environment !== 'production')
 }
 
+function readBuildId(env: RuntimeEnv) {
+  const explicitBuildId = env.TINYCHOK_BUILD_ID?.trim()
+  if (explicitBuildId) {
+    return explicitBuildId
+  }
+
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return '0.0.0'
+  }
+}
+
 function assertCaptchaConfiguration(
   environment: AppEnvironment,
   captcha: {
@@ -177,6 +195,9 @@ export function createRuntimeConfig(env: RuntimeEnv = process.env) {
         production: env.ADMIN_PRODUCTION_HOST?.trim() || 'admin.tinychok.ru',
         staging: env.ADMIN_STAGING_HOST?.trim() || 'admin.staging.tinychok.ru',
       },
+    },
+    release: {
+      buildId: readBuildId(env),
     },
     auth: {
       allowedTestPhones: readStringList(env.TINYCHOK_ALLOWED_TEST_PHONES),
