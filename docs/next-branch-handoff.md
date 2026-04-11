@@ -185,6 +185,11 @@
 - static source-contract tests недостаточны для room feed mechanics:
   - автоскролл и read-state комнаты должны быть покрыты runtime DOM tests
   - зелёные только helper/static tests не считаются достаточной защитой от регресса
+- browser history stack contract:
+  - user app держит собственный browser history stack поверх SPA-state
+  - browser `Back` на desktop и mobile сначала закрывает внутренние экраны (`поиск -> room -> thread -> settings/premium/channels`) и только с корневого main-shell отпускает вкладку наружу
+  - route entry key специально не зависит от каждого символа в поиске: `query`, `activeFilter`, `contactsTab` и `searchTopFilter` обновляют `history.state` через `replaceState`, а не плодят новый history entry
+  - dirty `Профиль` и dirty `Настройки канала` блокируют `popstate` и возвращают пользователя на текущий экран до решения confirm-диалога
 - group room sender-chain contract:
   - sender-strip рендерится только у первого сообщения новой цепочки автора
   - thread comments держат тот же внешний sender-strip и не вшивают имя/аватар в bubble-body

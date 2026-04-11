@@ -143,6 +143,32 @@ test.after(() => {
   console.info = originalConsoleInfo
 })
 
+test('browser back navigation stays inside the app before releasing the tab history', () => {
+  const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
+  const historySource = readFileSync(
+    join(process.cwd(), 'src/app/browserNavigationHistory.ts'),
+    'utf8',
+  )
+  const releaseDoc = readFileSync(join(process.cwd(), 'docs/release-contracts.md'), 'utf8')
+  const handoffDoc = readFileSync(join(process.cwd(), 'docs/next-branch-handoff.md'), 'utf8')
+
+  assert.match(historySource, /appNavigationHistoryStateMarker/u)
+  assert.match(historySource, /export type AppNavigationRoute/u)
+  assert.match(historySource, /export function getAppNavigationRouteEntryKey/u)
+  assert.match(historySource, /return `main:\$\{route\.bottomSection\}:\$\{route\.topListView\}:\$\{route\.searchOpen \? 'search' : 'default'\}`/u)
+  assert.match(appSource, /window\.addEventListener\('popstate', handlePopState\)/u)
+  assert.match(appSource, /window\.history\.replaceState\(/u)
+  assert.match(appSource, /window\.history\.pushState\(/u)
+  assert.match(appSource, /window\.history\.back\(\)/u)
+  assert.match(appSource, /shouldBlockBrowserPopstateNavigation/u)
+  assert.match(appSource, /setConfirmProfileSettingsLeaveOpen\(true\)/u)
+  assert.match(appSource, /setConfirmChannelSettingsLeaveOpen\(true\)/u)
+  assert.match(appSource, /onClick=\{handleThreadRoomBack\}/u)
+  assert.ok((appSource.match(/onBack=\{handleRoomBack\}/gu) ?? []).length >= 3)
+  assert.match(releaseDoc, /браузерная кнопка `Назад`/u)
+  assert.match(handoffDoc, /browser history stack/u)
+})
+
 test('attachment storage cleanup copy stays wired into preview and bubble rendering', () => {
   const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
   const bubbleSource = readFileSync(join(process.cwd(), 'src/components/BubbleMessageContent.tsx'), 'utf8')
@@ -692,8 +718,13 @@ test('search surface owns its own top filters and can hide contacts or channels 
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  const browserHistorySource = readFileSync(
+    join(repoRoot, 'src', 'app', 'browserNavigationHistory.ts'),
+    'utf8',
+  )
 
-  assert.match(appSource, /type SearchTopFilter = 'all' \| 'contacts' \| 'channels'/u)
+  assert.match(browserHistorySource, /export type SearchTopFilter = 'all' \| 'contacts' \| 'channels'/u)
+  assert.match(appSource, /type SearchTopFilter,/u)
   assert.match(appSource, /const \[searchTopFilter, setSearchTopFilter\] = useState<SearchTopFilter>\('all'\)/u)
   assert.match(appSource, /searchOpen\s*\?\s*'filters search-filters'/u)
   assert.match(appSource, /aria-label=\{\s*searchOpen\s*\?\s*'Фильтры поиска'/u)

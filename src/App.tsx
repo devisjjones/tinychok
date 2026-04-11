@@ -183,6 +183,14 @@ import {
 } from './app/iconContracts'
 import { resolveSearchChannelOpenTarget } from './app/channelSearch'
 import { type ContactsTabKey } from './app/contactsContract'
+import {
+  createAppNavigationHistoryState,
+  getAppNavigationRouteEntryKey,
+  readAppNavigationHistoryState,
+  type AppNavigationHistoryState,
+  type AppNavigationRoute,
+  type SearchTopFilter,
+} from './app/browserNavigationHistory'
 import type { ClientRuntimeConfigResponse } from './shared/backend'
 import type {
   Account,
@@ -319,8 +327,6 @@ import type {
   UpdateSessionBody,
 } from './shared/backend'
 import './App.css'
-
-type SearchTopFilter = 'all' | 'contacts' | 'channels'
 
 const deliveryIndicatorIconPaths = [
   '/icons/hourglass-48.png',
@@ -1316,6 +1322,11 @@ function App() {
   const pendingChannelThreadCommentsRef = useRef<PendingChannelThreadComment[]>([])
   const backendSyncTimeoutRef = useRef<number | null>(null)
   const skipNextBackendSyncRef = useRef(false)
+  const appNavigationHistoryReadyRef = useRef(false)
+  const appNavigationHistoryDepthRef = useRef(0)
+  const appNavigationRestoringRef = useRef(false)
+  const appNavigationIgnoreNextPopstateRef = useRef(false)
+  const blockedBrowserPopstateRef = useRef<AppNavigationHistoryState | null>(null)
   // These refs keep the debounced write-path transparent: text fields update locally first,
   // then the latest snapshot/patch is flushed through dedicated backend mutations.
   const latestSnapshotRef = useRef<AppSnapshot | null>(null)
@@ -2534,6 +2545,49 @@ function App() {
   const isGroupsTopListOpen = topListView === 'groups'
   const isThreadsTopListOpen = topListView === 'threads'
   const isAnyRoomOpen = isChatOpen || isSubscriptionChannelOpen || isGroupOpen
+  const appNavigationRoute = useMemo<AppNavigationRoute>(() => ({
+    activeChannelId,
+    activeChatId,
+    activeFilter,
+    activeGroupId,
+    activeSubscriptionChannelId,
+    bottomSection,
+    channelDetailView,
+    channelsView,
+    contactsTab,
+    premiumGiftChatId,
+    previewSubscriptionChannel,
+    query,
+    searchOpen,
+    searchTopFilter,
+    settingsView,
+    stageView,
+    threadTarget,
+    topListView,
+  }), [
+    activeChannelId,
+    activeChatId,
+    activeFilter,
+    activeGroupId,
+    activeSubscriptionChannelId,
+    bottomSection,
+    channelDetailView,
+    channelsView,
+    contactsTab,
+    premiumGiftChatId,
+    previewSubscriptionChannel,
+    query,
+    searchOpen,
+    searchTopFilter,
+    settingsView,
+    stageView,
+    threadTarget,
+    topListView,
+  ])
+  const appNavigationRouteEntryKey = useMemo(
+    () => getAppNavigationRouteEntryKey(appNavigationRoute),
+    [appNavigationRoute],
+  )
   const loadOlderDirectMessages = useCallback(async (beforeMessageId: number) => {
     if (!backendReady || !session?.sessionToken || !activeChat) {
       return {
@@ -9972,6 +10026,331 @@ function App() {
     void syncDialogRead(chatId)
   }
 
+  const canNavigateBackWithinApp = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return false
+    }
+
+    const historyState = readAppNavigationHistoryState(window.history.state)
+    return historyState !== null && historyState.depth > 0
+  }, [])
+
+  const clearBlockedBrowserBackNavigation = useCallback(() => {
+    blockedBrowserPopstateRef.current = null
+  }, [])
+
+  const continueBlockedBrowserBackNavigation = useCallback(() => {
+    if (typeof window === 'undefined' || !blockedBrowserPopstateRef.current) {
+      return false
+    }
+
+    blockedBrowserPopstateRef.current = null
+    window.requestAnimationFrame(() => {
+      window.history.back()
+    })
+    return true
+  }, [])
+
+  const navigateBackWithinApp = useCallback((fallback: () => void) => {
+    if (typeof window !== 'undefined' && canNavigateBackWithinApp()) {
+      window.history.back()
+      return
+    }
+
+    fallback()
+  }, [canNavigateBackWithinApp])
+
+  const applyNavigationRoute = useCallback((route: AppNavigationRoute) => {
+    setVideoNoteRecorderTarget(null)
+    setChatActionsOpen(false)
+    setBlockedActionChatId(null)
+    setChannelActionsAnchor(null)
+    setChannelManagementOpenId(null)
+    setChannelPostError('')
+    setChannelPostReplyTarget(null)
+    setChannelReportOpen(false)
+    setChannelReportBusy(false)
+    setChannelReportError('')
+    setChannelReportSuccessOpen(false)
+    setChannelShareOpen(false)
+    setChannelShareBusy(false)
+    setChannelShareError('')
+    setChannelSubscribersOpen(false)
+    setChannelSubscribersSearchQuery('')
+    setSelectedChannelSubscriberIdentifier(null)
+    setConfirmChannelSettingsLeaveOpen(false)
+    setConfirmProfileSettingsLeaveOpen(false)
+    setConfirmingBlacklistChannelSubscriberIdentifier(null)
+    setConfirmingDeleteChannelId(null)
+    setConfirmingDeleteContactChatId(null)
+    setConfirmingDeleteHistoryChatId(null)
+    setConfirmingDeleteMessageId(null)
+    setConfirmingLeaveGroupId(null)
+    setConfirmingLeaveSubscriptionChannelId(null)
+    setConfirmingLogout(false)
+    setForwardingMessageId(null)
+    setGroupActionsAnchor(null)
+    setGroupDescriptionOpen(false)
+    setGroupInviteOpen(false)
+    setGroupInviteBusy(false)
+    setGroupInviteError('')
+    setGroupInviteInlineError(null)
+    setGroupInviteLimitNoticeOpen(false)
+    setGroupParticipantActionBusy(false)
+    setGroupParticipantActionError('')
+    setGroupParticipantsOpen(false)
+    setGroupParticipantsSearchQuery('')
+    setGroupReportNoticeOpen(false)
+    setManagedChannelLimitErrorOpen(false)
+    setMessageActionAnchor(null)
+    setMessageActionMessageId(null)
+    setPendingAvatarPostPrompt(null)
+    setPendingAvatarPostCaption('')
+    setPremiumGiftChatId(route.premiumGiftChatId)
+    setProfileAvatarPickerOpen(false)
+    setProfileAvatarPickerBusy(false)
+    setProfileAvatarPickerError('')
+    setReplyTarget(null)
+    setReportingChatId(null)
+    setReportContactBusy(false)
+    setReportContactError('')
+    setReportContactSuccessOpen(false)
+    setSelectedGroupParticipantIdentifier(null)
+    setSupportError('')
+    setThreadCommentHintTarget(null)
+    clearThreadAttachmentDraft()
+    resetBlacklistFlow()
+    resetRoomMessageActions()
+
+    setStageView(route.stageView)
+    setSettingsView(route.settingsView)
+    setChannelsView(route.channelsView)
+    setChannelDetailView(route.channelDetailView)
+    setActiveChannelId(route.activeChannelId)
+    setBottomSection(route.bottomSection)
+    setContactsTab(route.contactsTab)
+    setQuery(route.query)
+    setActiveFilter(route.activeFilter)
+    setSearchOpen(route.searchOpen)
+    setSearchTopFilter(route.searchTopFilter)
+    setTopListView(route.topListView)
+    setActiveChatId(route.activeChatId)
+    setActiveGroupId(route.activeGroupId)
+    setActiveSubscriptionChannelId(route.activeSubscriptionChannelId)
+    setPreviewSubscriptionChannel(route.previewSubscriptionChannel)
+
+    if (route.threadTarget) {
+      openThread(route.threadTarget)
+      return
+    }
+
+    resetThreadState()
+  }, [
+    clearThreadAttachmentDraft,
+    openThread,
+    resetBlacklistFlow,
+    resetRoomMessageActions,
+    resetThreadState,
+  ])
+
+  const shouldBlockBrowserPopstateNavigation = useCallback((nextState: AppNavigationHistoryState) => {
+    const nextRouteKey = getAppNavigationRouteEntryKey(nextState.route)
+
+    if (nextRouteKey === appNavigationRouteEntryKey) {
+      return false
+    }
+
+    if (
+      stageView === 'channels' &&
+      channelsView === 'detail' &&
+      channelDetailView === 'main' &&
+      activeChannelSettingsDirty
+    ) {
+      setConfirmChannelSettingsLeaveOpen(true)
+      return true
+    }
+
+    if (stageView === 'settings' && settingsView === 'profile' && profileSettingsDirty) {
+      setConfirmProfileSettingsLeaveOpen(true)
+      return true
+    }
+
+    return false
+  }, [
+    activeChannelSettingsDirty,
+    appNavigationRouteEntryKey,
+    channelDetailView,
+    channelsView,
+    profileSettingsDirty,
+    settingsView,
+    stageView,
+  ])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const handlePopState = (event: PopStateEvent) => {
+      if (appNavigationIgnoreNextPopstateRef.current) {
+        appNavigationIgnoreNextPopstateRef.current = false
+        return
+      }
+
+      const nextState = readAppNavigationHistoryState(event.state)
+      if (!nextState) {
+        return
+      }
+
+      if (channelSettingsBusy || profileSettingsBusy) {
+        appNavigationIgnoreNextPopstateRef.current = true
+        window.history.forward()
+        return
+      }
+
+      if (shouldBlockBrowserPopstateNavigation(nextState)) {
+        blockedBrowserPopstateRef.current = nextState
+        appNavigationIgnoreNextPopstateRef.current = true
+        window.history.forward()
+        return
+      }
+
+      clearBlockedBrowserBackNavigation()
+      appNavigationHistoryDepthRef.current = nextState.depth
+      appNavigationRestoringRef.current = true
+      applyNavigationRoute(nextState.route)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [
+    applyNavigationRoute,
+    channelSettingsBusy,
+    clearBlockedBrowserBackNavigation,
+    profileSettingsBusy,
+    shouldBlockBrowserPopstateNavigation,
+  ])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (!appNavigationHistoryReadyRef.current) {
+      const currentState = readAppNavigationHistoryState(window.history.state)
+      const initialDepth = currentState?.depth ?? 0
+      appNavigationHistoryDepthRef.current = initialDepth
+      window.history.replaceState(
+        createAppNavigationHistoryState(appNavigationRoute, initialDepth),
+        '',
+        window.location.href,
+      )
+      appNavigationHistoryReadyRef.current = true
+      return
+    }
+
+    if (appNavigationRestoringRef.current) {
+      appNavigationRestoringRef.current = false
+      const restoredDepth = appNavigationHistoryDepthRef.current
+      window.history.replaceState(
+        createAppNavigationHistoryState(appNavigationRoute, restoredDepth),
+        '',
+        window.location.href,
+      )
+      return
+    }
+
+    const currentState = readAppNavigationHistoryState(window.history.state)
+    const currentDepth = currentState?.depth ?? appNavigationHistoryDepthRef.current
+    const currentRouteKey = currentState ? getAppNavigationRouteEntryKey(currentState.route) : null
+
+    if (currentRouteKey === appNavigationRouteEntryKey) {
+      window.history.replaceState(
+        createAppNavigationHistoryState(appNavigationRoute, currentDepth),
+        '',
+        window.location.href,
+      )
+      appNavigationHistoryDepthRef.current = currentDepth
+      return
+    }
+
+    const nextDepth = currentDepth + 1
+    appNavigationHistoryDepthRef.current = nextDepth
+    window.history.pushState(
+      createAppNavigationHistoryState(appNavigationRoute, nextDepth),
+      '',
+      window.location.href,
+    )
+  }, [appNavigationRoute, appNavigationRouteEntryKey])
+
+  const handleRoomBack = useCallback(() => {
+    navigateBackWithinApp(() => {
+      closeActiveRoom()
+    })
+  }, [navigateBackWithinApp])
+
+  const handleThreadRoomBack = useCallback(() => {
+    navigateBackWithinApp(() => {
+      closeThreadView()
+    })
+  }, [closeThreadView, navigateBackWithinApp])
+
+  const handleSettingsBack = useCallback(() => {
+    if (settingsView === 'quiet') {
+      navigateBackWithinApp(() => {
+        setQuietSettingsError('')
+        setSettingsView('profile')
+        setConfirmingLogout(false)
+      })
+      return
+    }
+
+    if (settingsView === 'profile' && profileSettingsDirty) {
+      setConfirmProfileSettingsLeaveOpen(true)
+      return
+    }
+
+    navigateBackWithinApp(() => {
+      leaveSettingsToMain()
+    })
+  }, [leaveSettingsToMain, navigateBackWithinApp, profileSettingsDirty, settingsView])
+
+  const handleSupportSettingsBack = useCallback(() => {
+    setSupportError('')
+    navigateBackWithinApp(() => {
+      closeThreadView()
+      setSettingsView('profile')
+      setConfirmingLogout(false)
+    })
+  }, [closeThreadView, navigateBackWithinApp])
+
+  const handlePremiumBack = useCallback(() => {
+    navigateBackWithinApp(() => {
+      setStageView('main')
+      setPremiumGiftChatId(null)
+    })
+  }, [navigateBackWithinApp])
+
+  const handleChannelsListBack = useCallback(() => {
+    navigateBackWithinApp(() => {
+      setStageView('main')
+    })
+  }, [navigateBackWithinApp])
+
+  const handleChannelsCreateBack = useCallback(() => {
+    navigateBackWithinApp(() => {
+      openChannelsListView()
+    })
+  }, [navigateBackWithinApp, openChannelsListView])
+
+  const handleChannelInviteBack = useCallback(() => {
+    navigateBackWithinApp(() => {
+      openChannelsListView()
+    })
+  }, [navigateBackWithinApp, openChannelsListView])
+
   browserNotificationOpenTargetRef.current = (target) => {
     if (target.kind === 'chat') {
       openChat(target.chatId)
@@ -11740,7 +12119,10 @@ function App() {
     openChannelsView('detail')
   }
 
-  async function saveManagedChannelSettings(channelId: number, options?: { exitAfterSave?: boolean }) {
+  async function saveManagedChannelSettings(
+    channelId: number,
+    options?: { exitAfterSave?: boolean },
+  ): Promise<'saved' | 'pending-avatar-post' | false> {
     setChannelSettingsBusy(true)
     setChannelSettingsError('')
 
@@ -11749,7 +12131,7 @@ function App() {
       const pendingPatch = pendingChannelPatchesRef.current.get(channelId) ?? null
 
       if (!pendingPatch || Object.keys(pendingPatch).length === 0) {
-        return true
+        return 'saved'
       }
 
       let savedSnapshot: AppSnapshot | null
@@ -11805,14 +12187,14 @@ function App() {
           exitAfterSave: Boolean(options?.exitAfterSave),
         })
         setPendingAvatarPostCaption('')
-        return true
+        return 'pending-avatar-post'
       }
 
       if (options?.exitAfterSave && savedChannel) {
         openManagedChannelRoom(savedChannel, savedSnapshot.subscriptionChannels)
       }
 
-      return true
+      return 'saved'
     } finally {
       setChannelSettingsBusy(false)
     }
@@ -11826,14 +12208,16 @@ function App() {
 
   async function handleActiveChannelDetailBack() {
     if (channelDetailView === 'storage') {
-      setChannelStorageItemsError('')
-      setChannelDetailView('main')
+      navigateBackWithinApp(() => {
+        setChannelStorageItemsError('')
+        setChannelDetailView('main')
+      })
       return
     }
 
     if (!activeChannel || channelSettingsBusy) {
       if (!activeChannel) {
-        openChannelsListView()
+        handleChannelsCreateBack()
       }
       return
     }
@@ -11843,12 +12227,15 @@ function App() {
       return
     }
 
-    openManagedChannelRoom(activeChannel)
+    navigateBackWithinApp(() => {
+      openManagedChannelRoom(activeChannel)
+    })
   }
 
   function closeChannelSettingsLeaveConfirm() {
     if (channelSettingsBusy) return
     setConfirmChannelSettingsLeaveOpen(false)
+    clearBlockedBrowserBackNavigation()
   }
 
   function discardActiveChannelDetailChangesAndExit() {
@@ -11856,6 +12243,10 @@ function App() {
 
     discardManagedChannelChanges(activeChannel.id, channelSettingsBaseline)
     setConfirmChannelSettingsLeaveOpen(false)
+    if (continueBlockedBrowserBackNavigation()) {
+      return
+    }
+
     openManagedChannelRoom(channelSettingsBaseline)
   }
 
@@ -11863,7 +12254,24 @@ function App() {
     if (!activeChannel) return
 
     setConfirmChannelSettingsLeaveOpen(false)
-    await saveManagedChannelSettings(activeChannel.id, { exitAfterSave: true })
+    const saveResult = await saveManagedChannelSettings(activeChannel.id, { exitAfterSave: false })
+    if (!saveResult) {
+      return
+    }
+
+    if (saveResult === 'pending-avatar-post') {
+      return
+    }
+
+    if (continueBlockedBrowserBackNavigation()) {
+      return
+    }
+
+    const currentChannel =
+      channels.find((channel) => channel.id === activeChannel.id) ??
+      channelSettingsBaseline ??
+      activeChannel
+    openManagedChannelRoom(currentChannel)
   }
 
   async function sendManagedChannelAvatarUpdatePost(
@@ -13313,7 +13721,7 @@ function App() {
           <button
             type="button"
             className="soft-button room-mobile-back room-thread-back"
-            onClick={closeThreadView}
+            onClick={handleThreadRoomBack}
             aria-label="Назад"
             title="Назад"
           >
@@ -17045,12 +17453,7 @@ function App() {
                     <button
                       type="button"
                       className="soft-button"
-                      onClick={() => {
-                        setSupportError('')
-                        closeThreadView()
-                        setSettingsView('profile')
-                        setConfirmingLogout(false)
-                      }}
+                      onClick={handleSupportSettingsBack}
                     >
                       Назад
                     </button>
@@ -17526,21 +17929,7 @@ function App() {
                 <button
                   type="button"
                   className="soft-button"
-                  onClick={() => {
-                    if (settingsView === 'quiet') {
-                      setQuietSettingsError('')
-                      setSettingsView('profile')
-                      setConfirmingLogout(false)
-                      return
-                    }
-
-                    if (settingsView === 'profile' && profileSettingsDirty) {
-                      setConfirmProfileSettingsLeaveOpen(true)
-                      return
-                    }
-
-                    leaveSettingsToMain()
-                  }}
+                  onClick={handleSettingsBack}
                 >
                   Назад
                 </button>
@@ -17612,7 +18001,10 @@ function App() {
               type="button"
               className="room-confirm-scrim"
               aria-label="Закрыть подтверждение сохранения настроек профиля"
-              onClick={() => setConfirmProfileSettingsLeaveOpen(false)}
+              onClick={() => {
+                setConfirmProfileSettingsLeaveOpen(false)
+                clearBlockedBrowserBackNavigation()
+              }}
             />
             <div className="room-confirm room-confirm-compact">
               <p className="room-confirm-copy">Сохранить изменения настроек профиля?</p>
@@ -17621,7 +18013,13 @@ function App() {
                   type="button"
                   className="room-confirm-button room-confirm-danger"
                   onClick={() => {
-                    leaveSettingsToMain({ discardProfileDraft: true })
+                    discardProfileSettingsDraft()
+                    setConfirmProfileSettingsLeaveOpen(false)
+                    if (continueBlockedBrowserBackNavigation()) {
+                      return
+                    }
+
+                    leaveSettingsToMain()
                   }}
                 >
                   Нет
@@ -17634,6 +18032,11 @@ function App() {
                     void (async () => {
                       const saved = await saveProfileSettings()
                       if (saved) {
+                        setConfirmProfileSettingsLeaveOpen(false)
+                        if (continueBlockedBrowserBackNavigation()) {
+                          return
+                        }
+
                         leaveSettingsToMain()
                       }
                     })()
@@ -17790,10 +18193,7 @@ function App() {
                 <button
                   type="button"
                   className="soft-button"
-                  onClick={() => {
-                    setStageView('main')
-                    setPremiumGiftChatId(null)
-                  }}
+                  onClick={handlePremiumBack}
                 >
                   Назад
                 </button>
@@ -17897,7 +18297,11 @@ function App() {
               </div>
 
               <div className="settings-actions channels-manager-actions">
-                <button type="button" className="soft-button channels-manager-back" onClick={() => setStageView('main')}>
+                <button
+                  type="button"
+                  className="soft-button channels-manager-back"
+                  onClick={handleChannelsListBack}
+                >
                   Назад
                 </button>
               </div>
@@ -18054,7 +18458,7 @@ function App() {
               </div>
 
               <div className="settings-actions channels-create-actions">
-                <button type="button" className="soft-button" onClick={openChannelsListView}>
+                <button type="button" className="soft-button" onClick={handleChannelsCreateBack}>
                   Назад
                 </button>
                 <button
@@ -18149,7 +18553,7 @@ function App() {
                     <button
                       type="button"
                       className="soft-button"
-                      onClick={openChannelsListView}
+                      onClick={handleChannelInviteBack}
                       disabled={channelInviteBusy}
                     >
                       Отмена
@@ -18177,7 +18581,7 @@ function App() {
                     </p>
                   </div>
                   <div className="settings-actions channels-create-actions">
-                    <button type="button" className="soft-button" onClick={openChannelsListView}>
+                    <button type="button" className="soft-button" onClick={handleChannelInviteBack}>
                       Назад
                     </button>
                   </div>
@@ -18664,7 +19068,7 @@ function App() {
             activePostId={forwardingSubscriptionPostText ? null : activeSubscriptionPostId}
             channel={currentSubscriptionChannel!}
             messageFeedRef={messageFeedRef}
-            onBack={closeActiveRoom}
+            onBack={handleRoomBack}
             onOpenThread={isPreviewSubscriptionChannel ? undefined : openChannelThread}
             onOpenChannelActions={
               actionableSubscriptionChannel
@@ -18801,7 +19205,7 @@ function App() {
               setGroupReportNoticeOpen(false)
               setConfirmingLeaveGroupId(null)
             }}
-            onBack={closeActiveRoom}
+            onBack={handleRoomBack}
             onComposerFocus={() => {
               closeGroupMessageActions()
               closeGroupActions()
@@ -18882,7 +19286,7 @@ function App() {
               composerDisabledNotice={activeChatAdminBlockNotice}
               composerGate={activeChatComposerGate}
               onAttachmentChange={handleChatAttachmentChange}
-              onBack={closeActiveRoom}
+              onBack={handleRoomBack}
               onBlockChat={() => blockChat(activeChat.id)}
               onCloseChatActions={() => setChatActionsOpen(false)}
               onCreateGroup={() => {

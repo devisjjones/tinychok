@@ -138,6 +138,12 @@
   - visible room slice не должен заново пересортировывать уже собранный local tail по одному `createdAt`, если server-created timestamps у последних confirmed сообщений уже стали позже клиентского pending timestamp
   - если `createdAt` совпал, confirmed items всё равно должны оставаться раньше optimistic local ids `< 0`
   - server ack не должен визуально переставлять только что отправленное сообщение на 1-2 строки вниз
+- browser history contract:
+  - браузерная кнопка `Назад` на desktop и mobile browser должна сначала проходить по внутреннему стеку Tinychok
+  - порядок такой: тред / комната / настройки / premium / экраны каналов / открытый поиск и только потом выход со страницы
+  - первый экран, который может отдать `Back` наружу браузеру, это main-shell без открытой комнаты
+  - in-app кнопки `Назад` для комнаты, треда, настроек, premium и channel-manager должны использовать тот же browser history stack, а не создавать новый fake-root entry
+  - dirty `Профиль` и dirty `Настройки канала` не должны терять изменения из-за browser back: сначала открывается существующее confirm-сохранение
 - thread inbox card contract:
   - avatar root-message треда должен быть прижат к верхней линии карточки, а не болтаться по vertical center
   - у avatar должен быть нижний-right badge источника треда (`group` / `channel`) с mask-обводкой, чтобы иконка не сливалась с картинкой
