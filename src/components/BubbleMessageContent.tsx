@@ -1,4 +1,6 @@
 import React, {
+  useEffect,
+  useRef,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useState,
@@ -101,24 +103,69 @@ function buildVideoPreviewUrl(mediaUrl: string) {
 
 type VideoAttachmentPreviewProps = {
   attachmentLayout: BubbleMessageContentProps['attachmentLayout']
+  isInlinePlaying?: boolean
   isVideoNote: boolean
   mediaUrl: string
+  onInlinePlaybackStateChange?: (playing: boolean) => void
 }
 
 function VideoAttachmentPreview({
   attachmentLayout,
+  isInlinePlaying = false,
   isVideoNote,
   mediaUrl,
+  onInlinePlaybackStateChange,
 }: VideoAttachmentPreviewProps) {
   const [previewFailed, setPreviewFailed] = useState(false)
+  const inlineVideoRef = useRef<HTMLVideoElement | null>(null)
   const imageClassName = `bubble-attachment-image bubble-attachment-video-preview${
     attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
   }${
     attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
   }${isVideoNote ? ' bubble-attachment-image-video-note' : ''}`
+  const previewUrl = buildVideoPreviewUrl(mediaUrl)
+
+  useEffect(() => {
+    if (!isVideoNote || !isInlinePlaying) {
+      return
+    }
+
+    const inlineVideo = inlineVideoRef.current
+    if (!inlineVideo) {
+      return
+    }
+
+    const playResult = inlineVideo.play()
+    if (playResult && typeof playResult.catch === 'function') {
+      void playResult.catch(() => {
+        onInlinePlaybackStateChange?.(false)
+      })
+    }
+  }, [isInlinePlaying, isVideoNote, mediaUrl, onInlinePlaybackStateChange])
 
   if (previewFailed) {
     return <span className={`${imageClassName} bubble-attachment-video-fallback`} aria-hidden="true" />
+  }
+
+  if (isVideoNote && isInlinePlaying) {
+    return (
+      <video
+        ref={inlineVideoRef}
+        src={mediaUrl}
+        className={imageClassName}
+        playsInline
+        preload="metadata"
+        poster={/^(blob:|data:)/u.test(mediaUrl) ? undefined : previewUrl}
+        onEnded={(event) => {
+          event.currentTarget.currentTime = 0
+          onInlinePlaybackStateChange?.(false)
+        }}
+        onError={() => {
+          setPreviewFailed(true)
+          onInlinePlaybackStateChange?.(false)
+        }}
+      />
+    )
   }
 
   if (/^(blob:|data:)/u.test(mediaUrl)) {
@@ -136,7 +183,7 @@ function VideoAttachmentPreview({
 
   return (
     <img
-      src={buildVideoPreviewUrl(mediaUrl)}
+      src={previewUrl}
       className={imageClassName}
       alt={isVideoNote ? 'Видеосообщение' : ''}
       onError={() => setPreviewFailed(true)}
@@ -577,6 +624,7 @@ export function BubbleMessageContent({
 }: BubbleMessageContentProps) {
   const trimmedText = message.text.trim()
   const isVideoNote = Boolean(message.attachment && isVideoNoteAttachment(message.attachment))
+  const [isVideoNotePlaying, setIsVideoNotePlaying] = useState(false)
   const isVideoAttachment = Boolean(
     message.attachment && isVideoMimeType(message.attachment.mimeType),
   )
@@ -634,6 +682,11 @@ export function BubbleMessageContent({
             ? 'Отправляем фото...'
             : 'Отправляем файл...'
         : `${isVideoAttachment ? 'Загрузка видео' : isImageAttachment ? 'Загрузка фото' : 'Загрузка файла'} ${uploadProgressPercent}%`
+
+  useEffect(() => {
+    setIsVideoNotePlaying(false)
+  }, [isVideoNote, message.attachment?.mediaUrl])
+
   const attachmentNode = message.attachment ? (
     hasVisualAttachment ? (
       <div
@@ -648,6 +701,10 @@ export function BubbleMessageContent({
         }`}
         onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
           event.stopPropagation()
+          if (isVideoNote) {
+            setIsVideoNotePlaying((current) => !current)
+            return
+          }
           onOpenAttachment?.(message.attachment!)
         }}
       >
@@ -655,15 +712,19 @@ export function BubbleMessageContent({
           <>
             <VideoAttachmentPreview
               attachmentLayout={attachmentLayout}
+              isInlinePlaying={isVideoNotePlaying}
               isVideoNote={isVideoNote}
               mediaUrl={message.attachment.mediaUrl}
+              onInlinePlaybackStateChange={setIsVideoNotePlaying}
             />
-            <span
-              className={`bubble-attachment-play-button${isVideoNote ? ' bubble-attachment-play-button-video-note' : ''}`}
-              aria-hidden="true"
-            >
-              <span className="bubble-attachment-play-icon" />
-            </span>
+            {isVideoNote && isVideoNotePlaying ? null : (
+              <span
+                className={`bubble-attachment-play-button${isVideoNote ? ' bubble-attachment-play-button-video-note' : ''}`}
+                aria-hidden="true"
+              >
+                <span className="bubble-attachment-play-icon" />
+              </span>
+            )}
           </>
         ) : (
           <img

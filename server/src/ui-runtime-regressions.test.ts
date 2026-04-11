@@ -289,10 +289,11 @@ test('video attachments render through the visual media preview flow and still o
   assert.match(bubbleSource, /previewUrl\.searchParams\.set\('mediaUrl', normalizedMediaUrl\)/u)
   assert.match(bubbleSource, /new URLSearchParams\(\)/u)
   assert.match(bubbleSource, /return `\/api\/media\/preview\?\$\{previewParams\.toString\(\)\}`/u)
+  assert.match(bubbleSource, /const previewUrl = buildVideoPreviewUrl\(mediaUrl\)/u)
   assert.match(bubbleSource, /bubble-attachment-video-preview/u)
   assert.match(bubbleSource, /bubble-attachment-video-fallback/u)
   assert.match(bubbleSource, /bubble-attachment-play-button/u)
-  assert.match(bubbleSource, /<img[\s\S]*src=\{buildVideoPreviewUrl\(mediaUrl\)\}/u)
+  assert.match(bubbleSource, /<img[\s\S]*src=\{previewUrl\}/u)
   assert.match(bubbleSource, /<video[\s\S]*src=\{mediaUrl\}[\s\S]*preload="metadata"/u)
   assert.doesNotMatch(bubbleSource, /function requestVideoPreviewFrame/u)
   assert.doesNotMatch(bubbleSource, /function keepVideoPreviewPaused/u)
@@ -5903,6 +5904,26 @@ test('video-note messages render as standalone circles without a rectangular med
     appCss,
     /\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*999px;[\s\S]*box-shadow:\s*0 0 0 1px rgba\(255,\s*255,\s*255,\s*0\.08\);/u,
   )
+})
+
+test('video-note bubbles play inline inside the circle instead of opening the global media viewer overlay', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+
+  assert.match(bubbleSource, /const \[isVideoNotePlaying, setIsVideoNotePlaying\] = useState\(false\)/u)
+  assert.match(
+    bubbleSource,
+    /onClick=\{\(event: ReactMouseEvent<HTMLDivElement>\) => \{[\s\S]*if \(isVideoNote\) \{[\s\S]*setIsVideoNotePlaying\(\(current\) => !current\)[\s\S]*return[\s\S]*\}[\s\S]*onOpenAttachment\?\.\(message\.attachment!\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /<VideoAttachmentPreview[\s\S]*isInlinePlaying=\{isVideoNotePlaying\}[\s\S]*onInlinePlaybackStateChange=\{setIsVideoNotePlaying\}/u,
+  )
+  assert.match(
+    bubbleSource,
+    /if \(isVideoNote && isInlinePlaying\) \{[\s\S]*<video[\s\S]*ref=\{inlineVideoRef\}[\s\S]*src=\{mediaUrl\}[\s\S]*playsInline[\s\S]*preload="metadata"[\s\S]*onEnded=\{\(event\) => \{[\s\S]*currentTime = 0[\s\S]*onInlinePlaybackStateChange\?\.\(false\)/u,
+  )
+  assert.match(bubbleSource, /isVideoNote && isVideoNotePlaying \? null : \(/u)
 })
 
 test('video-note recorder auto-sends after stop and keeps retry on the same clip after an error', () => {
