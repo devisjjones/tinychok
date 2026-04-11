@@ -5994,7 +5994,7 @@ test('pending video-note uploads keep a circular progress ring and separate send
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*-5px;[\s\S]*conic-gradient\([\s\S]*--video-note-upload-progress/u,
+    /\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*-5px;[\s\S]*conic-gradient\([\s\S]*--video-note-upload-progress[\s\S]*-webkit-mask:\s*radial-gradient/u,
   )
   assert.match(
     appCss,
@@ -6076,7 +6076,7 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-video-note-progress\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*-4px;[\s\S]*border-radius:\s*999px;[\s\S]*conic-gradient\([\s\S]*--video-note-playback-progress/u,
+    /\.bubble-attachment-video-note-progress\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*-4px;[\s\S]*border-radius:\s*999px;[\s\S]*conic-gradient\([\s\S]*--video-note-playback-progress[\s\S]*-webkit-mask:\s*radial-gradient/u,
   )
 })
 

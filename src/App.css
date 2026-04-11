@@ -4990,12 +4990,12 @@
   position: absolute;
   inset: -4px;
   border-radius: 999px;
-  background:
-    radial-gradient(circle, transparent calc(100% - 4px), rgba(255, 255, 255, 0.14) calc(100% - 4px)),
-    conic-gradient(
-      rgba(245, 226, 209, 0.94) calc(var(--video-note-playback-progress, 0) * 1turn),
-      rgba(255, 255, 255, 0.14) 0
-    );
+  background: conic-gradient(
+    rgba(245, 226, 209, 0.94) calc(var(--video-note-playback-progress, 0) * 1turn),
+    rgba(255, 255, 255, 0.14) 0
+  );
+  -webkit-mask: radial-gradient(circle, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  mask: radial-gradient(circle, transparent calc(100% - 4px), #000 calc(100% - 4px));
   pointer-events: none;
 }
 
@@ -5003,12 +5003,12 @@
   position: absolute;
   inset: -5px;
   border-radius: 999px;
-  background:
-    radial-gradient(circle, transparent calc(100% - 5px), rgba(255, 255, 255, 0.16) calc(100% - 5px)),
-    conic-gradient(
-      rgba(244, 223, 206, 0.98) calc(var(--video-note-upload-progress, 0) * 1turn),
-      rgba(255, 255, 255, 0.18) 0
-    );
+  background: conic-gradient(
+    rgba(244, 223, 206, 0.98) calc(var(--video-note-upload-progress, 0) * 1turn),
+    rgba(255, 255, 255, 0.18) 0
+  );
+  -webkit-mask: radial-gradient(circle, transparent calc(100% - 5px), #000 calc(100% - 5px));
+  mask: radial-gradient(circle, transparent calc(100% - 5px), #000 calc(100% - 5px));
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
   pointer-events: none;
 }
@@ -9926,12 +9926,10 @@ html[data-theme='dark'] .bubble-attachment-upload-progress-overlay .bubble-attac
 }
 
 html[data-theme='dark'] .bubble-attachment-video-note-upload-progress {
-  background:
-    radial-gradient(circle, transparent calc(100% - 5px), rgba(255, 255, 255, 0.15) calc(100% - 5px)),
-    conic-gradient(
-      rgba(226, 199, 176, 0.98) calc(var(--video-note-upload-progress, 0) * 1turn),
-      rgba(255, 255, 255, 0.14) 0
-    );
+  background: conic-gradient(
+    rgba(226, 199, 176, 0.98) calc(var(--video-note-upload-progress, 0) * 1turn),
+    rgba(255, 255, 255, 0.14) 0
+  );
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
