@@ -1,5 +1,5 @@
-import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { ChangeEvent, ClipboardEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import {
   shouldRenderIncomingAuthorStrip,
@@ -18,12 +18,10 @@ import {
   formatConversationDayLabel,
   formatMessageTimeLabel,
   getConversationDayKey,
-  insertComposerTextAtCursor,
   isImageMimeType,
   isStandaloneEmojiMessageText,
   isVideoMimeType,
   normalizeIdentifier,
-  resizeComposerTextarea,
   scrollFeedChildIntoView,
   shouldAutoFocusTextInputOnSceneOpen,
   stripMessageFormattingMarkup,
@@ -39,11 +37,9 @@ import {
   shouldUseLightDeliveryIndicatorTint,
 } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
-import { ComposerAttachmentPreview } from '../components/ComposerAttachmentPreview'
-import { ComposerAttachmentPicker } from '../components/ComposerAttachmentPicker'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
-import { EmojiPicker } from '../components/EmojiPicker'
 import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
+import { RoomComposer } from '../components/RoomComposer'
 import { ThreadedBubble } from '../components/ThreadedBubble'
 
 type GroupSystemEventActor = NonNullable<NonNullable<Message['groupSystemEvent']>['actor']>
@@ -213,8 +209,6 @@ export function GroupRoom({
   storageCleanupWarning = null,
 }: GroupRoomProps) {
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null)
-  const [composerExpanded, setComposerExpanded] = useState(false)
-  const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
   const canSubmitComposer = attachmentDraft ? attachmentDraft.status === 'ready' : draft.trim().length > 0
   const composerPlaceholder = attachmentDraft
     ? attachmentDraft.kind === 'video-note'
@@ -230,24 +224,6 @@ export function GroupRoom({
   const videoNoteTitle = videoNoteDisabled
     ? 'Уберите текст или текущее вложение, чтобы записать видеосообщение.'
     : 'Записать видеосообщение'
-
-  useLayoutEffect(() => {
-    const textarea = draftInputRef.current
-    if (!textarea) return
-
-    const syncTextareaSize = () => {
-      const { expanded } = resizeComposerTextarea(textarea)
-      setComposerExpanded(expanded)
-    }
-
-    syncTextareaSize()
-    if (typeof window === 'undefined') return
-
-    window.addEventListener('resize', syncTextareaSize)
-    return () => {
-      window.removeEventListener('resize', syncTextareaSize)
-    }
-  }, [attachmentDraft, draft])
 
   async function submitComposer() {
     await Promise.resolve(onSubmit())
@@ -777,120 +753,43 @@ export function GroupRoom({
             <p className="composer-disabled-note">{composerDisabledNotice}</p>
           </div>
         ) : (
-          <form
-            className="composer"
-            onSubmit={async (event: FormEvent<HTMLFormElement>) => {
-              event.preventDefault()
-              await submitComposer()
-            }}
-          >
-            <div className="composer-input">
-              {replyTarget ? (
-                <div className="composer-reply">
-                  <div>
-                    <span className="settings-label">Ответ</span>
-                    <p>{replyTarget.text}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="soft-button composer-reply-cancel"
-                    onClick={onReplyCancel}
-                    aria-label="Отменить ответ"
-                    title="Отменить ответ"
-                  >
-                    <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
-                  </button>
-                </div>
-              ) : null}
-              <div className="composer-entry">
-                <div
-                  className={`composer-field${attachmentDraft ? ' composer-field-has-attachment' : ''}${composerExpanded ? ' composer-field-expanded' : ''}`}
-                >
-                  {attachmentDraft ? (
-                    <ComposerAttachmentPreview
-                      attachmentDraft={attachmentDraft}
-                      onClear={onAttachmentClear}
-                      onOpenPreview={onAttachmentPreviewOpen}
-                      onRenameFileBaseName={onRenameAttachmentFileBaseName}
-                      onOpenPremiumUpsell={onOpenPremiumUpsell}
-                      onToggleSendOriginal={onToggleSendOriginal}
-                      premiumUnlocked={premiumUnlocked}
-                      storageCleanupWarning={storageCleanupWarning}
-                    />
-                  ) : null}
-                  <input
-                    ref={attachmentInputRef}
-                    type="file"
-                    className="composer-attachment-input"
-                    onChange={onAttachmentChange}
-                  />
-                  <textarea
-                    ref={draftInputRef}
-                    placeholder={composerPlaceholder}
-                    rows={1}
-                    value={draft}
-                    disabled={composerDraftDisabled}
-                    onFocus={onComposerFocus}
-                    onChange={(event) => onDraftChange(event.target.value)}
-                    onPaste={onComposerPaste}
-                    onKeyDown={handleComposerKeyDown}
-                  />
-                  <div className="composer-tools">
-                    <EmojiPicker
-                      canSelectGif={!gifSelectionBlockedReason}
-                      disabled={composerDraftDisabled}
-                      gifLibrary={gifLibrary}
-                      gifSelectionBlockedReason={gifSelectionBlockedReason}
-                      onDeleteGif={onDeleteGif}
-                      onOpenPremiumUpsell={onOpenPremiumUpsell}
-                      onSearchGifs={onSearchGifs}
-                      onSelect={(emoji) =>
-                        insertComposerTextAtCursor(draftInputRef.current, draft, emoji, onDraftChange)
-                      }
-                      onSelectGif={onSelectGif}
-                      onUploadGif={onUploadGif}
-                      premiumUnlocked={premiumUnlocked}
-                    />
-                    {onOpenVideoNoteRecorder ? (
-                      <button
-                        type="button"
-                        className="soft-button composer-tool composer-video-note-button"
-                        onClick={() => {
-                          if (videoNoteDisabled) return
-                          onOpenVideoNoteRecorder()
-                        }}
-                        aria-label="Записать видеосообщение"
-                        title={videoNoteTitle}
-                        disabled={videoNoteDisabled}
-                      >
-                        <span className="composer-video-note-icon" aria-hidden="true">
-                          <span className="composer-video-note-icon-lens" />
-                        </span>
-                      </button>
-                    ) : null}
-                    <ComposerAttachmentPicker
-                      attachmentName={attachmentName}
-                      onSelectMode={onOpenAttachmentPicker}
-                      premiumUnlocked={premiumUnlocked}
-                    />
-                    {hasComposerPayload ? (
-                      <button
-                        type="submit"
-                        className="send-button composer-send"
-                        disabled={!canSubmitComposer}
-                        aria-label="Отправить"
-                        title="Отправить"
-                      >
-                        <span className="composer-send-icon" aria-hidden="true">
-                          <img src="/icons/sent.png" alt="" />
-                        </span>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </form>
+          <RoomComposer
+            attachmentDraft={attachmentDraft}
+            attachmentInputRef={attachmentInputRef}
+            attachmentName={attachmentName}
+            draft={draft}
+            draftDisabled={composerDraftDisabled}
+            draftInputRef={draftInputRef}
+            gifLibrary={gifLibrary}
+            gifSelectionBlockedReason={gifSelectionBlockedReason}
+            onAttachmentChange={onAttachmentChange}
+            onAttachmentClear={onAttachmentClear}
+            onAttachmentPreviewOpen={onAttachmentPreviewOpen}
+            onRenameAttachmentFileBaseName={onRenameAttachmentFileBaseName}
+            onComposerPaste={onComposerPaste}
+            onDeleteGif={onDeleteGif}
+            onDraftChange={onDraftChange}
+            onDraftFocus={onComposerFocus}
+            onKeyDown={handleComposerKeyDown}
+            onOpenAttachmentPicker={onOpenAttachmentPicker}
+            onOpenPremiumUpsell={onOpenPremiumUpsell}
+            onOpenVideoNoteRecorder={onOpenVideoNoteRecorder}
+            onReplyCancel={onReplyCancel}
+            onSearchGifs={onSearchGifs}
+            onSelectGif={onSelectGif}
+            onSubmit={submitComposer}
+            onToggleSendOriginal={onToggleSendOriginal}
+            onUploadGif={onUploadGif}
+            placeholder={composerPlaceholder}
+            premiumUnlocked={premiumUnlocked}
+            replyTarget={replyTarget}
+            storageCleanupWarning={storageCleanupWarning}
+            submitAriaLabel="Отправить"
+            submitDisabled={!canSubmitComposer}
+            submitTitle="Отправить"
+            videoNoteDisabled={videoNoteDisabled}
+            videoNoteTitle={videoNoteTitle}
+          />
         )}
       </section>
       {actions}

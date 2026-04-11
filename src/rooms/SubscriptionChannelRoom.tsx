@@ -1,15 +1,13 @@
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react'
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import {
   formatChannelAvatarLabel,
   formatConversationDayLabel,
   formatMessageTimeLabel,
   getConversationDayKey,
-  insertComposerTextAtCursor,
   isImageMimeType,
   isVideoMimeType,
-  resizeComposerTextarea,
   scrollFeedChildIntoView,
   shouldAutoFocusTextInputOnSceneOpen,
   shouldSubmitComposerWithEnter,
@@ -21,11 +19,9 @@ import {
   BubbleTextInlineMeta,
 } from '../components/BubbleMessageContent'
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
-import { ComposerAttachmentPicker } from '../components/ComposerAttachmentPicker'
-import { ComposerAttachmentPreview } from '../components/ComposerAttachmentPreview'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
-import { EmojiPicker } from '../components/EmojiPicker'
 import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
+import { RoomComposer } from '../components/RoomComposer'
 import { ThreadedBubble } from '../components/ThreadedBubble'
 
 type SubscriptionChannelRoomProps = {
@@ -103,7 +99,6 @@ export function SubscriptionChannelRoom({
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
   const publisherInputRef = useRef<HTMLTextAreaElement | null>(null)
-  const [publisherComposerExpanded, setPublisherComposerExpanded] = useState(false)
   const publisherAttachmentDraft = publisher?.attachmentDraft
   const publisherAttachmentInputRef = publisher?.attachmentInputRef
   const publisherAttachmentName = publisher?.attachmentName ?? ''
@@ -148,24 +143,6 @@ export function SubscriptionChannelRoom({
   const publisherVideoNoteTitle = publisherVideoNoteDisabled
     ? 'Уберите текст или текущее вложение, чтобы записать видеосообщение'
     : 'Записать видеосообщение'
-
-  useLayoutEffect(() => {
-    const textarea = publisherInputRef.current
-    if (!textarea) return
-
-    const syncTextareaSize = () => {
-      const { expanded } = resizeComposerTextarea(textarea)
-      setPublisherComposerExpanded(expanded)
-    }
-
-    syncTextareaSize()
-    if (typeof window === 'undefined') return
-
-    window.addEventListener('resize', syncTextareaSize)
-    return () => {
-      window.removeEventListener('resize', syncTextareaSize)
-    }
-  }, [publisherAttachmentDraft, publisherDraft])
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (!publisher || (!publisherDraft.trim() && !publisherAttachmentDraft) || !publisherCanSubmit) return
@@ -409,122 +386,43 @@ export function SubscriptionChannelRoom({
           })}
         </div>
         {publisher ? (
-          <form
-            className="composer"
-            onSubmit={(event) => {
-              event.preventDefault()
-              publisherOnSubmit?.()
-            }}
-          >
-            <div className="composer-input">
-              {publisherReplyTarget ? (
-                <div className="composer-reply">
-                  <div>
-                    <span className="settings-label">Ответ</span>
-                    <p>{publisherReplyTarget.text}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="soft-button composer-reply-cancel"
-                    onClick={publisherOnReplyCancel}
-                    aria-label="Отменить ответ"
-                    title="Отменить ответ"
-                  >
-                    <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
-                  </button>
-                </div>
-              ) : null}
-              <div className="composer-entry">
-                <div
-                  className={`composer-field${publisherAttachmentDraft ? ' composer-field-has-attachment' : ''}${publisherComposerExpanded ? ' composer-field-expanded' : ''}`}
-                >
-                  {publisherAttachmentDraft && publisherOnAttachmentClear ? (
-                    <ComposerAttachmentPreview
-                      attachmentDraft={publisherAttachmentDraft}
-                      onClear={publisherOnAttachmentClear}
-                      onOpenPreview={publisherOnAttachmentPreviewOpen}
-                      onRenameFileBaseName={publisherOnRenameAttachmentFileBaseName}
-                      onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
-                      onToggleSendOriginal={publisherOnToggleSendOriginal}
-                      premiumUnlocked={publisherPremiumUnlocked}
-                      storageCleanupWarning={publisherStorageCleanupWarning}
-                    />
-                  ) : null}
-                  {publisherAttachmentInputRef && publisherOnAttachmentChange ? (
-                    <input
-                      ref={publisherAttachmentInputRef}
-                      type="file"
-                      className="composer-attachment-input"
-                      onChange={publisherOnAttachmentChange}
-                    />
-                  ) : null}
-                  <textarea
-                    ref={publisherInputRef}
-                    disabled={publisherDraftDisabled}
-                    placeholder={publisherPlaceholder}
-                    rows={1}
-                    value={publisherDraft}
-                    onChange={(event) => publisherOnDraftChange?.(event.target.value)}
-                    onPaste={(event) => publisherOnComposerPaste?.(event)}
-                    onKeyDown={handleComposerKeyDown}
-                  />
-                  <div className="composer-tools">
-                    <EmojiPicker
-                      disabled={publisherDraftDisabled}
-                      canSelectGif={!publisherGifSelectionBlockedReason}
-                      gifLibrary={publisherGifLibrary}
-                      gifSelectionBlockedReason={publisherGifSelectionBlockedReason}
-                      onDeleteGif={publisherOnDeleteGif}
-                      onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
-                      onSearchGifs={publisherOnSearchGifs}
-                      onSelect={(emoji) =>
-                        insertComposerTextAtCursor(
-                          publisherInputRef.current,
-                          publisherDraft,
-                          emoji,
-                          (value) => publisherOnDraftChange?.(value),
-                        )
-                      }
-                      onSelectGif={publisherOnSelectGif}
-                      onUploadGif={publisherOnUploadGif}
-                      premiumUnlocked={publisherPremiumUnlocked}
-                    />
-                    {publisherOnOpenVideoNoteRecorder ? (
-                      <button
-                        type="button"
-                        className="soft-button composer-tool composer-video-note-button"
-                        onClick={() => {
-                          publisherOnOpenVideoNoteRecorder()
-                        }}
-                        aria-label="Записать видеосообщение"
-                        title={publisherVideoNoteTitle}
-                        disabled={publisherVideoNoteDisabled}
-                      >
-                        <span className="composer-video-note-icon" aria-hidden="true">
-                          <span className="composer-video-note-icon-lens" />
-                        </span>
-                      </button>
-                    ) : null}
-                    {publisherOnOpenAttachmentPicker ? (
-                      <ComposerAttachmentPicker
-                        attachmentName={publisherAttachmentName}
-                        onSelectMode={publisherOnOpenAttachmentPicker}
-                        premiumUnlocked={publisherPremiumUnlocked}
-                      />
-                    ) : null}
-                    {publisherDraft.trim() || publisherAttachmentDraft ? (
-                      <button type="submit" className="send-button composer-send" disabled={!publisherCanSubmit}>
-                        <span className="composer-send-icon" aria-hidden="true">
-                          <img src="/icons/sent.png" alt="" />
-                        </span>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-            {publisherError ? <p className="auth-error">{publisherError}</p> : null}
-          </form>
+          <RoomComposer
+            attachmentDraft={publisherAttachmentDraft}
+            attachmentInputRef={publisherAttachmentInputRef ?? { current: null }}
+            attachmentName={publisherAttachmentName}
+            draft={publisherDraft}
+            draftDisabled={publisherDraftDisabled}
+            draftInputRef={publisherInputRef}
+            gifLibrary={publisherGifLibrary}
+            gifSelectionBlockedReason={publisherGifSelectionBlockedReason}
+            onAttachmentChange={(event) => publisherOnAttachmentChange?.(event)}
+            onAttachmentClear={publisherOnAttachmentClear ?? (() => undefined)}
+            onAttachmentPreviewOpen={publisherOnAttachmentPreviewOpen}
+            onRenameAttachmentFileBaseName={publisherOnRenameAttachmentFileBaseName}
+            onComposerPaste={(event) => publisherOnComposerPaste?.(event)}
+            onDeleteGif={publisherOnDeleteGif}
+            onDraftChange={(value) => publisherOnDraftChange?.(value)}
+            onKeyDown={handleComposerKeyDown}
+            onOpenAttachmentPicker={(mode) => publisherOnOpenAttachmentPicker?.(mode)}
+            onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
+            onOpenVideoNoteRecorder={publisherOnOpenVideoNoteRecorder}
+            onReplyCancel={publisherOnReplyCancel}
+            onSearchGifs={publisherOnSearchGifs}
+            onSelectGif={publisherOnSelectGif}
+            onSubmit={() => publisherOnSubmit?.()}
+            onToggleSendOriginal={publisherOnToggleSendOriginal}
+            onUploadGif={publisherOnUploadGif}
+            placeholder={publisherPlaceholder}
+            premiumUnlocked={publisherPremiumUnlocked}
+            replyTarget={publisherReplyTarget}
+            storageCleanupWarning={publisherStorageCleanupWarning}
+            submitAriaLabel="Отправить"
+            submitDisabled={!publisherCanSubmit}
+            submitTitle="Отправить"
+            videoNoteDisabled={publisherVideoNoteDisabled}
+            videoNoteTitle={publisherVideoNoteTitle}
+            bottomContent={publisherError ? <p className="auth-error">{publisherError}</p> : null}
+          />
         ) : subscriptionAction ? (
           <div className="channel-room-footer">
             <button

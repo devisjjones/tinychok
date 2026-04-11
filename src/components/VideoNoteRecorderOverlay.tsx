@@ -335,7 +335,7 @@ export function VideoNoteRecorderOverlay({
       className="video-note-recorder-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="Запись видеосообщения"
+      aria-label="Видео-кружочек"
       onClick={onClose}
     >
       <div
@@ -345,16 +345,13 @@ export function VideoNoteRecorderOverlay({
         }}
       >
         <div className="video-note-recorder-header">
-          <div>
-            <span className="settings-label">Видеосообщение</span>
-            <h3>Запишите кружочек до 30 секунд</h3>
-          </div>
+          <h3>Видео-кружочек</h3>
           <button
             type="button"
             className="soft-button video-note-recorder-close"
             onClick={onClose}
-            aria-label="Закрыть запись видеосообщения"
-            title="Закрыть запись видеосообщения"
+            aria-label="Закрыть видео-кружочек"
+            title="Закрыть видео-кружочек"
           >
             <img src="/icons/cancel.png" alt="" aria-hidden="true" />
           </button>

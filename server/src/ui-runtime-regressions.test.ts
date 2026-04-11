@@ -212,8 +212,11 @@ test('attachment storage cleanup copy stays wired into preview and bubble render
   assert.match(stagingDoc, /контрастной подчёркнутой inline-cta/u)
   assert.match(handoffDoc, /контрастная подчёркнутая inline-cta/u)
   assert.ok((directRoomSource.match(/onOpenPremiumUpsell=\{onOpenPremiumUpsell\}/gu) ?? []).length >= 2)
-  assert.ok((groupRoomSource.match(/onOpenPremiumUpsell=\{onOpenPremiumUpsell\}/gu) ?? []).length >= 2)
-  assert.ok((channelRoomSource.match(/onOpenPremiumUpsell=\{publisherOnOpenPremiumUpsell\}/gu) ?? []).length >= 4)
+  assert.match(groupRoomSource, /<RoomComposer[\s\S]*onOpenPremiumUpsell=\{onOpenPremiumUpsell\}/u)
+  assert.match(
+    channelRoomSource,
+    /<RoomComposer[\s\S]*onOpenPremiumUpsell=\{publisherOnOpenPremiumUpsell\}/u,
+  )
   assert.match(overlaySource, /onOpenPremiumUpsell\?: \(\) => void/u)
   assert.match(overlaySource, /onOpenPremiumUpsell=\{props\.onOpenPremiumUpsell\}/u)
   assert.ok((appSource.match(/onOpenPremiumUpsell=\{openPremiumUpsell\}/gu) ?? []).length >= 10)
@@ -401,8 +404,11 @@ test('composer attachment rename flow keeps extension outside the input and send
   assert.match(attachmentPreviewSource, /maxLength=\{composerAttachmentRenameMaxLength\}/u)
   assert.match(directRoomSource, /onRenameAttachmentFileBaseName=\{onRenameAttachmentFileBaseName\}/u)
   assert.match(roomComposerSource, /onRenameFileBaseName=\{onRenameAttachmentFileBaseName\}/u)
-  assert.match(groupRoomSource, /onRenameFileBaseName=\{onRenameAttachmentFileBaseName\}/u)
-  assert.match(channelRoomSource, /onRenameFileBaseName=\{publisherOnRenameAttachmentFileBaseName\}/u)
+  assert.match(groupRoomSource, /onRenameAttachmentFileBaseName=\{onRenameAttachmentFileBaseName\}/u)
+  assert.match(
+    channelRoomSource,
+    /onRenameAttachmentFileBaseName=\{publisherOnRenameAttachmentFileBaseName\}/u,
+  )
   assert.match(appCss, /\.composer-attachment-rename-trigger/u)
   assert.match(appCss, /\.composer-attachment-preview-title-inline/u)
   assert.match(appCss, /\.composer-attachment-rename-trigger img/u)
@@ -1127,14 +1133,17 @@ test('clipboard image paste stays wired into every composer surface', () => {
   assert.match(directRoomSource, /onComposerPaste=\{onComposerPaste\}/u)
   assert.match(groupRoomSource, /onComposerPaste\?: \(event: ClipboardEvent<HTMLTextAreaElement>\)/u)
   assert.doesNotMatch(groupRoomSource, /<ComposerRichInput/u)
-  assert.match(groupRoomSource, /onPaste=\{onComposerPaste\}/u)
+  assert.match(groupRoomSource, /<RoomComposer[\s\S]*onComposerPaste=\{onComposerPaste\}/u)
   assert.match(channelRoomSource, /onComposerPaste\?: \(event: ClipboardEvent<HTMLTextAreaElement>\)/u)
   assert.doesNotMatch(channelRoomSource, /<ComposerRichInput/u)
-  assert.match(channelRoomSource, /onPaste=\{\(event\) => publisherOnComposerPaste\?\.\(event\)\}/u)
+  assert.match(
+    channelRoomSource,
+    /<RoomComposer[\s\S]*onComposerPaste=\{\(event\) => publisherOnComposerPaste\?\.\(event\)\}/u,
+  )
   assert.match(roomComposerSource, /onPaste=\{onComposerPaste\}/u)
   assert.match(roomComposerSource, /<textarea/u)
-  assert.match(groupRoomSource, /<textarea/u)
-  assert.match(channelRoomSource, /<textarea/u)
+  assert.match(groupRoomSource, /<RoomComposer/u)
+  assert.match(channelRoomSource, /<RoomComposer/u)
 })
 
 test('admin support ticket detail renders attachments for root ticket and comments', () => {
@@ -4030,10 +4039,8 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.doesNotMatch(appSource, /<ComposerRichInput/u)
   assert.doesNotMatch(roomComposerSource, /<ComposerRichInput/u)
   assert.match(directRoomSource, /<RoomComposer/u)
-  assert.match(groupRoomSource, /<textarea/u)
-  assert.match(channelRoomSource, /<textarea/u)
-  assert.match(groupRoomSource, /rows=\{1\}/u)
-  assert.match(channelRoomSource, /rows=\{1\}/u)
+  assert.match(groupRoomSource, /<RoomComposer/u)
+  assert.match(channelRoomSource, /<RoomComposer/u)
   assert.match(appSource, /<RoomComposer/u)
   assert.match(roomComposerSource, /<textarea/u)
   assert.match(roomComposerSource, /rows=\{1\}/u)
@@ -4044,14 +4051,10 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(roomComposerSource, /showEmojiPicker = true/u)
   assert.match(roomComposerSource, /showEmojiPicker \? \(/u)
   assert.match(roomComposerSource, /resizeComposerTextarea\(textarea\)/u)
-  assert.match(groupRoomSource, /const \[composerExpanded, setComposerExpanded\] = useState\(false\)/u)
-  assert.match(groupRoomSource, /const \{ expanded \} = resizeComposerTextarea\(textarea\)/u)
-  assert.match(groupRoomSource, /setComposerExpanded\(expanded\)/u)
-  assert.match(groupRoomSource, /className=\{`composer-field\$\{attachmentDraft \? ' composer-field-has-attachment' : ''\}\$\{composerExpanded \? ' composer-field-expanded' : ''\}`\}/u)
-  assert.match(channelRoomSource, /const \[publisherComposerExpanded, setPublisherComposerExpanded\] = useState\(false\)/u)
-  assert.match(channelRoomSource, /const \{ expanded \} = resizeComposerTextarea\(textarea\)/u)
-  assert.match(channelRoomSource, /setPublisherComposerExpanded\(expanded\)/u)
-  assert.match(channelRoomSource, /className=\{`composer-field\$\{publisherAttachmentDraft \? ' composer-field-has-attachment' : ''\}\$\{publisherComposerExpanded \? ' composer-field-expanded' : ''\}`\}/u)
+  assert.doesNotMatch(groupRoomSource, /const \[composerExpanded, setComposerExpanded\] = useState\(false\)/u)
+  assert.doesNotMatch(groupRoomSource, /resizeComposerTextarea\(textarea\)/u)
+  assert.doesNotMatch(channelRoomSource, /const \[publisherComposerExpanded, setPublisherComposerExpanded\] = useState\(false\)/u)
+  assert.doesNotMatch(channelRoomSource, /resizeComposerTextarea\(textarea\)/u)
   assert.match(appUtilsSource, /export function resizeComposerTextarea/u)
   assert.match(appUtilsSource, /resolveComposerTextareaMaxHeight/u)
   assert.match(roomComposerSource, /<ComposerAttachmentPicker[\s\S]*attachmentModes=\{attachmentModes\}/u)
@@ -5861,6 +5864,10 @@ test('video-note recorder close button keeps the cancel icon centered inside the
   const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
+  assert.match(recorderSource, /aria-label="Видео-кружочек"/u)
+  assert.match(recorderSource, /<h3>Видео-кружочек<\/h3>/u)
+  assert.doesNotMatch(recorderSource, /<span className="settings-label">/u)
+  assert.doesNotMatch(recorderSource, /Запишите кружочек до 30 секунд/u)
   assert.match(recorderSource, /className="soft-button video-note-recorder-close"/u)
   assert.match(recorderSource, /<img src="\/icons\/cancel\.png" alt="" aria-hidden="true" \/>/u)
   assert.match(
@@ -5896,6 +5903,20 @@ test('video-note recorder review preview stays control-free inside the circular 
     appCss,
     /\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(300px,\s*70vw\);[\s\S]*margin:\s*-2px auto 0;/u,
   )
+})
+
+test('video-note composer uses round.svg as the empty-state primary action and swaps to the send arrow on payload', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const roomComposerSource = readFileSync(join(repoRoot, 'src', 'components', 'RoomComposer.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(roomComposerSource, /src="\/icons\/round\.svg"/u)
+  assert.match(
+    roomComposerSource,
+    /hasComposerPayload \? \([\s\S]*src="\/icons\/sent\.png"[\s\S]*\) : canOpenVideoNoteRecorder \? \([\s\S]*className="send-button composer-send composer-send-video-note"[\s\S]*src="\/icons\/round\.svg"/u,
+  )
+  assert.doesNotMatch(roomComposerSource, /className="soft-button composer-tool composer-video-note-button"/u)
+  assert.match(appCss, /\.composer-send-video-note \.composer-send-icon img\s*\{[\s\S]*width:\s*24px;[\s\S]*height:\s*24px;/u)
 })
 
 test('video-note messages render as standalone circles without a rectangular media bubble backdrop', () => {

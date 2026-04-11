@@ -101,6 +101,7 @@ export function RoomComposer({
 }: RoomComposerProps) {
   const [composerExpanded, setComposerExpanded] = useState(false)
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
+  const canOpenVideoNoteRecorder = Boolean(onOpenVideoNoteRecorder)
 
   useLayoutEffect(() => {
     const textarea = draftInputRef.current
@@ -198,23 +199,6 @@ export function RoomComposer({
                   premiumUnlocked={premiumUnlocked}
                 />
               ) : null}
-              {onOpenVideoNoteRecorder ? (
-                <button
-                  type="button"
-                  className="soft-button composer-tool composer-video-note-button"
-                  onClick={() => {
-                    if (videoNoteDisabled) return
-                    onOpenVideoNoteRecorder()
-                  }}
-                  aria-label="Записать видеосообщение"
-                  title={videoNoteTitle}
-                  disabled={videoNoteDisabled}
-                >
-                  <span className="composer-video-note-icon" aria-hidden="true">
-                    <span className="composer-video-note-icon-lens" />
-                  </span>
-                </button>
-              ) : null}
               <ComposerAttachmentPicker
                 attachmentName={attachmentName}
                 attachmentModes={attachmentModes}
@@ -231,6 +215,22 @@ export function RoomComposer({
                 >
                   <span className="composer-send-icon" aria-hidden="true">
                     <img src="/icons/sent.png" alt="" />
+                  </span>
+                </button>
+              ) : canOpenVideoNoteRecorder ? (
+                <button
+                  type="button"
+                  className="send-button composer-send composer-send-video-note"
+                  onClick={() => {
+                    if (videoNoteDisabled || !onOpenVideoNoteRecorder) return
+                    onOpenVideoNoteRecorder()
+                  }}
+                  disabled={videoNoteDisabled}
+                  aria-label="Записать видеосообщение"
+                  title={videoNoteTitle}
+                >
+                  <span className="composer-send-icon" aria-hidden="true">
+                    <img src="/icons/round.svg" alt="" />
                   </span>
                 </button>
               ) : null}
