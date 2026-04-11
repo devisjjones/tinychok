@@ -5900,8 +5900,10 @@ test('video-note recorder review preview stays control-free inside the circular 
 
 test('video-note messages render as standalone circles without a rectangular media bubble backdrop', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
+  assert.match(bubbleSource, /<div className="bubble-attachment-video-note-shell">[\s\S]*<span className="bubble-attachment-video-note-meta">\{imageOverlay\}<\/span>/u)
   assert.match(
     appCss,
     /\.bubble\.media-only-bubble:has\(\.bubble-attachment-photo-video-note\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\)\s*\{[\s\S]*background:\s*transparent;[\s\S]*box-shadow:\s*none;[\s\S]*outline:\s*none;[\s\S]*border-radius:\s*0;[\s\S]*overflow:\s*visible;/u,
@@ -5909,6 +5911,10 @@ test('video-note messages render as standalone circles without a rectangular med
   assert.match(
     appCss,
     /\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*999px;[\s\S]*box-shadow:\s*0 0 0 1px rgba\(255,\s*255,\s*255,\s*0\.08\);/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-video-note-meta > \.bubble-attachment-image-overlay\s*\{[\s\S]*position:\s*static;[\s\S]*right:\s*auto;[\s\S]*bottom:\s*auto;/u,
   )
 })
 

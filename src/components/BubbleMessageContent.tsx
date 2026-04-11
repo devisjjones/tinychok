@@ -687,73 +687,84 @@ export function BubbleMessageContent({
     setIsVideoNotePlaying(false)
   }, [isVideoNote, message.attachment?.mediaUrl])
 
+  const visualAttachmentNode = hasVisualAttachment ? (
+    <div
+      className={`bubble-attachment bubble-attachment-photo bubble-attachment-button${
+        hasBodyBelowAttachment ? ' has-body-below' : ' image-only'
+      }${isVideoNote ? ' bubble-attachment-photo-video-note' : ''}${
+        attachmentLayout === 'thread-source-thumbnail'
+          ? ' bubble-attachment-photo-thread-source-thumbnail'
+          : attachmentLayout === 'thread-source-card'
+            ? ' bubble-attachment-photo-thread-source-card'
+            : ''
+      }`}
+      onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
+        event.stopPropagation()
+        if (isVideoNote) {
+          setIsVideoNotePlaying((current) => !current)
+          return
+        }
+        onOpenAttachment?.(message.attachment!)
+      }}
+    >
+      {isVideoAttachment ? (
+        <>
+          <VideoAttachmentPreview
+            attachmentLayout={attachmentLayout}
+            isInlinePlaying={isVideoNotePlaying}
+            isVideoNote={isVideoNote}
+            mediaUrl={message.attachment!.mediaUrl}
+            onInlinePlaybackStateChange={setIsVideoNotePlaying}
+          />
+          {isVideoNote && isVideoNotePlaying ? null : (
+            <span
+              className={`bubble-attachment-play-button${isVideoNote ? ' bubble-attachment-play-button-video-note' : ''}`}
+              aria-hidden="true"
+            >
+              <span className="bubble-attachment-play-icon" />
+            </span>
+          )}
+        </>
+      ) : (
+        <img
+          src={message.attachment!.mediaUrl}
+          alt={message.attachment!.fileName}
+          className={`bubble-attachment-image${
+            attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
+          }${
+            attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
+          }`}
+        />
+      )}
+      {showAttachmentUploadProgress ? (
+        <span
+          className="bubble-attachment-upload-progress bubble-attachment-upload-progress-overlay"
+          role="progressbar"
+          aria-label={attachmentUploadCopy}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={uploadProgressPercent ?? 0}
+        >
+          <span
+            className="bubble-attachment-upload-progress-fill"
+            style={{ width: `${uploadProgressPercent ?? 0}%` }}
+          />
+        </span>
+      ) : null}
+      {isVideoNote ? null : imageOverlay}
+    </div>
+  ) : null
+
   const attachmentNode = message.attachment ? (
     hasVisualAttachment ? (
-      <div
-        className={`bubble-attachment bubble-attachment-photo bubble-attachment-button${
-          hasBodyBelowAttachment ? ' has-body-below' : ' image-only'
-        }${isVideoNote ? ' bubble-attachment-photo-video-note' : ''}${
-          attachmentLayout === 'thread-source-thumbnail'
-            ? ' bubble-attachment-photo-thread-source-thumbnail'
-            : attachmentLayout === 'thread-source-card'
-              ? ' bubble-attachment-photo-thread-source-card'
-              : ''
-        }`}
-        onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
-          event.stopPropagation()
-          if (isVideoNote) {
-            setIsVideoNotePlaying((current) => !current)
-            return
-          }
-          onOpenAttachment?.(message.attachment!)
-        }}
-      >
-        {isVideoAttachment ? (
-          <>
-            <VideoAttachmentPreview
-              attachmentLayout={attachmentLayout}
-              isInlinePlaying={isVideoNotePlaying}
-              isVideoNote={isVideoNote}
-              mediaUrl={message.attachment.mediaUrl}
-              onInlinePlaybackStateChange={setIsVideoNotePlaying}
-            />
-            {isVideoNote && isVideoNotePlaying ? null : (
-              <span
-                className={`bubble-attachment-play-button${isVideoNote ? ' bubble-attachment-play-button-video-note' : ''}`}
-                aria-hidden="true"
-              >
-                <span className="bubble-attachment-play-icon" />
-              </span>
-            )}
-          </>
-        ) : (
-          <img
-            src={message.attachment.mediaUrl}
-            alt={message.attachment.fileName}
-            className={`bubble-attachment-image${
-              attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
-            }${
-              attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
-            }`}
-          />
-        )}
-        {showAttachmentUploadProgress ? (
-          <span
-            className="bubble-attachment-upload-progress bubble-attachment-upload-progress-overlay"
-            role="progressbar"
-            aria-label={attachmentUploadCopy}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={uploadProgressPercent ?? 0}
-          >
-            <span
-              className="bubble-attachment-upload-progress-fill"
-              style={{ width: `${uploadProgressPercent ?? 0}%` }}
-            />
-          </span>
-        ) : null}
-        {imageOverlay}
-      </div>
+      isVideoNote ? (
+        <div className="bubble-attachment-video-note-shell">
+          {visualAttachmentNode}
+          {imageOverlay ? <span className="bubble-attachment-video-note-meta">{imageOverlay}</span> : null}
+        </div>
+      ) : (
+        visualAttachmentNode
+      )
     ) : (
       <div
         className={`bubble-attachment bubble-attachment-link${isFileAttachmentOnlyBubble ? ' bubble-attachment-link-file-only' : ''}`}

@@ -4964,6 +4964,32 @@
   border-radius: inherit;
 }
 
+.bubble-attachment-video-note-shell {
+  display: inline-grid;
+  justify-items: end;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.bubble-attachment-video-note-shell > .bubble-attachment-photo-video-note {
+  justify-self: start;
+}
+
+.bubble-attachment-video-note-meta {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  pointer-events: none;
+}
+
+.bubble-attachment-video-note-meta > .bubble-attachment-image-overlay {
+  position: static;
+  right: auto;
+  bottom: auto;
+  max-width: none;
+}
+
 .bubble-attachment-image-video-note {
   background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.16), rgba(66, 44, 31, 0.58));
 }
