@@ -5891,6 +5891,20 @@ test('video-note recorder review preview stays control-free inside the circular 
   assert.match(recorderSource, /showingRecordedPreview \? null : \(/u)
 })
 
+test('video-note messages render as standalone circles without a rectangular media bubble backdrop', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    appCss,
+    /\.bubble\.media-only-bubble:has\(\.bubble-attachment-photo-video-note\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\)\s*\{[\s\S]*background:\s*transparent;[\s\S]*box-shadow:\s*none;[\s\S]*outline:\s*none;[\s\S]*border-radius:\s*0;[\s\S]*overflow:\s*visible;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*999px;[\s\S]*box-shadow:\s*0 0 0 1px rgba\(255,\s*255,\s*255,\s*0\.08\);/u,
+  )
+})
+
 test('video-note recorder auto-sends after stop and keeps retry on the same clip after an error', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
