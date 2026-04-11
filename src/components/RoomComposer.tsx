@@ -31,10 +31,12 @@ type RoomComposerProps = {
   onComposerPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void | Promise<void>
   onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
   onDraftChange: (value: string) => void
+  onDraftFocus?: () => void
   onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   onOpenAttachmentPicker: (mode: 'file' | 'photo') => void
   onOpenPremiumUpsell?: () => void
   onReplyCancel?: () => void
+  onOpenVideoNoteRecorder?: () => void
   onSearchGifs?: (query: string) => Promise<UserGifLibraryItem[]>
   onSelectGif?: (gif: UserGifLibraryItem) => void
   onSubmit: () => void | Promise<void>
@@ -48,8 +50,11 @@ type RoomComposerProps = {
   submitAriaLabel?: string
   submitDisabled?: boolean
   submitTitle?: string
+  videoNoteDisabled?: boolean
+  videoNoteTitle?: string
   topContent?: ReactNode
   bottomContent?: ReactNode
+  draftDisabled?: boolean
 }
 
 export function RoomComposer({
@@ -69,10 +74,12 @@ export function RoomComposer({
   onComposerPaste,
   onDeleteGif,
   onDraftChange,
+  onDraftFocus,
   onKeyDown,
   onOpenAttachmentPicker,
   onOpenPremiumUpsell,
   onReplyCancel,
+  onOpenVideoNoteRecorder,
   onSearchGifs,
   onSelectGif,
   onSubmit,
@@ -86,8 +93,11 @@ export function RoomComposer({
   submitAriaLabel = 'Отправить',
   submitDisabled = false,
   submitTitle = 'Отправить',
+  videoNoteDisabled = false,
+  videoNoteTitle = 'Записать видеосообщение',
   topContent = null,
   bottomContent = null,
+  draftDisabled = false,
 }: RoomComposerProps) {
   const [composerExpanded, setComposerExpanded] = useState(false)
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
@@ -164,7 +174,9 @@ export function RoomComposer({
               placeholder={placeholder}
               rows={1}
               value={draft}
+              disabled={draftDisabled}
               onChange={(event) => onDraftChange(event.target.value)}
+              onFocus={onDraftFocus}
               onPaste={onComposerPaste}
               onKeyDown={onKeyDown}
             />
@@ -172,6 +184,7 @@ export function RoomComposer({
               {showEmojiPicker ? (
                 <EmojiPicker
                   canSelectGif={!gifSelectionBlockedReason}
+                  disabled={draftDisabled}
                   gifLibrary={gifLibrary}
                   gifSelectionBlockedReason={gifSelectionBlockedReason}
                   onDeleteGif={onDeleteGif}
@@ -184,6 +197,23 @@ export function RoomComposer({
                   onUploadGif={onUploadGif}
                   premiumUnlocked={premiumUnlocked}
                 />
+              ) : null}
+              {onOpenVideoNoteRecorder ? (
+                <button
+                  type="button"
+                  className="soft-button composer-tool composer-video-note-button"
+                  onClick={() => {
+                    if (videoNoteDisabled) return
+                    onOpenVideoNoteRecorder()
+                  }}
+                  aria-label="Записать видеосообщение"
+                  title={videoNoteTitle}
+                  disabled={videoNoteDisabled}
+                >
+                  <span className="composer-video-note-icon" aria-hidden="true">
+                    <span className="composer-video-note-icon-lens" />
+                  </span>
+                </button>
               ) : null}
               <ComposerAttachmentPicker
                 attachmentName={attachmentName}

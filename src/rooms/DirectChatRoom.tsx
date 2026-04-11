@@ -92,6 +92,7 @@ type DirectChatRoomProps = {
   onOpenAttachmentPicker: (mode: 'file' | 'photo') => void
   onOpenPremiumGift: () => void
   onOpenPremiumUpsell?: () => void
+  onOpenVideoNoteRecorder?: () => void
   onComposerGateAction?: () => void
   onComposerGateAccept?: () => void
   onComposerGateReject?: () => void
@@ -156,6 +157,7 @@ export function DirectChatRoom({
   onOpenAttachmentPicker,
   onOpenPremiumGift,
   onOpenPremiumUpsell,
+  onOpenVideoNoteRecorder,
   onComposerGateAction,
   onComposerGateAccept,
   onComposerGateReject,
@@ -210,12 +212,19 @@ export function DirectChatRoom({
   const [roomStatusExpandable, setRoomStatusExpandable] = useState(false)
   const [roomStatusCollapsedLines, setRoomStatusCollapsedLines] = useState<1 | 2>(2)
   const composerPlaceholder = attachmentDraft
-    ? isImageMimeType(attachmentDraft.mimeType)
+    ? attachmentDraft.kind === 'video-note'
+      ? 'Видеосообщение отправится без подписи.'
+      : isImageMimeType(attachmentDraft.mimeType)
       ? 'Добавьте подпись к фотографии...'
       : isVideoMimeType(attachmentDraft.mimeType)
         ? 'Добавьте подпись к видео...'
         : 'Добавьте подпись к файлу...'
     : 'Напиши сообщение в тайник...'
+  const composerDraftDisabled = attachmentDraft?.kind === 'video-note'
+  const videoNoteDisabled = Boolean(attachmentDraft) || draft.trim().length > 0
+  const videoNoteTitle = videoNoteDisabled
+    ? 'Уберите текст или текущее вложение, чтобы записать видеосообщение.'
+    : 'Записать видеосообщение'
 
   async function submitComposer() {
     await Promise.resolve(onSubmit())
@@ -955,9 +964,11 @@ export function DirectChatRoom({
           onComposerPaste={onComposerPaste}
           onDeleteGif={onDeleteGif}
           onDraftChange={onDraftChange}
+          onDraftFocus={undefined}
           onKeyDown={handleComposerKeyDown}
           onOpenAttachmentPicker={onOpenAttachmentPicker}
           onOpenPremiumUpsell={onOpenPremiumUpsell}
+          onOpenVideoNoteRecorder={onOpenVideoNoteRecorder}
           onReplyCancel={onReplyCancel}
           onSearchGifs={onSearchGifs}
           onSelectGif={onSelectGif}
@@ -967,10 +978,13 @@ export function DirectChatRoom({
           placeholder={composerPlaceholder}
           premiumUnlocked={premiumUnlocked}
           replyTarget={replyTarget}
+          draftDisabled={composerDraftDisabled}
           storageCleanupWarning={storageCleanupWarning}
           submitAriaLabel="Отправить"
           submitDisabled={!canSubmitComposer}
           submitTitle="Отправить"
+          videoNoteDisabled={videoNoteDisabled}
+          videoNoteTitle={videoNoteTitle}
         />
       )}
     </section>

@@ -227,6 +227,7 @@ import { scheduleActionAnchor, useAnchoredMenu } from './app/useAnchoredMenu'
 import { useContactRequestsFlow } from './app/useContactRequestsFlow'
 import {
   formatMessagePreview,
+  formatAttachmentPreviewText,
   formatChannelAvatarLabel,
   formatContactStatus,
   formatPreview,
@@ -249,6 +250,7 @@ import {
   getChannelVisibilityDescription,
   getChannelVisibilityLabel,
   getEffectiveQuietModeSettings,
+  getMessageAttachmentPresentation,
   getNextChannelVisibility,
   getPremiumDaysLeft,
   hasActivePremium,
@@ -263,6 +265,7 @@ import {
   normalizePremiumExpiry,
   resolveQuietModeInvisibilityState,
   isImageMimeType,
+  isVideoNoteAttachment,
   isVideoMimeType,
   sanitizeChannelDirectLink,
   sanitizeChannelDescription,
@@ -295,6 +298,7 @@ import { MediaViewerOverlay } from './components/MediaViewerOverlay'
 import { RoomComposer } from './components/RoomComposer'
 import { SelectedBubbleOverlay } from './components/SelectedBubbleOverlay'
 import { ThreadedBubble } from './components/ThreadedBubble'
+import { VideoNoteRecorderOverlay } from './components/VideoNoteRecorderOverlay'
 import { useCookieConsent } from './app/useCookieConsent'
 import {
   PENDING_ATTACHMENT_FINALIZING_PROGRESS,
@@ -957,6 +961,13 @@ type PendingChannelThreadComment = {
   time: string
 }
 
+type VideoNoteRecorderTarget =
+  | { kind: 'direct'; chatId: number }
+  | { kind: 'group'; groupId: number }
+  | { kind: 'channel'; channelId: number }
+  | { kind: 'thread'; room: 'group'; groupId: number; messageId: number }
+  | { kind: 'thread'; room: 'channel'; channelId: number; postId: number }
+
 function areReplyTargetsEqual(
   left?: Message['replyTo'] | ThreadComment['replyTo'],
   right?: Message['replyTo'] | ThreadComment['replyTo'],
@@ -977,6 +988,8 @@ function areMessageAttachmentsEquivalent(
   return (
     left.fileName === right.fileName &&
     left.mimeType === right.mimeType &&
+    getMessageAttachmentPresentation(left.presentation) ===
+      getMessageAttachmentPresentation(right.presentation) &&
     left.size === right.size
   )
 }
@@ -1093,9 +1106,19 @@ function isExpiredSessionError(error: unknown) {
 
 function getAnalyticsAttachmentKind(attachment?: Message['attachment']) {
   if (!attachment) return 'none'
+  if (isVideoNoteAttachment(attachment)) return 'video-note'
   if (attachment.mimeType === 'image/gif') return 'gif'
   if (isImageMimeType(attachment.mimeType)) return 'image'
   return 'file'
+}
+
+function isVideoNoteDraft(
+  attachmentDraft?:
+    | Pick<ComposerAttachmentDraft, 'presentation'>
+    | Pick<PendingAttachmentDraft, 'presentation'>
+    | null,
+) {
+  return getMessageAttachmentPresentation(attachmentDraft?.presentation) === 'video-note'
 }
 
 function isPhotoMimeType(mimeType: string | undefined) {
@@ -1359,6 +1382,7 @@ function App() {
   const [groupAttachmentDrafts, setGroupAttachmentDrafts] = useState<Record<number, ComposerAttachmentDraft | undefined>>({})
   const [channelAttachmentDrafts, setChannelAttachmentDrafts] = useState<Record<number, ComposerAttachmentDraft | undefined>>({})
   const [threadAttachmentDraft, setThreadAttachmentDraft] = useState<ComposerAttachmentDraft | undefined>(undefined)
+  const [videoNoteRecorderTarget, setVideoNoteRecorderTarget] = useState<VideoNoteRecorderTarget | null>(null)
   const [documentVisible, setDocumentVisible] = useState(
     () => typeof document === 'undefined' || document.visibilityState === 'visible',
   )
@@ -5608,6 +5632,7 @@ function App() {
       height: attachmentDraft.height,
       mediaUrl: attachmentDraft.previewUrl,
       mimeType: attachmentDraft.mimeType,
+      presentation: attachmentDraft.presentation,
       size: attachmentDraft.size,
       width: attachmentDraft.width,
     }, { allowDownload: false, allowGifAdd: false })
@@ -5777,10 +5802,10 @@ function App() {
         latestCommentAuthor: latestComment?.displayAuthor,
         latestCommentAuthorAccent: latestCommentAuthor.accent,
         latestCommentAuthorAvatarImage: latestCommentAuthor.avatarImage,
-        latestCommentText: latestComment?.text ?? 'Пока без комментариев',
+        latestCommentText: latestComment ? formatMessagePreview(latestComment) : 'Пока без комментариев',
         latestCommentTime: latestComment?.time ?? message.time,
         messageId: message.id,
-        sourceText: message.text,
+        sourceText: formatMessagePreview(message),
         sourceTime: message.time,
         subscribed: true,
         threadId: message.threadId,
@@ -5807,10 +5832,10 @@ function App() {
       latestCommentAuthor: latestComment?.displayAuthor,
       latestCommentAuthorAccent: latestCommentAuthor.accent,
       latestCommentAuthorAvatarImage: latestCommentAuthor.avatarImage,
-      latestCommentText: latestComment?.text ?? 'Пока без комментариев',
+      latestCommentText: latestComment ? formatMessagePreview(latestComment) : 'Пока без комментариев',
       latestCommentTime: latestComment?.time ?? post.time,
       postId: post.id,
-      sourceText: post.text,
+      sourceText: post.system ? 'Канал создан' : formatMessagePreview(post),
       sourceTime: post.time,
       subscribed: true,
       threadId: post.threadId,
@@ -5977,8 +6002,7 @@ function App() {
           ? {
               ...group,
               latestActivityAt: createdAt,
-              preview:
-                text || (options?.attachment ? `Файл: ${options.attachment.fileName}` : group.preview),
+              preview: text || formatAttachmentPreviewText(options?.attachment) || group.preview,
               time,
               unread: 0,
               messages: [
@@ -6215,9 +6239,7 @@ function App() {
               description: managedChannel.description,
               latestActivityAt: createdAt,
               posts: [...channel.posts, nextPost],
-              preview:
-                text ||
-                (options?.attachment ? `Файл: ${options.attachment.fileName}` : fallbackPreview),
+              preview: text || formatAttachmentPreviewText(options?.attachment) || fallbackPreview,
               statusText: managedChannel.statusText,
               time,
               unread: 0,
@@ -6243,9 +6265,7 @@ function App() {
             description: managedChannel.description,
             latestActivityAt: createdAt,
             posts: [...currentChannel.posts, nextPost],
-            preview:
-              text ||
-              (options?.attachment ? `Файл: ${options.attachment.fileName}` : fallbackPreview),
+            preview: text || formatAttachmentPreviewText(options?.attachment) || fallbackPreview,
             statusText: managedChannel.statusText,
             time,
             unread: 0,
@@ -6354,6 +6374,7 @@ function App() {
     height?: number
     mediaUrl?: string
     mimeType: string
+    presentation?: NonNullable<Message['attachment']>['presentation']
     size: number
     width?: number
   }) {
@@ -6365,6 +6386,7 @@ function App() {
         height: attachmentDraft.height,
         mediaUrl: attachmentDraft.mediaUrl,
         mimeType: attachmentDraft.mimeType,
+        presentation: attachmentDraft.presentation,
         size: attachmentDraft.size,
         width: attachmentDraft.width,
       } satisfies NonNullable<Message['attachment']>
@@ -6380,6 +6402,7 @@ function App() {
       height: attachmentDraft.height,
       mediaUrl: localMediaUrl,
       mimeType: attachmentDraft.mimeType,
+      presentation: attachmentDraft.presentation,
       size: attachmentDraft.size,
       width: attachmentDraft.width,
     } satisfies NonNullable<Message['attachment']>
@@ -6407,6 +6430,7 @@ function App() {
           height: attachmentDraft.height,
           mediaUrl: attachmentDraft.mediaUrl,
           mimeType: attachmentDraft.mimeType,
+          presentation: attachmentDraft.presentation,
           size: attachmentDraft.size,
           width: attachmentDraft.width,
         } satisfies NonNullable<Message['attachment']>,
@@ -6453,6 +6477,7 @@ function App() {
         height: attachmentDraft.height,
         mediaUrl: uploadedMedia.mediaUrl,
         mimeType: uploadedMedia.mimeType,
+        presentation: attachmentDraft.presentation,
         size: uploadedMedia.size,
         width: attachmentDraft.width,
       } satisfies NonNullable<Message['attachment']>,
@@ -6461,6 +6486,7 @@ function App() {
         height: attachmentDraft.height,
         mediaUrl: uploadedMedia.mediaUrl,
         mimeType: uploadedMedia.mimeType,
+        presentation: attachmentDraft.presentation,
         size: uploadedMedia.size,
         uploadProgress: PENDING_ATTACHMENT_FINALIZING_PROGRESS,
         width: attachmentDraft.width,
@@ -6481,7 +6507,13 @@ function App() {
     )
   }
 
-  async function createComposerDraft(file: File, options?: { previewUrl?: string }) {
+  async function createComposerDraft(
+    file: File,
+    options?: {
+      presentation?: NonNullable<Message['attachment']>['presentation']
+      previewUrl?: string
+    },
+  ) {
     return await buildComposerAttachmentDraft(file, {
       ...options,
       // Keep file-size validation aligned with the server: free users can attach
@@ -6493,6 +6525,29 @@ function App() {
         ? premiumMessageFileUploadMaxSizeBytes
         : messageFileUploadMaxSizeBytes,
     })
+  }
+
+  async function attachVideoNoteDraft(
+    file: File,
+    options: {
+      clearDraftText: () => void
+      getSelectionToken: () => number
+      replaceDraft: (draft: ComposerAttachmentDraft) => void
+      restorePreparedDraft: (selectionToken: number, draft: ComposerAttachmentDraft) => void
+    },
+  ) {
+    options.clearDraftText()
+    const selectionToken = options.getSelectionToken()
+    const preparingDraft = createPreparingComposerAttachmentDraft(file, {
+      presentation: 'video-note',
+    })
+    options.replaceDraft(preparingDraft)
+
+    const nextAttachmentDraft = await createComposerDraft(file, {
+      presentation: 'video-note',
+      previewUrl: preparingDraft.previewUrl,
+    })
+    options.restorePreparedDraft(selectionToken, nextAttachmentDraft)
   }
 
   function getClipboardImageFile(event: ReactClipboardEvent<HTMLElement>) {
@@ -7861,8 +7916,8 @@ function App() {
     if ((activeChat.contactState ?? 'accepted') !== 'accepted') return
 
     const chatId = activeChat.id
-    const text = (chatMessageDrafts[chatId] ?? '').trim()
     const attachmentDraft = chatAttachmentDrafts[chatId]
+    const text = isVideoNoteDraft(attachmentDraft) ? '' : (chatMessageDrafts[chatId] ?? '').trim()
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = replyTarget
       ? {
@@ -7992,8 +8047,8 @@ function App() {
     if (activeGroupWriteBlockReason) return
 
     const groupId = activeGroup.id
-    const text = (groupMessageDrafts[groupId] ?? '').trim()
     const attachmentDraft = groupAttachmentDrafts[groupId]
+    const text = isVideoNoteDraft(attachmentDraft) ? '' : (groupMessageDrafts[groupId] ?? '').trim()
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = replyTarget
       ? {
@@ -8099,8 +8154,10 @@ function App() {
   async function sendManagedChannelPost() {
     if (!ownedCurrentManagedChannel || !currentSubscriptionChannel) return
 
-    const text = (channelPostDrafts[currentSubscriptionChannel.id] ?? '').trim()
     const attachmentDraft = channelAttachmentDrafts[currentSubscriptionChannel.id]
+    const text = isVideoNoteDraft(attachmentDraft)
+      ? ''
+      : (channelPostDrafts[currentSubscriptionChannel.id] ?? '').trim()
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
     if (!text && !attachment) return
@@ -8199,6 +8256,219 @@ function App() {
 
     attachmentInputRef.current.accept = mode === 'photo' ? 'image/*' : ''
     attachmentInputRef.current.click()
+  }
+
+  function openChatVideoNoteRecorder(chatId: number) {
+    setVideoNoteRecorderTarget({ kind: 'direct', chatId })
+  }
+
+  function openGroupVideoNoteRecorder(groupId: number) {
+    setVideoNoteRecorderTarget({ kind: 'group', groupId })
+  }
+
+  function openChannelVideoNoteRecorder(channelId: number) {
+    setVideoNoteRecorderTarget({ kind: 'channel', channelId })
+  }
+
+  function openThreadVideoNoteRecorder() {
+    if (!threadTarget || threadTarget.kind === 'support') {
+      return
+    }
+
+    if (threadTarget.kind === 'group') {
+      setVideoNoteRecorderTarget({
+        groupId: threadTarget.groupId,
+        kind: 'thread',
+        messageId: threadTarget.messageId,
+        room: 'group',
+      })
+      return
+    }
+
+    setVideoNoteRecorderTarget({
+      channelId: threadTarget.channelId,
+      kind: 'thread',
+      postId: threadTarget.postId,
+      room: 'channel',
+    })
+  }
+
+  async function attachVideoNoteToChat(chatId: number, file: File) {
+    await attachVideoNoteDraft(file, {
+      clearDraftText: () => {
+        setChatMessageDrafts((currentDrafts) => ({
+          ...currentDrafts,
+          [chatId]: '',
+        }))
+      },
+      getSelectionToken: () => ++chatAttachmentSelectionTokenRef.current,
+      replaceDraft: (draft) => {
+        setChatAttachmentDrafts((currentAttachments) => {
+          releaseComposerAttachmentDraft(currentAttachments[chatId])
+          return {
+            ...currentAttachments,
+            [chatId]: draft,
+          }
+        })
+      },
+      restorePreparedDraft: (selectionToken, draft) => {
+        setChatAttachmentDrafts((currentAttachments) => {
+          if (selectionToken !== chatAttachmentSelectionTokenRef.current) {
+            releaseComposerAttachmentDraft(draft)
+            return currentAttachments
+          }
+
+          return {
+            ...currentAttachments,
+            [chatId]: draft,
+          }
+        })
+      },
+    })
+  }
+
+  async function attachVideoNoteToGroup(groupId: number, file: File) {
+    await attachVideoNoteDraft(file, {
+      clearDraftText: () => {
+        setGroupMessageDrafts((currentDrafts) => ({
+          ...currentDrafts,
+          [groupId]: '',
+        }))
+      },
+      getSelectionToken: () => ++groupAttachmentSelectionTokenRef.current,
+      replaceDraft: (draft) => {
+        setGroupAttachmentDrafts((currentAttachments) => {
+          releaseComposerAttachmentDraft(currentAttachments[groupId])
+          return {
+            ...currentAttachments,
+            [groupId]: draft,
+          }
+        })
+      },
+      restorePreparedDraft: (selectionToken, draft) => {
+        setGroupAttachmentDrafts((currentAttachments) => {
+          if (selectionToken !== groupAttachmentSelectionTokenRef.current) {
+            releaseComposerAttachmentDraft(draft)
+            return currentAttachments
+          }
+
+          return {
+            ...currentAttachments,
+            [groupId]: draft,
+          }
+        })
+      },
+    })
+  }
+
+  async function attachVideoNoteToChannel(channelId: number, file: File) {
+    setChannelPostError('')
+    await attachVideoNoteDraft(file, {
+      clearDraftText: () => {
+        setChannelPostDrafts((currentDrafts) => ({
+          ...currentDrafts,
+          [channelId]: '',
+        }))
+      },
+      getSelectionToken: () => ++channelAttachmentSelectionTokenRef.current,
+      replaceDraft: (draft) => {
+        setChannelAttachmentDrafts((currentAttachments) => {
+          releaseComposerAttachmentDraft(currentAttachments[channelId])
+          return {
+            ...currentAttachments,
+            [channelId]: draft,
+          }
+        })
+      },
+      restorePreparedDraft: (selectionToken, draft) => {
+        setChannelAttachmentDrafts((currentAttachments) => {
+          if (selectionToken !== channelAttachmentSelectionTokenRef.current) {
+            releaseComposerAttachmentDraft(draft)
+            return currentAttachments
+          }
+
+          return {
+            ...currentAttachments,
+            [channelId]: draft,
+          }
+        })
+      },
+    })
+  }
+
+  async function attachVideoNoteToThread(file: File) {
+    await attachVideoNoteDraft(file, {
+      clearDraftText: () => {
+        setThreadDraft('')
+      },
+      getSelectionToken: () => ++threadAttachmentSelectionTokenRef.current,
+      replaceDraft: (draft) => {
+        setThreadAttachmentDraft((currentDraft) => {
+          releaseComposerAttachmentDraft(currentDraft)
+          return draft
+        })
+      },
+      restorePreparedDraft: (selectionToken, draft) => {
+        setThreadAttachmentDraft((currentDraft) => {
+          if (selectionToken !== threadAttachmentSelectionTokenRef.current) {
+            releaseComposerAttachmentDraft(draft)
+            return currentDraft
+          }
+
+          return draft
+        })
+      },
+    })
+  }
+
+  async function handleVideoNoteRecorderUse(file: File) {
+    if (!videoNoteRecorderTarget) {
+      throw new Error('Окно записи уже не привязано к комнате. Откройте его заново.')
+    }
+
+    if (videoNoteRecorderTarget.kind === 'direct') {
+      if (activeChatId !== videoNoteRecorderTarget.chatId) {
+        throw new Error('Откройте нужный диалог и попробуйте ещё раз.')
+      }
+      await attachVideoNoteToChat(videoNoteRecorderTarget.chatId, file)
+      return
+    }
+
+    if (videoNoteRecorderTarget.kind === 'group') {
+      if (activeGroupId !== videoNoteRecorderTarget.groupId) {
+        throw new Error('Откройте нужную группу и попробуйте ещё раз.')
+      }
+      await attachVideoNoteToGroup(videoNoteRecorderTarget.groupId, file)
+      return
+    }
+
+    if (videoNoteRecorderTarget.kind === 'channel') {
+      if (currentSubscriptionChannel?.id !== videoNoteRecorderTarget.channelId) {
+        throw new Error('Откройте нужный канал и попробуйте ещё раз.')
+      }
+      await attachVideoNoteToChannel(videoNoteRecorderTarget.channelId, file)
+      return
+    }
+
+    if (!threadTarget || threadTarget.kind === 'support') {
+      throw new Error('Откройте нужные комментарии и попробуйте ещё раз.')
+    }
+
+    const threadTargetMatches =
+      (videoNoteRecorderTarget.room === 'group' &&
+        threadTarget.kind === 'group' &&
+        threadTarget.groupId === videoNoteRecorderTarget.groupId &&
+        threadTarget.messageId === videoNoteRecorderTarget.messageId) ||
+      (videoNoteRecorderTarget.room === 'channel' &&
+        threadTarget.kind === 'channel' &&
+        threadTarget.channelId === videoNoteRecorderTarget.channelId &&
+        threadTarget.postId === videoNoteRecorderTarget.postId)
+
+    if (!threadTargetMatches) {
+      throw new Error('Откройте нужные комментарии и попробуйте ещё раз.')
+    }
+
+    await attachVideoNoteToThread(file)
   }
 
   async function handleChatAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
@@ -8561,6 +8831,7 @@ function App() {
   }
 
   function closeActiveRoom() {
+    setVideoNoteRecorderTarget(null)
     setActiveChatId(null)
     setActiveSubscriptionChannelId(null)
     setPreviewSubscriptionChannel(null)
@@ -9464,6 +9735,7 @@ function App() {
   const closeThreadView = useCallback(() => {
     const previousThreadTarget = threadTarget
 
+    setVideoNoteRecorderTarget(null)
     clearThreadAttachmentDraft()
     closeThreadFlowView()
     resetBlacklistFlow()
@@ -9489,8 +9761,8 @@ function App() {
   ])
 
   async function submitThreadComment() {
-    const text = threadDraft.trim()
     const attachmentDraft = threadAttachmentDraft
+    const text = isVideoNoteDraft(attachmentDraft) ? '' : threadDraft.trim()
     if (!threadTarget) return
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = threadReplyTarget
@@ -13667,6 +13939,7 @@ function App() {
             attachmentInputRef={threadAttachmentInputRef}
             attachmentName={threadAttachmentDraft?.fileName ?? ''}
             attachmentModes={threadTarget.kind === 'support' ? ['photo'] : undefined}
+            draftDisabled={threadAttachmentDraft?.kind === 'video-note'}
             draft={threadDraft}
             draftInputRef={threadComposerInputRef}
             gifLibrary={session?.gifLibrary ?? []}
@@ -13683,6 +13956,7 @@ function App() {
             onKeyDown={handleThreadComposerKeyDown}
             onOpenAttachmentPicker={openThreadAttachmentPicker}
             onOpenPremiumUpsell={openPremiumUpsell}
+            onOpenVideoNoteRecorder={threadTarget.kind !== 'support' ? openThreadVideoNoteRecorder : undefined}
             onReplyCancel={clearThreadReplyTarget}
             onSearchGifs={searchAvailableGifs}
             onSelectGif={attachThreadGif}
@@ -13691,7 +13965,9 @@ function App() {
             onUploadGif={uploadAndAttachThreadGif}
             placeholder={
               threadAttachmentDraft
-                ? threadAttachmentDraft.mimeType.startsWith('image/')
+                ? threadAttachmentDraft.kind === 'video-note'
+                  ? 'Видеосообщение отправится без подписи.'
+                  : threadAttachmentDraft.mimeType.startsWith('image/')
                   ? 'Добавьте подпись к фотографии...'
                   : isVideoMimeType(threadAttachmentDraft.mimeType)
                     ? 'Добавьте подпись к видео...'
@@ -13708,6 +13984,12 @@ function App() {
               (threadAttachmentDraft ? threadAttachmentDraft.status !== 'ready' : !threadDraft.trim())
             }
             submitTitle="Отправить комментарий"
+            videoNoteDisabled={Boolean(threadAttachmentDraft) || threadDraft.trim().length > 0}
+            videoNoteTitle={
+              Boolean(threadAttachmentDraft) || threadDraft.trim().length > 0
+                ? 'Уберите текст или текущее вложение, чтобы записать видеосообщение'
+                : 'Записать видеосообщение'
+            }
             topContent={
               activeThreadComments.length === 0 ? (
                 <p className="room-thread-empty-copy">Будьте первым, кто оставит комментарий</p>
@@ -18547,6 +18829,7 @@ function App() {
                     onComposerPaste: handleChannelComposerPaste,
                     onOpenAttachmentPicker: openChannelAttachmentPicker,
                     onOpenPremiumUpsell: openPremiumUpsell,
+                    onOpenVideoNoteRecorder: () => openChannelVideoNoteRecorder(currentSubscriptionChannel!.id),
                     onReplyCancel: () => setChannelPostReplyTarget(null),
                     onSelectGif: (gif) => attachChannelGif(currentSubscriptionChannel!.id, gif),
                     onToggleSendOriginal: () =>
@@ -18652,6 +18935,7 @@ function App() {
             onReplyCancel={() => setReplyTarget(null)}
             onReplyReferenceJump={scrollToGroupMessage}
             onOpenPremiumUpsell={openPremiumUpsell}
+            onOpenVideoNoteRecorder={() => openGroupVideoNoteRecorder(activeGroup.id)}
             onOpenSourceChannel={openSourceChannelFromMessage}
             onOpenAttachmentPicker={openGroupAttachmentPicker}
             onOpenThread={openGroupThread}
@@ -18734,6 +19018,7 @@ function App() {
               onOpenSourceChannel={openSourceChannelFromMessage}
               onOpenAttachmentPicker={openAttachmentPicker}
               onOpenPremiumUpsell={openPremiumUpsell}
+              onOpenVideoNoteRecorder={() => openChatVideoNoteRecorder(activeChat.id)}
               onOpenPremiumGift={() => {
                 setPremiumGiftChatId(activeChat.id)
                 setStageView('premium')
@@ -20377,6 +20662,14 @@ function App() {
           onReport={() => void reportOpenedMediaAttachment()}
           reportBusy={mediaViewerReportBusy}
           reportToast={mediaViewerReportToast}
+        />
+      ) : null}
+      {videoNoteRecorderTarget ? (
+        <VideoNoteRecorderOverlay
+          onClose={() => {
+            setVideoNoteRecorderTarget(null)
+          }}
+          onUse={handleVideoNoteRecorderUse}
         />
       ) : null}
       {cookieConsentBanner}

@@ -62,11 +62,14 @@ import {
   extendPremiumExpiry,
   ensureUniqueChannelDirectLink,
   formatAccountName,
+  formatAttachmentPreviewText,
+  formatMessagePreview,
   formatNowTime,
   getConversationDayKey,
   getEffectiveQuietModeSettings,
   getAdminSupportTicketStatusSortOrder,
   hasActivePremium,
+  isVideoMimeType,
   makePremiumExpiry,
   normalizeIdentifier,
   normalizeNickname,
@@ -706,6 +709,10 @@ function sanitizeThreadCommentText(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, 2000)
 }
 
+function sanitizeMessageAttachmentPresentation(attachment: Message['attachment']) {
+  return attachment?.presentation === 'video-note' ? 'video-note' : undefined
+}
+
 function sanitizeMessageAttachment(attachment: Message['attachment']) {
   if (!attachment) return undefined
 
@@ -713,6 +720,7 @@ function sanitizeMessageAttachment(attachment: Message['attachment']) {
   const height = attachment.height ? Math.max(1, Math.floor(attachment.height)) : undefined
   const mediaUrl = attachment.mediaUrl.trim()
   const mimeType = attachment.mimeType.trim().slice(0, 120)
+  const presentation = sanitizeMessageAttachmentPresentation(attachment)
   const size = Math.max(0, Math.floor(attachment.size))
   const width = attachment.width ? Math.max(1, Math.floor(attachment.width)) : undefined
 
@@ -725,9 +733,34 @@ function sanitizeMessageAttachment(attachment: Message['attachment']) {
     height,
     mediaUrl,
     mimeType,
+    presentation,
     size,
     width,
   } satisfies NonNullable<Message['attachment']>
+}
+
+function assertAttachmentPresentationAllowed(
+  attachment: NonNullable<Message['attachment']> | undefined,
+  text: string,
+  options?: {
+    allowVideoNote?: boolean
+  },
+) {
+  if (!attachment || attachment.presentation !== 'video-note') {
+    return
+  }
+
+  if (!options?.allowVideoNote) {
+    throw new Error('Видеосообщения недоступны в этом разделе.')
+  }
+
+  if (!isVideoMimeType(attachment.mimeType)) {
+    throw new Error('Видеосообщение можно отправить только как видео.')
+  }
+
+  if (text.trim().length > 0) {
+    throw new Error('Видеосообщение отправляется без подписи.')
+  }
 }
 
 const invalidOwnedAttachmentMessage = 'Вложение недействительно или больше недоступно. Загрузите файл заново.'
@@ -2728,7 +2761,7 @@ function matchesDirectReplyTarget(
     previewText ||
     message.sourceChannel?.leadText ||
     message.sourceGroup?.leadText ||
-    (message.attachment ? `Файл: ${message.attachment.fileName}` : '') ||
+    formatAttachmentPreviewText(message.attachment) ||
     message.attachmentRemovedNotice?.text ||
     (message.sourceChannel ? `Канал: ${message.sourceChannel.title}` : '') ||
     (message.sourceContact ? `Контакт: ${message.sourceContact.title}` : '') ||
@@ -3996,10 +4029,10 @@ function buildThreadInbox(
         latestCommentAuthorAccent: latestCommentGroupParticipant?.accent ?? '#cfb4a0',
         latestCommentAuthorAvatarImage:
           latestCommentAuthorAccount?.avatarImage ?? latestCommentGroupParticipant?.avatarImage,
-        latestCommentText: latestComment?.text ?? 'Пока без комментариев',
+        latestCommentText: latestComment ? formatMessagePreview(latestComment) : 'Пока без комментариев',
         latestCommentTime: latestComment?.time ?? message.time,
         messageId: message.id,
-        sourceText: message.text,
+        sourceText: formatMessagePreview(message),
         sourceTime: message.time,
         subscribed: true,
         threadId,
@@ -4071,10 +4104,10 @@ function buildThreadInbox(
         latestCommentAuthor: latestComment?.displayAuthor,
         latestCommentAuthorAccent: '#cfb4a0',
         latestCommentAuthorAvatarImage: latestCommentAuthorAccount?.avatarImage,
-        latestCommentText: latestComment?.text ?? 'Пока без комментариев',
+        latestCommentText: latestComment ? formatMessagePreview(latestComment) : 'Пока без комментариев',
         latestCommentTime: latestComment?.time ?? post.time,
         postId: post.id,
-        sourceText: post.text,
+        sourceText: post.system ? 'Канал создан' : formatMessagePreview(post),
         sourceTime: post.time,
         subscribed: true,
         threadId,
@@ -6448,8 +6481,12 @@ export class TinychokStore {
         owner: buildAdminLinkedUser(rootAuthorIdentifier),
         relatedReportCount: 0,
         sourceGroupId: buildAdminGroupAggregateKey(group),
-        sourceText: message.text || message.attachment?.fileName || 'Без текста',
-        title: message.text || message.attachment?.fileName || 'Сообщение без текста',
+        sourceText:
+          sanitizeMessageText(message.text) || formatAttachmentPreviewText(message.attachment) || 'Без текста',
+        title:
+          sanitizeMessageText(message.text) ||
+          formatAttachmentPreviewText(message.attachment) ||
+          'Сообщение без текста',
       })
     }
 
@@ -6474,8 +6511,14 @@ export class TinychokStore {
         owner: buildAdminLinkedUser(managedChannel?.ownerIdentifier ?? post.ownerIdentifier),
         relatedReportCount: 0,
         sourceChannelHandle: normalizedHandle,
-        sourceText: post.text || post.attachment?.fileName || 'Без текста',
-        title: post.text || post.attachment?.fileName || 'Пост без текста',
+        sourceText:
+          (post.system ? 'Канал создан' : sanitizeMessageText(post.text)) ||
+          formatAttachmentPreviewText(post.attachment) ||
+          'Без текста',
+        title:
+          (post.system ? 'Канал создан' : sanitizeMessageText(post.text)) ||
+          formatAttachmentPreviewText(post.attachment) ||
+          'Пост без текста',
       })
     }
 
@@ -6563,6 +6606,7 @@ export class TinychokStore {
 
     const text = sanitizeThreadCommentText(payload.text)
     const attachment = this.assertOwnedPendingAttachment(actor.identifier, payload.attachment)
+    assertAttachmentPresentationAllowed(attachment, text)
     const status = sanitizeSupportTicketStatus(payload.status)
     if (!text && !attachment) {
       throw new Error('Ответ поддержки не может быть пустым.')
@@ -6645,7 +6689,9 @@ export class TinychokStore {
         const firstMessageAt = transcript[0]?.createdAt
         const latestMessageAt = transcript.at(-1)?.createdAt
         const preview =
-          transcript.at(-1)?.text || transcript.at(-1)?.attachment?.fileName || 'Без сообщений'
+          sanitizeMessageText(transcript.at(-1)?.text ?? '') ||
+          formatAttachmentPreviewText(transcript.at(-1)?.attachment) ||
+          'Без сообщений'
         const summary: AdminDialogSummary = {
           csvFileName: `dialog-${sanitizeExportFileName(owner.displayName)}-${sanitizeExportFileName(peer?.displayName ?? dialog.title)}-${formatExportDateStamp()}.csv`,
           firstMessageAt,
@@ -7178,7 +7224,11 @@ export class TinychokStore {
         if (!group || buildAdminGroupThreadKey(group, message) !== threadId) continue
         canonicalThreadId = getGroupMessageThreadId(group, message)
         sharedId = this.getSharedGroupId(group)
-        summaryLabel = `${group.title} · ${message.text || message.attachment?.fileName || 'Сообщение без текста'}`
+        summaryLabel = `${group.title} · ${
+          sanitizeMessageText(message.text) ||
+          formatAttachmentPreviewText(message.attachment) ||
+          'Сообщение без текста'
+        }`
         break
       }
 
@@ -7203,7 +7253,11 @@ export class TinychokStore {
         if (!channel || buildAdminChannelThreadKey(channel, post) !== threadId) continue
         canonicalThreadId = getSubscriptionPostThreadId(channel, post)
         normalizedHandle = sanitizeChannelDirectLink(channel.handle) || channel.handle
-        summaryLabel = `${channel.title} · ${post.text || post.attachment?.fileName || 'Пост без текста'}`
+        summaryLabel = `${channel.title} · ${
+          (post.system ? 'Канал создан' : sanitizeMessageText(post.text)) ||
+          formatAttachmentPreviewText(post.attachment) ||
+          'Пост без текста'
+        }`
         break
       }
 
@@ -9495,6 +9549,7 @@ export class TinychokStore {
 
     const text = sanitizeMessageText(payload.text)
     const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    assertAttachmentPresentationAllowed(attachment, text, { allowVideoNote: true })
     const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
     const sourceContact =
       sanitizeSourceContact(this.database, payload.sourceContact) ??
@@ -9695,7 +9750,10 @@ export class TinychokStore {
       entityKey: targetIdentifier,
       entityLabel: targetAccount ? buildAccountDisplayLabel(targetAccount) : targetIdentifier,
       entityOwnerIdentifier: targetIdentifier,
-      entityPreview: latestDialogMessage?.text || latestDialogMessage?.attachment?.fileName || undefined,
+      entityPreview:
+        sanitizeMessageText(latestDialogMessage?.text ?? '') ||
+        formatAttachmentPreviewText(latestDialogMessage?.attachment) ||
+        undefined,
       entityType: 'user',
       reason,
       relatedUserIdentifier: targetIdentifier,
@@ -10104,6 +10162,7 @@ export class TinychokStore {
 
     const text = sanitizeMessageText(payload.text)
     const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    assertAttachmentPresentationAllowed(attachment, text, { allowVideoNote: true })
     const forwardedAuthorName = sanitizeForwardedAuthorName(payload.forwardedAuthorName)
     const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
     const sourceContact = resolveContactSourceReferenceFromText(this.database, text)
@@ -10166,7 +10225,7 @@ export class TinychokStore {
         time,
       })
 
-      groupCopy.preview = text || (attachment ? `Файл: ${attachment.fileName}` : groupCopy.preview)
+      groupCopy.preview = text || formatAttachmentPreviewText(attachment) || groupCopy.preview
       groupCopy.time = time
       groupCopy.unread =
         groupCopy.ownerIdentifier === account.identifier || groupCopy.muted
@@ -10206,6 +10265,7 @@ export class TinychokStore {
 
     const text = sanitizeThreadCommentText(payload.text)
     const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    assertAttachmentPresentationAllowed(attachment, text, { allowVideoNote: true })
     if (!text && !attachment) {
       throw new Error('Комментарий не может быть пустым.')
     }
@@ -10289,6 +10349,7 @@ export class TinychokStore {
 
     const text = sanitizeThreadCommentText(payload.text)
     const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    assertAttachmentPresentationAllowed(attachment, text)
     if (!text && !attachment) {
       throw new Error('Сообщение поддержки не может быть пустым.')
     }
@@ -10354,6 +10415,7 @@ export class TinychokStore {
 
     const text = sanitizeThreadCommentText(payload.text)
     const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    assertAttachmentPresentationAllowed(attachment, text)
     if (!text && !attachment) {
       throw new Error('Комментарий не может быть пустым.')
     }
@@ -10500,6 +10562,7 @@ export class TinychokStore {
 
     const text = sanitizeMessageText(payload.text)
     const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    assertAttachmentPresentationAllowed(attachment, text, { allowVideoNote: true })
     const sourceContact = resolveContactSourceReferenceFromText(this.database, text)
     if (!text && !attachment) {
       throw new Error('Нельзя отправить пустое сообщение.')
@@ -10557,7 +10620,7 @@ export class TinychokStore {
         time,
       })
 
-      channelCopy.preview = text || (attachment ? `Файл: ${attachment.fileName}` : fallbackPreview)
+      channelCopy.preview = text || formatAttachmentPreviewText(attachment) || fallbackPreview
       channelCopy.time = time
       channelCopy.unread =
         channelCopy.ownerIdentifier === account.identifier || channelCopy.muted
@@ -11561,6 +11624,7 @@ export class TinychokStore {
 
     const text = sanitizeThreadCommentText(payload.text)
     const attachment = this.assertOwnedPendingAttachment(account.identifier, payload.attachment)
+    assertAttachmentPresentationAllowed(attachment, text, { allowVideoNote: true })
     if (!text && !attachment) {
       throw new Error('Комментарий не может быть пустым.')
     }
@@ -13332,7 +13396,8 @@ export class TinychokStore {
       return {
         entityLabel: peerLabel ? `Личный диалог: ${viewerLabel} ↔ ${peerLabel}` : 'Личный диалог',
         entityOwnerIdentifier: actualOwnerIdentifier,
-        entityPreview: message.text || message.attachment.fileName || undefined,
+        entityPreview:
+          sanitizeMessageText(message.text) || formatAttachmentPreviewText(message.attachment) || undefined,
         relatedUserIdentifier: actualOwnerIdentifier,
       }
     }
@@ -13357,7 +13422,8 @@ export class TinychokStore {
         return {
           entityLabel: `Группа: ${group?.title ?? `#${message.groupId}`}`,
           entityOwnerIdentifier: actualOwnerIdentifier,
-          entityPreview: message.text || message.attachment.fileName || undefined,
+          entityPreview:
+            sanitizeMessageText(message.text) || formatAttachmentPreviewText(message.attachment) || undefined,
           relatedUserIdentifier: actualOwnerIdentifier,
         }
       }
@@ -13373,7 +13439,8 @@ export class TinychokStore {
         return {
           entityLabel: `Комментарии группы: ${group?.title ?? `#${message.groupId}`}`,
           entityOwnerIdentifier: actualOwnerIdentifier,
-          entityPreview: comment.text || comment.attachment.fileName || undefined,
+          entityPreview:
+            sanitizeMessageText(comment.text) || formatAttachmentPreviewText(comment.attachment) || undefined,
           relatedUserIdentifier: actualOwnerIdentifier,
         }
       }
@@ -13396,7 +13463,10 @@ export class TinychokStore {
         return {
           entityLabel: `Канал: ${channel?.title ?? `#${post.channelId}`}`,
           entityOwnerIdentifier: actualOwnerIdentifier,
-          entityPreview: post.text || post.attachment.fileName || undefined,
+          entityPreview:
+            (post.system ? 'Канал создан' : sanitizeMessageText(post.text)) ||
+            formatAttachmentPreviewText(post.attachment) ||
+            undefined,
           relatedUserIdentifier: actualOwnerIdentifier,
         }
       }
@@ -13412,7 +13482,8 @@ export class TinychokStore {
         return {
           entityLabel: `Комментарии канала: ${channel?.title ?? `#${post.channelId}`}`,
           entityOwnerIdentifier: actualOwnerIdentifier,
-          entityPreview: comment.text || comment.attachment.fileName || undefined,
+          entityPreview:
+            sanitizeMessageText(comment.text) || formatAttachmentPreviewText(comment.attachment) || undefined,
           relatedUserIdentifier: actualOwnerIdentifier,
         }
       }
@@ -17978,7 +18049,7 @@ function buildSubscriptionPostPreviewText(
   }
 
   if (post.attachment) {
-    return `Файл: ${post.attachment.fileName}`
+    return formatAttachmentPreviewText(post.attachment)
   }
 
   return fallbackPreview

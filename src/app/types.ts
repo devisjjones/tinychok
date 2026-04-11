@@ -17,6 +17,7 @@ export type {
   GroupPreview,
   Message,
   MessageAttachment,
+  MessageAttachmentPresentation,
   QuietModeSettings,
   ReplyTarget,
   SearchResult,

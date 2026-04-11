@@ -1,6 +1,7 @@
 import React, {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  useState,
 } from 'react'
 import type { ChannelMessageSource, Message } from '../app/types'
 import {
@@ -8,6 +9,7 @@ import {
   formatAttachmentImageDimensions,
   formatAttachmentSize,
   isImageMimeType,
+  isVideoNoteAttachment,
   isVideoMimeType,
   parseMessageTextSegments,
   stripMessageFormattingMarkup,
@@ -78,6 +80,10 @@ function buildVideoPreviewUrl(mediaUrl: string) {
     return normalizedMediaUrl
   }
 
+  if (/^(blob:|data:)/u.test(normalizedMediaUrl)) {
+    return normalizedMediaUrl
+  }
+
   try {
     if (/^https?:\/\//u.test(normalizedMediaUrl)) {
       const previewUrl = new URL('/api/media/preview', normalizedMediaUrl)
@@ -91,6 +97,51 @@ function buildVideoPreviewUrl(mediaUrl: string) {
   } catch {
     return normalizedMediaUrl.includes('#') ? normalizedMediaUrl : `${normalizedMediaUrl}#t=0.001`
   }
+}
+
+type VideoAttachmentPreviewProps = {
+  attachmentLayout: BubbleMessageContentProps['attachmentLayout']
+  isVideoNote: boolean
+  mediaUrl: string
+}
+
+function VideoAttachmentPreview({
+  attachmentLayout,
+  isVideoNote,
+  mediaUrl,
+}: VideoAttachmentPreviewProps) {
+  const [previewFailed, setPreviewFailed] = useState(false)
+  const imageClassName = `bubble-attachment-image bubble-attachment-video-preview${
+    attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
+  }${
+    attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
+  }${isVideoNote ? ' bubble-attachment-image-video-note' : ''}`
+
+  if (previewFailed) {
+    return <span className={`${imageClassName} bubble-attachment-video-fallback`} aria-hidden="true" />
+  }
+
+  if (/^(blob:|data:)/u.test(mediaUrl)) {
+    return (
+      <video
+        src={mediaUrl}
+        className={imageClassName}
+        muted
+        playsInline
+        preload="metadata"
+        onError={() => setPreviewFailed(true)}
+      />
+    )
+  }
+
+  return (
+    <img
+      src={buildVideoPreviewUrl(mediaUrl)}
+      className={imageClassName}
+      alt={isVideoNote ? 'Видеосообщение' : ''}
+      onError={() => setPreviewFailed(true)}
+    />
+  )
 }
 
 function AttachmentRemovedNoticeBlock({
@@ -525,6 +576,7 @@ export function BubbleMessageContent({
   uploadProgress,
 }: BubbleMessageContentProps) {
   const trimmedText = message.text.trim()
+  const isVideoNote = Boolean(message.attachment && isVideoNoteAttachment(message.attachment))
   const isVideoAttachment = Boolean(
     message.attachment && isVideoMimeType(message.attachment.mimeType),
   )
@@ -587,7 +639,7 @@ export function BubbleMessageContent({
       <div
         className={`bubble-attachment bubble-attachment-photo bubble-attachment-button${
           hasBodyBelowAttachment ? ' has-body-below' : ' image-only'
-        }${
+        }${isVideoNote ? ' bubble-attachment-photo-video-note' : ''}${
           attachmentLayout === 'thread-source-thumbnail'
             ? ' bubble-attachment-photo-thread-source-thumbnail'
             : attachmentLayout === 'thread-source-card'
@@ -601,16 +653,15 @@ export function BubbleMessageContent({
       >
         {isVideoAttachment ? (
           <>
-            <img
-              src={buildVideoPreviewUrl(message.attachment.mediaUrl)}
-              className={`bubble-attachment-image bubble-attachment-video-preview${
-                attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
-              }${
-                attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
-              }`}
-              alt=""
+            <VideoAttachmentPreview
+              attachmentLayout={attachmentLayout}
+              isVideoNote={isVideoNote}
+              mediaUrl={message.attachment.mediaUrl}
             />
-            <span className="bubble-attachment-play-button" aria-hidden="true">
+            <span
+              className={`bubble-attachment-play-button${isVideoNote ? ' bubble-attachment-play-button-video-note' : ''}`}
+              aria-hidden="true"
+            >
               <span className="bubble-attachment-play-icon" />
             </span>
           </>

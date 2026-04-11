@@ -144,6 +144,7 @@ type GroupRoomProps = {
   onOpenSourceChannel: (message: Message) => void
   onOpenAttachmentPicker: (mode: 'file' | 'photo') => void
   onOpenPremiumUpsell?: () => void
+  onOpenVideoNoteRecorder?: () => void
   onReplyCancel: () => void
   onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
   onSearchGifs?: (query: string) => Promise<UserGifLibraryItem[]>
@@ -193,6 +194,7 @@ export function GroupRoom({
   onOpenSourceChannel,
   onOpenAttachmentPicker,
   onOpenPremiumUpsell,
+  onOpenVideoNoteRecorder,
   onReplyCancel,
   onDeleteGif,
   onSearchGifs,
@@ -215,12 +217,19 @@ export function GroupRoom({
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
   const canSubmitComposer = attachmentDraft ? attachmentDraft.status === 'ready' : draft.trim().length > 0
   const composerPlaceholder = attachmentDraft
-    ? isImageMimeType(attachmentDraft.mimeType)
+    ? attachmentDraft.kind === 'video-note'
+      ? 'Видеосообщение отправится без подписи.'
+      : isImageMimeType(attachmentDraft.mimeType)
       ? 'Добавьте подпись к фотографии...'
       : isVideoMimeType(attachmentDraft.mimeType)
         ? 'Добавьте подпись к видео...'
         : 'Добавьте подпись к файлу...'
     : 'Напиши сообщение в группу...'
+  const composerDraftDisabled = attachmentDraft?.kind === 'video-note'
+  const videoNoteDisabled = Boolean(attachmentDraft) || draft.trim().length > 0
+  const videoNoteTitle = videoNoteDisabled
+    ? 'Уберите текст или текущее вложение, чтобы записать видеосообщение.'
+    : 'Записать видеосообщение'
 
   useLayoutEffect(() => {
     const textarea = draftInputRef.current
@@ -820,6 +829,7 @@ export function GroupRoom({
                     placeholder={composerPlaceholder}
                     rows={1}
                     value={draft}
+                    disabled={composerDraftDisabled}
                     onFocus={onComposerFocus}
                     onChange={(event) => onDraftChange(event.target.value)}
                     onPaste={onComposerPaste}
@@ -828,6 +838,7 @@ export function GroupRoom({
                   <div className="composer-tools">
                     <EmojiPicker
                       canSelectGif={!gifSelectionBlockedReason}
+                      disabled={composerDraftDisabled}
                       gifLibrary={gifLibrary}
                       gifSelectionBlockedReason={gifSelectionBlockedReason}
                       onDeleteGif={onDeleteGif}
@@ -840,6 +851,23 @@ export function GroupRoom({
                       onUploadGif={onUploadGif}
                       premiumUnlocked={premiumUnlocked}
                     />
+                    {onOpenVideoNoteRecorder ? (
+                      <button
+                        type="button"
+                        className="soft-button composer-tool composer-video-note-button"
+                        onClick={() => {
+                          if (videoNoteDisabled) return
+                          onOpenVideoNoteRecorder()
+                        }}
+                        aria-label="Записать видеосообщение"
+                        title={videoNoteTitle}
+                        disabled={videoNoteDisabled}
+                      >
+                        <span className="composer-video-note-icon" aria-hidden="true">
+                          <span className="composer-video-note-icon-lens" />
+                        </span>
+                      </button>
+                    ) : null}
                     <ComposerAttachmentPicker
                       attachmentName={attachmentName}
                       onSelectMode={onOpenAttachmentPicker}

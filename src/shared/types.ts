@@ -1,8 +1,11 @@
+export type MessageAttachmentPresentation = 'default' | 'video-note'
+
 export type MessageAttachment = {
   fileName: string
   height?: number
   mediaUrl: string
   mimeType: string
+  presentation?: MessageAttachmentPresentation
   reportState?: {
     alreadyReported: boolean
     reportCount: number

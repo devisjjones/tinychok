@@ -6,7 +6,7 @@ import {
   type Database,
 } from './store'
 import { hashPassword } from './auth-security'
-import { normalizeQuietModeSettings } from '../../src/shared/utils'
+import { formatPreview, normalizeQuietModeSettings } from '../../src/shared/utils'
 
 function createStore() {
   const { database } = coerceDatabasePayload(undefined)
@@ -102,10 +102,25 @@ async function registerPendingAttachment(
 }
 
 function buildAttachment(label: string, size = 256 * 1024) {
+  return buildAttachmentWithOptions(label, size)
+}
+
+function buildAttachmentWithOptions(
+  label: string,
+  size = 256 * 1024,
+  options?: {
+    extension?: string
+    mimeType?: string
+    presentation?: 'video-note'
+  },
+) {
+  const extension = options?.extension ?? '.png'
+  const mimeType = options?.mimeType ?? 'image/png'
   return {
-    fileName: `${label}.png`,
-    mediaUrl: `uploads/attachments/${label}.png`,
-    mimeType: 'image/png',
+    fileName: `${label}${extension}`,
+    mediaUrl: `uploads/attachments/${label}${extension}`,
+    mimeType,
+    presentation: options?.presentation,
     size,
     width: 640,
     height: 480,
@@ -352,6 +367,184 @@ test('attachment send paths reject unowned media urls and mark valid uploads lin
   assert.equal(
     database.pendingMediaUploads.find((upload) => upload.mediaUrl === orphanedGroupAttachment.mediaUrl)?.linked,
     true,
+  )
+})
+
+test('video-note attachments stay limited to allowed send paths and preserve presentation in snapshots', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79991110221')
+  const peer = createAccount('+79991110222')
+  const support = createAccount('+79991110223', { staffRole: 'support' })
+  database.accounts.push(owner, peer, support)
+  const ownerToken = createSession(database, owner.identifier, 'video-note-owner')
+  const supportToken = createSession(database, support.identifier, 'video-note-support')
+  seedAcceptedContactLink(database, owner.identifier, peer.identifier)
+
+  const directDialog = await store.openDirectDialog(ownerToken, { identifier: peer.identifier })
+  const createdGroup = await store.createGroup(ownerToken, {
+    commentsEnabledForAll: true,
+    memberDialogIds: [directDialog.dialogId],
+    title: 'Video Note Group',
+  })
+  const createdChannel = await store.createManagedChannel(ownerToken, {
+    avatarTone: '#8c5738',
+    commentsEnabledForAll: true,
+    directLink: '@video-note-channel',
+    title: 'Video Note Channel',
+    visibility: 'private',
+  })
+  await store.sendGroupMessage(ownerToken, createdGroup.groupId, { text: 'group root' })
+  await store.sendManagedChannelPost(ownerToken, createdChannel.channelId, { text: 'channel root' })
+  const baselineSnapshot = store.getSnapshotByToken(ownerToken)
+  const groupMessageId = baselineSnapshot?.groups.find((group) => group.id === createdGroup.groupId)?.messages[0]?.id
+  const subscriptionChannel = baselineSnapshot?.subscriptionChannels.find(
+    (channel) => channel.handle === '@video-note-channel',
+  )
+  const postId = subscriptionChannel?.posts.find((post) => post.text === 'channel root')?.id
+  assert.ok(groupMessageId)
+  assert.ok(subscriptionChannel)
+  assert.ok(postId)
+
+  const directVideoNote = buildAttachmentWithOptions('direct-video-note', 256 * 1024, {
+    extension: '.webm',
+    mimeType: 'video/webm',
+    presentation: 'video-note',
+  })
+  await registerPendingAttachment(store, ownerToken, directVideoNote)
+  await store.sendDirectMessage(ownerToken, directDialog.dialogId, { attachment: directVideoNote, text: '' })
+  const directSnapshot = store.getSnapshotByToken(ownerToken)
+  const directChat = directSnapshot?.chats.find((chat) => chat.id === directDialog.dialogId)
+  const directMessage = directChat?.messages.find((message) => message.attachment?.mediaUrl === directVideoNote.mediaUrl)
+  assert.equal(directChat ? formatPreview(directChat) : undefined, 'Видеосообщение')
+  assert.equal(directMessage?.attachment?.presentation, 'video-note')
+
+  const groupVideoNote = buildAttachmentWithOptions('group-video-note', 256 * 1024, {
+    extension: '.webm',
+    mimeType: 'video/webm',
+    presentation: 'video-note',
+  })
+  await registerPendingAttachment(store, ownerToken, groupVideoNote)
+  await store.sendGroupMessage(ownerToken, createdGroup.groupId, { attachment: groupVideoNote, text: '' })
+  const groupSnapshot = store.getSnapshotByToken(ownerToken)
+  const groupState = groupSnapshot?.groups.find((group) => group.id === createdGroup.groupId)
+  const groupMessage = groupState?.messages.find((message) => message.attachment?.mediaUrl === groupVideoNote.mediaUrl)
+  assert.equal(groupState?.preview, 'Видеосообщение')
+  assert.equal(groupMessage?.attachment?.presentation, 'video-note')
+
+  const groupThreadVideoNote = buildAttachmentWithOptions('group-thread-video-note', 256 * 1024, {
+    extension: '.webm',
+    mimeType: 'video/webm',
+    presentation: 'video-note',
+  })
+  await registerPendingAttachment(store, ownerToken, groupThreadVideoNote)
+  await store.sendGroupThreadComment(ownerToken, createdGroup.groupId, groupMessageId!, {
+    attachment: groupThreadVideoNote,
+    text: '',
+  })
+  const groupThreadSnapshot = store.getSnapshotByToken(ownerToken)
+  const groupThreadComment = groupThreadSnapshot?.groups
+    .find((group) => group.id === createdGroup.groupId)
+    ?.messages.find((message) => message.id === groupMessageId)
+    ?.threadComments?.find((comment) => comment.attachment?.mediaUrl === groupThreadVideoNote.mediaUrl)
+  assert.equal(groupThreadComment?.attachment?.presentation, 'video-note')
+
+  const channelVideoNote = buildAttachmentWithOptions('channel-video-note', 256 * 1024, {
+    extension: '.webm',
+    mimeType: 'video/webm',
+    presentation: 'video-note',
+  })
+  await registerPendingAttachment(store, ownerToken, channelVideoNote)
+  await store.sendManagedChannelPost(ownerToken, createdChannel.channelId, {
+    attachment: channelVideoNote,
+    text: '',
+  })
+  const channelSnapshot = store.getSnapshotByToken(ownerToken)
+  const ownerChannel = channelSnapshot?.subscriptionChannels.find((channel) => channel.handle === '@video-note-channel')
+  const channelPost = ownerChannel?.posts.find((post) => post.attachment?.mediaUrl === channelVideoNote.mediaUrl)
+  assert.equal(ownerChannel?.preview, 'Видеосообщение')
+  assert.equal(channelPost?.attachment?.presentation, 'video-note')
+
+  const channelThreadVideoNote = buildAttachmentWithOptions('channel-thread-video-note', 256 * 1024, {
+    extension: '.webm',
+    mimeType: 'video/webm',
+    presentation: 'video-note',
+  })
+  await registerPendingAttachment(store, ownerToken, channelThreadVideoNote)
+  await store.sendSubscriptionChannelThreadComment(ownerToken, subscriptionChannel!.id, postId!, {
+    attachment: channelThreadVideoNote,
+    text: '',
+  })
+  const channelThreadSnapshot = store.getSnapshotByToken(ownerToken)
+  const channelThreadComment = channelThreadSnapshot?.subscriptionChannels
+    .find((channel) => channel.handle === '@video-note-channel')
+    ?.posts.find((post) => post.id === postId)
+    ?.threadComments?.find((comment) => comment.attachment?.mediaUrl === channelThreadVideoNote.mediaUrl)
+  assert.equal(channelThreadComment?.attachment?.presentation, 'video-note')
+
+  const captionedVideoNote = buildAttachmentWithOptions('captioned-video-note', 256 * 1024, {
+    extension: '.webm',
+    mimeType: 'video/webm',
+    presentation: 'video-note',
+  })
+  await registerPendingAttachment(store, ownerToken, captionedVideoNote)
+  await assert.rejects(
+    () =>
+      store.sendDirectMessage(ownerToken, directDialog.dialogId, {
+        attachment: captionedVideoNote,
+        text: 'подпись запрещена',
+      }),
+    /Видеосообщение отправляется без подписи/u,
+  )
+
+  const invalidMimeVideoNote = buildAttachmentWithOptions('invalid-video-note', 256 * 1024, {
+    extension: '.png',
+    mimeType: 'image/png',
+    presentation: 'video-note',
+  })
+  await registerPendingAttachment(store, ownerToken, invalidMimeVideoNote)
+  await assert.rejects(
+    () =>
+      store.sendGroupMessage(ownerToken, createdGroup.groupId, {
+        attachment: invalidMimeVideoNote,
+        text: '',
+      }),
+    /Видеосообщение можно отправить только как видео/u,
+  )
+
+  const supportVideoNote = buildAttachmentWithOptions('support-video-note', 256 * 1024, {
+    extension: '.webm',
+    mimeType: 'video/webm',
+    presentation: 'video-note',
+  })
+  await registerPendingAttachment(store, ownerToken, supportVideoNote)
+  await assert.rejects(
+    () =>
+      store.sendSupportTicket(ownerToken, {
+        attachment: supportVideoNote,
+        text: '',
+      }),
+    /Видеосообщения недоступны в этом разделе/u,
+  )
+
+  const ticketResponse = await store.sendSupportTicket(ownerToken, { text: 'help with video note' })
+  const ticketId = ticketResponse.snapshot.supportTickets[0]?.id
+  assert.notEqual(ticketId, undefined)
+
+  const adminReplyVideoNote = buildAttachmentWithOptions('admin-reply-video-note', 256 * 1024, {
+    extension: '.webm',
+    mimeType: 'video/webm',
+    presentation: 'video-note',
+  })
+  await registerPendingAttachment(store, supportToken, adminReplyVideoNote)
+  await assert.rejects(
+    () =>
+      store.adminReplySupportTicket(supportToken, ticketId!, {
+        attachment: adminReplyVideoNote,
+        status: 'open',
+        text: '',
+      }),
+    /Видеосообщения недоступны в этом разделе/u,
   )
 })
 

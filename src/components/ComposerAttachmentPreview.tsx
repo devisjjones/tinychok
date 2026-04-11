@@ -29,7 +29,9 @@ export function ComposerAttachmentPreview({
   storageCleanupWarning = null,
 }: ComposerAttachmentPreviewProps) {
   const [renameOpen, setRenameOpen] = useState(false)
+  const [videoPreviewFailed, setVideoPreviewFailed] = useState(false)
   const imageAttachment = attachmentDraft.kind === 'image'
+  const videoNoteAttachment = attachmentDraft.kind === 'video-note'
   const videoAttachment = !imageAttachment && isVideoMimeType(attachmentDraft.mimeType)
   const fileNameParts = useMemo(
     () => getComposerAttachmentFileNameParts(attachmentDraft.fileName),
@@ -48,10 +50,16 @@ export function ComposerAttachmentPreview({
     setRenameBaseName(fileNameParts.baseName.slice(0, composerAttachmentRenameMaxLength))
   }, [fileNameParts.baseName, renameOpen])
 
+  useEffect(() => {
+    setVideoPreviewFailed(false)
+  }, [attachmentDraft.previewUrl])
+
   if (attachmentDraft.status === 'preparing') {
-    statusCopy = 'Подготавливаем фото...'
+    statusCopy = videoNoteAttachment ? 'Подготавливаем видеосообщение...' : 'Подготавливаем фото...'
   } else if (attachmentDraft.status === 'error') {
     statusCopy = attachmentDraft.error ?? 'Не удалось подготовить вложение.'
+  } else if (videoNoteAttachment) {
+    statusCopy = `Видео ${formatAttachmentSize(attachmentDraft.size)}`
   } else if (!imageAttachment) {
     statusCopy = `${videoAttachment ? 'Видео' : 'Файл'} ${formatAttachmentSize(attachmentDraft.size)}`
   } else if (attachmentDraft.mimeType === 'image/gif') {
@@ -67,7 +75,8 @@ export function ComposerAttachmentPreview({
     statusCopy = `Фото ${formatAttachmentSize(attachmentDraft.size)}, ${dimensionsLabel}`
   }
 
-  const canRename = Boolean(onRenameFileBaseName) && attachmentDraft.status !== 'preparing'
+  const canRename =
+    !videoNoteAttachment && Boolean(onRenameFileBaseName) && attachmentDraft.status !== 'preparing'
   const canSaveRename = renameBaseName.trim().length > 0
 
   function handleOpenRename() {
@@ -84,7 +93,33 @@ export function ComposerAttachmentPreview({
 
   return (
     <div className="composer-attachment-preview">
-      {imageAttachment ? (
+      {videoNoteAttachment ? (
+        <button
+          type="button"
+          className="composer-attachment-preview-video-note-button"
+          onClick={() => onOpenPreview?.()}
+          aria-label="Открыть превью видеосообщения"
+          title="Открыть превью видеосообщения"
+        >
+          {!videoPreviewFailed ? (
+            <video
+              src={attachmentDraft.previewUrl}
+              className="composer-attachment-preview-video-note"
+              muted
+              playsInline
+              preload="metadata"
+              onError={() => setVideoPreviewFailed(true)}
+            />
+          ) : (
+            <span className="composer-attachment-preview-video-note-fallback" aria-hidden="true">
+              Видео
+            </span>
+          )}
+          <span className="composer-attachment-preview-video-note-play" aria-hidden="true">
+            <span className="composer-attachment-preview-video-note-play-icon" />
+          </span>
+        </button>
+      ) : imageAttachment ? (
         <button
           type="button"
           className="composer-attachment-preview-image-button"
@@ -116,7 +151,9 @@ export function ComposerAttachmentPreview({
       <div className="composer-attachment-preview-copy">
         <div className="composer-attachment-preview-title-row">
           <span className="composer-attachment-preview-title-inline">
-            <strong title={attachmentDraft.fileName}>{attachmentDraft.fileName}</strong>
+            <strong title={videoNoteAttachment ? 'Видеосообщение' : attachmentDraft.fileName}>
+              {videoNoteAttachment ? 'Видеосообщение' : attachmentDraft.fileName}
+            </strong>
             {canRename ? (
               <button
                 type="button"

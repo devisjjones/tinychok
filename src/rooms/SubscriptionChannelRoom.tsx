@@ -56,6 +56,7 @@ type SubscriptionChannelRoomProps = {
     onAttachmentPreviewOpen?: () => void
     onRenameAttachmentFileBaseName?: (nextBaseName: string) => void
     onOpenAttachmentPicker?: (mode: 'file' | 'photo') => void
+    onOpenVideoNoteRecorder?: () => void
     onOpenPremiumUpsell?: () => void
     onReplyCancel: () => void
     onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
@@ -115,6 +116,7 @@ export function SubscriptionChannelRoom({
   const publisherOnAttachmentPreviewOpen = publisher?.onAttachmentPreviewOpen
   const publisherOnRenameAttachmentFileBaseName = publisher?.onRenameAttachmentFileBaseName
   const publisherOnOpenAttachmentPicker = publisher?.onOpenAttachmentPicker
+  const publisherOnOpenVideoNoteRecorder = publisher?.onOpenVideoNoteRecorder
   const publisherOnOpenPremiumUpsell = publisher?.onOpenPremiumUpsell
   const publisherOnReplyCancel = publisher?.onReplyCancel
   const publisherOnDeleteGif = publisher?.onDeleteGif
@@ -133,12 +135,19 @@ export function SubscriptionChannelRoom({
     ? publisherAttachmentDraft.status === 'ready' && !publisherBusy
     : publisherDraft.trim().length > 0 && !publisherBusy
   const publisherPlaceholder = publisherAttachmentDraft
-    ? isImageMimeType(publisherAttachmentDraft.mimeType)
+    ? publisherAttachmentDraft.kind === 'video-note'
+      ? 'Видеосообщение отправится без подписи.'
+      : isImageMimeType(publisherAttachmentDraft.mimeType)
       ? 'Добавьте подпись к фотографии...'
       : isVideoMimeType(publisherAttachmentDraft.mimeType)
         ? 'Добавьте подпись к видео...'
         : 'Добавьте подпись к файлу...'
     : 'Напишите сообщение в канал...'
+  const publisherDraftDisabled = publisherAttachmentDraft?.kind === 'video-note'
+  const publisherVideoNoteDisabled = Boolean(publisherAttachmentDraft) || publisherDraft.trim().length > 0
+  const publisherVideoNoteTitle = publisherVideoNoteDisabled
+    ? 'Уберите текст или текущее вложение, чтобы записать видеосообщение'
+    : 'Записать видеосообщение'
 
   useLayoutEffect(() => {
     const textarea = publisherInputRef.current
@@ -451,6 +460,7 @@ export function SubscriptionChannelRoom({
                   ) : null}
                   <textarea
                     ref={publisherInputRef}
+                    disabled={publisherDraftDisabled}
                     placeholder={publisherPlaceholder}
                     rows={1}
                     value={publisherDraft}
@@ -460,6 +470,7 @@ export function SubscriptionChannelRoom({
                   />
                   <div className="composer-tools">
                     <EmojiPicker
+                      disabled={publisherDraftDisabled}
                       canSelectGif={!publisherGifSelectionBlockedReason}
                       gifLibrary={publisherGifLibrary}
                       gifSelectionBlockedReason={publisherGifSelectionBlockedReason}
@@ -478,6 +489,22 @@ export function SubscriptionChannelRoom({
                       onUploadGif={publisherOnUploadGif}
                       premiumUnlocked={publisherPremiumUnlocked}
                     />
+                    {publisherOnOpenVideoNoteRecorder ? (
+                      <button
+                        type="button"
+                        className="soft-button composer-tool composer-video-note-button"
+                        onClick={() => {
+                          publisherOnOpenVideoNoteRecorder()
+                        }}
+                        aria-label="Записать видеосообщение"
+                        title={publisherVideoNoteTitle}
+                        disabled={publisherVideoNoteDisabled}
+                      >
+                        <span className="composer-video-note-icon" aria-hidden="true">
+                          <span className="composer-video-note-icon-lens" />
+                        </span>
+                      </button>
+                    ) : null}
                     {publisherOnOpenAttachmentPicker ? (
                       <ComposerAttachmentPicker
                         attachmentName={publisherAttachmentName}

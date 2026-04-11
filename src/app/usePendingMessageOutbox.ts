@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Message } from '../shared/types'
+import type { Message, MessageAttachmentPresentation } from '../shared/types'
 
 export type DeliveryIssue = 'pending' | 'failed'
 export type PendingMessageStatus = 'sending' | DeliveryIssue
@@ -11,6 +11,7 @@ export type PendingAttachmentDraft = {
   height?: number
   mediaUrl?: string
   mimeType: string
+  presentation?: MessageAttachmentPresentation
   size: number
   uploadProgress?: number
   width?: number
@@ -86,6 +87,7 @@ function serializeAttachmentDraft(
     height: attachmentDraft.height,
     mediaUrl: attachmentDraft.mediaUrl,
     mimeType: attachmentDraft.mimeType,
+    presentation: attachmentDraft.presentation,
     size: attachmentDraft.size,
     width: attachmentDraft.width,
   }
@@ -102,6 +104,7 @@ function deserializeAttachmentDraft(
     height: attachmentDraft.height,
     mediaUrl: attachmentDraft.mediaUrl,
     mimeType: attachmentDraft.mimeType,
+    presentation: attachmentDraft.presentation,
     size: attachmentDraft.size,
     width: attachmentDraft.width,
   }
@@ -116,6 +119,7 @@ function sanitizePersistedAttachment(attachment?: Message['attachment']) {
     height: attachment.height,
     mediaUrl: attachment.mediaUrl,
     mimeType: attachment.mimeType,
+    presentation: attachment.presentation,
     size: attachment.size,
     width: attachment.width,
   } satisfies NonNullable<Message['attachment']>

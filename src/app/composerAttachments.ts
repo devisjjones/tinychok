@@ -9,11 +9,12 @@ import {
   messagePhotoMaxDimensionPx,
   messagePhotoUploadMaxSizeBytes,
 } from './constants'
-import type { UserGifLibraryItem } from './types'
+import { isVideoMimeType } from '../shared/utils'
+import type { MessageAttachmentPresentation, UserGifLibraryItem } from './types'
 import type { PendingAttachmentDraft } from './usePendingMessageOutbox'
 
 export type ComposerAttachmentDraftStatus = 'preparing' | 'ready' | 'error'
-export type ComposerAttachmentKind = 'image' | 'file'
+export type ComposerAttachmentKind = 'image' | 'file' | 'video-note'
 
 export type ComposerAttachmentDraft = {
   compressionEligible?: boolean
@@ -28,6 +29,7 @@ export type ComposerAttachmentDraft = {
   originalHeight?: number
   originalSize: number
   originalWidth?: number
+  presentation?: MessageAttachmentPresentation
   previewUrl: string
   processedFile?: File
   processedHeight?: number
@@ -66,8 +68,21 @@ function createComposerPreviewUrl(file: File) {
   return URL.createObjectURL(file)
 }
 
-function resolveAttachmentKind(file: File): ComposerAttachmentKind {
+function resolveAttachmentKind(
+  file: File,
+  presentation?: MessageAttachmentPresentation,
+): ComposerAttachmentKind {
+  if (presentation === 'video-note') {
+    return 'video-note'
+  }
+
   return file.type.startsWith('image/') ? 'image' : 'file'
+}
+
+function normalizeAttachmentPresentation(
+  presentation?: MessageAttachmentPresentation,
+): MessageAttachmentPresentation | undefined {
+  return presentation === 'video-note' ? 'video-note' : undefined
 }
 
 function isSupportedPhotoMimeType(mimeType: string) {
@@ -261,20 +276,28 @@ export function buildPendingAttachmentDraft(attachmentDraft?: ComposerAttachment
     height: attachmentDraft.height,
     mediaUrl: attachmentDraft.mediaUrl,
     mimeType: attachmentDraft.mimeType,
+    presentation: attachmentDraft.presentation,
     size: attachmentDraft.size,
     width: attachmentDraft.width,
   }
 }
 
-export function createPreparingComposerAttachmentDraft(file: File): ComposerAttachmentDraft {
+export function createPreparingComposerAttachmentDraft(
+  file: File,
+  options?: {
+    presentation?: MessageAttachmentPresentation
+  },
+): ComposerAttachmentDraft {
+  const presentation = normalizeAttachmentPresentation(options?.presentation)
   return {
     file,
     fileName: file.name,
-    kind: resolveAttachmentKind(file),
+    kind: resolveAttachmentKind(file, presentation),
     compressionEligible: false,
     mimeType: resolveComposerAttachmentMimeType(file.name, file.type),
     originalFile: file,
     originalSize: file.size,
+    presentation,
     previewUrl: createComposerPreviewUrl(file),
     sendOriginal: false,
     size: file.size,
@@ -286,16 +309,21 @@ export function buildComposerAttachmentDraftError(
   file: File,
   message: string,
   previewUrl = createComposerPreviewUrl(file),
+  options?: {
+    presentation?: MessageAttachmentPresentation
+  },
 ): ComposerAttachmentDraft {
+  const presentation = normalizeAttachmentPresentation(options?.presentation)
   return {
     error: message,
     file,
     fileName: file.name,
-    kind: resolveAttachmentKind(file),
+    kind: resolveAttachmentKind(file, presentation),
     compressionEligible: false,
     mimeType: resolveComposerAttachmentMimeType(file.name, file.type),
     originalFile: file,
     originalSize: file.size,
+    presentation,
     previewUrl,
     sendOriginal: false,
     size: file.size,
@@ -306,13 +334,15 @@ export function buildComposerAttachmentDraftError(
 export async function buildComposerAttachmentDraft(
   file: File,
   options?: {
+    presentation?: MessageAttachmentPresentation
     maxFileUploadCopy?: string
     maxFileUploadSizeBytes?: number
     previewUrl?: string
   },
 ): Promise<ComposerAttachmentDraft> {
   const previewUrl = options?.previewUrl ?? createComposerPreviewUrl(file)
-  const kind = resolveAttachmentKind(file)
+  const presentation = normalizeAttachmentPresentation(options?.presentation)
+  const kind = resolveAttachmentKind(file, presentation)
   const maxFileUploadSizeBytes =
     options?.maxFileUploadSizeBytes ?? messageFileUploadMaxSizeBytes
   const maxFileUploadCopy =
@@ -324,15 +354,17 @@ export async function buildComposerAttachmentDraft(
       file,
       'Фотография слишком большая. Максимальный размер 10 МБ.',
       previewUrl,
+      { presentation },
     )
   }
 
-  if (kind === 'file') {
+  if (kind === 'file' || kind === 'video-note') {
     if (isGifFile(file)) {
       return buildComposerAttachmentDraftError(
         file,
         `GIF загружаются через вкладку GIFs. Максимальный размер ${Math.round(messageGifUploadMaxSizeBytes / (1024 * 1024))} МБ.`,
         previewUrl,
+        { presentation },
       )
     }
 
@@ -341,6 +373,7 @@ export async function buildComposerAttachmentDraft(
         file,
         `Файл слишком большой. ${maxFileUploadCopy}`,
         previewUrl,
+        { presentation },
       )
     }
 
@@ -349,18 +382,31 @@ export async function buildComposerAttachmentDraft(
         file,
         'Поддерживаются PDF, DOC, DOCX, XLS, XLSX, TXT, ZIP и видео MP4, MOV, WEBM, M4V.',
         previewUrl,
+        { presentation },
+      )
+    }
+
+    const resolvedMimeType = resolveComposerAttachmentMimeType(file.name, file.type)
+
+    if (kind === 'video-note' && !isVideoMimeType(resolvedMimeType)) {
+      return buildComposerAttachmentDraftError(
+        file,
+        'Видеосообщение можно записать только в видеоформате.',
+        previewUrl,
+        { presentation },
       )
     }
 
     return {
       file,
       fileName: file.name,
-        kind,
-        compressionEligible: false,
-        mimeType: resolveComposerAttachmentMimeType(file.name, file.type),
-        originalFile: file,
-        originalSize: file.size,
-        previewUrl,
+      kind,
+      compressionEligible: false,
+      mimeType: resolvedMimeType,
+      originalFile: file,
+      originalSize: file.size,
+      presentation,
+      previewUrl,
       sendOriginal: false,
       size: file.size,
       status: 'ready',
@@ -400,6 +446,7 @@ export async function buildComposerAttachmentDraft(
       file,
       error instanceof Error ? error.message : 'Не удалось подготовить изображение.',
       previewUrl,
+      { presentation },
     )
   }
 }
@@ -452,6 +499,7 @@ export function buildGifLibraryAttachmentDraft(gif: UserGifLibraryItem): Compose
     originalHeight: gif.height,
     originalSize: gif.size,
     originalWidth: gif.width,
+    presentation: undefined,
     previewUrl: gif.mediaUrl,
     sendOriginal: false,
     size: gif.size,

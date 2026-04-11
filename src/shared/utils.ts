@@ -13,6 +13,7 @@ import type {
   Chat,
   GroupPreview,
   Message,
+  MessageAttachment,
   QuietModeSettings,
   Session,
   SupportTicketStatus,
@@ -161,7 +162,7 @@ export function formatMessagePreview(
   if (text) return text
   if (message.sourceChannel?.leadText) return message.sourceChannel.leadText
   if (message.sourceGroup?.leadText) return message.sourceGroup.leadText
-  if (message.attachment) return `Файл: ${message.attachment.fileName}`
+  if (message.attachment) return formatAttachmentPreviewText(message.attachment)
   if (message.attachmentRemovedNotice) return message.attachmentRemovedNotice.text
   if (message.sourceChannel) return `Канал: ${message.sourceChannel.title}`
   if (message.sourceContact) return `Контакт: ${message.sourceContact.title}`
@@ -227,6 +228,32 @@ export function isImageMimeType(mimeType: string) {
 
 export function isVideoMimeType(mimeType: string) {
   return mimeType.startsWith('video/')
+}
+
+export function getMessageAttachmentPresentation(
+  presentation?: MessageAttachment['presentation'],
+): NonNullable<MessageAttachment['presentation']> {
+  return presentation === 'video-note' ? 'video-note' : 'default'
+}
+
+export function isVideoNoteAttachment(
+  attachment?: Pick<MessageAttachment, 'mimeType' | 'presentation'> | null,
+) {
+  return Boolean(
+    attachment &&
+      getMessageAttachmentPresentation(attachment.presentation) === 'video-note' &&
+      isVideoMimeType(attachment.mimeType),
+  )
+}
+
+export function formatAttachmentPreviewText(
+  attachment?: Pick<MessageAttachment, 'fileName' | 'mimeType' | 'presentation'> | null,
+) {
+  if (!attachment) {
+    return ''
+  }
+
+  return isVideoNoteAttachment(attachment) ? 'Видеосообщение' : `Файл: ${attachment.fileName}`
 }
 
 export function formatPreview(chat: Chat) {

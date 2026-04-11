@@ -4924,6 +4924,44 @@
   border-radius: 0;
 }
 
+.bubble-attachment-photo-video-note {
+  width: min(220px, 56vw);
+  aspect-ratio: 1;
+  border-radius: 999px;
+}
+
+.bubble-attachment-photo-video-note.has-body-below {
+  margin: 0 0 12px;
+}
+
+.bubble-attachment-photo-video-note.image-only {
+  margin: 0;
+}
+
+.bubble-attachment-photo-video-note .bubble-attachment-image {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: 1;
+  border-radius: inherit;
+}
+
+.bubble-attachment-image-video-note {
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.16), rgba(66, 44, 31, 0.58));
+}
+
+.bubble-attachment-video-fallback {
+  display: block;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.2), transparent 42%),
+    linear-gradient(160deg, rgba(143, 95, 64, 0.42), rgba(55, 35, 23, 0.72));
+}
+
+.bubble-attachment-play-button-video-note {
+  width: 58px;
+  height: 58px;
+}
+
 
 .bubble-attachment-image-overlay {
   position: absolute;
@@ -5231,6 +5269,59 @@
   height: 100%;
   border-radius: 18px 0 0 18px;
   background: rgba(125, 86, 52, 0.22);
+}
+
+.composer-attachment-preview-video-note-button {
+  position: relative;
+  width: 124px;
+  min-width: 124px;
+  padding: 14px;
+  border: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.composer-attachment-preview-video-note,
+.composer-attachment-preview-video-note-fallback {
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+  object-fit: cover;
+  display: block;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.2), transparent 42%),
+    linear-gradient(160deg, rgba(143, 95, 64, 0.42), rgba(55, 35, 23, 0.72));
+}
+
+.composer-attachment-preview-video-note-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(33, 23, 18, 0.54);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 24px rgba(16, 10, 8, 0.18);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.composer-attachment-preview-video-note-play-icon {
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 13px solid #fff8f2;
+  transform: translateX(2px);
 }
 
 .composer-attachment-preview-copy {
@@ -6511,6 +6602,171 @@
   display: block;
   object-fit: contain;
   filter: var(--icon-filter);
+}
+
+.composer-video-note-button {
+  color: rgba(95, 66, 46, 0.88);
+}
+
+.composer-video-note-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.composer-video-note-icon {
+  position: relative;
+  width: 20px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid currentColor;
+  border-radius: 6px;
+}
+
+.composer-video-note-icon::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 3px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 7px solid currentColor;
+}
+
+.composer-video-note-icon-lens {
+  width: 6px;
+  height: 6px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+}
+
+.video-note-recorder-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(42, 28, 18, 0.32);
+  backdrop-filter: blur(14px);
+}
+
+.video-note-recorder-panel {
+  width: min(480px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border-radius: 28px;
+  background: rgba(255, 251, 245, 0.98);
+  box-shadow: 0 28px 80px rgba(64, 35, 18, 0.22);
+}
+
+.video-note-recorder-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.video-note-recorder-header h3 {
+  margin: 6px 0 0;
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.video-note-recorder-close {
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+}
+
+.video-note-recorder-preview-shell {
+  position: relative;
+  width: min(300px, 70vw);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.2), transparent 42%),
+    linear-gradient(160deg, rgba(143, 95, 64, 0.42), rgba(55, 35, 23, 0.72));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.video-note-recorder-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: rgba(30, 20, 15, 0.18);
+}
+
+.video-note-recorder-preview-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, rgba(15, 10, 8, 0) 0%, rgba(15, 10, 8, 0.7) 100%);
+  color: #fff8f2;
+}
+
+.video-note-recorder-state {
+  font-size: 0.84rem;
+  line-height: 1.2;
+}
+
+.video-note-recorder-state-recording {
+  color: #ffd8c7;
+}
+
+.video-note-recorder-timer {
+  font-size: 0.84rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.video-note-recorder-progress {
+  position: relative;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(95, 66, 46, 0.14);
+}
+
+.video-note-recorder-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(141, 89, 57, 0.72), rgba(202, 163, 132, 0.98));
+  transition: width 160ms linear;
+}
+
+.video-note-recorder-error {
+  margin: 0;
+}
+
+.video-note-recorder-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.video-note-recorder-main-action.recording {
+  background: #b06e56;
+}
+
+.video-note-recorder-main-action.recording:hover {
+  background: #c1795f;
 }
 
 .bubble-text-format-underline {
@@ -9320,7 +9576,8 @@ html[data-theme='dark'] .premium-card,
 html[data-theme='dark'] .settings-action-card,
 html[data-theme='dark'] .settings-storage-card,
 html[data-theme='dark'] .composer-attachment-preview,
-html[data-theme='dark'] .composer-reply {
+html[data-theme='dark'] .composer-reply,
+html[data-theme='dark'] .video-note-recorder-panel {
   background: var(--surface-card);
   border-color: rgba(255, 255, 255, 0.08);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
@@ -9335,6 +9592,7 @@ html[data-theme='dark'] .storage-usage-open-pill,
 html[data-theme='dark'] .settings-storage-file-card,
 html[data-theme='dark'] .composer-attachment-preview-file-badge,
 html[data-theme='dark'] .composer-attachment-preview-file-badge.video,
+html[data-theme='dark'] .composer-attachment-preview-video-note-fallback,
 html[data-theme='dark'] .composer-attachment-rename-trigger,
 html[data-theme='dark'] .composer-attachment-checkbox,
 html[data-theme='dark'] .composer-attachment-option,
@@ -9342,7 +9600,9 @@ html[data-theme='dark'] .emoji-picker-tab,
 html[data-theme='dark'] .emoji-picker-gif-upload-button,
 html[data-theme='dark'] .emoji-picker-expand-button,
 html[data-theme='dark'] .room-menu-item,
-html[data-theme='dark'] .message-menu-item {
+html[data-theme='dark'] .message-menu-item,
+html[data-theme='dark'] .video-note-recorder-preview-shell,
+html[data-theme='dark'] .bubble-attachment-video-fallback {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.1);
   color: var(--ink);
@@ -9381,6 +9641,22 @@ html[data-theme='dark'] .composer-attachment-storage-warning-link {
 
 html[data-theme='dark'] .composer-attachment-storage-warning {
   color: #c3c6ce !important;
+}
+
+html[data-theme='dark'] .composer-video-note-button {
+  color: var(--ink);
+}
+
+html[data-theme='dark'] .video-note-recorder-overlay {
+  background: rgba(6, 7, 10, 0.56);
+}
+
+html[data-theme='dark'] .video-note-recorder-preview-overlay {
+  background: linear-gradient(180deg, rgba(8, 10, 14, 0) 0%, rgba(8, 10, 14, 0.78) 100%);
+}
+
+html[data-theme='dark'] .video-note-recorder-progress {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='dark'] .composer-attachment-storage-warning-link:hover,

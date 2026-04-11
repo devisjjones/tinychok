@@ -279,20 +279,21 @@ test('video attachments render through the visual media preview flow and still o
   assert.match(attachmentPreviewSource, /Открыть превью видео/u)
   assert.match(attachmentPreviewSource, /\{videoAttachment \? 'Видео' : 'Файл'\}/u)
   assert.match(bubbleSource, /function buildVideoPreviewUrl\(mediaUrl: string\)/u)
+  assert.match(bubbleSource, /function VideoAttachmentPreview\(/u)
   assert.match(bubbleSource, /const isVideoAttachment = Boolean\(/u)
   assert.match(bubbleSource, /const hasVisualAttachment = isImageAttachment \|\| isVideoAttachment/u)
   assert.match(bubbleSource, /isVideoMimeType\(message\.attachment\.mimeType\)/u)
   assert.match(bubbleSource, /const normalizedMediaUrl = mediaUrl\.trim\(\)/u)
+  assert.match(bubbleSource, /if \(\/\^\(blob:\|data:\)\/u\.test\(normalizedMediaUrl\)\)/u)
   assert.match(bubbleSource, /new URL\('\/api\/media\/preview', normalizedMediaUrl\)/u)
   assert.match(bubbleSource, /previewUrl\.searchParams\.set\('mediaUrl', normalizedMediaUrl\)/u)
   assert.match(bubbleSource, /new URLSearchParams\(\)/u)
   assert.match(bubbleSource, /return `\/api\/media\/preview\?\$\{previewParams\.toString\(\)\}`/u)
   assert.match(bubbleSource, /bubble-attachment-video-preview/u)
+  assert.match(bubbleSource, /bubble-attachment-video-fallback/u)
   assert.match(bubbleSource, /bubble-attachment-play-button/u)
-  assert.match(
-    bubbleSource,
-    /<img[\s\S]*src=\{buildVideoPreviewUrl\(message\.attachment\.mediaUrl\)\}[\s\S]*alt=""/u,
-  )
+  assert.match(bubbleSource, /<img[\s\S]*src=\{buildVideoPreviewUrl\(mediaUrl\)\}/u)
+  assert.match(bubbleSource, /<video[\s\S]*src=\{mediaUrl\}[\s\S]*preload="metadata"/u)
   assert.doesNotMatch(bubbleSource, /function requestVideoPreviewFrame/u)
   assert.doesNotMatch(bubbleSource, /function keepVideoPreviewPaused/u)
   assert.doesNotMatch(bubbleSource, /bubble-attachment-badge-video/u)
@@ -4561,7 +4562,7 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   )
   assert.match(
     appCss,
-    /html\[data-theme='dark'\] \.emoji-picker-tab,\s*[\s\S]*\.emoji-picker-gif-upload-button,\s*[\s\S]*\.emoji-picker-expand-button,\s*[\s\S]*\.room-menu-item,\s*[\s\S]*\.message-menu-item\s*\{[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.08\);[\s\S]*color:\s*var\(--ink\);/u,
+    /html\[data-theme='dark'\] \.emoji-picker-tab,\s*[\s\S]*\.emoji-picker-gif-upload-button,\s*[\s\S]*\.emoji-picker-expand-button,\s*[\s\S]*\.room-menu-item,\s*[\s\S]*\.message-menu-item,\s*[\s\S]*\.video-note-recorder-preview-shell,\s*[\s\S]*\.bubble-attachment-video-fallback\s*\{[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.08\);[\s\S]*color:\s*var\(--ink\);/u,
   )
   assert.match(
     appCss,
@@ -4947,19 +4948,13 @@ test('runbooks keep the autotest gate explicit before final answers and staging 
     /нельзя писать `готово`, `исправлено` или `задеплоено`, пока локально не зелёный `npm run test:gate`/iu,
   )
 
-  assert.match(collaborationDoc, /## Автотесты Как Gate/u)
+  assert.match(collaborationDoc, /## Границы Этого Файла/u)
+  assert.match(collaborationDoc, /обязательный `test:gate`/u)
   assert.match(
     collaborationDoc,
-    /если задача не `docs-only`, нельзя писать `готово`, `исправлено` или `задеплоено`, пока локально не зелёный `npm run test:gate`/u,
+    /эти правила живут только в \[docs\/new-thread-runbook\.md\]/u,
   )
-  assert.match(
-    collaborationDoc,
-    /во время коротких итераций можно отдельно гонять `npm run test:ui-contracts`, но он не заменяет полный gate/u,
-  )
-  assert.match(
-    collaborationDoc,
-    /если меняется продуктовый или UI-контракт, перед `npm run test:gate` сначала нужно добавить или обновить автотест/u,
-  )
+  assert.match(collaborationDoc, /как формулировать проверки и smoke-сценарии/u)
 
   assert.match(deployRunbook, /быстрый контрактный прогон при работе: `npm run test:ui-contracts`/u)
   assert.match(deployRunbook, /обязательный gate перед push и deploy: `npm run test:gate`/u)
