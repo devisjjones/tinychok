@@ -20,6 +20,7 @@ import {
   getConversationDayKey,
   isImageMimeType,
   isStandaloneEmojiMessageText,
+  isVideoNoteAttachment,
   isVideoMimeType,
   normalizeIdentifier,
   scrollFeedChildIntoView,
@@ -441,6 +442,13 @@ export function GroupRoom({
               !linkedChannel &&
               !message.sourceChannel &&
               message.text.trim().length === 0
+            const isVideoNoteOnlyBubble =
+              isImageOnlyBubble &&
+              Boolean(message.attachment && isVideoNoteAttachment(message.attachment))
+            const videoNoteDeliveryIndicatorSrc =
+              showDeliveryIndicator && !(messagePending && isVideoNoteOnlyBubble)
+                ? bubbleDeliveryIndicatorSrc
+                : null
             const isStandaloneEmojiOnlyMessage =
               !hasImageAttachment &&
               !linkedChannel &&
@@ -517,6 +525,10 @@ export function GroupRoom({
               bubbleClassNames.push('media-only-bubble')
             }
 
+            if (isVideoNoteOnlyBubble) {
+              bubbleClassNames.push('video-note-only-bubble')
+            }
+
             if (isGroupCaptionedImageBubble) {
               bubbleClassNames.push('group-captioned-media-bubble')
             }
@@ -583,15 +595,7 @@ export function GroupRoom({
                                   imageOverlay={
                                     hasImageAttachment ? (
                                       <BubbleImageOverlayMeta
-                                        deliveryIndicatorSrc={
-                                          showDeliveryIndicator
-                                            ? messageFailed
-                                              ? '/icons/warning-48.png'
-                                              : messagePending
-                                                ? '/icons/hourglass-48.png'
-                                                : '/icons/double-tick-50.png'
-                                            : null
-                                        }
+                                        deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
                                         time={renderedMessageTime}
                                       />
                                     ) : undefined
@@ -658,15 +662,7 @@ export function GroupRoom({
                                           imageOverlay={
                                             hasImageAttachment ? (
                                               <BubbleImageOverlayMeta
-                                                deliveryIndicatorSrc={
-                                                  showDeliveryIndicator
-                                                    ? messageFailed
-                                                      ? '/icons/warning-48.png'
-                                                      : messagePending
-                                                        ? '/icons/hourglass-48.png'
-                                                        : '/icons/double-tick-50.png'
-                                                    : null
-                                                }
+                                                deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
                                                 time={renderedMessageTime}
                                               />
                                             ) : undefined

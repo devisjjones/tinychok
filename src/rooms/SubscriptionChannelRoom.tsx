@@ -7,6 +7,7 @@ import {
   formatMessageTimeLabel,
   getConversationDayKey,
   isImageMimeType,
+  isVideoNoteAttachment,
   isVideoMimeType,
   scrollFeedChildIntoView,
   shouldAutoFocusTextInputOnSceneOpen,
@@ -273,6 +274,9 @@ export function SubscriptionChannelRoom({
             (isImageMimeType(post.attachment.mimeType) || isVideoMimeType(post.attachment.mimeType)),
           )
           const isImageOnlyBubble = hasImageAttachment && post.text.trim().length === 0
+          const isVideoNoteOnlyBubble =
+            isImageOnlyBubble &&
+            Boolean(post.attachment && isVideoNoteAttachment(post.attachment))
           const shouldUseInlineTextMeta =
             !hasImageAttachment && (post.text.trim().length > 0 || Boolean(post.attachment))
           // Keep every room surface on the same createdAt-first time contract.
@@ -309,8 +313,8 @@ export function SubscriptionChannelRoom({
                               bubbleAttributes={{ 'data-channel-post-id': post.id }}
                               bubbleClassName={
                                 activePostId === post.id
-                                  ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
-                                  : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
+                                  ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
+                                  : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
                               }
                               lane="channel"
                               onOpenActions={(anchorElement) => onPostSelect(anchorElement, post.id)}
@@ -345,8 +349,8 @@ export function SubscriptionChannelRoom({
                               data-channel-post-id={post.id}
                               className={
                                 activePostId === post.id
-                                  ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
-                                  : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`
+                                  ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
+                                  : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
                               }
                               onClick={(event) => onPostSelect(event.currentTarget, post.id)}
                             >

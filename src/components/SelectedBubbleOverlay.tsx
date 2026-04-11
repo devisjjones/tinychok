@@ -3,6 +3,7 @@ import {
   formatMessageTimeLabel,
   isImageMimeType,
   isStandaloneEmojiMessageText,
+  isVideoNoteAttachment,
   isVideoMimeType,
   shouldShowDeliveryCaption,
   stripMessageFormattingMarkup,
@@ -149,12 +150,15 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       (isImageMimeType(props.post.attachment.mimeType) || isVideoMimeType(props.post.attachment.mimeType)),
     )
     const isImageOnlyBubble = hasImageAttachment && props.post.text.trim().length === 0
+    const isVideoNoteOnlyBubble =
+      isImageOnlyBubble &&
+      Boolean(props.post.attachment && isVideoNoteAttachment(props.post.attachment))
     const shouldUseInlineTextMeta =
       !hasImageAttachment && (props.post.text.trim().length > 0 || Boolean(props.post.attachment))
 
     return (
       <div
-        className={`bubble bubble-overlay bubble-button selected channel-post${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+        className={`bubble bubble-overlay bubble-button selected channel-post${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`}
         style={getOverlayPosition(props.anchor)}
         aria-hidden="true"
       >
@@ -186,6 +190,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       (isImageMimeType(props.comment.attachment.mimeType) || isVideoMimeType(props.comment.attachment.mimeType)),
     )
     const isImageOnlyBubble = hasImageAttachment && props.comment.text.trim().length === 0
+    const isVideoNoteOnlyBubble =
+      isImageOnlyBubble &&
+      Boolean(props.comment.attachment && isVideoNoteAttachment(props.comment.attachment))
     const shouldUseInlineTextMeta =
       !hasImageAttachment &&
       (props.comment.text.trim().length > 0 || Boolean(props.comment.attachment))
@@ -194,7 +201,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     const compactOverlayClassName = ' bubble-overlay-compact'
     const bubbleNode = (
       <div
-        className={`bubble bubble-overlay bubble-button selected${compactOverlayClassName}${props.mine ? ' mine' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+        className={`bubble bubble-overlay bubble-button selected${compactOverlayClassName}${props.mine ? ' mine' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`}
         style={shouldRenderExternalAuthor ? undefined : getOverlayPosition(props.anchor)}
         aria-hidden="true"
       >
@@ -254,6 +261,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     !props.message.sourceContact &&
     !props.message.sourceGroup &&
     props.message.text.trim().length === 0
+  const isVideoNoteOnlyBubble =
+    isImageOnlyBubble &&
+    Boolean(props.message.attachment && isVideoNoteAttachment(props.message.attachment))
   const isGroupCaptionedImageBubble =
     props.kind === 'group' &&
     hasImageAttachment &&
@@ -292,6 +302,13 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     !isStandaloneEmojiOnlyMessage &&
     !showDeliveryCaption &&
     (props.message.text.trim().length > 0 || Boolean(props.message.attachment))
+  const overlayDeliveryIndicatorSrc =
+    props.mine && !(props.deliveryIssue === 'pending' && isVideoNoteOnlyBubble)
+      ? resolveDirectDeliveryIndicatorSrc(
+          props.deliveryIssue,
+          props.kind === 'direct' ? props.message.readAt : undefined,
+        )
+      : null
 
   if (props.mine) {
     bubbleClassNames.push('mine', 'has-delivery-indicator')
@@ -315,6 +332,10 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
 
   if (isImageOnlyBubble) {
     bubbleClassNames.push('media-only-bubble')
+  }
+
+  if (isVideoNoteOnlyBubble) {
+    bubbleClassNames.push('video-note-only-bubble')
   }
 
   if (isStandaloneEmojiOnlyMessage) {
@@ -383,14 +404,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
             imageOverlay={
               hasImageAttachment ? (
                 <BubbleImageOverlayMeta
-                  deliveryIndicatorSrc={
-                    props.mine
-                      ? resolveDirectDeliveryIndicatorSrc(
-                          props.deliveryIssue,
-                          props.kind === 'direct' ? props.message.readAt : undefined,
-                        )
-                      : null
-                  }
+                  deliveryIndicatorSrc={overlayDeliveryIndicatorSrc}
                   time={renderedMessageTime}
                 />
               ) : undefined
@@ -398,14 +412,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
             inlineMeta={
               shouldUseInlineTextMeta ? (
                 <BubbleTextInlineMeta
-                  deliveryIndicatorSrc={
-                    props.mine
-                      ? resolveDirectDeliveryIndicatorSrc(
-                          props.deliveryIssue,
-                          props.kind === 'direct' ? props.message.readAt : undefined,
-                        )
-                      : null
-                  }
+                  deliveryIndicatorSrc={overlayDeliveryIndicatorSrc}
                   time={renderedMessageTime}
                 />
               ) : undefined

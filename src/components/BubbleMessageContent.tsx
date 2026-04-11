@@ -691,6 +691,8 @@ export function BubbleMessageContent({
       ? null
       : Math.min(99, Math.max(0, Math.round(uploadProgressValue * 100)))
   const showAttachmentUploadProgress = Boolean(message.attachment) && uploadProgressPercent !== null
+  const showVideoNoteUploadProgress = isVideoNote && showAttachmentUploadProgress
+  const showLinearAttachmentUploadProgress = showAttachmentUploadProgress && !isVideoNote
   const attachmentUploadStage =
     uploadProgressValue === null
       ? null
@@ -741,7 +743,21 @@ export function BubbleMessageContent({
         onOpenAttachment?.(message.attachment!)
       }}
     >
-      {isVideoNote && isVideoNotePlaying ? (
+      {showVideoNoteUploadProgress ? (
+        <span
+          className="bubble-attachment-video-note-upload-progress"
+          role="progressbar"
+          aria-label="Отправка"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={uploadProgressPercent ?? 0}
+          style={
+            {
+              '--video-note-upload-progress': `${uploadProgressValue ?? 0}`,
+            } as CSSProperties
+          }
+        />
+      ) : isVideoNote && isVideoNotePlaying ? (
         <span
           className="bubble-attachment-video-note-progress"
           aria-hidden="true"
@@ -782,7 +798,7 @@ export function BubbleMessageContent({
           }`}
         />
       )}
-      {showAttachmentUploadProgress ? (
+      {showLinearAttachmentUploadProgress ? (
         <span
           className="bubble-attachment-upload-progress bubble-attachment-upload-progress-overlay"
           role="progressbar"
@@ -810,7 +826,22 @@ export function BubbleMessageContent({
           }`}
         >
           {visualAttachmentNode}
-          {imageOverlay ? <span className="bubble-attachment-video-note-meta">{imageOverlay}</span> : null}
+          {showVideoNoteUploadProgress ? (
+            <div className="bubble-attachment-video-note-footer">
+              <span className="bubble-attachment-video-note-upload-status" role="status" aria-live="polite">
+                <img
+                  className="bubble-attachment-video-note-upload-status-indicator"
+                  src="/icons/hourglass-48.png"
+                  alt=""
+                  aria-hidden="true"
+                />
+                <span>Отправка</span>
+              </span>
+              {imageOverlay ? <span className="bubble-attachment-video-note-meta">{imageOverlay}</span> : null}
+            </div>
+          ) : imageOverlay ? (
+            <span className="bubble-attachment-video-note-meta">{imageOverlay}</span>
+          ) : null}
         </div>
       ) : (
         visualAttachmentNode

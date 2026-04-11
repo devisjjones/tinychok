@@ -13380,6 +13380,9 @@ function App() {
                 !threadGroupMessage.sourceChannel &&
                 !threadGroupMessage.sourceGroup &&
                 threadSourceText.trim().length === 0
+              const isVideoNoteOnlyBubble =
+                isImageOnlyBubble &&
+                Boolean(threadGroupMessage.attachment && isVideoNoteAttachment(threadGroupMessage.attachment))
               const useMediaOnlyBubble = isImageOnlyBubble && !hasImageAttachment
               const usesInlineTimeLayout =
                 !hasImageAttachment &&
@@ -13409,7 +13412,7 @@ function App() {
                 hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout
               const threadSourceBubble = isImageOnlyBubble ? (
                 <MediaOnlyBubbleRow
-                  bubbleClassName={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
+                  bubbleClassName={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
                   mine={threadGroupMessage.author === 'me'}
                   semantic="article"
                 >
@@ -13455,7 +13458,7 @@ function App() {
                 </MediaOnlyBubbleRow>
               ) : (
                 <article
-                  className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
+                  className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
                 >
                   <BubbleMessageContent
                     attachmentLayout={
@@ -13522,6 +13525,9 @@ function App() {
               )
               const isImageOnlyBubble =
                 hasImageAttachment && threadSourceText.trim().length === 0
+              const isVideoNoteOnlyBubble =
+                isImageOnlyBubble &&
+                Boolean(threadChannelPost.attachment && isVideoNoteAttachment(threadChannelPost.attachment))
               const useMediaOnlyBubble = isImageOnlyBubble && !hasImageAttachment
               const usesInlineTimeLayout =
                 !hasImageAttachment &&
@@ -13564,7 +13570,7 @@ function App() {
               replyTo={threadChannelPost.replyTo}
               bubble={
                 <article
-                  className={`bubble channel-post room-thread-source-bubble${threadChannelPost.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
+                  className={`bubble channel-post room-thread-source-bubble${threadChannelPost.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
                 >
                   <BubbleMessageContent
                     attachmentLayout={
@@ -13666,6 +13672,9 @@ function App() {
                 ),
               )
               const isImageOnlyBubble = hasImageAttachment && comment.text.trim().length === 0
+              const isVideoNoteOnlyBubble =
+                isImageOnlyBubble &&
+                Boolean(comment.attachment && isVideoNoteAttachment(comment.attachment))
               const replyReference = comment.replyTo
               const threadCommentTime = formatMessageTimeLabel(comment.createdAt, comment.time)
               const commentAuthorNode =
@@ -13692,7 +13701,7 @@ function App() {
                         <MediaOnlyBubbleRow
                           actionLabel="Открыть действия комментария"
                           bubbleAttributes={{ 'data-thread-comment-id': comment.id }}
-                          bubbleClassName={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+                          bubbleClassName={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`}
                           mine={mine}
                           onOpenActions={(anchorElement) => {
                             scheduleActionAnchor(
@@ -13755,7 +13764,7 @@ function App() {
                               type="button"
                               data-bubble-measure={shouldRenderExternalCommentAuthor ? 'true' : undefined}
                               data-thread-comment-id={comment.id}
-                              className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}`}
+                              className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`}
                               onClick={(event) => {
                                 scheduleActionAnchor(
                                   event.currentTarget,

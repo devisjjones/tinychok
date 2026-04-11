@@ -5943,7 +5943,15 @@ test('video-note messages render as standalone circles without a rectangular med
 
   assert.match(
     bubbleSource,
-    /className=\{`bubble-attachment-video-note-shell\$\{[\s\S]*isVideoNotePlaying \? ' is-inline-playing' : ''[\s\S]*\}`\}[\s\S]*<span className="bubble-attachment-video-note-meta">\{imageOverlay\}<\/span>/u,
+    /className=\{`bubble-attachment-video-note-shell\$\{[\s\S]*isVideoNotePlaying \? ' is-inline-playing' : ''[\s\S]*\}`\}/u,
+  )
+  assert.match(
+    bubbleSource,
+    /className="bubble-attachment-video-note-meta"/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble\.video-note-only-bubble,\s*\.bubble-overlay\.bubble-button\.selected\.video-note-only-bubble,\s*\.channel-post\.video-note-only-bubble,\s*\.channel-post\.video-note-only-bubble\.selected\s*\{[\s\S]*background:\s*transparent;[\s\S]*overflow:\s*visible;/u,
   )
   assert.match(
     appCss,
@@ -5956,6 +5964,57 @@ test('video-note messages render as standalone circles without a rectangular med
   assert.match(
     appCss,
     /\.bubble-attachment-video-note-meta > \.bubble-attachment-image-overlay\s*\{[\s\S]*position:\s*static;[\s\S]*right:\s*auto;[\s\S]*bottom:\s*auto;/u,
+  )
+})
+
+test('pending video-note uploads keep a circular progress ring and separate sending status', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const overlaySource = readFileSync(join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'), 'utf8')
+
+  assert.match(bubbleSource, /const showVideoNoteUploadProgress = isVideoNote && showAttachmentUploadProgress/u)
+  assert.match(
+    bubbleSource,
+    /const showLinearAttachmentUploadProgress = showAttachmentUploadProgress && !isVideoNote/u,
+  )
+  assert.match(
+    bubbleSource,
+    /showVideoNoteUploadProgress \? \([\s\S]*className="bubble-attachment-video-note-upload-progress"[\s\S]*'--video-note-upload-progress': `\$\{uploadProgressValue \?\? 0\}`/u,
+  )
+  assert.match(
+    bubbleSource,
+    /className="bubble-attachment-video-note-footer"[\s\S]*className="bubble-attachment-video-note-upload-status"[\s\S]*src="\/icons\/hourglass-48\.png"[\s\S]*<span>Отправка<\/span>[\s\S]*className="bubble-attachment-video-note-meta"/u,
+  )
+  assert.match(
+    bubbleSource,
+    /showLinearAttachmentUploadProgress \? \([\s\S]*className="bubble-attachment-upload-progress bubble-attachment-upload-progress-overlay"/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*-5px;[\s\S]*conic-gradient\([\s\S]*--video-note-upload-progress/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-video-note-footer\s*\{[\s\S]*justify-content:\s*space-between;[\s\S]*width:\s*100%;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-video-note-upload-status\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*white-space:\s*nowrap;/u,
+  )
+  assert.match(
+    directRoomSource,
+    /const isVideoNoteOnlyBubble =[\s\S]*const videoNoteDeliveryIndicatorSrc =[\s\S]*messagePending && isVideoNoteOnlyBubble[\s\S]*bubbleClassNames\.push\('video-note-only-bubble'\)/u,
+  )
+  assert.match(
+    groupRoomSource,
+    /const isVideoNoteOnlyBubble =[\s\S]*const videoNoteDeliveryIndicatorSrc =[\s\S]*messagePending && isVideoNoteOnlyBubble[\s\S]*bubbleClassNames\.push\('video-note-only-bubble'\)/u,
+  )
+  assert.match(
+    overlaySource,
+    /const isVideoNoteOnlyBubble =[\s\S]*const overlayDeliveryIndicatorSrc =[\s\S]*props\.deliveryIssue === 'pending' && isVideoNoteOnlyBubble[\s\S]*bubbleClassNames\.push\('video-note-only-bubble'\)/u,
   )
 })
 

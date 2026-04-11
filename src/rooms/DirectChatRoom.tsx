@@ -15,6 +15,7 @@ import {
   getConversationDayKey,
   isImageMimeType,
   isStandaloneEmojiMessageText,
+  isVideoNoteAttachment,
   isVideoMimeType,
   scrollFeedChildIntoView,
   shouldAutoFocusTextInputOnSceneOpen,
@@ -631,6 +632,13 @@ export function DirectChatRoom({
             !message.sourceChannel &&
             !message.sourceGroup &&
             message.text.trim().length === 0
+          const isVideoNoteOnlyBubble =
+            isImageOnlyBubble &&
+            Boolean(message.attachment && isVideoNoteAttachment(message.attachment))
+          const videoNoteDeliveryIndicatorSrc =
+            showDeliveryIndicator && !(messagePending && isVideoNoteOnlyBubble)
+              ? deliveryIndicatorSrc
+              : null
           const isStandaloneEmojiOnlyMessage =
             !hasImageAttachment &&
             !linkedChannel &&
@@ -686,6 +694,10 @@ export function DirectChatRoom({
             bubbleClassNames.push('media-only-bubble')
           }
 
+          if (isVideoNoteOnlyBubble) {
+            bubbleClassNames.push('video-note-only-bubble')
+          }
+
           if (isStandaloneEmojiOnlyMessage) {
             bubbleClassNames.push('emoji-only-message')
           }
@@ -726,9 +738,7 @@ export function DirectChatRoom({
                         imageOverlay={
                           hasImageAttachment ? (
                             <BubbleImageOverlayMeta
-                              deliveryIndicatorSrc={
-                                showDeliveryIndicator ? deliveryIndicatorSrc : null
-                              }
+                              deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
                               time={renderedMessageTime}
                             />
                           ) : undefined
@@ -796,9 +806,7 @@ export function DirectChatRoom({
                             imageOverlay={
                               hasImageAttachment ? (
                                 <BubbleImageOverlayMeta
-                                  deliveryIndicatorSrc={
-                                    showDeliveryIndicator ? deliveryIndicatorSrc : null
-                                  }
+                                  deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
                                   time={renderedMessageTime}
                                 />
                               ) : undefined

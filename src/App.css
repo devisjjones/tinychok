@@ -4357,6 +4357,17 @@
   overflow: hidden;
 }
 
+.bubble.video-note-only-bubble,
+.bubble-overlay.bubble-button.selected.video-note-only-bubble,
+.channel-post.video-note-only-bubble,
+.channel-post.video-note-only-bubble.selected {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
 .bubble.media-only-bubble:has(.bubble-attachment-photo-video-note),
 .bubble-overlay.bubble-button.selected.media-only-bubble:has(.bubble-attachment-photo-video-note),
 .channel-post.media-only-bubble:has(.bubble-attachment-photo-video-note),
@@ -4369,7 +4380,9 @@
 }
 
 .bubble.media-only-bubble:has(.bubble-attachment-photo-video-note).mine,
-.bubble-overlay.bubble-button.selected.media-only-bubble:has(.bubble-attachment-photo-video-note).mine {
+.bubble-overlay.bubble-button.selected.media-only-bubble:has(.bubble-attachment-photo-video-note).mine,
+.bubble.video-note-only-bubble.mine,
+.bubble-overlay.bubble-button.selected.video-note-only-bubble.mine {
   background: transparent;
   color: inherit;
 }
@@ -4986,6 +4999,20 @@
   pointer-events: none;
 }
 
+.bubble-attachment-video-note-upload-progress {
+  position: absolute;
+  inset: -5px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, transparent calc(100% - 5px), rgba(255, 255, 255, 0.16) calc(100% - 5px)),
+    conic-gradient(
+      rgba(244, 223, 206, 0.98) calc(var(--video-note-upload-progress, 0) * 1turn),
+      rgba(255, 255, 255, 0.18) 0
+    );
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
 .bubble-attachment-video-note-shell {
   display: inline-grid;
   justify-items: end;
@@ -5013,7 +5040,7 @@
 .bubble-attachment-video-note-meta {
   display: flex;
   justify-content: flex-end;
-  width: 100%;
+  width: auto;
   pointer-events: none;
 }
 
@@ -5022,6 +5049,32 @@
   right: auto;
   bottom: auto;
   max-width: none;
+}
+
+.bubble-attachment-video-note-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.bubble-attachment-video-note-upload-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: rgba(95, 66, 46, 0.82);
+  font-size: 0.8rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bubble-attachment-video-note-upload-status-indicator {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  opacity: 0.82;
 }
 
 .bubble-attachment-image-video-note {
@@ -9870,6 +9923,25 @@ html[data-theme='dark'] .bubble-attachment-upload-progress-overlay {
 
 html[data-theme='dark'] .bubble-attachment-upload-progress-overlay .bubble-attachment-upload-progress-fill {
   background: linear-gradient(90deg, rgba(214, 176, 147, 0.84), rgba(255, 247, 241, 0.98));
+}
+
+html[data-theme='dark'] .bubble-attachment-video-note-upload-progress {
+  background:
+    radial-gradient(circle, transparent calc(100% - 5px), rgba(255, 255, 255, 0.15) calc(100% - 5px)),
+    conic-gradient(
+      rgba(226, 199, 176, 0.98) calc(var(--video-note-upload-progress, 0) * 1turn),
+      rgba(255, 255, 255, 0.14) 0
+    );
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme='dark'] .bubble-attachment-video-note-upload-status {
+  color: var(--muted);
+}
+
+html[data-theme='dark'] .bubble-attachment-video-note-upload-status-indicator {
+  filter: brightness(0) invert(1);
+  opacity: 0.84;
 }
 
 html[data-theme='dark'] .premium-consent-copy,
