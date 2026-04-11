@@ -377,22 +377,21 @@ export function VideoNoteRecorderOverlay({
               autoPlay
             />
           )}
-          {showingRecordedPreview ? null : (
-            <div className="video-note-recorder-preview-overlay">
-              <span className={`video-note-recorder-state video-note-recorder-state-${state}`}>
-                {state === 'requesting-permission'
-                  ? 'Запрашиваем доступ к камере...'
-                  : state === 'ready'
-                    ? 'Готово к записи'
-                    : state === 'recording'
-                      ? 'Идёт запись'
-                      : state === 'review'
-                        ? 'Проверьте запись'
-                        : 'Ошибка'}
-              </span>
-              <span className="video-note-recorder-timer">{formatRecordingTimer(elapsedMs)}</span>
-            </div>
-          )}
+        </div>
+
+        <div className="video-note-recorder-preview-meta" aria-live="polite">
+          <span className={`video-note-recorder-state video-note-recorder-state-${state}`}>
+            {state === 'requesting-permission'
+              ? 'Запрашиваем доступ к камере...'
+              : state === 'ready'
+                ? 'Готово к записи'
+                : state === 'recording'
+                  ? 'Идёт запись'
+                  : state === 'review'
+                    ? 'Проверьте запись'
+                    : 'Ошибка'}
+          </span>
+          <span className="video-note-recorder-timer">{formatRecordingTimer(elapsedMs)}</span>
         </div>
 
         <div

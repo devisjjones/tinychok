@@ -5876,6 +5876,7 @@ test('video-note recorder close button keeps the cancel icon centered inside the
 test('video-note recorder review preview stays control-free inside the circular bubble', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(
     recorderSource,
@@ -5889,7 +5890,12 @@ test('video-note recorder review preview stays control-free inside the circular 
     recorderSource,
     /const showingRecordedPreview = Boolean\(previewUrl\) && \(state === 'review' \|\| state === 'error'\)/u,
   )
-  assert.match(recorderSource, /showingRecordedPreview \? null : \(/u)
+  assert.match(recorderSource, /className="video-note-recorder-preview-meta"/u)
+  assert.doesNotMatch(recorderSource, /className="video-note-recorder-preview-overlay"/u)
+  assert.match(
+    appCss,
+    /\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(300px,\s*70vw\);[\s\S]*margin:\s*-2px auto 0;/u,
+  )
 })
 
 test('video-note messages render as standalone circles without a rectangular media bubble backdrop', () => {

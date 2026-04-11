@@ -6736,18 +6736,14 @@
   background: rgba(30, 20, 15, 0.18);
 }
 
-.video-note-recorder-preview-overlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+.video-note-recorder-preview-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 16px 18px;
-  background: linear-gradient(180deg, rgba(15, 10, 8, 0) 0%, rgba(15, 10, 8, 0.7) 100%);
-  color: #fff8f2;
+  width: min(300px, 70vw);
+  margin: -2px auto 0;
+  color: rgba(255, 248, 242, 0.9);
 }
 
 .video-note-recorder-state {
@@ -9682,8 +9678,8 @@ html[data-theme='dark'] .video-note-recorder-overlay {
   background: rgba(6, 7, 10, 0.56);
 }
 
-html[data-theme='dark'] .video-note-recorder-preview-overlay {
-  background: linear-gradient(180deg, rgba(8, 10, 14, 0) 0%, rgba(8, 10, 14, 0.78) 100%);
+html[data-theme='dark'] .video-note-recorder-preview-meta {
+  color: rgba(232, 236, 247, 0.88);
 }
 
 html[data-theme='dark'] .video-note-recorder-progress {
