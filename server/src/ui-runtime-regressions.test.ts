@@ -2378,6 +2378,58 @@ test('group media bubbles keep a compact author header in both room and selected
   assert.match(appCss, /\.bubble\.media-only-bubble \.bubble-media-header \{[\s\S]*padding:\s*8px 14px;/u)
 })
 
+test('group and thread video-note media bubbles lift the author strip out of the media surface', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const overlaySource = readFileSync(
+    join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'),
+    'utf8',
+  )
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    groupRoomSource,
+    /const shouldRenderExternalGroupAuthor =[\s\S]*Boolean\(groupMediaAuthor\)[\s\S]*\(!isImageOnlyBubble \|\| isVideoNoteOnlyBubble\)[\s\S]*!isGroupCaptionedImageBubble/u,
+  )
+  assert.match(groupRoomSource, /const groupMediaBubbleRow = \(/u)
+  assert.match(groupRoomSource, /groupMediaAuthor && !isVideoNoteOnlyBubble \? \(/u)
+  assert.match(
+    groupRoomSource,
+    /return shouldRenderExternalGroupAuthor \? \(\s*<div className="bubble-author-layout">\s*<div className="bubble-author-strip">\{groupMediaAuthor\}<\/div>\s*\{groupMediaBubbleRow\}/u,
+  )
+
+  assert.match(
+    appSource,
+    /const shouldRenderExternalCommentAuthor =[\s\S]*Boolean\(commentAuthorNode\) && \(!isImageOnlyBubble \|\| isVideoNoteOnlyBubble\)/u,
+  )
+  assert.match(appSource, /const threadCommentMediaBubbleRow = \(/u)
+  assert.match(appSource, /commentAuthorNode && !isVideoNoteOnlyBubble \? \(/u)
+  assert.match(
+    appSource,
+    /return shouldRenderExternalCommentAuthor \? \(\s*<div className="bubble-author-layout">\s*<div className="bubble-author-strip">\{commentAuthorNode\}<\/div>\s*\{threadCommentMediaBubbleRow\}/u,
+  )
+
+  assert.match(
+    overlaySource,
+    /const shouldRenderExternalAuthor =[\s\S]*Boolean\(authorNode\) && \(!isImageOnlyBubble \|\| isVideoNoteOnlyBubble\)/u,
+  )
+  assert.match(overlaySource, /authorNode && !isVideoNoteOnlyBubble \? <div className="bubble-media-header">/u)
+  assert.match(
+    overlaySource,
+    /const shouldRenderExternalGroupAuthor =[\s\S]*\(!hasImageAttachment \|\| isVideoNoteOnlyBubble\)[\s\S]*!isGroupCaptionedImageBubble/u,
+  )
+  assert.match(
+    overlaySource,
+    /groupOverlayAuthorNode && !isVideoNoteOnlyBubble \? \(\s*<div className="bubble-media-header">/u,
+  )
+
+  assert.match(
+    appCss,
+    /\.bubble\.video-note-only-bubble \.bubble-media-header,\s*\.bubble-overlay\.video-note-only-bubble \.bubble-media-header,\s*\.channel-post\.video-note-only-bubble \.bubble-media-header \{[\s\S]*padding:\s*0;[\s\S]*background:\s*transparent;/u,
+  )
+})
+
 test('standard group text bubbles render the author strip above the bubble instead of inside it', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
@@ -2397,7 +2449,10 @@ test('standard group text bubbles render the author strip above the bubble inste
     groupRoomSource,
     /const groupMediaAuthor = shouldRenderGroupAuthorStrip[\s\S]*renderGroupMediaAuthor\(message, groupParticipant\)/u,
   )
-  assert.match(groupRoomSource, /Boolean\(groupMediaAuthor\) && !isImageOnlyBubble && !isGroupCaptionedImageBubble/u)
+  assert.match(
+    groupRoomSource,
+    /Boolean\(groupMediaAuthor\)[\s\S]*\(!isImageOnlyBubble \|\| isVideoNoteOnlyBubble\)[\s\S]*!isGroupCaptionedImageBubble/u,
+  )
   assert.match(groupRoomSource, /const messageBubbleButton = \(/u)
   assert.match(groupRoomSource, /return shouldRenderExternalGroupAuthor \? \(/u)
   assert.match(groupRoomSource, /<div className="bubble-author-layout">/u)
@@ -2519,7 +2574,7 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
     groupRoomSource,
     /const groupMediaAuthor = shouldRenderGroupAuthorStrip[\s\S]*renderGroupMediaAuthor\(message, groupParticipant\)/u,
   )
-  assert.match(groupRoomSource, /groupMediaAuthor \? \(\s*<button[\s\S]*bubble-media-header bubble-media-header-button/u)
+  assert.match(groupRoomSource, /groupMediaAuthor && !isVideoNoteOnlyBubble \? \(\s*<button[\s\S]*bubble-media-header bubble-media-header-button/u)
   assert.match(groupRoomSource, /isGroupCaptionedImageBubble && groupMediaAuthor/u)
   assert.match(groupRoomSource, /className="message-feed group-room-feed"/u)
   assert.match(groupRoomSource, /group-message-row group-message-row-author-break/u)
@@ -2535,7 +2590,10 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
     overlaySource,
     /function renderGroupOverlayAuthor[\s\S]*return <span className="bubble-meta">Вы<\/span>/u,
   )
-  assert.match(appSource, /const shouldRenderExternalCommentAuthor = Boolean\(commentAuthorNode\) && !isImageOnlyBubble/u)
+  assert.match(
+    appSource,
+    /const shouldRenderExternalCommentAuthor =[\s\S]*Boolean\(commentAuthorNode\) && \(!isImageOnlyBubble \|\| isVideoNoteOnlyBubble\)/u,
+  )
   assert.match(appSource, /data-bubble-measure=\{shouldRenderExternalCommentAuthor \? 'true' : undefined\}/u)
   assert.match(
     appSource,
@@ -2543,7 +2601,7 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   )
   assert.match(
     overlaySource,
-    /const shouldRenderExternalAuthor = Boolean\(authorNode\) && !isImageOnlyBubble/u,
+    /const shouldRenderExternalAuthor =[\s\S]*Boolean\(authorNode\) && \(!isImageOnlyBubble \|\| isVideoNoteOnlyBubble\)/u,
   )
   assert.match(
     overlaySource,

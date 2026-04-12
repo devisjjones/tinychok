@@ -4468,6 +4468,13 @@
   box-shadow: 0 0 0 1.5px rgba(185, 124, 80, 0.96);
 }
 
+.bubble.video-note-only-bubble .bubble-media-header,
+.bubble-overlay.video-note-only-bubble .bubble-media-header,
+.channel-post.video-note-only-bubble .bubble-media-header {
+  padding: 0;
+  background: transparent;
+}
+
 .bubble.group-captioned-media-bubble .bubble-media-header {
   display: flex;
   align-items: center;

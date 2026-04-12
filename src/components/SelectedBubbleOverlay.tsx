@@ -199,7 +199,8 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       !hasImageAttachment &&
       (props.comment.text.trim().length > 0 || Boolean(props.comment.attachment))
     const authorNode = renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
-    const shouldRenderExternalAuthor = Boolean(authorNode) && !isImageOnlyBubble
+    const shouldRenderExternalAuthor =
+      Boolean(authorNode) && (!isImageOnlyBubble || isVideoNoteOnlyBubble)
     const compactOverlayClassName = ' bubble-overlay-compact'
     const bubbleNode = (
       <div
@@ -208,7 +209,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         aria-hidden="true"
       >
         {isImageOnlyBubble ? (
-          authorNode ? <div className="bubble-media-header">{authorNode}</div> : null
+          authorNode && !isVideoNoteOnlyBubble ? <div className="bubble-media-header">{authorNode}</div> : null
         ) : null}
         <BubbleMessageContent
           imageOverlay={
@@ -298,7 +299,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
   const shouldRenderExternalGroupAuthor =
     props.kind === 'group' &&
     props.message.author !== 'me' &&
-    !hasImageAttachment &&
+    (!hasImageAttachment || isVideoNoteOnlyBubble) &&
     !isGroupCaptionedImageBubble
   const showDeliveryCaption = props.deliveryIssue === 'failed' && shouldShowDeliveryCaption(props.message)
   const shouldUseInlineTextMeta =
@@ -374,7 +375,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         ) : null
       ) : (
         isImageOnlyBubble ? (
-          groupOverlayAuthorNode ? <div className="bubble-media-header">{groupOverlayAuthorNode}</div> : null
+          groupOverlayAuthorNode && !isVideoNoteOnlyBubble ? (
+            <div className="bubble-media-header">{groupOverlayAuthorNode}</div>
+          ) : null
         ) : isGroupCaptionedImageBubble ? (
           groupOverlayAuthorNode ? (
             <div className="bubble-media-header bubble-media-header-captioned">{groupOverlayAuthorNode}</div>

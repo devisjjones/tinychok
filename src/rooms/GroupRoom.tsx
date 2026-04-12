@@ -493,7 +493,9 @@ export function GroupRoom({
               : null
             const hasGroupCaptionedMediaHeader = isGroupCaptionedImageBubble && Boolean(groupMediaAuthor)
             const shouldRenderExternalGroupAuthor =
-              Boolean(groupMediaAuthor) && !isImageOnlyBubble && !isGroupCaptionedImageBubble
+              Boolean(groupMediaAuthor) &&
+              (!isImageOnlyBubble || isVideoNoteOnlyBubble) &&
+              !isGroupCaptionedImageBubble
             const groupMessageRowClassName = shouldUseGroupAuthorBreakSpacing
               ? 'group-message-row group-message-row-author-break'
               : 'group-message-row'
@@ -578,54 +580,69 @@ export function GroupRoom({
                           replyTo={replyReference}
                           bubble={
                             isImageOnlyBubble ? (
-                              <MediaOnlyBubbleRow
-                                actionLabel="Открыть действия сообщения"
-                                bubbleAttributes={{ 'data-group-message-id': message.id }}
-                                bubbleClassName={bubbleClassNames.join(' ')}
-                                mine={message.author === 'me'}
-                                onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
-                              >
-                                {groupMediaAuthor ? (
-                                  <button
-                                    type="button"
-                                    className="bubble-media-header bubble-media-header-button"
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      onMessageSelect(event.currentTarget, message)
-                                    }}
+                              (() => {
+                                const groupMediaBubbleRow = (
+                                  <MediaOnlyBubbleRow
+                                    actionLabel="Открыть действия сообщения"
+                                    bubbleAttributes={{ 'data-group-message-id': message.id }}
+                                    bubbleClassName={bubbleClassNames.join(' ')}
+                                    mine={message.author === 'me'}
+                                    onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
                                   >
-                                    {groupMediaAuthor}
-                                  </button>
-                                ) : null}
-                                <BubbleMessageContent
-                                  imageOverlay={
-                                    hasImageAttachment ? (
-                                      <BubbleImageOverlayMeta
-                                        deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
-                                        time={renderedMessageTime}
-                                      />
-                                    ) : undefined
-                                  }
-                                  linkedChannel={linkedChannel}
-                                  message={message}
-                                  onOpenAttachment={onOpenAttachment}
-                                  onOpenExternalLink={onOpenExternalLink}
-                                  onOpenLinkedChannel={
-                                    linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                                  }
-                                  onOpenPremiumUpsell={onOpenPremiumUpsell}
-                                  onOpenSourceContact={
-                                    message.sourceContact
-                                      ? () =>
-                                          onOpenSourceContact(
-                                            message.sourceContact as NonNullable<Message['sourceContact']>,
-                                          )
-                                      : undefined
-                                  }
-                                  showReplyInline={false}
-                                  uploadProgress={messageUploadProgress ?? undefined}
-                                />
-                              </MediaOnlyBubbleRow>
+                                    {groupMediaAuthor && !isVideoNoteOnlyBubble ? (
+                                      <button
+                                        type="button"
+                                        className="bubble-media-header bubble-media-header-button"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          onMessageSelect(event.currentTarget, message)
+                                        }}
+                                      >
+                                        {groupMediaAuthor}
+                                      </button>
+                                    ) : null}
+                                    <BubbleMessageContent
+                                      imageOverlay={
+                                        hasImageAttachment ? (
+                                          <BubbleImageOverlayMeta
+                                            deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
+                                            time={renderedMessageTime}
+                                          />
+                                        ) : undefined
+                                      }
+                                      linkedChannel={linkedChannel}
+                                      message={message}
+                                      onOpenAttachment={onOpenAttachment}
+                                      onOpenExternalLink={onOpenExternalLink}
+                                      onOpenLinkedChannel={
+                                        linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                                      }
+                                      onOpenPremiumUpsell={onOpenPremiumUpsell}
+                                      onOpenSourceContact={
+                                        message.sourceContact
+                                          ? () =>
+                                              onOpenSourceContact(
+                                                message.sourceContact as NonNullable<
+                                                  Message['sourceContact']
+                                                >,
+                                              )
+                                          : undefined
+                                      }
+                                      showReplyInline={false}
+                                      uploadProgress={messageUploadProgress ?? undefined}
+                                    />
+                                  </MediaOnlyBubbleRow>
+                                )
+
+                                return shouldRenderExternalGroupAuthor ? (
+                                  <div className="bubble-author-layout">
+                                    <div className="bubble-author-strip">{groupMediaAuthor}</div>
+                                    {groupMediaBubbleRow}
+                                  </div>
+                                ) : (
+                                  groupMediaBubbleRow
+                                )
+                              })()
                             ) : (
                               (() => {
                                 const messageBubbleButton = (
