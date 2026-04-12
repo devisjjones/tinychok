@@ -238,7 +238,11 @@
 - отдельную вторую кнопку записи рядом со скрепкой не возвращать
 - support composer не должен показывать кнопку записи кружочка
 - popup записи держит один пользовательский заголовок:
-  - `Видео-кружочек`
+  - desktop / non-mobile browser: `Видео-кружочек`
+  - mobile browser: `Видео-квадратик`
+- mobile browser intentionally keeps video-note surfaces square-ish:
+  - inline bubble рендерится скруглённым квадратиком, а не кругом
+  - preview записи в recorder-modal тоже квадратный
 - inline playback кружочка должен расширять сам круг примерно до `440px`, но не ломать room layout:
   - playing-state обязан расти только в пределах доступной ширины комнаты
   - если room уже уже этого значения, кружочек должен упереться в width комнаты, а не обрезаться прямоугольным bubble max-width из общего text/media path

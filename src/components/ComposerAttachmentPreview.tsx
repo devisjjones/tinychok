@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import React, { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import { composerAttachmentRenameMaxLength } from '../app/constants'
 import {
@@ -6,6 +6,9 @@ import {
   type ComposerAttachmentDraft,
 } from '../app/composerAttachments'
 import { formatAttachmentImageDimensions, formatAttachmentSize, isVideoMimeType } from '../app/utils'
+
+// Keep the classic JSX runtime symbol available for server-side contract tests executed via `tsx`.
+void React
 
 type ComposerAttachmentPreviewProps = {
   attachmentDraft: ComposerAttachmentDraft

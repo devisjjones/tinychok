@@ -7006,6 +7006,29 @@
   background: #c1795f;
 }
 
+@media (max-width: 960px) and (pointer: coarse) {
+  .bubble-attachment-photo-video-note {
+    border-radius: 30px;
+  }
+
+  .bubble-attachment-video-note-progress {
+    border-radius: 34px;
+  }
+
+  .bubble-attachment-video-note-upload-progress {
+    border-radius: 35px;
+  }
+
+  .video-note-recorder-preview-shell {
+    width: min(320px, calc(100vw - 72px));
+    border-radius: 34px;
+  }
+
+  .video-note-recorder-preview-meta {
+    width: min(320px, calc(100vw - 72px));
+  }
+}
+
 .bubble-text-format-underline {
   text-decoration: underline;
   text-decoration-thickness: 1.5px;

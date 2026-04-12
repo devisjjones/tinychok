@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   buildVideoNoteFile,
   clampVideoNoteRecordingProgress,
@@ -7,6 +7,10 @@ import {
   stopMediaStreamTracks,
   videoNoteRecordingLimitMs,
 } from '../app/videoNotes'
+import { isMobileBrowserEnvironment } from '../shared/utils'
+
+// Keep the classic JSX runtime symbol available for server-side contract tests executed via `tsx`.
+void React
 
 type VideoNoteRecorderState =
   | 'requesting-permission'
@@ -62,6 +66,8 @@ export function VideoNoteRecorderOverlay({
   onClose,
   onUse,
 }: VideoNoteRecorderOverlayProps) {
+  const isMobileRecorderSurface = isMobileBrowserEnvironment()
+  const recorderTitle = isMobileRecorderSurface ? 'Видео-квадратик' : 'Видео-кружочек'
   const [busy, setBusy] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [errorMessage, setErrorMessage] = useState('')
@@ -335,7 +341,7 @@ export function VideoNoteRecorderOverlay({
       className="video-note-recorder-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="Видео-кружочек"
+      aria-label={recorderTitle}
       onClick={onClose}
     >
       <div
@@ -345,13 +351,13 @@ export function VideoNoteRecorderOverlay({
         }}
       >
         <div className="video-note-recorder-header">
-          <h3>Видео-кружочек</h3>
+          <h3>{recorderTitle}</h3>
           <button
             type="button"
             className="soft-button video-note-recorder-close"
             onClick={onClose}
-            aria-label="Закрыть видео-кружочек"
-            title="Закрыть видео-кружочек"
+            aria-label={`Закрыть ${recorderTitle.toLowerCase()}`}
+            title={`Закрыть ${recorderTitle.toLowerCase()}`}
           >
             <img src="/icons/cancel.png" alt="" aria-hidden="true" />
           </button>

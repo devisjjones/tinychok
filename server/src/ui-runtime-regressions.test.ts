@@ -6142,13 +6142,16 @@ test('mobile direct-room header shrinks long names before they can run into the 
   assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.room-title-name\s*\{[\s\S]*align-items:\s*flex-start;/u)
 })
 
-test('video-note recorder close button keeps the cancel icon centered inside the pill button', () => {
+test('video-note recorder close button keeps the cancel icon centered and the title can switch to the mobile square contract', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
-  assert.match(recorderSource, /aria-label="Видео-кружочек"/u)
-  assert.match(recorderSource, /<h3>Видео-кружочек<\/h3>/u)
+  assert.match(recorderSource, /const isMobileRecorderSurface = isMobileBrowserEnvironment\(\)/u)
+  assert.match(recorderSource, /const recorderTitle = isMobileRecorderSurface \? 'Видео-квадратик' : 'Видео-кружочек'/u)
+  assert.match(recorderSource, /aria-label=\{recorderTitle\}/u)
+  assert.match(recorderSource, /<h3>\{recorderTitle\}<\/h3>/u)
+  assert.match(recorderSource, /aria-label=\{`Закрыть \$\{recorderTitle\.toLowerCase\(\)\}`\}/u)
   assert.doesNotMatch(recorderSource, /<span className="settings-label">/u)
   assert.doesNotMatch(recorderSource, /Запишите кружочек до 30 секунд/u)
   assert.match(recorderSource, /className="soft-button video-note-recorder-close"/u)
@@ -6251,6 +6254,19 @@ test('video-note messages render as standalone circles without a rectangular med
     appCss,
     /\.bubble-attachment-video-note-meta > \.bubble-attachment-image-overlay\s*\{[\s\S]*position:\s*static;[\s\S]*right:\s*auto;[\s\S]*bottom:\s*auto;/u,
   )
+})
+
+test('mobile video-note contract keeps bubble and recorder preview square-ish on touch browsers', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
+
+  assert.match(
+    appCss,
+    /@media \(max-width: 960px\) and \(pointer: coarse\) \{[\s\S]*\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*30px;[\s\S]*\.bubble-attachment-video-note-progress\s*\{[\s\S]*border-radius:\s*34px;[\s\S]*\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*border-radius:\s*35px;[\s\S]*\.video-note-recorder-preview-shell\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);[\s\S]*border-radius:\s*34px;[\s\S]*\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);/u,
+  )
+  assert.match(handoffDoc, /mobile browser: `Видео-квадратик`/u)
+  assert.match(handoffDoc, /mobile browser intentionally keeps video-note surfaces square-ish:/u)
 })
 
 test('pending video-note uploads keep a circular progress ring and separate sending status', () => {
