@@ -3168,6 +3168,10 @@ test('mobile gif bubbles stretch to the full media slot width instead of shrinki
     appCss,
     /@media \(max-width: 960px\) \{[\s\S]*\.media-bubble-row > \.bubble\.media-only-bubble \.bubble-attachment-photo-gif\.image-only,\s*[\s\S]*\.media-bubble-row > \.channel-post\.media-only-bubble \.bubble-attachment-photo-gif\.image-only \{\s*width:\s*100%;[\s\S]*max-width:\s*100%;/u,
   )
+  assert.match(
+    appCss,
+    /@media \(max-width: 960px\) \{[\s\S]*\.bubble-stack:has\(\.bubble-attachment-photo-gif\.image-only\)\s*\{\s*width:\s*min\(100%, calc\(100vw - 28px\)\);[\s\S]*max-width:\s*min\(100%, calc\(100vw - 28px\)\);[\s\S]*\.bubble-stack:has\(\.bubble-attachment-photo-gif\.image-only\) > \.bubble-stack-main\s*\{\s*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;/u,
+  )
 })
 
 test('nickname and channel direct link use inline copy buttons inside the field', () => {

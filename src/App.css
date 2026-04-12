@@ -8837,6 +8837,17 @@
     max-width: 100%;
   }
 
+  .bubble-stack:has(.bubble-attachment-photo-gif.image-only) {
+    width: min(100%, calc(100vw - 28px));
+    max-width: min(100%, calc(100vw - 28px));
+  }
+
+  .bubble-stack:has(.bubble-attachment-photo-gif.image-only) > .bubble-stack-main {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
   .settings-panel {
     padding: 22px;
   }

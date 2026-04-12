@@ -658,6 +658,7 @@
 - добавление GIF себе из fullscreen viewer не должно требовать premium, если media уже существует в Tinychok
 - защита от дублей идёт по `normalized fileName + size`
 - GIF можно удалить из личной библиотеки
+- mobile GIF width нельзя чинить только на `.bubble-attachment-photo-gif`: обязательно проверять и внешний `bubble-stack` / `bubble-stack-main`, потому что `fit-content` на wrapper-слое может снова сделать GIF маленькой даже при `width: 100%` у самого preview
 - удаление GIF из личной библиотеки не должно удалять media-объект из общего pool
 - upload своих GIF ограничен скрытым server-side лимитом `100` штук на пользователя в календарный месяц
 - fullscreen viewer для GIF не даёт обычный download, а предлагает `Добавить ГИФ себе`
