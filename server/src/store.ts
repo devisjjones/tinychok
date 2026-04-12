@@ -1149,6 +1149,14 @@ type StorageSubjectDescriptor = {
   primaryQuotaBytes: number
 }
 
+type TrackedPrimaryMediaItem = {
+  createdAt: string
+  frozenEligible: boolean
+  mediaUrl: string
+  order: number
+  size: number
+}
+
 type StorageArchiveInventoryItem = PersistedArchivedMediaRecord & {
   usageCount: number
 }
@@ -1200,14 +1208,23 @@ type CanonicalDirectTranscriptEntry = {
   visibleForRight: boolean
 }
 
-function buildStorageQuotaUsage(usedBytes: number, quotaBytes: number): StorageQuotaUsage {
+function buildStorageQuotaUsage(
+  usedBytes: number,
+  quotaBytes: number,
+  extras?: {
+    frozenBytes?: number
+  },
+): StorageQuotaUsage {
   const remainingBytes = Math.max(0, quotaBytes - usedBytes)
   const percentUsed = quotaBytes > 0 ? Math.min(100, (usedBytes / quotaBytes) * 100) : 0
+  const frozenBytes = Math.max(0, extras?.frozenBytes ?? 0)
 
   return {
+    frozenBytes: frozenBytes > 0 ? frozenBytes : undefined,
     percentUsed,
     quotaBytes,
     remainingBytes,
+    totalBytes: usedBytes + frozenBytes,
     usedBytes,
   }
 }
@@ -1441,68 +1458,32 @@ function isAccountBlocked(account: Pick<Account, 'blockedAt'> | null | undefined
   return Boolean(account?.blockedAt)
 }
 
-function hasPremiumStorageHistory(
-  account?: Pick<Account, 'premium' | 'premiumExpiresAt'> | null,
-) {
-  return Boolean(account?.premium || account?.premiumExpiresAt)
-}
-
-function sanitizeRetainedQuotaBytes(value: number | undefined) {
-  return Number.isFinite(value) && (value ?? 0) > 0 ? value ?? 0 : 0
-}
-
 function normalizeRetainedStorageQuotaBytes(
-  account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedStorageQuotaBytes'> | null,
+  _account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedStorageQuotaBytes'> | null,
 ) {
-  const retainedQuotaBytes = Math.max(
-    sanitizeRetainedQuotaBytes(account?.retainedStorageQuotaBytes),
-    hasPremiumStorageHistory(account) ? premiumStorageQuotaBytes : 0,
-  )
-  return retainedQuotaBytes > freeStorageQuotaBytes ? retainedQuotaBytes : undefined
+  return undefined
 }
 
 function normalizeRetainedArchiveStorageQuotaBytes(
-  account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedArchiveStorageQuotaBytes'> | null,
+  _account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedArchiveStorageQuotaBytes'> | null,
 ) {
-  const retainedQuotaBytes = Math.max(
-    sanitizeRetainedQuotaBytes(account?.retainedArchiveStorageQuotaBytes),
-    hasPremiumStorageHistory(account) ? premiumArchiveStorageQuotaBytes : 0,
-  )
-  return retainedQuotaBytes > freeArchiveStorageQuotaBytes ? retainedQuotaBytes : undefined
+  return undefined
 }
 
 function getEffectiveUserStorageQuotaBytes(
   account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedStorageQuotaBytes'> | null,
 ) {
-  return Math.max(
-    freeStorageQuotaBytes,
-    sanitizeRetainedQuotaBytes(account?.retainedStorageQuotaBytes),
-    hasActivePremium(account?.premium, account?.premiumExpiresAt) ? premiumStorageQuotaBytes : 0,
-  )
+  return hasActivePremium(account?.premium, account?.premiumExpiresAt)
+    ? premiumStorageQuotaBytes
+    : freeStorageQuotaBytes
 }
 
 function getEffectiveUserArchiveStorageQuotaBytes(
   account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedArchiveStorageQuotaBytes'> | null,
 ) {
-  return Math.max(
-    freeArchiveStorageQuotaBytes,
-    sanitizeRetainedQuotaBytes(account?.retainedArchiveStorageQuotaBytes),
-    hasActivePremium(account?.premium, account?.premiumExpiresAt) ? premiumArchiveStorageQuotaBytes : 0,
-  )
-}
-
-function rememberUnlockedPremiumStorageQuota(
-  account: Pick<Account, 'retainedArchiveStorageQuotaBytes' | 'retainedStorageQuotaBytes'>,
-) {
-  // Once a user unlocks premium storage, don't shrink the quota back on expiry.
-  account.retainedStorageQuotaBytes = Math.max(
-    sanitizeRetainedQuotaBytes(account.retainedStorageQuotaBytes),
-    premiumStorageQuotaBytes,
-  )
-  account.retainedArchiveStorageQuotaBytes = Math.max(
-    sanitizeRetainedQuotaBytes(account.retainedArchiveStorageQuotaBytes),
-    premiumArchiveStorageQuotaBytes,
-  )
+  return hasActivePremium(account?.premium, account?.premiumExpiresAt)
+    ? premiumArchiveStorageQuotaBytes
+    : freeArchiveStorageQuotaBytes
 }
 
 function isContentReportEntityType(entityType: AdminReportSummary['entityType']) {
@@ -5103,11 +5084,15 @@ export class TinychokStore {
       }
     }
 
-    const chat = materializeFullChats(
-      this.database,
-      this.livePresenceCountsByIdentifier,
+    const chat = this.applyFrozenStorageToChats(
+      materializeFullChats(
+        this.database,
+        this.livePresenceCountsByIdentifier,
+        account.identifier,
+        { includeHidden: true },
+      ),
       account.identifier,
-      { includeHidden: true },
+      new Map<string, Set<string>>(),
     ).find(
       (candidate) => candidate.id === dialogId,
     )
@@ -5130,10 +5115,14 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const group = materializeFullGroups(
-      this.database,
-      this.livePresenceCountsByIdentifier,
+    const group = this.applyFrozenStorageToGroups(
+      materializeFullGroups(
+        this.database,
+        this.livePresenceCountsByIdentifier,
+        account.identifier,
+      ),
       account.identifier,
+      new Map<string, Set<string>>(),
     ).find(
       (candidate) => candidate.id === groupId,
     )
@@ -5160,10 +5149,14 @@ export class TinychokStore {
       throw new Error('Сессия не найдена.')
     }
 
-    const channel = materializeFullSubscriptionChannels(
-      this.database,
-      this.livePresenceCountsByIdentifier,
+    const channel = this.applyFrozenStorageToSubscriptionChannels(
+      materializeFullSubscriptionChannels(
+        this.database,
+        this.livePresenceCountsByIdentifier,
+        account.identifier,
+      ),
       account.identifier,
+      new Map<string, Set<string>>(),
     ).find(
       (candidate) => candidate.id === channelId,
     )
@@ -5216,13 +5209,19 @@ export class TinychokStore {
       throw new HttpError(403, 'Доступ к каналу не разрешён.')
     }
 
-    return {
-      channel: materializeSubscriptionChannelPreview(
+    const previewChannel = this.applyFrozenStorageToSubscriptionChannels(
+      [materializeSubscriptionChannelPreview(
         this.database,
         this.livePresenceCountsByIdentifier,
         account.identifier,
         sourceChannel,
-      ),
+      )],
+      account.identifier,
+      new Map<string, Set<string>>(),
+    )[0]
+
+    return {
+      channel: previewChannel,
     }
   }
 
@@ -6233,9 +6232,6 @@ export class TinychokStore {
       Number.isInteger(options.durationDays) && (options.durationDays ?? 0) > 0
         ? options.durationDays ?? 30
         : 30
-    if (options.enabled || hasPremiumStorageHistory(target)) {
-      rememberUnlockedPremiumStorageQuota(target)
-    }
     target.premium = options.enabled
     target.premiumExpiresAt = options.enabled
       ? extendPremiumExpiry(durationDays, target.premiumExpiresAt)
@@ -6243,6 +6239,7 @@ export class TinychokStore {
     if (getEffectiveUserStorageQuotaBytes(target) > previousStorageQuotaBytes) {
       this.restoreArchivedMediaIntoPrimaryStorageIfQuotaAllows(this.getUserStorageSubject(target.identifier))
     }
+    this.refreshDialogsForAccount(target)
     await this.persist()
     await this.appendAdminAuditLog(actor, {
       action: options.enabled ? 'admin.user.premium.grant' : 'admin.user.premium.revoke',
@@ -9494,9 +9491,6 @@ export class TinychokStore {
     }
 
     const previousStorageQuotaBytes = getEffectiveUserStorageQuotaBytes(account)
-    if (payload.enabled || hasPremiumStorageHistory(account)) {
-      rememberUnlockedPremiumStorageQuota(account)
-    }
     account.premium = Boolean(payload.enabled)
     account.premiumExpiresAt = payload.enabled
       ? extendPremiumExpiry(
@@ -9511,14 +9505,17 @@ export class TinychokStore {
         ? this.restoreArchivedMediaIntoPrimaryStorageIfQuotaAllows(this.getUserStorageSubject(account.identifier))
         : []
 
-    const broadcastIdentifiers = this.refreshDialogsForAccount(account)
-    broadcastIdentifiers.push(account.identifier)
-    broadcastIdentifiers.push(...restoredIdentifiers)
+    const broadcastIdentifiers = new Set<string>([
+      account.identifier,
+      ...this.refreshDialogsForAccount(account),
+      ...this.collectStorageVisibilityBroadcastIdentifiersForUser(account.identifier),
+      ...restoredIdentifiers,
+    ])
 
     await this.persist()
 
     return {
-      broadcastIdentifiers: [...new Set(broadcastIdentifiers)],
+      broadcastIdentifiers: [...broadcastIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -13181,6 +13178,367 @@ export class TinychokStore {
     return challenge
   }
 
+  private getFrozenPrimaryMediaUrlsForOwner(
+    ownerIdentifier: string | undefined,
+    cache: Map<string, Set<string>>,
+  ) {
+    const normalizedOwnerIdentifier = normalizeIdentifier(ownerIdentifier ?? '')
+    if (!normalizedOwnerIdentifier) {
+      return new Set<string>()
+    }
+
+    const cached = cache.get(normalizedOwnerIdentifier)
+    if (cached) {
+      return cached
+    }
+
+    const frozenMediaUrls = this.getFrozenPrimaryMediaUrls(this.getUserStorageSubject(normalizedOwnerIdentifier))
+    cache.set(normalizedOwnerIdentifier, frozenMediaUrls)
+    return frozenMediaUrls
+  }
+
+  private getFrozenStoragePerspective(
+    author: Message['author'],
+    fallbackPerspective: AttachmentRemovedNoticePerspective,
+  ): AttachmentRemovedNoticePerspective {
+    if (author === 'me') {
+      return 'self'
+    }
+
+    return fallbackPerspective === 'peer' ? 'peer' : 'author'
+  }
+
+  private applyFrozenStorageToAttachmentState(
+    ownerIdentifier: string | undefined,
+    author: Message['author'],
+    fallbackPerspective: AttachmentRemovedNoticePerspective,
+    attachment: MessageAttachment | undefined,
+    attachmentRemovedNotice: Message['attachmentRemovedNotice'] | undefined,
+    cache: Map<string, Set<string>>,
+  ) {
+    if (!attachment?.mediaUrl) {
+      return {
+        attachment,
+        attachmentRemovedNotice,
+      }
+    }
+
+    if (!this.getFrozenPrimaryMediaUrlsForOwner(ownerIdentifier, cache).has(attachment.mediaUrl)) {
+      return {
+        attachment,
+        attachmentRemovedNotice,
+      }
+    }
+
+    const perspective = this.getFrozenStoragePerspective(author, fallbackPerspective)
+    return {
+      attachment: undefined,
+      attachmentRemovedNotice: {
+        perspective,
+        reason: 'storage-quota',
+        removedAt: attachmentRemovedNotice?.removedAt ?? new Date().toISOString(),
+        text: buildStorageQuotaAttachmentRemovedNoticeText(perspective),
+      } satisfies NonNullable<Message['attachmentRemovedNotice']>,
+    }
+  }
+
+  private applyFrozenStorageToThreadComment(
+    comment: ThreadComment,
+    ownerIdentifier: string | undefined,
+    fallbackPerspective: AttachmentRemovedNoticePerspective,
+    cache: Map<string, Set<string>>,
+  ) {
+    const nextState = this.applyFrozenStorageToAttachmentState(
+      ownerIdentifier,
+      comment.author,
+      fallbackPerspective,
+      comment.attachment,
+      comment.attachmentRemovedNotice,
+      cache,
+    )
+
+    if (
+      nextState.attachment === comment.attachment &&
+      nextState.attachmentRemovedNotice === comment.attachmentRemovedNotice
+    ) {
+      return comment
+    }
+
+    return {
+      ...comment,
+      attachment: nextState.attachment,
+      attachmentRemovedNotice: nextState.attachmentRemovedNotice,
+    }
+  }
+
+  private applyFrozenStorageToChats(
+    chats: Chat[],
+    viewerIdentifier: string,
+    cache: Map<string, Set<string>>,
+  ) {
+    return chats.map((chat) => {
+      const persistedMessagesById = new Map(
+        this.database.dialogMessages
+          .filter(
+            (message) =>
+              message.ownerIdentifier === viewerIdentifier &&
+              message.dialogId === chat.id &&
+              !message.archivedAt,
+          )
+          .map((message) => [message.id, message] as const),
+      )
+      const nextMessages = chat.messages.map((message) => {
+        const persistedMessage = persistedMessagesById.get(message.id)
+        if (!persistedMessage) {
+          return message
+        }
+
+        const nextState = this.applyFrozenStorageToAttachmentState(
+          this.getDirectMessageAttachmentOwnerIdentifier(persistedMessage),
+          message.author,
+          'peer',
+          message.attachment,
+          message.attachmentRemovedNotice,
+          cache,
+        )
+
+        if (
+          nextState.attachment === message.attachment &&
+          nextState.attachmentRemovedNotice === message.attachmentRemovedNotice
+        ) {
+          return message
+        }
+
+        return {
+          ...message,
+          attachment: nextState.attachment,
+          attachmentRemovedNotice: nextState.attachmentRemovedNotice,
+        }
+      })
+
+      return {
+        ...chat,
+        messages: nextMessages,
+        pinnedMessage:
+          chat.pinnedMessageId === undefined
+            ? undefined
+            : nextMessages.find((message) => message.id === chat.pinnedMessageId),
+      }
+    })
+  }
+
+  private applyFrozenStorageToGroups(
+    groups: GroupPreview[],
+    viewerIdentifier: string,
+    cache: Map<string, Set<string>>,
+  ) {
+    return groups.map((group) => {
+      const persistedMessagesById = new Map(
+        this.database.groupMessages
+          .filter((message) => message.ownerIdentifier === viewerIdentifier && message.groupId === group.id)
+          .map((message) => [message.id, message] as const),
+      )
+
+      return {
+        ...group,
+        messages: group.messages.map((message) => {
+          const persistedMessage = persistedMessagesById.get(message.id)
+          if (!persistedMessage) {
+            return message
+          }
+
+          const nextState = this.applyFrozenStorageToAttachmentState(
+            this.getGroupMessageAttachmentOwnerIdentifier(persistedMessage),
+            message.author,
+            'author',
+            message.attachment,
+            message.attachmentRemovedNotice,
+            cache,
+          )
+          const persistedCommentsById = new Map(
+            compactThreadComments(persistedMessage.threadComments).map((comment) => [comment.id, comment] as const),
+          )
+          const nextComments = (message.threadComments ?? []).map((comment) => {
+            const persistedComment = persistedCommentsById.get(comment.id)
+            return this.applyFrozenStorageToThreadComment(
+              comment,
+              normalizeIdentifier(persistedComment?.authorIdentifier ?? '') || persistedMessage.ownerIdentifier,
+              'author',
+              cache,
+            )
+          })
+
+          return {
+            ...message,
+            attachment: nextState.attachment,
+            attachmentRemovedNotice: nextState.attachmentRemovedNotice,
+            threadComments: nextComments,
+          }
+        }),
+      }
+    })
+  }
+
+  private applyFrozenStorageToSubscriptionChannels(
+    channels: SubscriptionChannel[],
+    viewerIdentifier: string,
+    cache: Map<string, Set<string>>,
+  ) {
+    return channels.map((channel) => {
+      const persistedPostsById = new Map(
+        this.database.subscriptionPosts
+          .filter((post) => post.ownerIdentifier === viewerIdentifier && post.channelId === channel.id)
+          .map((post) => [post.id, post] as const),
+      )
+
+      return {
+        ...channel,
+        posts: channel.posts.map((post) => {
+          const persistedPost = persistedPostsById.get(post.id)
+          if (!persistedPost) {
+            return post
+          }
+
+          const nextState = this.applyFrozenStorageToAttachmentState(
+            this.getSubscriptionPostAttachmentOwnerIdentifier(persistedPost),
+            'them',
+            'author',
+            post.attachment,
+            post.attachmentRemovedNotice,
+            cache,
+          )
+          const persistedCommentsById = new Map(
+            compactThreadComments(persistedPost.threadComments).map((comment) => [comment.id, comment] as const),
+          )
+          const nextComments = (post.threadComments ?? []).map((comment) => {
+            const persistedComment = persistedCommentsById.get(comment.id)
+            return this.applyFrozenStorageToThreadComment(
+              comment,
+              normalizeIdentifier(persistedComment?.authorIdentifier ?? '') || persistedPost.ownerIdentifier,
+              'author',
+              cache,
+            )
+          })
+
+          return {
+            ...post,
+            attachment: nextState.attachment,
+            attachmentRemovedNotice: nextState.attachmentRemovedNotice,
+            threadComments: nextComments,
+          }
+        }),
+      }
+    })
+  }
+
+  private applyFrozenStorageToSupportTickets(
+    tickets: SupportTicket[],
+    viewerIdentifier: string,
+    cache: Map<string, Set<string>>,
+  ) {
+    const persistedTicketsById = new Map(
+      this.database.supportTickets
+        .filter((ticket) => ticket.ownerIdentifier === viewerIdentifier)
+        .map((ticket) => [ticket.id, ticket] as const),
+    )
+
+    return tickets.map((ticket) => {
+      const persistedTicket = persistedTicketsById.get(ticket.id)
+      if (!persistedTicket) {
+        return ticket
+      }
+
+      const nextState = this.applyFrozenStorageToAttachmentState(
+        persistedTicket.ownerIdentifier,
+        'me',
+        'self',
+        ticket.attachment,
+        ticket.attachmentRemovedNotice,
+        cache,
+      )
+      const persistedCommentsById = new Map(
+        compactThreadComments(persistedTicket.comments).map((comment) => [comment.id, comment] as const),
+      )
+      const nextComments = ticket.comments.map((comment) => {
+        const persistedComment = persistedCommentsById.get(comment.id)
+        return this.applyFrozenStorageToThreadComment(
+          comment,
+          normalizeIdentifier(persistedComment?.authorIdentifier ?? '') || persistedTicket.ownerIdentifier,
+          'self',
+          cache,
+        )
+      })
+
+      return {
+        ...ticket,
+        attachment: nextState.attachment,
+        attachmentRemovedNotice: nextState.attachmentRemovedNotice,
+        comments: nextComments,
+      }
+    })
+  }
+
+  private rebuildThreadInboxWithVisibleContent(
+    threadInbox: ThreadInboxItem[],
+    groups: GroupPreview[],
+    subscriptionChannels: SubscriptionChannel[],
+  ) {
+    return threadInbox.map((item) => {
+      if (item.kind === 'group') {
+        const group = groups.find((candidate) => candidate.id === item.groupId)
+        const message = group?.messages.find((candidate) => candidate.id === item.messageId)
+        if (!message) {
+          return item
+        }
+
+        const latestComment = findLatestThreadComment(message.threadComments ?? [])
+        return {
+          ...item,
+          latestCommentText: latestComment ? formatMessagePreview(latestComment) : 'Пока без комментариев',
+          latestCommentTime: latestComment?.time ?? message.time,
+          sourceText: formatMessagePreview(message),
+          sourceTime: message.time,
+        }
+      }
+
+      const channel = subscriptionChannels.find((candidate) => candidate.id === item.channelId)
+      const post = channel?.posts.find((candidate) => candidate.id === item.postId)
+      if (!post) {
+        return item
+      }
+
+      const latestComment = findLatestThreadComment(post.threadComments ?? [])
+      return {
+        ...item,
+        latestCommentText: latestComment ? formatMessagePreview(latestComment) : 'Пока без комментариев',
+        latestCommentTime: latestComment?.time ?? post.time,
+        sourceText: post.system ? 'Канал создан' : formatMessagePreview(post),
+        sourceTime: post.time,
+      }
+    })
+  }
+
+  private applyFrozenStorageVisibilityToSnapshot(snapshot: AppSnapshot, viewerIdentifier: string): AppSnapshot {
+    const cache = new Map<string, Set<string>>()
+    const chats = this.applyFrozenStorageToChats(snapshot.chats, viewerIdentifier, cache)
+    const groups = this.applyFrozenStorageToGroups(snapshot.groups, viewerIdentifier, cache)
+    const subscriptionChannels = this.applyFrozenStorageToSubscriptionChannels(
+      snapshot.subscriptionChannels,
+      viewerIdentifier,
+      cache,
+    )
+    const supportTickets = this.applyFrozenStorageToSupportTickets(snapshot.supportTickets, viewerIdentifier, cache)
+
+    return {
+      ...snapshot,
+      chats,
+      groups,
+      subscriptionChannels,
+      supportTickets,
+      threadInbox: this.rebuildThreadInboxWithVisibleContent(snapshot.threadInbox, groups, subscriptionChannels),
+    }
+  }
+
   private buildSnapshot(account: Account, token: string): AppSnapshot {
     const supportTickets = materializeSupportTickets(this.database, account.identifier)
     const groups = materializeGroups(this.database, this.livePresenceCountsByIdentifier, account.identifier)
@@ -13198,7 +13556,7 @@ export class TinychokStore {
       ...channel,
       storageUsage: this.getStorageSubjectUsage(this.getChannelStorageSubjectByHandle(channel.handle)),
     }))
-    return {
+    return this.applyFrozenStorageVisibilityToSnapshot({
       channels: managedChannels,
       chats: materializeChats(this.database, this.livePresenceCountsByIdentifier, account.identifier),
       contactRequests: materializeContactRequests(this.database, account.identifier),
@@ -13235,7 +13593,7 @@ export class TinychokStore {
       supportTickets,
       supportUnreadCount: supportTickets.reduce((sum, ticket) => sum + ticket.unreadCount, 0),
       threadInbox: buildThreadInbox(this.database, account.identifier),
-    }
+    }, account.identifier)
   }
 
   private getStaffAccountByTokenOrThrow(token: string) {
@@ -15362,50 +15720,131 @@ export class TinychokStore {
     return this.getChannelStorageSubjectByHandle(handle)
   }
 
-  private getStorageSubjectUsage(subject: StorageSubjectDescriptor): StorageQuotaUsage {
-    const trackedMedia = new Map<string, number>()
+  private getTrackedPrimaryMediaItems(subject: StorageSubjectDescriptor): TrackedPrimaryMediaItem[] {
+    const itemsByMediaUrl = new Map<string, TrackedPrimaryMediaItem>()
+    let nextOrder = 0
 
-    for (const upload of this.database.pendingMediaUploads) {
-      if (subject.kind !== 'user') continue
-      if (upload.ownerIdentifier !== subject.id) continue
-      if (upload.kind !== 'attachment') continue
-      if (upload.linked) continue
-      trackedMedia.set(upload.mediaUrl, upload.size)
+    const upsertItem = (mediaUrl: string | undefined, size: number, createdAt: string | undefined, frozenEligible: boolean) => {
+      if (!mediaUrl || size <= 0) {
+        return
+      }
+
+      const normalizedCreatedAt = createdAt?.trim() || new Date(0).toISOString()
+      const existing = itemsByMediaUrl.get(mediaUrl)
+      if (!existing) {
+        itemsByMediaUrl.set(mediaUrl, {
+          createdAt: normalizedCreatedAt,
+          frozenEligible,
+          mediaUrl,
+          order: nextOrder,
+          size,
+        })
+        nextOrder += 1
+        return
+      }
+
+      existing.frozenEligible = existing.frozenEligible || frozenEligible
+      existing.size = Math.max(existing.size, size)
+
+      const nextCreatedAt = Date.parse(normalizedCreatedAt)
+      const existingCreatedAt = Date.parse(existing.createdAt)
+      if (Number.isNaN(existingCreatedAt) || (!Number.isNaN(nextCreatedAt) && nextCreatedAt < existingCreatedAt)) {
+        existing.createdAt = normalizedCreatedAt
+      }
+    }
+
+    if (subject.kind === 'user') {
+      for (const upload of this.database.pendingMediaUploads) {
+        if (upload.ownerIdentifier !== subject.id) continue
+        if (upload.kind !== 'attachment') continue
+        if (upload.linked) continue
+        upsertItem(upload.mediaUrl, upload.size, upload.createdAt, false)
+      }
     }
 
     for (const reference of this.collectOwnedMediaReferences()) {
       if (reference.storageSubjectKind !== subject.kind || reference.storageSubjectId !== subject.id) continue
       if (reference.archiveReason || reference.archivedAt) continue
-      if (!trackedMedia.has(reference.mediaUrl)) {
-        trackedMedia.set(reference.mediaUrl, reference.size)
-      }
+      if (reference.kind !== 'attachment') continue
+      upsertItem(reference.mediaUrl, reference.size, reference.createdAt, subject.kind === 'user')
     }
 
-    const usedBytes = [...trackedMedia.values()].reduce((total, size) => total + size, 0)
-    return buildStorageQuotaUsage(usedBytes, subject.primaryQuotaBytes)
+    return [...itemsByMediaUrl.values()]
+  }
+
+  private getPrimaryStorageFootprintBytes(subject: StorageSubjectDescriptor) {
+    return this.getTrackedPrimaryMediaItems(subject).reduce((total, item) => total + item.size, 0)
+  }
+
+  private getFrozenPrimaryMediaUrls(subject: StorageSubjectDescriptor) {
+    if (subject.kind !== 'user') {
+      return new Set<string>()
+    }
+
+    const account = this.findAccount(subject.id)
+    if (hasActivePremium(account?.premium, account?.premiumExpiresAt)) {
+      return new Set<string>()
+    }
+
+    const activeItems = this.getTrackedPrimaryMediaItems(subject)
+      .filter((item) => item.frozenEligible)
+      .sort((left, right) => {
+        const leftTimestamp = Date.parse(left.createdAt)
+        const rightTimestamp = Date.parse(right.createdAt)
+        if (!Number.isNaN(leftTimestamp) || !Number.isNaN(rightTimestamp)) {
+          if (Number.isNaN(leftTimestamp)) return -1
+          if (Number.isNaN(rightTimestamp)) return 1
+          if (leftTimestamp !== rightTimestamp) {
+            return leftTimestamp - rightTimestamp
+          }
+        }
+
+        if (left.order !== right.order) {
+          return left.order - right.order
+        }
+
+        return left.mediaUrl.localeCompare(right.mediaUrl)
+      })
+
+    let visibleBytes = activeItems.reduce((total, item) => total + item.size, 0)
+    if (visibleBytes <= subject.primaryQuotaBytes) {
+      return new Set<string>()
+    }
+
+    const frozenMediaUrls = new Set<string>()
+    for (const item of activeItems) {
+      if (visibleBytes <= subject.primaryQuotaBytes) {
+        break
+      }
+      frozenMediaUrls.add(item.mediaUrl)
+      visibleBytes -= item.size
+    }
+
+    return frozenMediaUrls
+  }
+
+  private getStorageSubjectUsage(subject: StorageSubjectDescriptor): StorageQuotaUsage {
+    const frozenMediaUrls = this.getFrozenPrimaryMediaUrls(subject)
+    let usedBytes = 0
+    let frozenBytes = 0
+
+    for (const item of this.getTrackedPrimaryMediaItems(subject)) {
+      if (frozenMediaUrls.has(item.mediaUrl)) {
+        frozenBytes += item.size
+        continue
+      }
+      usedBytes += item.size
+    }
+
+    return buildStorageQuotaUsage(usedBytes, subject.primaryQuotaBytes, {
+      frozenBytes,
+    })
   }
 
   private isMediaTrackedInPrimaryStorage(subject: StorageSubjectDescriptor, mediaUrl?: string) {
     if (!mediaUrl) return false
 
-    for (const upload of this.database.pendingMediaUploads) {
-      if (subject.kind !== 'user') continue
-      if (upload.ownerIdentifier !== subject.id) continue
-      if (upload.kind !== 'attachment') continue
-      if (upload.linked) continue
-      if (upload.mediaUrl === mediaUrl) {
-        return true
-      }
-    }
-
-    return this.collectOwnedMediaReferences().some(
-      (reference) =>
-        reference.mediaUrl === mediaUrl &&
-        reference.storageSubjectKind === subject.kind &&
-        reference.storageSubjectId === subject.id &&
-        !reference.archiveReason &&
-        !reference.archivedAt,
-    )
+    return this.getTrackedPrimaryMediaItems(subject).some((item) => item.mediaUrl === mediaUrl)
   }
 
   private getArchiveStorageUsage(subject: StorageSubjectDescriptor): StorageArchiveUsage {
@@ -15451,6 +15890,7 @@ export class TinychokStore {
 
   private buildStorageCleanupCandidates(subject: StorageSubjectDescriptor) {
     const candidatesByMediaUrl = new Map<string, StorageCleanupCandidate>()
+    const frozenMediaUrls = this.getFrozenPrimaryMediaUrls(subject)
 
     const upsertCandidate = (
       createdAt: string | undefined,
@@ -15459,6 +15899,7 @@ export class TinychokStore {
     ) => {
       if (!createdAt || !mediaUrl) return
       if (candidateSubject.kind !== subject.kind || candidateSubject.id !== subject.id) return
+      if (frozenMediaUrls.has(mediaUrl)) return
 
       const existing = candidatesByMediaUrl.get(mediaUrl)
       if (!existing || Date.parse(createdAt) < Date.parse(existing.createdAt)) {
@@ -16204,7 +16645,7 @@ export class TinychokStore {
 
     for (const item of archivedItems) {
       const additionalBytes = this.isMediaTrackedInPrimaryStorage(subject, item.mediaUrl) ? 0 : item.size
-      if (this.getStorageSubjectUsage(subject).usedBytes + additionalBytes > subject.primaryQuotaBytes) {
+      if (this.getPrimaryStorageFootprintBytes(subject) + additionalBytes > subject.primaryQuotaBytes) {
         continue
       }
 
@@ -16639,6 +17080,7 @@ export class TinychokStore {
 
   private buildPrimaryStorageInventoryForSubject(subject: StorageSubjectDescriptor): UserStorageInventoryItem[] {
     const itemsByMediaUrl = new Map<string, UserStorageInventoryItem>()
+    const frozenMediaUrls = this.getFrozenPrimaryMediaUrls(subject)
 
     for (const reference of this.collectOwnedMediaReferences()) {
       if (reference.storageSubjectKind !== subject.kind || reference.storageSubjectId !== subject.id) continue
@@ -16646,6 +17088,7 @@ export class TinychokStore {
       // Storage manager must only show actively user-manageable media, never retention-only direct archives.
       if (reference.archiveReason) continue
       if (reference.archivedAt) continue
+      if (frozenMediaUrls.has(reference.mediaUrl)) continue
 
       const existing = itemsByMediaUrl.get(reference.mediaUrl)
       if (!existing) {
@@ -18478,6 +18921,67 @@ export class TinychokStore {
     }
 
     return [...affectedOwners]
+  }
+
+  private collectStorageVisibilityBroadcastIdentifiersForUser(ownerIdentifier: string) {
+    const broadcastIdentifiers = new Set<string>([ownerIdentifier])
+
+    for (const message of this.database.dialogMessages) {
+      if (message.archivedAt) continue
+      if (this.getDirectMessageAttachmentOwnerIdentifier(message) !== ownerIdentifier) continue
+      if (!message.attachment?.mediaUrl) continue
+      broadcastIdentifiers.add(message.ownerIdentifier)
+    }
+
+    for (const message of this.database.groupMessages) {
+      if (
+        message.attachment?.mediaUrl &&
+        this.getGroupMessageAttachmentOwnerIdentifier(message) === ownerIdentifier
+      ) {
+        broadcastIdentifiers.add(message.ownerIdentifier)
+      }
+
+      for (const comment of compactThreadComments(message.threadComments)) {
+        if (!comment.attachment?.mediaUrl) continue
+        if ((normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier) !== ownerIdentifier) {
+          continue
+        }
+        broadcastIdentifiers.add(message.ownerIdentifier)
+      }
+    }
+
+    for (const post of this.database.subscriptionPosts) {
+      if (
+        post.attachment?.mediaUrl &&
+        this.getSubscriptionPostAttachmentOwnerIdentifier(post) === ownerIdentifier
+      ) {
+        broadcastIdentifiers.add(post.ownerIdentifier)
+      }
+
+      for (const comment of compactThreadComments(post.threadComments)) {
+        if (!comment.attachment?.mediaUrl) continue
+        if ((normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier) !== ownerIdentifier) {
+          continue
+        }
+        broadcastIdentifiers.add(post.ownerIdentifier)
+      }
+    }
+
+    for (const ticket of this.database.supportTickets) {
+      if (ticket.ownerIdentifier === ownerIdentifier && ticket.attachment?.mediaUrl) {
+        broadcastIdentifiers.add(ticket.ownerIdentifier)
+      }
+
+      for (const comment of compactThreadComments(ticket.comments)) {
+        if (!comment.attachment?.mediaUrl) continue
+        if ((normalizeIdentifier(comment.authorIdentifier ?? '') || ticket.ownerIdentifier) !== ownerIdentifier) {
+          continue
+        }
+        broadcastIdentifiers.add(ticket.ownerIdentifier)
+      }
+    }
+
+    return [...broadcastIdentifiers]
   }
 
   private syncDialogContactProfile(dialog: PersistedDialog, account: Account) {

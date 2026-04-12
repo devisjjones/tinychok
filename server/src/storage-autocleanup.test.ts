@@ -353,6 +353,235 @@ test('premium upgrade restores storage-quota archived attachments back into visi
   )
 })
 
+test('premium downgrade freezes oldest active files in primary storage and repurchase unfreezes them', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const sender = createAccount('+79991110033')
+  const peer = createAccount('+79991110034')
+  sender.premium = true
+  sender.premiumExpiresAt = '2026-05-01T00:00:00.000Z'
+  database.accounts.push(sender, peer)
+  const senderToken = createSession(database, sender.identifier, 'storage-freeze-sender')
+  const peerToken = createSession(database, peer.identifier, 'storage-freeze-peer')
+  seedAcceptedContactLink(database, sender.identifier, peer.identifier)
+
+  const opened = await store.openDirectDialog(senderToken, { identifier: peer.identifier })
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'freeze-old-photo.jpg',
+    mediaUrl: 'uploads/attachment/freeze-old-photo.jpg',
+    mimeType: 'image/jpeg',
+    size: 95 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'freeze-old-photo.jpg',
+      mediaUrl: 'uploads/attachment/freeze-old-photo.jpg',
+      mimeType: 'image/jpeg',
+      size: 95 * 1024 * 1024,
+    },
+    text: '',
+  })
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'freeze-fresh-doc.pdf',
+    mediaUrl: 'uploads/attachment/freeze-fresh-doc.pdf',
+    mimeType: 'application/pdf',
+    size: 20 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'freeze-fresh-doc.pdf',
+      mediaUrl: 'uploads/attachment/freeze-fresh-doc.pdf',
+      mimeType: 'application/pdf',
+      size: 20 * 1024 * 1024,
+    },
+    text: '',
+  })
+
+  const beforeDowngradeStorage = store.listUserStorageItems(senderToken)
+  assert.equal(beforeDowngradeStorage.items.length, 2)
+  assert.equal(beforeDowngradeStorage.usage.storageUsage?.usedBytes, 115 * 1024 * 1024)
+  assert.equal(database.archivedMedia.length, 0)
+
+  const downgradeResult = await store.setDebugPremiumState(senderToken, {
+    durationDays: 30,
+    enabled: false,
+  })
+
+  assert.equal(downgradeResult.snapshot.session.premium, false)
+  assert.equal(downgradeResult.snapshot.session.storageUsage?.usedBytes, 20 * 1024 * 1024)
+  assert.equal(downgradeResult.snapshot.session.storageUsage?.frozenBytes, 95 * 1024 * 1024)
+  assert.equal(downgradeResult.snapshot.session.storageUsage?.totalBytes, 115 * 1024 * 1024)
+  assert.equal(database.archivedMedia.length, 0)
+
+  const adminDowngradedUser = store.adminGetUser(sender.identifier).user
+  assert.equal(adminDowngradedUser.storageUsage?.frozenBytes, 95 * 1024 * 1024)
+
+  const senderMessages = database.dialogMessages
+    .filter((message) => message.ownerIdentifier === sender.identifier && message.dialogId === opened.dialogId)
+    .sort((left, right) => left.id - right.id)
+  assert.equal(senderMessages[0]?.attachment?.mediaUrl, 'uploads/attachment/freeze-old-photo.jpg')
+  assert.equal(senderMessages[0]?.attachmentRemovedNotice, undefined)
+
+  const downgradedStorage = store.listUserStorageItems(senderToken)
+  assert.equal(downgradedStorage.items.length, 1)
+  assert.equal(downgradedStorage.items[0]?.mediaUrl, 'uploads/attachment/freeze-fresh-doc.pdf')
+  assert.equal(downgradedStorage.usage.storageUsage?.frozenBytes, 95 * 1024 * 1024)
+
+  const downgradedSenderChat = downgradeResult.snapshot.chats.find((chat) => chat.id === opened.dialogId)
+  assert.ok(downgradedSenderChat)
+  assert.equal(downgradedSenderChat?.messages[0]?.attachment, undefined)
+  assert.equal(downgradedSenderChat?.messages[0]?.attachmentRemovedNotice?.reason, 'storage-quota')
+  assert.equal(downgradedSenderChat?.messages[0]?.attachmentRemovedNotice?.perspective, 'self')
+
+  const peerDialogId = store
+    .getSnapshotByToken(peerToken)
+    ?.chats.find((chat) => chat.phone === sender.identifier)?.id
+  assert.ok(peerDialogId)
+  const downgradedPeerChat = store.getSnapshotByToken(peerToken)?.chats.find((chat) => chat.id === peerDialogId)
+  assert.ok(downgradedPeerChat)
+  assert.equal(downgradedPeerChat?.messages[0]?.attachment, undefined)
+  assert.equal(downgradedPeerChat?.messages[0]?.attachmentRemovedNotice?.reason, 'storage-quota')
+  assert.equal(downgradedPeerChat?.messages[0]?.attachmentRemovedNotice?.perspective, 'peer')
+
+  const upgradeResult = await store.setDebugPremiumState(senderToken, {
+    durationDays: 30,
+    enabled: true,
+  })
+
+  assert.equal(upgradeResult.snapshot.session.premium, true)
+  assert.equal(upgradeResult.snapshot.session.storageUsage?.usedBytes, 115 * 1024 * 1024)
+  assert.equal(upgradeResult.snapshot.session.storageUsage?.frozenBytes, undefined)
+
+  const upgradedStorage = store.listUserStorageItems(senderToken)
+  assert.equal(upgradedStorage.items.length, 2)
+  assert.equal(
+    upgradedStorage.items.map((item) => item.mediaUrl).sort().join(','),
+    ['uploads/attachment/freeze-fresh-doc.pdf', 'uploads/attachment/freeze-old-photo.jpg'].sort().join(','),
+  )
+
+  const upgradedSenderChat = upgradeResult.snapshot.chats.find((chat) => chat.id === opened.dialogId)
+  assert.ok(upgradedSenderChat)
+  assert.equal(upgradedSenderChat?.messages[0]?.attachment?.mediaUrl, 'uploads/attachment/freeze-old-photo.jpg')
+  assert.equal(upgradedSenderChat?.messages[0]?.attachmentRemovedNotice, undefined)
+
+  const upgradedPeerChat = store.getSnapshotByToken(peerToken)?.chats.find((chat) => chat.id === peerDialogId)
+  assert.ok(upgradedPeerChat)
+  assert.equal(upgradedPeerChat?.messages[0]?.attachment?.mediaUrl, 'uploads/attachment/freeze-old-photo.jpg')
+  assert.equal(upgradedPeerChat?.messages[0]?.attachmentRemovedNotice, undefined)
+})
+
+test('premium re-upgrade respects total active footprint and does not over-restore archived files beyond quota', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const sender = createAccount('+79991110035')
+  const peer = createAccount('+79991110036')
+  database.accounts.push(sender, peer)
+  const senderToken = createSession(database, sender.identifier, 'storage-footprint-sender')
+  seedAcceptedContactLink(database, sender.identifier, peer.identifier)
+
+  const opened = await store.openDirectDialog(senderToken, { identifier: peer.identifier })
+
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'footprint-archived.jpg',
+    mediaUrl: 'uploads/attachment/footprint-archived.jpg',
+    mimeType: 'image/jpeg',
+    size: 95 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'footprint-archived.jpg',
+      mediaUrl: 'uploads/attachment/footprint-archived.jpg',
+      mimeType: 'image/jpeg',
+      size: 95 * 1024 * 1024,
+    },
+    text: '',
+  })
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'footprint-visible.pdf',
+    mediaUrl: 'uploads/attachment/footprint-visible.pdf',
+    mimeType: 'application/pdf',
+    size: 20 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'footprint-visible.pdf',
+      mediaUrl: 'uploads/attachment/footprint-visible.pdf',
+      mimeType: 'application/pdf',
+      size: 20 * 1024 * 1024,
+    },
+    text: '',
+  })
+
+  assert.equal(database.archivedMedia.length, 1)
+  assert.equal(database.archivedMedia[0]?.mediaUrl, 'uploads/attachment/footprint-archived.jpg')
+  database.archivedMedia[0]!.size = 990 * 1024 * 1024
+
+  const firstUpgradeResult = await store.setDebugPremiumState(senderToken, {
+    durationDays: 30,
+    enabled: true,
+  })
+  assert.equal(database.archivedMedia.length, 1)
+  assert.equal(firstUpgradeResult.snapshot.session.storageUsage?.usedBytes, 20 * 1024 * 1024)
+
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'footprint-premium-1.mp4',
+    mediaUrl: 'uploads/attachment/footprint-premium-1.mp4',
+    mimeType: 'video/mp4',
+    size: 400 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'footprint-premium-1.mp4',
+      mediaUrl: 'uploads/attachment/footprint-premium-1.mp4',
+      mimeType: 'video/mp4',
+      size: 400 * 1024 * 1024,
+    },
+    text: '',
+  })
+  await registerPendingAttachment(store, senderToken, {
+    fileName: 'footprint-premium-2.mp4',
+    mediaUrl: 'uploads/attachment/footprint-premium-2.mp4',
+    mimeType: 'video/mp4',
+    size: 350 * 1024 * 1024,
+  })
+  await store.sendDirectMessage(senderToken, opened.dialogId, {
+    attachment: {
+      fileName: 'footprint-premium-2.mp4',
+      mediaUrl: 'uploads/attachment/footprint-premium-2.mp4',
+      mimeType: 'video/mp4',
+      size: 350 * 1024 * 1024,
+    },
+    text: '',
+  })
+
+  const downgradeResult = await store.setDebugPremiumState(senderToken, {
+    durationDays: 30,
+    enabled: false,
+  })
+  assert.equal(downgradeResult.snapshot.session.storageUsage?.usedBytes, 0)
+  assert.equal(downgradeResult.snapshot.session.storageUsage?.frozenBytes, 770 * 1024 * 1024)
+
+  const secondUpgradeResult = await store.setDebugPremiumState(senderToken, {
+    durationDays: 30,
+    enabled: true,
+  })
+
+  assert.equal(secondUpgradeResult.snapshot.session.storageUsage?.usedBytes, 770 * 1024 * 1024)
+  assert.equal(secondUpgradeResult.snapshot.session.storageUsage?.frozenBytes, undefined)
+  assert.equal(database.archivedMedia.length, 1)
+  assert.equal(database.archivedMedia[0]?.mediaUrl, 'uploads/attachment/footprint-archived.jpg')
+
+  const senderChat = secondUpgradeResult.snapshot.chats.find((chat) => chat.id === opened.dialogId)
+  assert.ok(senderChat)
+  const hiddenArchivedMessage = senderChat?.messages.find(
+    (message) =>
+      message.attachmentRemovedNotice?.reason === 'storage-quota' &&
+      message.attachment === undefined,
+  )
+  assert.ok(hiddenArchivedMessage)
+  assert.equal(hiddenArchivedMessage?.attachment, undefined)
+})
+
 test('premium upgrade backfills legacy restore targets for newer archived attachments without restoring older orphan placeholders', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)

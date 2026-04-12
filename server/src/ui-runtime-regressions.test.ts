@@ -10,6 +10,8 @@ import {
   quietToggleIcons,
 } from '../../src/app/iconContracts'
 import {
+  freeArchiveStorageQuotaBytes,
+  freeStorageQuotaBytes,
   premiumArchiveStorageQuotaBytes,
   premiumStorageQuotaBytes,
 } from '../../src/shared/constants'
@@ -4047,7 +4049,7 @@ test('group creation limit follows active tariff groups only', async () => {
   )
 })
 
-test('premium storage quotas stay sticky after downgrade and for expired premium restored from persisted state', async () => {
+test('premium storage quotas shrink back to free after downgrade and expired premium no longer keeps sticky storage', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
   const premiumAccount = createAccount('+79990210011', {
@@ -4062,22 +4064,22 @@ test('premium storage quotas stay sticky after downgrade and for expired premium
     enabled: false,
   })
   assert.equal(downgradeResult.snapshot.session.premium, false)
-  assert.equal(downgradeResult.snapshot.session.storageUsage?.quotaBytes, premiumStorageQuotaBytes)
+  assert.equal(downgradeResult.snapshot.session.storageUsage?.quotaBytes, freeStorageQuotaBytes)
 
   const downgradedAdminUser = store.adminGetUser(premiumAccount.identifier).user
-  assert.equal(downgradedAdminUser.archiveStorageUsage?.quotaBytes, premiumArchiveStorageQuotaBytes)
+  assert.equal(downgradedAdminUser.archiveStorageUsage?.quotaBytes, freeArchiveStorageQuotaBytes)
 
   const downgradedAccount = database.accounts.find((account) => account.identifier === premiumAccount.identifier)
-  assert.equal(downgradedAccount?.retainedStorageQuotaBytes, premiumStorageQuotaBytes)
-  assert.equal(downgradedAccount?.retainedArchiveStorageQuotaBytes, premiumArchiveStorageQuotaBytes)
+  assert.equal(downgradedAccount?.retainedStorageQuotaBytes, undefined)
+  assert.equal(downgradedAccount?.retainedArchiveStorageQuotaBytes, undefined)
 
   const expiredPremiumAccount = {
     ...createAccount('+79990210012', {
       premium: true,
       premiumExpiresAt: '2026-03-01T00:00:00.000Z',
     }),
-    retainedArchiveStorageQuotaBytes: undefined,
-    retainedStorageQuotaBytes: undefined,
+    retainedArchiveStorageQuotaBytes: premiumArchiveStorageQuotaBytes,
+    retainedStorageQuotaBytes: premiumStorageQuotaBytes,
   }
   const { database: restoredDatabase } = coerceDatabasePayload({
     accounts: [expiredPremiumAccount],
@@ -4086,34 +4088,42 @@ test('premium storage quotas stay sticky after downgrade and for expired premium
   const restoredToken = createSession(restoredDatabase, expiredPremiumAccount.identifier, 'expired-premium-storage-sticky')
   const restoredSnapshot = restoredStore.getSnapshotByToken(restoredToken)
   assert.ok(restoredSnapshot)
-  assert.equal(restoredSnapshot?.session.storageUsage?.quotaBytes, premiumStorageQuotaBytes)
+  assert.equal(restoredSnapshot?.session.storageUsage?.quotaBytes, freeStorageQuotaBytes)
 
   const restoredAdminUser = restoredStore.adminGetUser(expiredPremiumAccount.identifier).user
-  assert.equal(restoredAdminUser.archiveStorageUsage?.quotaBytes, premiumArchiveStorageQuotaBytes)
+  assert.equal(restoredAdminUser.archiveStorageUsage?.quotaBytes, freeArchiveStorageQuotaBytes)
 
   const restoredAccount = restoredDatabase.accounts.find(
     (account: { identifier: string }) => account.identifier === expiredPremiumAccount.identifier,
   )
-  assert.equal(restoredAccount?.retainedStorageQuotaBytes, premiumStorageQuotaBytes)
-  assert.equal(restoredAccount?.retainedArchiveStorageQuotaBytes, premiumArchiveStorageQuotaBytes)
+  assert.equal(restoredAccount?.retainedStorageQuotaBytes, undefined)
+  assert.equal(restoredAccount?.retainedArchiveStorageQuotaBytes, undefined)
 })
 
-test('sticky premium storage retention stays explicit in source and docs', () => {
+test('premium storage freeze-and-restore contract stays explicit in source, admin UI and docs', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const storeSource = readFileSync(join(repoRoot, 'server', 'src', 'store.ts'), 'utf8')
+  const adminAppSource = readFileSync(join(repoRoot, 'src', 'AdminApp.tsx'), 'utf8')
+  const adminCssSource = readFileSync(join(repoRoot, 'src', 'admin.css'), 'utf8')
   const releaseDoc = readFileSync(join(repoRoot, 'docs', 'release-contracts.md'), 'utf8')
   const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
   const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
 
   assert.match(storeSource, /retainedStorageQuotaBytes/u)
   assert.match(storeSource, /retainedArchiveStorageQuotaBytes/u)
-  assert.match(storeSource, /rememberUnlockedPremiumStorageQuota/u)
-  assert.match(storeSource, /Once a user unlocks premium storage, don't shrink the quota back on expiry\./u)
+  assert.doesNotMatch(storeSource, /rememberUnlockedPremiumStorageQuota/u)
+  assert.doesNotMatch(storeSource, /Once a user unlocks premium storage, don't shrink the quota back on expiry\./u)
   assert.match(storeSource, /getEffectiveUserStorageQuotaBytes/u)
   assert.match(storeSource, /getEffectiveUserArchiveStorageQuotaBytes/u)
-  assert.match(releaseDoc, /истечение premium не должно сжимать user storage quota назад/u)
-  assert.match(rolloutDoc, /premium истёк, а пользователь раньше уже получил premium storage, квота назад не сжимается/u)
-  assert.match(handoffDoc, /если premium истёк после активного premium-периода, user storage quota и archive quota не должны сжиматься назад до free/u)
+  assert.match(storeSource, /getFrozenPrimaryMediaUrls/u)
+  assert.match(storeSource, /collectStorageVisibilityBroadcastIdentifiersForUser/u)
+  assert.match(adminAppSource, /Заморожено/u)
+  assert.match(adminCssSource, /admin-storage-usage-bar-fill--frozen/u)
+  assert.match(releaseDoc, /истечение premium снова сжимает user storage quota до free/u)
+  assert.match(releaseDoc, /сверх free-лимита остаются в active storage и замораживаются/u)
+  assert.match(rolloutDoc, /при истечении premium активная квота снова сжимается до free/u)
+  assert.match(rolloutDoc, /замороженный active storage в админке рисуется синей полосой/u)
+  assert.match(handoffDoc, /при истечении premium файлы сверх free-лимита не уезжают в archive, а замораживаются в active/u)
 })
 
 test('premium screen and create-group modal keep tariff group-count copy wired', () => {

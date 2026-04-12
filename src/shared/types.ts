@@ -51,9 +51,11 @@ export type UserStorageItem = {
 export type StorageSubjectKind = 'user' | 'group' | 'channel'
 
 export type StorageUsage = {
+  frozenBytes?: number
   percentUsed: number
   quotaBytes: number
   remainingBytes: number
+  totalBytes?: number
   usedBytes: number
 }
 

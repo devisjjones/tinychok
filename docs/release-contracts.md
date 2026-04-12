@@ -235,15 +235,21 @@
 - общая GIF-библиотека Tinychok хранится отдельно от пользовательской quota и не должна исчезать при удалении GIF из личной библиотеки или удалении аккаунта-загрузчика
 - group root attachments и group thread attachments хранятся в storage автора
 - channel post attachments остаются в storage канала с квотой `500 MB`
-- если пользователь уже разблокировал premium storage, истечение premium не должно сжимать user storage quota назад:
-  - active storage остаётся на premium-объёме
-  - archive storage тоже остаётся на premium-объёме
-  - это server-side sticky quota контракт, а не UI-подсказка
+- истечение premium снова сжимает user storage quota до free:
+  - active storage quota возвращается к free-лимиту
+  - archive storage quota тоже возвращается к free-лимиту
+- файлы пользователя сверх free-лимита после истечения premium не должны автоматически переезжать в archive:
+  - такие файлы сверх free-лимита остаются в active storage и замораживаются
+  - для самого пользователя это выглядит как исчезнувшие / недоступные вложения
+  - admin export активного хранилища при этом всё равно должен включать такие frozen media
 - если auto-cleanup уже отправил вложения пользователя в архив из-за переполнения quota, а затем quota выросла и свободного места снова хватает:
   - backend обязан попытаться вернуть такие auto-archived вложения обратно в исходные сообщения / посты / комментарии
   - это server-side restore контракт, а не ручная клиентская операция
   - новые auto-archive записи обязаны хранить достаточный restore-route, чтобы восстановление было воспроизводимым
   - legacy `storage-quota` архив без `restoreTargets` тоже обязан восстанавливаться через unresolved `attachmentRemovedNotice` holes
+- если premium возвращается после downgrade:
+  - frozen active media должны снова становиться доступными без ручного migrate
+  - restore archived media должен считать реальный active footprint целиком, включая ранее frozen active файлы, а не только видимый free-слой
   - если часть старых archive rows уже успела исчезнуть из archive storage, restore не должен промахиваться в более старые orphan placeholders; матчинг обязан идти по контексту и tail chronology оставшихся archive items
 - auto-cleanup не должен удалять сообщение / комментарий / пост целиком:
   - в UI обязана оставаться viewer-aware заметка:

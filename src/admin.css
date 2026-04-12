@@ -863,10 +863,19 @@
 }
 
 .admin-storage-usage-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
   display: block;
   height: 100%;
-  border-radius: inherit;
   background: linear-gradient(90deg, rgba(140, 87, 56, 0.78), rgba(197, 136, 84, 0.92));
+}
+
+.admin-storage-usage-bar-fill--visible {
+  border-radius: inherit;
+}
+
+.admin-storage-usage-bar-fill--frozen {
+  background: linear-gradient(90deg, rgba(77, 132, 220, 0.88), rgba(110, 171, 255, 0.96));
 }
 
 .admin-storage-usage-meta {

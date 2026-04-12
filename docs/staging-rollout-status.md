@@ -456,6 +456,10 @@
 - `PUT /api/snapshot` больше не доверяет клиенту чувствительные session/account поля:
   - premium / premiumExpiresAt / retained storage quota / avatarImage / privacy/security state не принимаются из snapshot
   - snapshot сохраняет только безопасные room UI flags
+- при истечении premium активная квота снова сжимается до free:
+  - overflow active media не переезжают в archive автоматически
+  - они остаются в active и скрываются для пользователя как frozen layer
+  - замороженный active storage в админке рисуется синей полосой
 - все send-path с attachment теперь проходят через единый ownership guard:
   - чужой `mediaUrl`
   - незарегистрированный `mediaUrl`
@@ -912,6 +916,8 @@ curl -s https://api.staging.tinychok.ru/healthz
   - `media-bubble-row` остаётся зажатым в viewport, bubble track shrinkable, horizontal overflow отсутствует
 - premium archive restore:
   - при выдаче premium пользователю auto-archived `storage-quota` вложения должны возвращаться в primary storage, если квота позволяет
+  - до возврата archive backend сначала обязан разморозить frozen active media этого пользователя
+  - решение о restore обязано считать весь реальный active footprint, а не только текущий видимый free-слой
   - это должно работать и для legacy archived rows без `restoreTargets`
   - если часть старых archived rows уже исчезла из archive storage, restore не должен попадать в более старые orphan placeholders; восстанавливаются только реально оставшиеся archive rows
 - thread root source:

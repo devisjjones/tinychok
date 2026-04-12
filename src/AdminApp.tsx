@@ -195,28 +195,69 @@ function formatBytes(value: number) {
 
 function renderAdminStorageUsageCard(
   label: string,
-  usage?: { percentUsed: number; quotaBytes: number; remainingBytes: number; usedBytes: number },
+  usage?: {
+    frozenBytes?: number
+    percentUsed: number
+    quotaBytes: number
+    remainingBytes: number
+    totalBytes?: number
+    usedBytes: number
+  },
   options?: { unlimited?: boolean },
 ) {
   const percent = Math.max(0, Math.min(100, usage?.percentUsed ?? 0))
+  const frozenBytes = Math.max(0, usage?.frozenBytes ?? 0)
+  const totalBytes = Math.max(usage?.usedBytes ?? 0, usage?.totalBytes ?? (usage?.usedBytes ?? 0) + frozenBytes)
+  const hasFrozenStorage = frozenBytes > 0
+  const barDenominator = hasFrozenStorage
+    ? Math.max(totalBytes, 1)
+    : Math.max(usage?.quotaBytes ?? 0, 1)
+  const visibleBarPercent = usage
+    ? Math.max(0, Math.min(100, ((usage.usedBytes ?? 0) / barDenominator) * 100))
+    : 0
+  const frozenBarPercent = hasFrozenStorage
+    ? Math.max(0, Math.min(100 - visibleBarPercent, (frozenBytes / barDenominator) * 100))
+    : 0
+  const quotaLabel = options?.unlimited ? 'без лимита' : formatBytes(usage?.quotaBytes ?? 0)
+
   return (
     <div className="admin-storage-usage-card">
       <div className="admin-storage-usage-header">
         <dt>{label}</dt>
         <dd>
           {usage
-            ? `${formatBytes(usage.usedBytes)} / ${options?.unlimited ? 'без лимита' : formatBytes(usage.quotaBytes)}`
+            ? `${formatBytes(hasFrozenStorage ? totalBytes : usage.usedBytes)} / ${quotaLabel}`
             : 'Нет данных'}
         </dd>
       </div>
       <div className="admin-storage-usage-bar" aria-hidden="true">
-        <span className="admin-storage-usage-bar-fill" style={{ width: `${Math.max(4, percent)}%` }} />
+        {usage ? (
+          <>
+            <span
+              className="admin-storage-usage-bar-fill admin-storage-usage-bar-fill--visible"
+              style={{
+                width: `${hasFrozenStorage ? visibleBarPercent : percent > 0 ? Math.max(4, percent) : 0}%`,
+              }}
+            />
+            {hasFrozenStorage ? (
+              <span
+                className="admin-storage-usage-bar-fill admin-storage-usage-bar-fill--frozen"
+                style={{
+                  left: `${visibleBarPercent}%`,
+                  width: `${frozenBarPercent}%`,
+                }}
+              />
+            ) : null}
+          </>
+        ) : null}
       </div>
       <span className="admin-storage-usage-meta">
         {options?.unlimited
           ? 'Ограничение архивного хранилища снято'
           : usage
-            ? `Осталось ${formatBytes(usage.remainingBytes)}`
+            ? hasFrozenStorage
+              ? `Доступно ${formatBytes(usage.remainingBytes)} · Заморожено ${formatBytes(frozenBytes)}`
+              : `Осталось ${formatBytes(usage.remainingBytes)}`
             : 'Нет данных'}
       </span>
     </div>

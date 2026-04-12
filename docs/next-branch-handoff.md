@@ -593,10 +593,14 @@
 - группа больше не имеет собственного хранилища
 - все вложения из группы, включая корневые сообщения и треды, считаются в личном хранилище автора
 - channel primary quota: `500 MB`
-- если premium истёк после активного premium-периода, user storage quota и archive quota не должны сжиматься назад до free
+- при истечении premium user storage quota и archive quota снова сжимаются назад до free
+- при истечении premium файлы сверх free-лимита не уезжают в archive, а замораживаются в active
+- frozen active media должны скрываться только для владельца user-facing слоёв, но оставаться доступными для admin export
 - если auto-cleanup уже отправил вложения пользователя в архив, а затем quota выросла и свободного места снова хватает:
   - backend должен попытаться вернуть такие auto-archived вложения обратно в исходные сообщения / посты / комментарии
-  - это работает только для auto-archive записей, где сохранён restore-route
+  - до archive restore backend сначала обязан разморозить frozen active media
+  - это работает и для новых auto-archive записей с `restoreTargets`, и для legacy archived rows через backfill unresolved `attachmentRemovedNotice.reason = storage-quota`
+  - решение о restore должно считать полный active footprint, а не только видимую free-часть
 - ручное удаление из `Хранилища` не должно убирать bubble целиком:
   - владелец видит `Вложение удалено вами из хранилища, чтобы освободить место.`
   - читатель видит `Вложение удалено владельцем из хранилища, чтобы освободить место.`
