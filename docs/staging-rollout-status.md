@@ -723,9 +723,10 @@ bash scripts/deploy-staging.sh
   - `https://api.staging.tinychok.ru/healthz` → `{"status":"ok"}`
   - `https://api.staging.tinychok.ru/readyz` → `storage.layout = hybrid-normalized`
   - `https://api.staging.tinychok.ru/api/client-config` → `analytics.enabled=true`, `provider=log`, `metricaCounterId=108249405`
-- `https://staging.tinychok.ru` реально отдаёт `assets/main-VpBVZlFJ.js`
-  - dist bootstrap больше не монолитный: runtime URLs подтверждаются через split assets, а не через один giant main chunk
-- подтверждённый staging VM commit после live deploy `2026-04-13`: `bb74930`
+- live `assets/main-*.js` и staging VM commit не фиксировать здесь вручную:
+  - каждый новый commit сразу делает эти значения устаревшими
+  - актуальные proof-points нужно снимать по командам из [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md)
+  - dist bootstrap остаётся split-chain, поэтому verify нужно делать по реальному live asset, а не по старой записи в этом файле
 
 ## Minimal Post-Deploy Check
 

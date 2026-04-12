@@ -67,10 +67,9 @@
 - fallback-защита на web-vhost тоже важна:
   - `staging.tinychok.ru/api/*` и `staging.tinychok.ru/ws` должны проксироваться на backend без повторного basic-auth challenge
   - even so, этот proxy не отменяет requirement собирать staging именно через `build:staging`
-- текущий подтверждённый user-frontend asset на staging после deploy `2026-04-13`:
-  - `assets/main-VpBVZlFJ.js`
-- подтверждённый staging VM commit после live deploy `2026-04-13`:
-  - `bb74930`
+- не держать здесь вручную точный live `assets/main-*.js` и staging commit:
+  - любой новый commit меняет bootstrap asset, поэтому эта запись устаревает сразу же после следующего deploy
+  - актуальные proof-points всегда снимать по runbook-командам из [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md)
 - временное review-исключение активно с `2026-04-07`:
   - public user frontend `https://staging.tinychok.ru` намеренно открыт без user `basic auth`
   - причина: внешний review с новых устройств без логин/пароль prompt
