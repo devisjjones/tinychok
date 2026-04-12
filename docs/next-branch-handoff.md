@@ -250,6 +250,10 @@
 - во время inline playback по краю кружочка должен идти визуальный progress-ring:
   - он показывает оставшуюся длину ролика
   - это отдельный кастомный UI-слой, а не browser video controls
+- во время pending upload у video-note под shell обязана быть отдельная линейная progress-полоска:
+  - она живёт под квадратиком / кружочком, а не внутри media preview
+  - она использует реальный `uploadProgressPercent`
+  - визуальные `100%` означают, что загрузка действительно завершилась и pending-state должен исчезнуть
 
 ### PostgreSQL Runtime Layout
 

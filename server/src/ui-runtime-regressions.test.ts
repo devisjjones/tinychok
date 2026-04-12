@@ -6297,7 +6297,7 @@ test('mobile video-note contract keeps bubble and recorder preview square-ish on
   assert.match(handoffDoc, /при inline playback mobile квадратик всё равно обязан расширяться заметно больше базового preview/u)
 })
 
-test('pending video-note uploads keep a circular progress ring and separate sending status', () => {
+test('pending video-note uploads keep a circular ring plus a linear progress bar under the shell', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
@@ -6317,6 +6317,10 @@ test('pending video-note uploads keep a circular progress ring and separate send
   assert.match(
     bubbleSource,
     /className="bubble-attachment-video-note-footer"[\s\S]*className="bubble-attachment-video-note-upload-status"[\s\S]*src="\/icons\/hourglass-48\.png"[\s\S]*<span>Отправка<\/span>[\s\S]*className="bubble-attachment-video-note-meta"/u,
+  )
+  assert.match(
+    bubbleSource,
+    /className="bubble-attachment-video-note-upload-stack"[\s\S]*className="bubble-attachment-upload-progress bubble-attachment-video-note-upload-bar"[\s\S]*aria-label=\{attachmentUploadCopy\}[\s\S]*style=\{\{ width: `\$\{uploadProgressPercent \?\? 0\}%` \}\}/u,
   )
   assert.match(
     bubbleSource,
@@ -6340,7 +6344,15 @@ test('pending video-note uploads keep a circular progress ring and separate send
   )
   assert.match(
     appCss,
+    /\.bubble-attachment-video-note-upload-stack\s*\{[\s\S]*display:\s*grid;[\s\S]*gap:\s*6px;[\s\S]*width:\s*100%;/u,
+  )
+  assert.match(
+    appCss,
     /\.bubble-attachment-video-note-upload-status\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*white-space:\s*nowrap;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-video-note-upload-bar\s*\{[\s\S]*justify-self:\s*stretch;[\s\S]*width:\s*100%;[\s\S]*height:\s*8px;/u,
   )
   assert.match(
     appCss,

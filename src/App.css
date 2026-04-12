@@ -5099,6 +5099,12 @@
   width: 100%;
 }
 
+.bubble-attachment-video-note-upload-stack {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
 .bubble-attachment-video-note-upload-status {
   display: inline-flex;
   align-items: center;
@@ -5115,6 +5121,12 @@
   height: 14px;
   object-fit: contain;
   opacity: 0.82;
+}
+
+.bubble-attachment-video-note-upload-bar {
+  justify-self: stretch;
+  width: 100%;
+  height: 8px;
 }
 
 .bubble-attachment-video-note-loading-overlay {

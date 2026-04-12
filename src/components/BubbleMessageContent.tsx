@@ -983,17 +983,32 @@ export function BubbleMessageContent({
         >
           {visualAttachmentNode}
           {showVideoNoteUploadProgress ? (
-            <div className="bubble-attachment-video-note-footer">
-              <span className="bubble-attachment-video-note-upload-status" role="status" aria-live="polite">
-                <img
-                  className="bubble-attachment-video-note-upload-status-indicator"
-                  src="/icons/hourglass-48.png"
-                  alt=""
-                  aria-hidden="true"
+            <div className="bubble-attachment-video-note-upload-stack">
+              <div className="bubble-attachment-video-note-footer">
+                <span className="bubble-attachment-video-note-upload-status" role="status" aria-live="polite">
+                  <img
+                    className="bubble-attachment-video-note-upload-status-indicator"
+                    src="/icons/hourglass-48.png"
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <span>Отправка</span>
+                </span>
+                {imageOverlay ? <span className="bubble-attachment-video-note-meta">{imageOverlay}</span> : null}
+              </div>
+              <span
+                className="bubble-attachment-upload-progress bubble-attachment-video-note-upload-bar"
+                role="progressbar"
+                aria-label={attachmentUploadCopy}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={uploadProgressPercent ?? 0}
+              >
+                <span
+                  className="bubble-attachment-upload-progress-fill"
+                  style={{ width: `${uploadProgressPercent ?? 0}%` }}
                 />
-                <span>Отправка</span>
               </span>
-              {imageOverlay ? <span className="bubble-attachment-video-note-meta">{imageOverlay}</span> : null}
             </div>
           ) : imageOverlay ? (
             <span className="bubble-attachment-video-note-meta">{imageOverlay}</span>
