@@ -762,6 +762,18 @@ function sanitizeMessageAttachment(attachment: Message['attachment']) {
   } satisfies NonNullable<Message['attachment']>
 }
 
+function normalizeAttachmentOwnershipMetadata(input: {
+  fileName: string
+  mimeType: string
+  size: number
+}) {
+  return {
+    fileName: input.fileName.replace(/\s+/g, ' ').trim().slice(0, 120),
+    mimeType: input.mimeType.trim().slice(0, 120),
+    size: Math.max(0, Math.floor(input.size)),
+  }
+}
+
 function assertAttachmentPresentationAllowed(
   attachment: NonNullable<Message['attachment']> | undefined,
   text: string,
@@ -15446,10 +15458,11 @@ export class TinychokStore {
       (item) => item.mediaUrl === sanitizedAttachment.mediaUrl,
     )
     if (ownedGif) {
+      const normalizedOwnedGif = normalizeAttachmentOwnershipMetadata(ownedGif)
       if (
-        ownedGif.fileName !== sanitizedAttachment.fileName ||
-        ownedGif.mimeType !== sanitizedAttachment.mimeType ||
-        ownedGif.size !== sanitizedAttachment.size
+        normalizedOwnedGif.fileName !== sanitizedAttachment.fileName ||
+        normalizedOwnedGif.mimeType !== sanitizedAttachment.mimeType ||
+        normalizedOwnedGif.size !== sanitizedAttachment.size
       ) {
         throw new Error(invalidOwnedAttachmentMessage)
       }
@@ -15465,10 +15478,11 @@ export class TinychokStore {
       (item) => item.mediaUrl === sanitizedAttachment.mediaUrl,
     )
     if (sharedGif) {
+      const normalizedSharedGif = normalizeAttachmentOwnershipMetadata(sharedGif)
       if (
-        sharedGif.fileName !== sanitizedAttachment.fileName ||
-        sharedGif.mimeType !== sanitizedAttachment.mimeType ||
-        sharedGif.size !== sanitizedAttachment.size
+        normalizedSharedGif.fileName !== sanitizedAttachment.fileName ||
+        normalizedSharedGif.mimeType !== sanitizedAttachment.mimeType ||
+        normalizedSharedGif.size !== sanitizedAttachment.size
       ) {
         throw new Error(invalidOwnedAttachmentMessage)
       }
@@ -15492,10 +15506,11 @@ export class TinychokStore {
 
     // `mediaUrl` is client-provided metadata, not proof of ownership.
     // Every message/comment attachment must resolve back to the sender's own registered upload.
+    const normalizedPendingUpload = normalizeAttachmentOwnershipMetadata(pendingUpload)
     if (
-      pendingUpload.fileName !== sanitizedAttachment.fileName ||
-      pendingUpload.mimeType !== sanitizedAttachment.mimeType ||
-      pendingUpload.size !== sanitizedAttachment.size
+      normalizedPendingUpload.fileName !== sanitizedAttachment.fileName ||
+      normalizedPendingUpload.mimeType !== sanitizedAttachment.mimeType ||
+      normalizedPendingUpload.size !== sanitizedAttachment.size
     ) {
       throw new Error(invalidOwnedAttachmentMessage)
     }

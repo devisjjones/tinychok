@@ -370,6 +370,45 @@ test('attachment send paths reject unowned media urls and mark valid uploads lin
   )
 })
 
+test('attachment send paths keep long video filenames linkable after upload registration', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const sender = createAccount('+79991110501')
+  const recipient = createAccount('+79991110502')
+  database.accounts.push(sender, recipient)
+  const senderToken = createSession(database, sender.identifier, 'long-video-filename-sender')
+  seedAcceptedContactLink(database, sender.identifier, recipient.identifier)
+
+  const dialogResponse = await store.openDirectDialog(senderToken, { identifier: recipient.identifier })
+  const veryLongBaseName = `${'video-fragment-'.repeat(12)}final-cut`
+  const longVideoAttachment = buildAttachmentWithOptions(veryLongBaseName, 3 * 1024 * 1024, {
+    extension: '.mp4',
+    mimeType: 'video/mp4',
+  })
+
+  await registerPendingAttachment(store, senderToken, longVideoAttachment)
+  await store.sendDirectMessage(senderToken, dialogResponse.dialogId, {
+    attachment: longVideoAttachment,
+    text: '',
+  })
+
+  const linkedUpload = database.pendingMediaUploads.find(
+    (upload) => upload.mediaUrl === longVideoAttachment.mediaUrl,
+  )
+  assert.equal(linkedUpload?.linked, true)
+
+  const storedMessage = database.dialogMessages.find(
+    (message) =>
+      message.ownerIdentifier === sender.identifier &&
+      message.dialogId === dialogResponse.dialogId &&
+      message.attachment?.mediaUrl === longVideoAttachment.mediaUrl,
+  )
+  assert.ok(storedMessage?.attachment)
+  assert.equal(storedMessage.attachment?.mimeType, 'video/mp4')
+  assert.equal(storedMessage.attachment?.fileName.length, 120)
+  assert.match(storedMessage.attachment?.fileName ?? '', /^video-fragment-/u)
+})
+
 test('video-note attachments stay limited to allowed send paths and preserve presentation in snapshots', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
