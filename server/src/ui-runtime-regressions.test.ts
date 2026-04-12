@@ -6102,6 +6102,26 @@ test('video-note composer uses round.svg as the empty-state primary action and s
   )
   assert.doesNotMatch(roomComposerSource, /className="soft-button composer-tool composer-video-note-button"/u)
   assert.match(appCss, /\.composer-send-video-note \.composer-send-icon img\s*\{[\s\S]*width:\s*24px;[\s\S]*height:\s*24px;/u)
+  assert.match(
+    appCss,
+    /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\) \.composer-send\s*\{[\s\S]*width:\s*42px;[\s\S]*min-width:\s*42px;[\s\S]*height:\s*42px;[\s\S]*border-radius:\s*14px;[\s\S]*margin-bottom:\s*0;/u,
+  )
+  assert.match(
+    appCss,
+    /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\) \.composer-send-icon img\s*\{[\s\S]*width:\s*18px;[\s\S]*height:\s*18px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\) \.composer-send-video-note \.composer-send-icon img\s*\{[\s\S]*width:\s*20px;[\s\S]*height:\s*20px;/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.composer-send\s*\{[\s\S]*background:\s*rgba\(239,\s*240,\s*243,\s*0\.96\);[\s\S]*color:\s*#23262d;/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.composer-send \.composer-send-icon img\s*\{[\s\S]*filter:\s*brightness\(0\) saturate\(100%\) invert\(15%\)/u,
+  )
 })
 
 test('video-note messages render as standalone circles without a rectangular media bubble backdrop', () => {
