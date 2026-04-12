@@ -6169,13 +6169,12 @@ test('mobile direct-room header shrinks long names before they can run into the 
   assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.room-title-name\s*\{[\s\S]*align-items:\s*flex-start;/u)
 })
 
-test('video-note recorder close button keeps the cancel icon centered and the title can switch to the mobile square contract', () => {
+test('video-note recorder close button keeps the cancel icon centered and the recorder title stays on the square contract', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
-  assert.match(recorderSource, /const isMobileRecorderSurface = isMobileBrowserEnvironment\(\)/u)
-  assert.match(recorderSource, /const recorderTitle = isMobileRecorderSurface \? 'Видео-квадратик' : 'Видео-кружочек'/u)
+  assert.match(recorderSource, /const recorderTitle = 'Видео-квадратик'/u)
   assert.match(recorderSource, /aria-label=\{recorderTitle\}/u)
   assert.match(recorderSource, /<h3>\{recorderTitle\}<\/h3>/u)
   assert.match(recorderSource, /aria-label=\{`Закрыть \$\{recorderTitle\.toLowerCase\(\)\}`\}/u)
@@ -6296,7 +6295,7 @@ test('mobile video-note contract keeps bubble and recorder preview square-ish on
     appCss,
     /@media \(max-width: 960px\) and \(pointer: coarse\) \{[\s\S]*\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*30px;[\s\S]*\.bubble-attachment-video-note-progress\s*\{[\s\S]*border-radius:\s*34px;[\s\S]*\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*border-radius:\s*35px;[\s\S]*\.bubble\.video-note-only-bubble:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*min\(440px,\s*100%\);[\s\S]*max-width:\s*min\(440px,\s*100%\);[\s\S]*min-width:\s*0;[\s\S]*\.bubble-attachment-video-note-shell\.is-inline-playing\s*\{[\s\S]*width:\s*min\(440px,\s*100%\);[\s\S]*max-width:\s*min\(440px,\s*100%\);[\s\S]*min-width:\s*0;[\s\S]*\.video-note-recorder-preview-shell\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);[\s\S]*\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);/u,
   )
-  assert.match(handoffDoc, /mobile browser: `Видео-квадратик`/u)
+  assert.match(handoffDoc, /на всех платформах: `Видео-квадратик`/u)
   assert.match(handoffDoc, /mobile browser intentionally keeps video-note surfaces square-ish:/u)
   assert.match(handoffDoc, /при inline playback mobile квадратик всё равно обязан расширяться заметно больше базового preview/u)
 })

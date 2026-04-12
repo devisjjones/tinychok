@@ -7,7 +7,6 @@ import {
   stopMediaStreamTracks,
   videoNoteRecordingLimitMs,
 } from '../app/videoNotes'
-import { isMobileBrowserEnvironment } from '../shared/utils'
 
 // Keep the classic JSX runtime symbol available for server-side contract tests executed via `tsx`.
 void React
@@ -66,8 +65,7 @@ export function VideoNoteRecorderOverlay({
   onClose,
   onUse,
 }: VideoNoteRecorderOverlayProps) {
-  const isMobileRecorderSurface = isMobileBrowserEnvironment()
-  const recorderTitle = isMobileRecorderSurface ? 'Видео-квадратик' : 'Видео-кружочек'
+  const recorderTitle = 'Видео-квадратик'
   const [busy, setBusy] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [errorMessage, setErrorMessage] = useState('')

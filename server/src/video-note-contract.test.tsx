@@ -181,8 +181,8 @@ test('video-note recorder uses the mobile square title on mobile browsers and ke
         <VideoNoteRecorderOverlay onClose={() => undefined} onUse={() => undefined} />,
       )
 
-      assert.match(desktopMarkup, /Видео-кружочек/u)
-      assert.match(desktopMarkup, /Закрыть видео-кружочек/u)
+      assert.match(desktopMarkup, /Видео-квадратик/u)
+      assert.match(desktopMarkup, /Закрыть видео-квадратик/u)
     },
   )
 })
