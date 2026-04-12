@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom'
 import {
   advancePendingRoomFeedScroll,
   createPendingRoomFeedScroll,
+  keepRoomFeedChildVisible,
   shouldPreserveStickyRoomFeedScroll,
 } from '../../src/app/roomFeedAutoScroll'
 
@@ -55,6 +56,58 @@ function createFeed(options: {
       if (next.scrollHeight !== undefined) currentScrollHeight = next.scrollHeight
       if (next.scrollTop !== undefined) currentScrollTop = next.scrollTop
     },
+  }
+}
+
+function createFeedWithTarget(options: {
+  clientHeight: number
+  feedTop: number
+  scrollTop: number
+  targetHeight: number
+  targetTop: number
+}) {
+  const dom = new JSDOM('<!doctype html><div id="feed"><div id="target"></div></div>')
+  const feed = dom.window.document.getElementById('feed') as HTMLElement
+  const target = dom.window.document.getElementById('target') as HTMLElement
+  let currentScrollTop = options.scrollTop
+
+  Object.defineProperty(feed, 'scrollTop', {
+    configurable: true,
+    get: () => currentScrollTop,
+    set: (value: number) => {
+      currentScrollTop = value
+    },
+  })
+
+  feed.getBoundingClientRect = () =>
+    ({
+      bottom: options.feedTop + options.clientHeight,
+      height: options.clientHeight,
+      left: 0,
+      right: 0,
+      top: options.feedTop,
+      width: 0,
+      x: 0,
+      y: options.feedTop,
+      toJSON: () => '',
+    }) as DOMRect
+
+  target.getBoundingClientRect = () =>
+    ({
+      bottom: options.targetTop + options.targetHeight,
+      height: options.targetHeight,
+      left: 0,
+      right: 0,
+      top: options.targetTop,
+      width: 0,
+      x: 0,
+      y: options.targetTop,
+      toJSON: () => '',
+    }) as DOMRect
+
+  return {
+    feed,
+    target,
   }
 }
 
@@ -142,4 +195,44 @@ test('room-open pending scroll preserves sticky mode during initial mount race',
     }),
     false,
   )
+})
+
+test('keepRoomFeedChildVisible scrolls the feed down when an expanded child falls below the viewport', () => {
+  const { feed, target } = createFeedWithTarget({
+    clientHeight: 420,
+    feedTop: 100,
+    scrollTop: 220,
+    targetHeight: 440,
+    targetTop: 140,
+  })
+
+  const result = keepRoomFeedChildVisible({
+    feed,
+    paddingBottom: 18,
+    paddingTop: 12,
+    target,
+  })
+
+  assert.equal(result, true)
+  assert.equal(feed.scrollTop, 248)
+})
+
+test('keepRoomFeedChildVisible aligns an oversized child to the top padding instead of clipping its bottom', () => {
+  const { feed, target } = createFeedWithTarget({
+    clientHeight: 320,
+    feedTop: 80,
+    scrollTop: 40,
+    targetHeight: 340,
+    targetTop: 132,
+  })
+
+  const result = keepRoomFeedChildVisible({
+    feed,
+    paddingBottom: 16,
+    paddingTop: 12,
+    target,
+  })
+
+  assert.equal(result, true)
+  assert.equal(feed.scrollTop, 80)
 })

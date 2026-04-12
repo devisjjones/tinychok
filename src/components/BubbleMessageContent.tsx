@@ -1,11 +1,13 @@
 import React, {
   type CSSProperties,
   useEffect,
+  useLayoutEffect,
   useRef,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useState,
 } from 'react'
+import { keepRoomFeedChildVisible } from '../app/roomFeedAutoScroll'
 import type { ChannelMessageSource, Message } from '../app/types'
 import {
   formatChannelAvatarLabel,
@@ -763,6 +765,7 @@ export function BubbleMessageContent({
   const showLinearAttachmentUploadProgress = showAttachmentUploadProgress && !isVideoNote
   const videoNoteLoadPercent = Math.min(99, Math.max(0, Math.round(videoNoteLoadProgress * 100)))
   const showVideoNoteLoadProgress = isVideoNote && isVideoNotePlaying && isVideoNoteLoading
+  const videoNoteShellRef = useRef<HTMLDivElement | null>(null)
   const attachmentUploadStage =
     uploadProgressValue === null
       ? null
@@ -794,6 +797,67 @@ export function BubbleMessageContent({
       setVideoNotePlaybackProgress(0)
     }
   }, [isVideoNotePlaying])
+
+  useLayoutEffect(() => {
+    if (!isVideoNote || !isVideoNotePlaying) {
+      return
+    }
+
+    const videoNoteShell = videoNoteShellRef.current
+    const feed = videoNoteShell?.closest<HTMLElement>('.message-feed')
+    if (!videoNoteShell || !feed) {
+      return
+    }
+
+    let frameId = 0
+
+    const alignExpandedVideoNote = () => {
+      frameId = 0
+      keepRoomFeedChildVisible({
+        feed,
+        paddingBottom: 18,
+        paddingTop: 12,
+        target: videoNoteShell,
+      })
+    }
+
+    const scheduleAlignment = () => {
+      if (typeof window === 'undefined') {
+        alignExpandedVideoNote()
+        return
+      }
+
+      if (frameId !== 0) {
+        window.cancelAnimationFrame(frameId)
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        alignExpandedVideoNote()
+      })
+    }
+
+    scheduleAlignment()
+
+    if (typeof ResizeObserver === 'undefined') {
+      return () => {
+        if (frameId !== 0 && typeof window !== 'undefined') {
+          window.cancelAnimationFrame(frameId)
+        }
+      }
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleAlignment()
+    })
+    resizeObserver.observe(videoNoteShell)
+
+    return () => {
+      resizeObserver.disconnect()
+      if (frameId !== 0 && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+  }, [isVideoNote, isVideoNotePlaying])
 
   const visualAttachmentNode = hasVisualAttachment ? (
     <div
@@ -903,6 +967,7 @@ export function BubbleMessageContent({
     hasVisualAttachment ? (
       isVideoNote ? (
         <div
+          ref={videoNoteShellRef}
           className={`bubble-attachment-video-note-shell${
             isVideoNotePlaying ? ' is-inline-playing' : ''
           }`}

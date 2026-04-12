@@ -6337,6 +6337,36 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   )
 })
 
+test('video-note inline playback keeps the expanded circle visible inside the room feed viewport', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+  const roomFeedScrollSource = readFileSync(
+    join(repoRoot, 'src', 'app', 'roomFeedAutoScroll.ts'),
+    'utf8',
+  )
+
+  assert.match(
+    bubbleSource,
+    /import \{ keepRoomFeedChildVisible \} from '\.\.\/app\/roomFeedAutoScroll'/u,
+  )
+  assert.match(
+    bubbleSource,
+    /const videoNoteShell = videoNoteShellRef\.current[\s\S]*closest<HTMLElement>\('\.message-feed'\)/u,
+  )
+  assert.match(bubbleSource, /const resizeObserver = new ResizeObserver/u)
+  assert.match(
+    bubbleSource,
+    /keepRoomFeedChildVisible\(\{[\s\S]*paddingBottom:\s*18,[\s\S]*paddingTop:\s*12,[\s\S]*target:\s*videoNoteShell/u,
+  )
+  assert.match(
+    roomFeedScrollSource,
+    /export function keepRoomFeedChildVisible\(options:\s*\{[\s\S]*target:\s*HTMLElement/u,
+  )
+  assert.match(roomFeedScrollSource, /if \(targetRect\.height > visibleHeight\)/u)
+  assert.match(roomFeedScrollSource, /else if \(targetRect\.bottom > visibleBottom\)/u)
+  assert.match(roomFeedScrollSource, /feed\.scrollTop = nextScrollTop/u)
+})
+
 test('video-note inline playback shows loading percent while a remote clip is buffering', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
