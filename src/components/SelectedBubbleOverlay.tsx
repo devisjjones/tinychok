@@ -165,7 +165,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
         <BubbleMessageContent
           imageOverlay={hasImageAttachment ? <BubbleImageOverlayMeta time={renderedPostTime} /> : undefined}
           inlineMeta={
-            shouldUseInlineTextMeta ? <BubbleTextInlineMeta time={renderedPostTime} /> : undefined
+            shouldUseInlineTextMeta ? (
+              <BubbleTextInlineMeta edited={Boolean(props.post.editedAt)} time={renderedPostTime} />
+            ) : undefined
           }
           message={{
             attachment: props.post.attachment,
@@ -215,7 +217,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
             ) : undefined
           }
           inlineMeta={
-            shouldUseInlineTextMeta ? <BubbleTextInlineMeta time={renderedCommentTime} /> : undefined
+            shouldUseInlineTextMeta ? (
+              <BubbleTextInlineMeta edited={Boolean(props.comment.editedAt)} time={renderedCommentTime} />
+            ) : undefined
           }
           message={{
             attachment: props.comment.attachment,
@@ -395,6 +399,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
                 )
               : null
           }
+          edited={Boolean(props.message.editedAt)}
           emoji={standaloneEmojiGlyph}
           time={renderedMessageTime}
         />
@@ -413,6 +418,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
               shouldUseInlineTextMeta ? (
                 <BubbleTextInlineMeta
                   deliveryIndicatorSrc={overlayDeliveryIndicatorSrc}
+                  edited={Boolean(props.message.editedAt)}
                   time={renderedMessageTime}
                 />
               ) : undefined

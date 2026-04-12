@@ -82,6 +82,32 @@ test('room composer swaps the primary action from video-note recorder to send ar
   assert.doesNotMatch(payloadMarkup, /src="\/icons\/round\.svg"/u)
 })
 
+test('room composer shows edit banner and disables attachment picker while editing', () => {
+  const markup = renderToStaticMarkup(
+    <RoomComposer
+      attachmentInputRef={{ current: null }}
+      attachmentName=""
+      draft="Исправленный текст"
+      draftInputRef={{ current: null }}
+      editTarget={{ author: 'me', id: 7, text: 'Исходный текст' }}
+      onAttachmentChange={() => undefined}
+      onAttachmentClear={() => undefined}
+      onDraftChange={() => undefined}
+      onEditCancel={() => undefined}
+      onOpenAttachmentPicker={() => undefined}
+      onSubmit={() => undefined}
+      placeholder="Напиши сообщение..."
+      submitAriaLabel="Отправить"
+      submitTitle="Отправить"
+    />,
+  )
+
+  assert.match(markup, /Редактирование/u)
+  assert.match(markup, /Исходный текст/u)
+  assert.match(markup, /aria-label="Отменить редактирование"/u)
+  assert.match(markup, /aria-label="Добавить вложение"[^>]*disabled/u)
+})
+
 test('direct, group, channel and thread-support surfaces reuse the shared room composer', () => {
   const directSource = readFileSync(join(process.cwd(), 'src/rooms/DirectChatRoom.tsx'), 'utf8')
   const groupSource = readFileSync(join(process.cwd(), 'src/rooms/GroupRoom.tsx'), 'utf8')
@@ -91,14 +117,22 @@ test('direct, group, channel and thread-support surfaces reuse the shared room c
   assert.match(directSource, /import \{ RoomComposer \} from '\.\.\/components\/RoomComposer'/u)
   assert.match(directSource, /<RoomComposer[\s\S]*onOpenVideoNoteRecorder=\{onOpenVideoNoteRecorder\}/u)
   assert.match(directSource, /<RoomComposer[\s\S]*submitAriaLabel="Отправить"/u)
+  assert.match(directSource, /<RoomComposer[\s\S]*editTarget=\{editTarget\}/u)
+  assert.match(directSource, /<RoomComposer[\s\S]*onEditCancel=\{onEditCancel\}/u)
 
   assert.match(groupSource, /import \{ RoomComposer \} from '\.\.\/components\/RoomComposer'/u)
   assert.match(groupSource, /<RoomComposer[\s\S]*onOpenVideoNoteRecorder=\{onOpenVideoNoteRecorder\}/u)
+  assert.match(groupSource, /<RoomComposer[\s\S]*editTarget=\{editTarget\}/u)
+  assert.match(groupSource, /<RoomComposer[\s\S]*onEditCancel=\{onEditCancel\}/u)
 
   assert.match(channelSource, /import \{ RoomComposer \} from '\.\.\/components\/RoomComposer'/u)
   assert.match(channelSource, /<RoomComposer[\s\S]*onOpenVideoNoteRecorder=\{publisherOnOpenVideoNoteRecorder\}/u)
+  assert.match(channelSource, /<RoomComposer[\s\S]*editTarget=\{publisherEditTarget\}/u)
+  assert.match(channelSource, /<RoomComposer[\s\S]*onEditCancel=\{publisherOnEditCancel\}/u)
 
   assert.match(appSource, /<RoomComposer[\s\S]*onOpenVideoNoteRecorder=\{threadTarget\.kind !== 'support' \? openThreadVideoNoteRecorder : undefined\}/u)
+  assert.match(appSource, /<RoomComposer[\s\S]*editTarget=\{threadEditTarget\}/u)
+  assert.match(appSource, /<RoomComposer[\s\S]*onEditCancel=\{cancelThreadCommentEdit\}/u)
   assert.match(appSource, /<RoomComposer[\s\S]*className="settings-item settings-support-composer"/u)
   assert.doesNotMatch(appSource, /className="settings-input settings-support-textarea"/u)
 })

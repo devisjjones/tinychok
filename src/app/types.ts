@@ -12,6 +12,7 @@ export type {
   ContactState,
   ContactMessageSource,
   CookieConsentChoice,
+  EditTarget,
   GroupMessageSource,
   GroupParticipant,
   GroupPreview,

@@ -7,6 +7,7 @@ import {
 } from '../app/messageAuthorChains'
 import type {
   ChannelMessageSource,
+  EditTarget,
   GroupParticipant,
   GroupPreview,
   Message,
@@ -153,9 +154,11 @@ type GroupRoomProps = {
   premiumUnlocked?: boolean
   gifLibrary?: UserGifLibraryItem[]
   gifSelectionBlockedReason?: string | null
+  editTarget: EditTarget | null
   replyTarget: ReplyTarget | null
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   composerDisabledNotice?: string | null
+  onEditCancel: () => void
   onSubmit: () => void | Promise<void>
   storageCleanupWarning?: ReactNode
 }
@@ -203,9 +206,11 @@ export function GroupRoom({
   gifLibrary = [],
   gifSelectionBlockedReason = null,
   premiumUnlocked = false,
+  editTarget,
   replyTarget,
   resolveLinkedChannelFromMessage,
   composerDisabledNotice,
+  onEditCancel,
   onSubmit,
   storageCleanupWarning = null,
 }: GroupRoomProps) {
@@ -320,12 +325,12 @@ export function GroupRoom({
   }
 
   useEffect(() => {
-    if (!replyTarget) return
+    if (!replyTarget && !editTarget) return
 
     window.requestAnimationFrame(() => {
       draftInputRef.current?.focus()
     })
-  }, [replyTarget])
+  }, [editTarget, replyTarget])
 
   useEffect(() => {
     if (composerDisabledNotice) return
@@ -653,6 +658,7 @@ export function GroupRoom({
                                             ? bubbleDeliveryIndicatorSrc
                                             : null
                                         }
+                                        edited={Boolean(message.editedAt)}
                                         emoji={standaloneEmojiGlyph}
                                         time={renderedMessageTime}
                                       />
@@ -674,6 +680,7 @@ export function GroupRoom({
                                                 deliveryIndicatorSrc={
                                                   showDeliveryIndicator ? bubbleDeliveryIndicatorSrc : null
                                                 }
+                                                edited={Boolean(message.editedAt)}
                                                 time={renderedMessageTime}
                                               />
                                             ) : undefined
@@ -765,6 +772,7 @@ export function GroupRoom({
             onComposerPaste={onComposerPaste}
             onDeleteGif={onDeleteGif}
             onDraftChange={onDraftChange}
+            onEditCancel={onEditCancel}
             onDraftFocus={onComposerFocus}
             onKeyDown={handleComposerKeyDown}
             onOpenAttachmentPicker={onOpenAttachmentPicker}
@@ -778,6 +786,7 @@ export function GroupRoom({
             onUploadGif={onUploadGif}
             placeholder={composerPlaceholder}
             premiumUnlocked={premiumUnlocked}
+            editTarget={editTarget}
             replyTarget={replyTarget}
             storageCleanupWarning={storageCleanupWarning}
             submitAriaLabel="Отправить"

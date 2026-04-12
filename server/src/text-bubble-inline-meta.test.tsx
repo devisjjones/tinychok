@@ -13,6 +13,7 @@ test('BubbleMessageContent renders inline text meta inside the text paragraph', 
       inlineMeta={
         <BubbleTextInlineMeta
           deliveryIndicatorSrc="/icons/double-tick-50.png"
+          edited
           time="10:00"
         />
       }
@@ -31,6 +32,8 @@ test('BubbleMessageContent renders inline text meta inside the text paragraph', 
   assert.match(markup, /bubble-text-paragraph-with-inline-meta/u)
   assert.match(markup, /bubble-text-content">Не вижу<\/span>/u)
   assert.match(markup, /bubble-text-inline-meta/u)
+  assert.match(markup, /bubble-text-inline-meta-edited/u)
+  assert.match(markup, /Отредактировано/u)
   assert.match(markup, /<time>10:00<\/time>/u)
   assert.match(markup, /bubble-text-inline-meta-indicator/u)
   assert.doesNotMatch(markup, /bubble-delivery-indicator/u)

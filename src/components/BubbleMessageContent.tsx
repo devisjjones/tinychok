@@ -47,11 +47,13 @@ type BubbleImageOverlayMetaProps = {
 
 type BubbleTextInlineMetaProps = {
   deliveryIndicatorSrc?: string | null
+  edited?: boolean
   time: string
 }
 
 type EmojiOnlyMessageContentProps = {
   deliveryIndicatorSrc?: string | null
+  edited?: boolean
   emoji: string
   time: string
 }
@@ -556,10 +558,12 @@ export function BubbleImageOverlayMeta({
 
 export function BubbleTextInlineMeta({
   deliveryIndicatorSrc,
+  edited = false,
   time,
 }: BubbleTextInlineMetaProps) {
   return (
     <span className="bubble-text-inline-meta">
+      {edited ? <em className="bubble-text-inline-meta-edited">Отредактировано</em> : null}
       <time>{time}</time>
       {deliveryIndicatorSrc ? (
         <img
@@ -579,6 +583,7 @@ export function BubbleTextInlineMeta({
 
 export function EmojiOnlyMessageContent({
   deliveryIndicatorSrc,
+  edited = false,
   emoji,
   time,
 }: EmojiOnlyMessageContentProps) {
@@ -586,6 +591,7 @@ export function EmojiOnlyMessageContent({
     <>
       <span className="emoji-only-message-glyph">{emoji}</span>
       <span className="emoji-only-message-meta">
+        {edited ? <em className="emoji-only-message-edited">Отредактировано</em> : null}
         <time>{time}</time>
         {deliveryIndicatorSrc ? (
           <img

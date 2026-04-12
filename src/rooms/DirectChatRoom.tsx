@@ -7,7 +7,7 @@ import type {
 } from 'react'
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
-import type { ChannelMessageSource, Chat, Message, ReplyTarget, UserGifLibraryItem } from '../app/types'
+import type { ChannelMessageSource, Chat, EditTarget, Message, ReplyTarget, UserGifLibraryItem } from '../app/types'
 import {
   formatConversationDayLabel,
   formatMessageTimeLabel,
@@ -72,6 +72,7 @@ type DirectChatRoomProps = {
   onRenameAttachmentFileBaseName?: (nextBaseName: string) => void
   pinnedMessage: Message | null
   quietMode: boolean
+  editTarget: EditTarget | null
   replyTarget: ReplyTarget | null
   visibleMessages: Message[]
   composerDisabledNotice?: string | null
@@ -83,6 +84,7 @@ type DirectChatRoomProps = {
   onCloseChatActions: () => void
   onCreateGroup: () => void
   onDraftChange: (value: string) => void
+  onEditCancel: () => void
   onMessageSelect: (anchorElement: HTMLElement, message: Message) => void
   onOpenAttachment: (attachment: NonNullable<Message['attachment']>) => void
   onOpenExternalLink?: (url: string) => void
@@ -137,6 +139,7 @@ export function DirectChatRoom({
   onRenameAttachmentFileBaseName,
   pinnedMessage,
   quietMode,
+  editTarget,
   replyTarget,
   visibleMessages,
   composerDisabledNotice = null,
@@ -148,6 +151,7 @@ export function DirectChatRoom({
   onCloseChatActions,
   onCreateGroup,
   onDraftChange,
+  onEditCancel,
   onMessageSelect,
   onOpenAttachment,
   onOpenExternalLink,
@@ -254,12 +258,12 @@ export function DirectChatRoom({
   }
 
   useEffect(() => {
-    if (!replyTarget) return
+    if (!replyTarget && !editTarget) return
 
     window.requestAnimationFrame(() => {
       draftInputRef.current?.focus()
     })
-  }, [replyTarget])
+  }, [editTarget, replyTarget])
 
   useEffect(() => {
     if (effectiveComposerDisabledNotice || effectiveComposerGate || activeChat.archivedAccount) return
@@ -779,6 +783,7 @@ export function DirectChatRoom({
                       {isStandaloneEmojiOnlyMessage ? (
                         <EmojiOnlyMessageContent
                           deliveryIndicatorSrc={showDeliveryIndicator ? deliveryIndicatorSrc : null}
+                          edited={Boolean(message.editedAt)}
                           emoji={standaloneEmojiGlyph}
                           time={renderedMessageTime}
                         />
@@ -818,6 +823,7 @@ export function DirectChatRoom({
                                   deliveryIndicatorSrc={
                                     showDeliveryIndicator ? deliveryIndicatorSrc : null
                                   }
+                                  edited={Boolean(message.editedAt)}
                                   time={renderedMessageTime}
                                 />
                               ) : undefined
@@ -972,6 +978,7 @@ export function DirectChatRoom({
           onComposerPaste={onComposerPaste}
           onDeleteGif={onDeleteGif}
           onDraftChange={onDraftChange}
+          onEditCancel={onEditCancel}
           onDraftFocus={undefined}
           onKeyDown={handleComposerKeyDown}
           onOpenAttachmentPicker={onOpenAttachmentPicker}
@@ -985,6 +992,7 @@ export function DirectChatRoom({
           onUploadGif={onUploadGif}
           placeholder={composerPlaceholder}
           premiumUnlocked={premiumUnlocked}
+          editTarget={editTarget}
           replyTarget={replyTarget}
           draftDisabled={composerDraftDisabled}
           storageCleanupWarning={storageCleanupWarning}

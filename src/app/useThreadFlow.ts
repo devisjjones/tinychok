@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import type { ActionAnchor, ReplyTarget, ThreadComment } from '../shared/types'
+import type { ActionAnchor, EditTarget, ReplyTarget, ThreadComment } from '../shared/types'
 import { formatMessagePreview } from './utils'
 
 export type ThreadTarget =
@@ -21,6 +21,7 @@ export type ThreadTarget =
 export function useThreadFlow() {
   const [threadTarget, setThreadTarget] = useState<ThreadTarget | null>(null)
   const [threadDraft, setThreadDraft] = useState('')
+  const [threadEditTarget, setThreadEditTarget] = useState<EditTarget | null>(null)
   const [threadReplyTarget, setThreadReplyTarget] = useState<ReplyTarget | null>(null)
   const [threadBusy, setThreadBusy] = useState(false)
   const [threadError, setThreadError] = useState('')
@@ -33,6 +34,7 @@ export function useThreadFlow() {
 
   const resetThreadComposer = useCallback(() => {
     setThreadDraft('')
+    setThreadEditTarget(null)
     setThreadReplyTarget(null)
     setThreadBusy(false)
     setThreadError('')
@@ -96,11 +98,28 @@ export function useThreadFlow() {
       text: formatMessagePreview({ text: comment.text }),
       author: comment.author,
     })
+    setThreadEditTarget(null)
+    closeThreadCommentActions()
+  }, [closeThreadCommentActions])
+
+  const editThreadComment = useCallback((comment: ThreadComment) => {
+    setThreadDraft(comment.text)
+    setThreadEditTarget({
+      author: comment.author,
+      id: comment.id,
+      text: comment.text,
+    })
+    setThreadReplyTarget(null)
+    setThreadError('')
     closeThreadCommentActions()
   }, [closeThreadCommentActions])
 
   const clearThreadReplyTarget = useCallback(() => {
     setThreadReplyTarget(null)
+  }, [])
+
+  const clearThreadEditTarget = useCallback(() => {
+    setThreadEditTarget(null)
   }, [])
 
   const requestThreadCommentDelete = useCallback((commentId: number) => {
@@ -110,10 +129,12 @@ export function useThreadFlow() {
 
   return {
     clearThreadDeleteConfirmation,
+    clearThreadEditTarget,
     clearThreadForwarding,
     clearThreadReplyTarget,
     closeThreadCommentActions,
     closeThreadView,
+    editThreadComment,
     confirmingDeleteThreadCommentId,
     forwardingThreadCommentText,
     openThread,
@@ -130,6 +151,7 @@ export function useThreadFlow() {
     threadCommentActionAnchor,
     threadCommentActionId,
     threadDraft,
+    threadEditTarget,
     threadError,
     threadReplyTarget,
     threadTarget,

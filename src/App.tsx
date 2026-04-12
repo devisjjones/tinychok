@@ -91,6 +91,11 @@ import {
   deleteDialog as deleteDialogRequest,
   deleteDialogHistory as deleteDialogHistoryRequest,
   deleteDialogMessage as deleteDialogMessageRequest,
+  editDirectMessage as editDirectMessageRequest,
+  editGroupMessage as editGroupMessageRequest,
+  editGroupThreadComment as editGroupThreadCommentRequest,
+  editManagedChannelPost as editManagedChannelPostRequest,
+  editSubscriptionChannelThreadComment as editSubscriptionChannelThreadCommentRequest,
   deleteGroupMessage as deleteGroupMessageRequest,
   deleteGroupThreadComment as deleteGroupThreadCommentRequest,
   deleteAccount as deleteAccountRequest,
@@ -202,6 +207,7 @@ import type {
   Chat,
   ChannelsView,
   ContactRequestPreview,
+  EditTarget,
   GroupPreview,
   GroupParticipant,
   Message,
@@ -1533,6 +1539,8 @@ function App() {
   const [premiumPurchaseBusy, setPremiumPurchaseBusy] = useState(false)
   const [messageActionMessageId, setMessageActionMessageId] = useState<number | null>(null)
   const [forwardingMessageId, setForwardingMessageId] = useState<number | null>(null)
+  const [directMessageEditTarget, setDirectMessageEditTarget] = useState<EditTarget | null>(null)
+  const [groupMessageEditTarget, setGroupMessageEditTarget] = useState<EditTarget | null>(null)
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null)
   const [confirmingDeleteHistoryChatId, setConfirmingDeleteHistoryChatId] = useState<number | null>(
     null,
@@ -1550,6 +1558,7 @@ function App() {
   const [managedChannelLimitErrorOpen, setManagedChannelLimitErrorOpen] = useState(false)
   const [channelPostBusy, setChannelPostBusy] = useState(false)
   const [channelPostError, setChannelPostError] = useState('')
+  const [channelPostEditTarget, setChannelPostEditTarget] = useState<EditTarget | null>(null)
   const [channelPostReplyTarget, setChannelPostReplyTarget] = useState<ReplyTarget | null>(null)
   const [deferredRoomScrollTarget, setDeferredRoomScrollTarget] = useState<
     | {
@@ -1867,10 +1876,12 @@ function App() {
   } = useRoomMessageActions()
   const {
     clearThreadDeleteConfirmation,
+    clearThreadEditTarget,
     clearThreadForwarding,
     clearThreadReplyTarget,
     closeThreadCommentActions: closeThreadFlowCommentActions,
     closeThreadView: closeThreadFlowView,
+    editThreadComment,
     confirmingDeleteThreadCommentId,
     forwardingThreadCommentText,
     openThread,
@@ -1887,6 +1898,7 @@ function App() {
     threadCommentActionAnchor,
     threadCommentActionId,
     threadDraft,
+    threadEditTarget,
     threadError,
     threadReplyTarget,
     threadTarget,
@@ -5906,6 +5918,28 @@ function App() {
     })
   }
 
+  function cancelDirectMessageEdit(chatId: number) {
+    setDirectMessageEditTarget(null)
+    updateChatDraft(chatId, '')
+  }
+
+  function cancelGroupMessageEdit(groupId: number) {
+    setGroupMessageEditTarget(null)
+    updateGroupDraft(groupId, '')
+  }
+
+  function cancelChannelPostEdit(channelId: number) {
+    setChannelPostEditTarget(null)
+    setChannelPostError('')
+    updateChannelPostDraft(channelId, '')
+  }
+
+  function cancelThreadCommentEdit() {
+    clearThreadEditTarget()
+    setThreadDraft('')
+    setThreadError('')
+  }
+
   function clearSupportAttachmentDraft() {
     supportAttachmentSelectionTokenRef.current += 1
     setSupportAttachmentDraft((currentDraft) => {
@@ -6463,6 +6497,243 @@ function App() {
               ),
             },
       ),
+    )
+  }
+
+  function isEditableOwnTextMessage(
+    message: Pick<
+      Message,
+      | 'attachment'
+      | 'attachmentRemovedNotice'
+      | 'author'
+      | 'forwarded'
+      | 'sourceChannel'
+      | 'sourceContact'
+      | 'sourceGroup'
+      | 'system'
+      | 'text'
+    >,
+  ) {
+    return (
+      message.author === 'me' &&
+      !message.attachment &&
+      !message.attachmentRemovedNotice &&
+      !message.forwarded &&
+      !message.sourceChannel &&
+      !message.sourceContact &&
+      !message.sourceGroup &&
+      !message.system &&
+      message.text.trim().length > 0
+    )
+  }
+
+  function isEditableOwnChannelPost(post: {
+    attachment?: ChannelPost['attachment']
+    attachmentRemovedNotice?: ChannelPost['attachmentRemovedNotice']
+    forwarded?: boolean
+    sourceContact?: ChannelPost['sourceContact']
+    system?: ChannelPost['system']
+    text: string
+  }) {
+    return (
+      !post.attachment &&
+      !post.attachmentRemovedNotice &&
+      !post.forwarded &&
+      !post.sourceContact &&
+      !post.system &&
+      post.text.trim().length > 0
+    )
+  }
+
+  function isEditableOwnThreadComment(comment: {
+    attachment?: ThreadComment['attachment']
+    attachmentRemovedNotice?: ThreadComment['attachmentRemovedNotice']
+    author: ThreadComment['author']
+    forwarded?: boolean
+    sourceChannel?: ThreadComment['sourceChannel']
+    sourceContact?: ThreadComment['sourceContact']
+    sourceGroup?: Message['sourceGroup']
+    system?: Message['system']
+    text: string
+  }) {
+    return (
+      comment.author === 'me' &&
+      !comment.attachment &&
+      !comment.attachmentRemovedNotice &&
+      !comment.forwarded &&
+      !comment.sourceChannel &&
+      !comment.sourceContact &&
+      !comment.sourceGroup &&
+      !comment.system &&
+      comment.text.trim().length > 0
+    )
+  }
+
+  function applyLocalEditedTextRecord<
+    T extends {
+      createdAt?: string
+      editedAt?: string
+      text: string
+      time: string
+    },
+  >(record: T, nextText: string): T {
+    const editedAt = new Date().toISOString()
+    return {
+      ...record,
+      createdAt: editedAt,
+      editedAt,
+      text: nextText,
+      time: formatNowTime(),
+    } as T
+  }
+
+  function applyLocalDirectMessageEdit(chatId: number, messageId: number, nextText: string) {
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id !== chatId
+          ? chat
+          : {
+              ...chat,
+              messages: chat.messages.map((message) =>
+                message.id === messageId ? applyLocalEditedTextRecord(message, nextText) : message,
+              ),
+            },
+      ),
+    )
+  }
+
+  function applyLocalGroupMessageEdit(groupId: number, messageId: number, nextText: string) {
+    setGroups((currentGroups) =>
+      currentGroups.map((group) => {
+        if (group.id !== groupId) {
+          return group
+        }
+
+        const isLastMessage = group.messages.at(-1)?.id === messageId
+        const nextMessages = group.messages.map((message) =>
+          message.id === messageId ? applyLocalEditedTextRecord(message, nextText) : message,
+        )
+        const editedMessage = nextMessages.find((message) => message.id === messageId)
+
+        return {
+          ...group,
+          latestActivityAt: isLastMessage ? editedMessage?.createdAt ?? group.latestActivityAt : group.latestActivityAt,
+          messages: nextMessages,
+          preview: isLastMessage ? nextText || group.preview : group.preview,
+          time: isLastMessage ? editedMessage?.time ?? group.time : group.time,
+        }
+      }),
+    )
+  }
+
+  function applyLocalChannelPostEdit(channelId: number, postId: number, nextText: string) {
+    setSubscriptionChannels((currentChannels) =>
+      currentChannels.map((channel) => {
+        if (channel.id !== channelId) {
+          return channel
+        }
+
+        const isLastPost = channel.posts.at(-1)?.id === postId
+        const nextPosts = channel.posts.map((post) =>
+          post.id === postId ? applyLocalEditedTextRecord(post, nextText) : post,
+        )
+        const editedPost = nextPosts.find((post) => post.id === postId)
+
+        return {
+          ...channel,
+          latestActivityAt: isLastPost ? editedPost?.createdAt ?? channel.latestActivityAt : channel.latestActivityAt,
+          posts: nextPosts,
+          preview: isLastPost ? nextText || channel.preview : channel.preview,
+          time: isLastPost ? editedPost?.time ?? channel.time : channel.time,
+        }
+      }),
+    )
+
+    setPreviewSubscriptionChannel((currentChannel) => {
+      if (!currentChannel || currentChannel.id !== channelId) {
+        return currentChannel
+      }
+
+      const isLastPost = currentChannel.posts.at(-1)?.id === postId
+      const nextPosts = currentChannel.posts.map((post) =>
+        post.id === postId ? applyLocalEditedTextRecord(post, nextText) : post,
+      )
+      const editedPost = nextPosts.find((post) => post.id === postId)
+
+      return {
+        ...currentChannel,
+        latestActivityAt: isLastPost ? editedPost?.createdAt ?? currentChannel.latestActivityAt : currentChannel.latestActivityAt,
+        posts: nextPosts,
+        preview: isLastPost ? nextText || currentChannel.preview : currentChannel.preview,
+        time: isLastPost ? editedPost?.time ?? currentChannel.time : currentChannel.time,
+      }
+    })
+  }
+
+  function applyLocalGroupThreadCommentEdit(groupId: number, messageId: number, commentId: number, nextText: string) {
+    setGroups((currentGroups) =>
+      currentGroups.map((group) =>
+        group.id !== groupId
+          ? group
+          : {
+              ...group,
+              messages: group.messages.map((message) =>
+                message.id !== messageId
+                  ? message
+                  : {
+                      ...message,
+                      threadComments: (message.threadComments ?? []).map((comment) =>
+                        comment.id === commentId ? applyLocalEditedTextRecord(comment, nextText) : comment,
+                      ),
+                    },
+              ),
+            },
+      ),
+    )
+  }
+
+  function applyLocalSubscriptionThreadCommentEdit(
+    channelId: number,
+    postId: number,
+    commentId: number,
+    nextText: string,
+  ) {
+    setSubscriptionChannels((currentChannels) =>
+      currentChannels.map((channel) =>
+        channel.id !== channelId
+          ? channel
+          : {
+              ...channel,
+              posts: channel.posts.map((post) =>
+                post.id !== postId
+                  ? post
+                  : {
+                      ...post,
+                      threadComments: (post.threadComments ?? []).map((comment) =>
+                        comment.id === commentId ? applyLocalEditedTextRecord(comment, nextText) : comment,
+                      ),
+                    },
+              ),
+            },
+      ),
+    )
+
+    setPreviewSubscriptionChannel((currentChannel) =>
+      !currentChannel || currentChannel.id !== channelId
+        ? currentChannel
+        : {
+            ...currentChannel,
+            posts: currentChannel.posts.map((post) =>
+              post.id !== postId
+                ? post
+                : {
+                    ...post,
+                    threadComments: (post.threadComments ?? []).map((comment) =>
+                      comment.id === commentId ? applyLocalEditedTextRecord(comment, nextText) : comment,
+                    ),
+                  },
+            ),
+          },
     )
   }
 
@@ -8244,6 +8515,33 @@ function App() {
     const chatId = activeChat.id
     const attachmentDraft = attachmentDraftOverride ?? chatAttachmentDrafts[chatId]
     const text = isVideoNoteDraft(attachmentDraft) ? '' : (chatMessageDrafts[chatId] ?? '').trim()
+    if (directMessageEditTarget) {
+      if (text === directMessageEditTarget.text) {
+        cancelDirectMessageEdit(chatId)
+        return
+      }
+
+      if (!text) return
+
+      if (backendReady && session?.sessionToken) {
+        try {
+          const response = await editDirectMessageRequest(
+            session.sessionToken,
+            chatId,
+            directMessageEditTarget.id,
+            { text },
+          )
+          applySnapshot(response.snapshot)
+          cancelDirectMessageEdit(chatId)
+        } catch (error) {
+          console.error('Failed to edit direct message', error)
+        }
+      } else {
+        applyLocalDirectMessageEdit(chatId, directMessageEditTarget.id, text)
+        cancelDirectMessageEdit(chatId)
+      }
+      return
+    }
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = replyTarget
       ? {
@@ -8378,6 +8676,33 @@ function App() {
     const groupId = activeGroup.id
     const attachmentDraft = attachmentDraftOverride ?? groupAttachmentDrafts[groupId]
     const text = isVideoNoteDraft(attachmentDraft) ? '' : (groupMessageDrafts[groupId] ?? '').trim()
+    if (groupMessageEditTarget) {
+      if (text === groupMessageEditTarget.text) {
+        cancelGroupMessageEdit(groupId)
+        return
+      }
+
+      if (!text) return
+
+      if (backendReady && session?.sessionToken) {
+        try {
+          const response = await editGroupMessageRequest(
+            session.sessionToken,
+            groupId,
+            groupMessageEditTarget.id,
+            { text },
+          )
+          applySnapshot(response.snapshot)
+          cancelGroupMessageEdit(groupId)
+        } catch (error) {
+          console.error('Failed to edit group message', error)
+        }
+      } else {
+        applyLocalGroupMessageEdit(groupId, groupMessageEditTarget.id, text)
+        cancelGroupMessageEdit(groupId)
+      }
+      return
+    }
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = replyTarget
       ? {
@@ -8490,6 +8815,39 @@ function App() {
     const text = isVideoNoteDraft(attachmentDraft)
       ? ''
       : (channelPostDrafts[currentSubscriptionChannel.id] ?? '').trim()
+    if (channelPostEditTarget) {
+      if (text === channelPostEditTarget.text) {
+        cancelChannelPostEdit(currentSubscriptionChannel.id)
+        return
+      }
+
+      if (!text) return
+
+      setChannelPostBusy(true)
+      setChannelPostError('')
+
+      try {
+        if (backendReady && session?.sessionToken) {
+          const response = await editManagedChannelPostRequest(
+            session.sessionToken,
+            ownedCurrentManagedChannel.id,
+            channelPostEditTarget.id,
+            { text },
+          )
+          applySnapshot(response.snapshot)
+        } else {
+          applyLocalChannelPostEdit(currentSubscriptionChannel.id, channelPostEditTarget.id, text)
+        }
+        cancelChannelPostEdit(currentSubscriptionChannel.id)
+      } catch (error) {
+        console.error('Failed to edit managed channel post', error)
+        setChannelPostError(error instanceof Error ? error.message : 'Не удалось обновить сообщение.')
+        return
+      } finally {
+        setChannelPostBusy(false)
+      }
+      return
+    }
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const attachment = buildMessageAttachmentFromDraft(attachmentDraft)
     if (attachmentDraftOverride) {
@@ -9340,6 +9698,9 @@ function App() {
     setRetainedSubscriptionChannelId(shouldRetainSubscriptionChannelInList ? channelId : null)
     setPreviewSubscriptionChannel(null)
     setActiveSubscriptionChannelId(channelId)
+    setDirectMessageEditTarget(null)
+    setGroupMessageEditTarget(null)
+    setChannelPostEditTarget(null)
     setChannelPostReplyTarget(null)
     resetSubscriptionPostActions()
     setChannelActionsAnchor(null)
@@ -9380,6 +9741,9 @@ function App() {
       resetGroupMessageActions()
       setPreviewSubscriptionChannel(buildPreviewSubscriptionChannelFromManagedChannel(matchingManagedChannel))
       setActiveSubscriptionChannelId(null)
+      setDirectMessageEditTarget(null)
+      setGroupMessageEditTarget(null)
+      setChannelPostEditTarget(null)
       setChannelPostReplyTarget(null)
       resetSubscriptionPostActions()
       setTopListView('channels')
@@ -9629,6 +9993,9 @@ function App() {
     setActiveChatId(null)
     setPreviewSubscriptionChannel(null)
     setActiveSubscriptionChannelId(null)
+    setDirectMessageEditTarget(null)
+    setGroupMessageEditTarget(null)
+    setChannelPostEditTarget(null)
     resetSubscriptionPostActions()
     setTopListView('groups')
     setSearchOpen(false)
@@ -9978,6 +10345,69 @@ function App() {
     const attachmentDraft = attachmentDraftOverride ?? threadAttachmentDraft
     const text = isVideoNoteDraft(attachmentDraft) ? '' : threadDraft.trim()
     if (!threadTarget) return
+    if (threadEditTarget) {
+      if (text === threadEditTarget.text) {
+        cancelThreadCommentEdit()
+        return
+      }
+
+      if (!text) return
+
+      setThreadBusy(true)
+      setThreadError('')
+
+      try {
+        if (threadTarget.kind === 'group') {
+          if (backendReady && session?.sessionToken) {
+            const response = await editGroupThreadCommentRequest(
+              session.sessionToken,
+              threadTarget.groupId,
+              threadTarget.messageId,
+              threadEditTarget.id,
+              { text },
+            )
+            applySnapshot(response.snapshot)
+          } else {
+            applyLocalGroupThreadCommentEdit(
+              threadTarget.groupId,
+              threadTarget.messageId,
+              threadEditTarget.id,
+              text,
+            )
+          }
+        } else if (threadTarget.kind === 'channel') {
+          if (backendReady && session?.sessionToken) {
+            const response = await editSubscriptionChannelThreadCommentRequest(
+              session.sessionToken,
+              threadTarget.channelId,
+              threadTarget.postId,
+              threadEditTarget.id,
+              { text },
+            )
+            applySnapshot(response.snapshot)
+          } else {
+            applyLocalSubscriptionThreadCommentEdit(
+              threadTarget.channelId,
+              threadTarget.postId,
+              threadEditTarget.id,
+              text,
+            )
+          }
+        } else {
+          cancelThreadCommentEdit()
+          setThreadBusy(false)
+          return
+        }
+
+        cancelThreadCommentEdit()
+        setThreadBusy(false)
+      } catch (error) {
+        console.error('Failed to edit thread comment', error)
+        setThreadBusy(false)
+        setThreadError(error instanceof Error ? error.message : 'Не удалось обновить комментарий.')
+      }
+      return
+    }
     if (attachmentDraft && attachmentDraft.status !== 'ready') return
     const replyTo = threadReplyTarget
       ? {
@@ -10281,6 +10711,9 @@ function App() {
     setPremiumGiftChatId(null)
     setMessageActionMessageId(null)
     setForwardingMessageId(null)
+    setDirectMessageEditTarget(null)
+    setGroupMessageEditTarget(null)
+    setChannelPostEditTarget(null)
     setReplyTarget(null)
     setConfirmingDeleteHistoryChatId(null)
     setConfirmingDeleteContactChatId(null)
@@ -10341,6 +10774,7 @@ function App() {
     setBlockedActionChatId(null)
     setChannelActionsAnchor(null)
     setChannelManagementOpenId(null)
+    setChannelPostEditTarget(null)
     setChannelPostError('')
     setChannelPostReplyTarget(null)
     setChannelReportOpen(false)
@@ -10364,6 +10798,7 @@ function App() {
     setConfirmingLeaveSubscriptionChannelId(null)
     setConfirmingLogout(false)
     setForwardingMessageId(null)
+    setDirectMessageEditTarget(null)
     setGroupActionsAnchor(null)
     setGroupDescriptionOpen(false)
     setGroupInviteOpen(false)
@@ -10385,6 +10820,7 @@ function App() {
     setProfileAvatarPickerOpen(false)
     setProfileAvatarPickerBusy(false)
     setProfileAvatarPickerError('')
+    setGroupMessageEditTarget(null)
     setReplyTarget(null)
     setReportingChatId(null)
     setReportContactBusy(false)
@@ -10393,6 +10829,7 @@ function App() {
     setSelectedGroupParticipantIdentifier(null)
     setSupportError('')
     setThreadCommentHintTarget(null)
+    clearThreadEditTarget()
     clearThreadAttachmentDraft()
     resetBlacklistFlow()
     resetRoomMessageActions()
@@ -10421,6 +10858,7 @@ function App() {
 
     resetThreadState()
   }, [
+    clearThreadEditTarget,
     clearThreadAttachmentDraft,
     openThread,
     resetBlacklistFlow,
@@ -11796,12 +12234,58 @@ function App() {
   }
 
   function replyToMessage(message: Message) {
+    setDirectMessageEditTarget(null)
+    setGroupMessageEditTarget(null)
     setReplyTarget({
       id: message.id,
       text: formatMessagePreview(message),
       author: message.author,
     })
     setMessageActionMessageId(null)
+  }
+
+  function startDirectMessageEdit(message: Message) {
+    if (!activeChat || !isEditableOwnTextMessage(message)) return
+
+    clearChatAttachmentDraft(activeChat.id)
+    setReplyTarget(null)
+    setDirectMessageEditTarget({
+      author: message.author,
+      id: message.id,
+      text: message.text,
+    })
+    updateChatDraft(activeChat.id, message.text)
+    setMessageActionMessageId(null)
+    setMessageActionAnchor(null)
+    setForwardingMessageId(null)
+  }
+
+  function startGroupMessageEdit(message: Message) {
+    if (!activeGroup || !isEditableOwnTextMessage(message)) return
+
+    clearGroupAttachmentDraft(activeGroup.id)
+    setReplyTarget(null)
+    setGroupMessageEditTarget({
+      author: message.author,
+      id: message.id,
+      text: message.text,
+    })
+    updateGroupDraft(activeGroup.id, message.text)
+    closeGroupMessageActions()
+  }
+
+  function startChannelPostEdit(post: ChannelPost) {
+    if (!currentSubscriptionChannel || !isEditableOwnChannelPost(post)) return
+
+    clearChannelAttachmentDraft(currentSubscriptionChannel.id)
+    setChannelPostReplyTarget(null)
+    setChannelPostEditTarget({
+      author: 'me',
+      id: post.id,
+      text: post.text,
+    })
+    updateChannelPostDraft(currentSubscriptionChannel.id, post.text)
+    closeSubscriptionPostActions()
   }
 
   function replyToThreadComment(comment: ThreadComment) {
@@ -13750,6 +14234,7 @@ function App() {
                 type="button"
                 className="message-menu-item"
                 onClick={() => {
+                  setChannelPostEditTarget(null)
                   setChannelPostReplyTarget({
                     author: 'me',
                     id: activeSubscriptionPost.id,
@@ -13759,6 +14244,15 @@ function App() {
                 }}
               >
                 Ответить
+              </button>
+            ) : null}
+            {isCurrentSubscriptionChannelOwner && isEditableOwnChannelPost(activeSubscriptionPost) ? (
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => startChannelPostEdit(activeSubscriptionPost)}
+              >
+                Редактировать
               </button>
             ) : null}
             {!isPreviewSubscriptionChannel ? (
@@ -13907,6 +14401,7 @@ function App() {
               type="button"
               className="message-menu-item"
               onClick={() => {
+                setChannelPostEditTarget(null)
                 setChannelPostReplyTarget({
                   author: 'me',
                   id: activeSubscriptionPost.id,
@@ -13916,6 +14411,15 @@ function App() {
               }}
             >
               Ответить
+            </button>
+          ) : null}
+          {isCurrentSubscriptionChannelOwner && isEditableOwnChannelPost(activeSubscriptionPost) ? (
+            <button
+              type="button"
+              className="message-menu-item"
+              onClick={() => startChannelPostEdit(activeSubscriptionPost)}
+            >
+              Редактировать
             </button>
           ) : null}
           <button
@@ -14115,7 +14619,10 @@ function App() {
                     }
                     inlineMeta={
                       usesInlineTimeLayout ? (
-                        <BubbleTextInlineMeta time={threadSourceTime} />
+                        <BubbleTextInlineMeta
+                          edited={Boolean(threadGroupMessage.editedAt)}
+                          time={threadSourceTime}
+                        />
                       ) : undefined
                     }
                     linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
@@ -14159,7 +14666,10 @@ function App() {
                     }
                     inlineMeta={
                       usesInlineTimeLayout ? (
-                        <BubbleTextInlineMeta time={threadSourceTime} />
+                        <BubbleTextInlineMeta
+                          edited={Boolean(threadGroupMessage.editedAt)}
+                          time={threadSourceTime}
+                        />
                       ) : undefined
                     }
                     linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
@@ -14271,7 +14781,10 @@ function App() {
                     }
                     inlineMeta={
                       usesInlineTimeLayout ? (
-                        <BubbleTextInlineMeta time={threadSourceTime} />
+                        <BubbleTextInlineMeta
+                          edited={Boolean(threadChannelPost.editedAt)}
+                          time={threadSourceTime}
+                        />
                       ) : undefined
                     }
                     message={{
@@ -14465,7 +14978,10 @@ function App() {
                                 }
                                 inlineMeta={
                                   shouldUseInlineTextMeta ? (
-                                    <BubbleTextInlineMeta time={threadCommentTime} />
+                                    <BubbleTextInlineMeta
+                                      edited={Boolean(comment.editedAt)}
+                                      time={threadCommentTime}
+                                    />
                                   ) : undefined
                                 }
                                 message={{
@@ -14538,6 +15054,7 @@ function App() {
             onOpenAttachmentPicker={openThreadAttachmentPicker}
             onOpenPremiumUpsell={openPremiumUpsell}
             onOpenVideoNoteRecorder={threadTarget.kind !== 'support' ? openThreadVideoNoteRecorder : undefined}
+            onEditCancel={cancelThreadCommentEdit}
             onReplyCancel={clearThreadReplyTarget}
             onSearchGifs={searchAvailableGifs}
             onSelectGif={attachThreadGif}
@@ -14556,6 +15073,7 @@ function App() {
                 : 'Напишите комментарий...'
             }
             premiumUnlocked={sessionHasPremium}
+            editTarget={threadEditTarget}
             replyTarget={threadReplyTarget}
             showEmojiPicker={threadTarget.kind !== 'support'}
             storageCleanupWarning={getStorageCleanupWarning(threadAttachmentDraft)}
@@ -14672,6 +15190,18 @@ function App() {
               >
                 Ответить
               </button>
+              {threadTarget.kind !== 'support' && isEditableOwnThreadComment(activeThreadComment) ? (
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => {
+                    editThreadComment(activeThreadComment)
+                    clearBlacklistHint()
+                  }}
+                >
+                  Редактировать
+                </button>
+              ) : null}
               {!activeThreadComment.attachment ? (
                 <button
                   type="button"
@@ -15481,6 +16011,15 @@ function App() {
               >
                 Ответить
               </button>
+              {isEditableOwnTextMessage(activeGroupMessage) ? (
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => startGroupMessageEdit(activeGroupMessage)}
+                >
+                  Редактировать
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="message-menu-item"
@@ -19417,11 +19956,13 @@ function App() {
                       toggleChannelAttachmentSendOriginal(currentSubscriptionChannel!.id),
                     onUploadGif: (file) => uploadAndAttachChannelGif(currentSubscriptionChannel!.id, file),
                     premiumUnlocked: sessionHasPremium,
+                    editTarget: channelPostEditTarget,
                     gifLibrary: session?.gifLibrary ?? [],
                     gifSelectionBlockedReason: getGifSelectionBlockedReason(
                       channelAttachmentDrafts[currentSubscriptionChannel!.id],
                     ),
                     onDeleteGif: deleteGifFromLibrary,
+                    onEditCancel: () => cancelChannelPostEdit(currentSubscriptionChannel!.id),
                     onSearchGifs: searchAvailableGifs,
                     replyTarget: channelPostReplyTarget,
                     storageCleanupWarning: getStorageCleanupWarning(
@@ -19529,10 +20070,12 @@ function App() {
             onDeleteGif={deleteGifFromLibrary}
             premiumUnlocked={sessionHasPremium}
             onSearchGifs={searchAvailableGifs}
+            editTarget={groupMessageEditTarget}
             replyTarget={replyTarget}
             resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
             storageCleanupWarning={getStorageCleanupWarning(groupAttachmentDrafts[activeGroup.id])}
             visibleMessages={visibleGroupMessages}
+            onEditCancel={() => cancelGroupMessageEdit(activeGroup.id)}
             onSubmit={sendGroupMessage}
           />
         ) : null}
@@ -19561,6 +20104,7 @@ function App() {
               }
               pinnedMessage={pinnedMessage}
               quietMode={quietMode}
+              editTarget={directMessageEditTarget}
               replyTarget={replyTarget}
               visibleMessages={visibleDirectMessages}
               composerDisabledNotice={activeChatAdminBlockNotice}
@@ -19650,6 +20194,7 @@ function App() {
               onToggleFavoriteChat={() => {
                 void togglePinnedChat(activeChat.id)
               }}
+              onEditCancel={() => cancelDirectMessageEdit(activeChat.id)}
               gifLibrary={session?.gifLibrary ?? []}
               gifSelectionBlockedReason={getGifSelectionBlockedReason(chatAttachmentDrafts[activeChat.id])}
               onDeleteGif={deleteGifFromLibrary}
@@ -19715,6 +20260,15 @@ function App() {
                         <button type="button" className="message-menu-item" onClick={() => replyToMessage(activeMessage)}>
                           Ответить
                         </button>
+                        {isEditableOwnTextMessage(activeMessage) ? (
+                          <button
+                            type="button"
+                            className="message-menu-item"
+                            onClick={() => startDirectMessageEdit(activeMessage)}
+                          >
+                            Редактировать
+                          </button>
+                        ) : null}
                         {!activeMessage.attachment ? (
                           <button
                             type="button"

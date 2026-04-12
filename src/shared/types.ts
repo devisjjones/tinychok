@@ -79,6 +79,7 @@ export type ThreadComment = {
   createdAt?: string
   deliveryId?: string
   displayAuthor?: string
+  editedAt?: string
   replyTo?: Message['replyTo']
   sourceChannel?: ChannelMessageSource
   sourceContact?: ContactMessageSource
@@ -155,6 +156,7 @@ export type ChannelPost = {
   replyTo?: Message['replyTo']
   id: number
   deliveryId?: string
+  editedAt?: string
   sourceChannel?: ChannelMessageSource
   sourceContact?: ContactMessageSource
   text: string
@@ -244,6 +246,7 @@ export type Message = {
   createdAt?: string
   deliveryId?: string
   displayAuthor?: string
+  editedAt?: string
   attachment?: MessageAttachment
   attachmentRemovedNotice?: AttachmentRemovedNotice
   readAt?: string
@@ -267,6 +270,12 @@ export type Message = {
 }
 
 export type ReplyTarget = {
+  id: number
+  text: string
+  author: Message['author']
+}
+
+export type EditTarget = {
   id: number
   text: string
   author: Message['author']

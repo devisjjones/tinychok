@@ -554,7 +554,10 @@ test('thread inbox cards keep source badges on the avatar and render latest-comm
   assert.match(appSource, /formatMessageTimeLabel\(\s*threadGroupMessage\?\.createdAt/u)
   assert.match(appSource, /formatMessageTimeLabel\(\s*threadChannelPost\?\.createdAt/u)
   assert.match(appSource, /const threadCommentTime = formatMessageTimeLabel\(comment\.createdAt, comment\.time\)/u)
-  assert.match(appSource, /<BubbleTextInlineMeta time=\{threadCommentTime\} \/>/u)
+  assert.match(
+    appSource,
+    /<BubbleTextInlineMeta\s+edited=\{Boolean\(comment\.editedAt\)\}\s+time=\{threadCommentTime\}\s*\/>/u,
+  )
   assert.match(appSource, /<time>\{threadCommentTime\}<\/time>/u)
   assert.match(appSource, /aria-label="Комментарии"/u)
   assert.match(appSource, /title="Комментарии"/u)
@@ -2630,15 +2633,24 @@ test('text bubbles use inline meta so time does not force a separate footer row'
     channelRoomSource,
     /const shouldUseInlineTextMeta =\s*!hasImageAttachment && \(post\.text\.trim\(\)\.length > 0 \|\| Boolean\(post\.attachment\)\)/u,
   )
-  assert.ok((channelRoomSource.match(/<BubbleTextInlineMeta time=\{renderedPostTime\} \/>/gu) ?? []).length >= 2)
+  assert.ok(
+    (
+      channelRoomSource.match(
+        /<BubbleTextInlineMeta\s+edited=\{Boolean\(post\.editedAt\)\}\s+time=\{renderedPostTime\}\s*\/>/gu,
+      ) ?? []
+    ).length >= 2,
+  )
   assert.match(channelRoomSource, /!hasImageAttachment && !shouldUseInlineTextMeta \? <time>\{renderedPostTime\}<\/time> : null/u)
   assert.doesNotMatch(channelRoomSource, /<time>\{post\.time\}<\/time>/u)
   assert.match(
     appSource,
     /const shouldUseInlineTextMeta =\s*!hasImageAttachment &&\s*\(comment\.text\.trim\(\)\.length > 0 \|\| Boolean\(comment\.attachment\)\)/u,
   )
-  assert.match(appSource, /<BubbleTextInlineMeta time=\{threadCommentTime\} \/>/u)
-  assert.ok((appSource.match(/<BubbleTextInlineMeta time=\{threadSourceTime\} \/>/gu) ?? []).length >= 3)
+  assert.match(
+    appSource,
+    /<BubbleTextInlineMeta\s+edited=\{Boolean\(comment\.editedAt\)\}\s+time=\{threadCommentTime\}\s*\/>/u,
+  )
+  assert.ok((appSource.match(/time=\{threadSourceTime\}/gu) ?? []).length >= 3)
   assert.match(appSource, /!usesInlineTimeLayout && \(!hasImageAttachment \|\| usesCaptionedImageCardLayout \|\| usesImageOnlyCardLayout\) \? \(\s*<time>\{threadSourceTime\}<\/time>/u)
   assert.match(
     overlaySource,

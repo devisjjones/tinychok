@@ -4339,6 +4339,13 @@
   color: rgba(95, 66, 46, 0.52);
 }
 
+.bubble.emoji-only-message .emoji-only-message-edited {
+  font-size: 0.75rem;
+  line-height: 1;
+  font-style: italic;
+  opacity: 0.92;
+}
+
 .bubble.emoji-only-message .emoji-only-message-meta time {
   margin: 0;
   padding-right: 0;
@@ -6033,6 +6040,15 @@
   font-size: 0.8rem;
   line-height: 14px;
   opacity: 0.72;
+}
+
+.bubble .bubble-text-inline-meta-edited {
+  display: inline-flex;
+  align-items: center;
+  font-size: inherit;
+  line-height: inherit;
+  font-style: italic;
+  opacity: 0.92;
 }
 
 .bubble .bubble-text-inline-meta time,

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 type ComposerAttachmentPickerProps = {
   attachmentName: string
   attachmentModes?: Array<'file' | 'photo'>
+  disabled?: boolean
   onSelectMode: (mode: 'file' | 'photo') => void
   premiumUnlocked?: boolean
 }
@@ -10,6 +11,7 @@ type ComposerAttachmentPickerProps = {
 export function ComposerAttachmentPicker({
   attachmentName,
   attachmentModes = ['photo', 'file'],
+  disabled = false,
   onSelectMode,
   premiumUnlocked = false,
 }: ComposerAttachmentPickerProps) {
@@ -46,9 +48,18 @@ export function ComposerAttachmentPicker({
     }
   }, [open])
 
+  useEffect(() => {
+    if (disabled && open) {
+      setOpen(false)
+    }
+  }, [disabled, open])
+
   function handleToggle(event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault()
     event.stopPropagation()
+    if (disabled) {
+      return
+    }
     if (singleAttachmentMode) {
       handleSelect(singleAttachmentMode)
       return
@@ -69,6 +80,7 @@ export function ComposerAttachmentPicker({
         className={attachmentName ? 'soft-button composer-tool active' : 'soft-button composer-tool'}
         onClick={handleToggle}
         aria-label={attachmentName || 'Добавить вложение'}
+        disabled={disabled}
         title={attachmentName || 'Добавить вложение'}
       >
         <img src="/icons/attach.png" alt="" />

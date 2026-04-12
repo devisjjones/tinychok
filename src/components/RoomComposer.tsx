@@ -9,7 +9,7 @@ import type {
 import { useLayoutEffect, useState } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import { insertComposerTextAtCursor, resizeComposerTextarea } from '../app/utils'
-import type { ReplyTarget, UserGifLibraryItem } from '../app/types'
+import type { EditTarget, ReplyTarget, UserGifLibraryItem } from '../app/types'
 import { ComposerAttachmentPicker } from './ComposerAttachmentPicker'
 import { ComposerAttachmentPreview } from './ComposerAttachmentPreview'
 import { EmojiPicker } from './EmojiPicker'
@@ -32,6 +32,7 @@ type RoomComposerProps = {
   onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
   onDraftChange: (value: string) => void
   onDraftFocus?: () => void
+  onEditCancel?: () => void
   onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   onOpenAttachmentPicker: (mode: 'file' | 'photo') => void
   onOpenPremiumUpsell?: () => void
@@ -44,6 +45,7 @@ type RoomComposerProps = {
   onUploadGif?: (file: File) => Promise<void>
   placeholder: string
   premiumUnlocked?: boolean
+  editTarget?: EditTarget | null
   replyTarget?: ReplyTarget | null
   showEmojiPicker?: boolean
   storageCleanupWarning?: ReactNode
@@ -75,6 +77,7 @@ export function RoomComposer({
   onDeleteGif,
   onDraftChange,
   onDraftFocus,
+  onEditCancel,
   onKeyDown,
   onOpenAttachmentPicker,
   onOpenPremiumUpsell,
@@ -87,6 +90,7 @@ export function RoomComposer({
   onUploadGif,
   placeholder,
   premiumUnlocked = false,
+  editTarget = null,
   replyTarget = null,
   showEmojiPicker = true,
   storageCleanupWarning = null,
@@ -102,6 +106,23 @@ export function RoomComposer({
   const [composerExpanded, setComposerExpanded] = useState(false)
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
   const canOpenVideoNoteRecorder = Boolean(onOpenVideoNoteRecorder)
+  const composerBanner = editTarget
+    ? {
+        cancelAriaLabel: 'Отменить редактирование',
+        cancelTitle: 'Отменить редактирование',
+        label: 'Редактирование',
+        onCancel: onEditCancel,
+        text: editTarget.text,
+      }
+    : replyTarget
+      ? {
+          cancelAriaLabel: 'Отменить ответ',
+          cancelTitle: 'Отменить ответ',
+          label: 'Ответ',
+          onCancel: onReplyCancel,
+          text: replyTarget.text,
+        }
+      : null
 
   useLayoutEffect(() => {
     const textarea = draftInputRef.current
@@ -131,18 +152,18 @@ export function RoomComposer({
     >
       {topContent}
       <div className="composer-input">
-        {replyTarget ? (
+        {composerBanner ? (
           <div className="composer-reply">
             <div>
-              <span className="settings-label">Ответ</span>
-              <p>{replyTarget.text}</p>
+              <span className="settings-label">{composerBanner.label}</span>
+              <p>{composerBanner.text}</p>
             </div>
             <button
               type="button"
               className="soft-button composer-reply-cancel"
-              onClick={onReplyCancel}
-              aria-label="Отменить ответ"
-              title="Отменить ответ"
+              onClick={composerBanner.onCancel}
+              aria-label={composerBanner.cancelAriaLabel}
+              title={composerBanner.cancelTitle}
             >
               <img src="/icons/cancel.png" alt="" aria-hidden="true" className="composer-reply-cancel-icon" />
             </button>
@@ -202,6 +223,7 @@ export function RoomComposer({
               <ComposerAttachmentPicker
                 attachmentName={attachmentName}
                 attachmentModes={attachmentModes}
+                disabled={Boolean(editTarget) || draftDisabled}
                 onSelectMode={onOpenAttachmentPicker}
                 premiumUnlocked={premiumUnlocked}
               />

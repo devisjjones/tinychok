@@ -13,7 +13,7 @@ import {
   shouldAutoFocusTextInputOnSceneOpen,
   shouldSubmitComposerWithEnter,
 } from '../app/utils'
-import type { Message, ReplyTarget, SubscriptionChannel, UserGifLibraryItem } from '../app/types'
+import type { EditTarget, Message, ReplyTarget, SubscriptionChannel, UserGifLibraryItem } from '../app/types'
 import {
   BubbleImageOverlayMeta,
   BubbleMessageContent,
@@ -55,6 +55,7 @@ type SubscriptionChannelRoomProps = {
     onOpenAttachmentPicker?: (mode: 'file' | 'photo') => void
     onOpenVideoNoteRecorder?: () => void
     onOpenPremiumUpsell?: () => void
+    onEditCancel?: () => void
     onReplyCancel: () => void
     onDeleteGif?: (gif: UserGifLibraryItem) => Promise<void>
     onSearchGifs?: (query: string) => Promise<UserGifLibraryItem[]>
@@ -65,6 +66,7 @@ type SubscriptionChannelRoomProps = {
     premiumUnlocked?: boolean
     gifLibrary?: UserGifLibraryItem[]
     gifSelectionBlockedReason?: string | null
+    editTarget?: EditTarget | null
     replyTarget: ReplyTarget | null
     storageCleanupWarning?: ReactNode
     onSubmit: () => void
@@ -114,6 +116,7 @@ export function SubscriptionChannelRoom({
   const publisherOnOpenAttachmentPicker = publisher?.onOpenAttachmentPicker
   const publisherOnOpenVideoNoteRecorder = publisher?.onOpenVideoNoteRecorder
   const publisherOnOpenPremiumUpsell = publisher?.onOpenPremiumUpsell
+  const publisherOnEditCancel = publisher?.onEditCancel
   const publisherOnReplyCancel = publisher?.onReplyCancel
   const publisherOnDeleteGif = publisher?.onDeleteGif
   const publisherOnSearchGifs = publisher?.onSearchGifs
@@ -124,6 +127,7 @@ export function SubscriptionChannelRoom({
   const publisherPremiumUnlocked = Boolean(publisher?.premiumUnlocked)
   const publisherGifLibrary = publisher?.gifLibrary ?? []
   const publisherGifSelectionBlockedReason = publisher?.gifSelectionBlockedReason ?? null
+  const publisherEditTarget = publisher?.editTarget ?? null
   const publisherReplyTarget = publisher?.replyTarget ?? null
   const publisherStorageCleanupWarning = publisher?.storageCleanupWarning ?? null
   const publisherOnSubmit = publisher?.onSubmit
@@ -176,12 +180,12 @@ export function SubscriptionChannelRoom({
   }
 
   useEffect(() => {
-    if (!publisherReplyTarget) return
+    if (!publisherReplyTarget && !publisherEditTarget) return
 
     window.requestAnimationFrame(() => {
       publisherInputRef.current?.focus()
     })
-  }, [publisherReplyTarget])
+  }, [publisherEditTarget, publisherReplyTarget])
 
   useEffect(() => {
     if (!publisher) return
@@ -325,7 +329,10 @@ export function SubscriptionChannelRoom({
                                 }
                                 inlineMeta={
                                   shouldUseInlineTextMeta ? (
-                                    <BubbleTextInlineMeta time={renderedPostTime} />
+                                    <BubbleTextInlineMeta
+                                      edited={Boolean(post.editedAt)}
+                                      time={renderedPostTime}
+                                    />
                                   ) : undefined
                                 }
                                 message={post}
@@ -360,7 +367,10 @@ export function SubscriptionChannelRoom({
                                 }
                                 inlineMeta={
                                   shouldUseInlineTextMeta ? (
-                                    <BubbleTextInlineMeta time={renderedPostTime} />
+                                    <BubbleTextInlineMeta
+                                      edited={Boolean(post.editedAt)}
+                                      time={renderedPostTime}
+                                    />
                                   ) : undefined
                                 }
                                 message={post}
@@ -406,6 +416,7 @@ export function SubscriptionChannelRoom({
             onComposerPaste={(event) => publisherOnComposerPaste?.(event)}
             onDeleteGif={publisherOnDeleteGif}
             onDraftChange={(value) => publisherOnDraftChange?.(value)}
+            onEditCancel={publisherOnEditCancel}
             onKeyDown={handleComposerKeyDown}
             onOpenAttachmentPicker={(mode) => publisherOnOpenAttachmentPicker?.(mode)}
             onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
@@ -418,6 +429,7 @@ export function SubscriptionChannelRoom({
             onUploadGif={publisherOnUploadGif}
             placeholder={publisherPlaceholder}
             premiumUnlocked={publisherPremiumUnlocked}
+            editTarget={publisherEditTarget}
             replyTarget={publisherReplyTarget}
             storageCleanupWarning={publisherStorageCleanupWarning}
             submitAriaLabel="Отправить"

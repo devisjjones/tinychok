@@ -206,6 +206,17 @@ type PersistedDialog = Omit<Chat, 'messages' | 'contactState'> & {
   ownerIdentifier: string
 }
 
+type PersistedMessageEditRecord = {
+  createdAt?: string
+  editedAt: string
+  text: string
+  time: string
+}
+
+type PersistedThreadComment = ThreadComment & {
+  editHistory?: PersistedMessageEditRecord[]
+}
+
 type PersistedDialogMessage = Message & {
   archivedAt?: string
   archivedReason?:
@@ -214,6 +225,7 @@ type PersistedDialogMessage = Message & {
     | 'delete-history-me'
     | 'delete-message-me'
   dialogId: number
+  editHistory?: PersistedMessageEditRecord[]
   ownerIdentifier: string
 }
 
@@ -232,9 +244,11 @@ type PersistedGroup = Omit<GroupPreview, 'messages'> & {
   ownerIdentifier: string
 }
 
-type PersistedGroupMessage = Message & {
+type PersistedGroupMessage = Omit<Message, 'threadComments'> & {
   groupId: number
   ownerIdentifier: string
+  editHistory?: PersistedMessageEditRecord[]
+  threadComments?: PersistedThreadComment[]
 }
 
 type PersistedManagedChannel = Channel & {
@@ -249,9 +263,11 @@ type PersistedSubscriptionChannel = Omit<SubscriptionChannel, 'posts'> & {
 
 type SubscriptionPost = SubscriptionChannel['posts'][number]
 
-type PersistedSubscriptionPost = SubscriptionPost & {
+type PersistedSubscriptionPost = Omit<SubscriptionPost, 'threadComments'> & {
   channelId: number
+  editHistory?: PersistedMessageEditRecord[]
   ownerIdentifier: string
+  threadComments?: PersistedThreadComment[]
 }
 
 type PersistedThreadState = {
@@ -265,7 +281,7 @@ type PersistedThreadState = {
 type PersistedSupportTicket = {
   attachment?: MessageAttachment
   attachmentRemovedNotice?: Message['attachmentRemovedNotice']
-  comments: ThreadComment[]
+  comments: PersistedThreadComment[]
   createdAt: string
   deliveryId?: string
   id: number
@@ -2562,7 +2578,7 @@ function resolveSubscriptionPostAuthorIdentifier(
 }
 
 function materializeThreadComment(
-  comment: ThreadComment | undefined,
+  comment: PersistedThreadComment | undefined,
   fallbackAuthor: 'me' | 'them' = 'them',
 ): ThreadComment | null {
   if (!comment) return null
@@ -2575,6 +2591,7 @@ function materializeThreadComment(
     createdAt: comment.createdAt,
     deliveryId: comment.deliveryId,
     displayAuthor: comment.displayAuthor,
+    editedAt: comment.editedAt,
     id: comment.id,
     replyTo: sanitizeReplyTarget(comment.replyTo),
     text: sanitizeThreadCommentText(comment.text),
@@ -2583,7 +2600,7 @@ function materializeThreadComment(
 }
 
 function materializeThreadCommentForViewer(
-  comment: ThreadComment | undefined,
+  comment: PersistedThreadComment | undefined,
   perspective: AttachmentRemovedNoticePerspective,
   fallbackAuthor: 'me' | 'them' = 'them',
 ): ThreadComment | null {
@@ -2831,6 +2848,7 @@ function materializeDialogMessage(
     createdAt: message.createdAt,
     deliveryId: message.deliveryId,
     displayAuthor: message.displayAuthor,
+    editedAt: message.editedAt,
     forwarded: message.forwarded,
     forwardedAuthorName: message.forwardedAuthorName,
     id: message.id,
@@ -3030,6 +3048,7 @@ function materializeGroupMessage(
     createdAt: message.createdAt,
     deliveryId: message.deliveryId,
     displayAuthor: message.displayAuthor,
+    editedAt: message.editedAt,
     forwarded: message.forwarded,
     forwardedAuthorName: message.forwardedAuthorName,
     groupParticipantId: message.groupParticipantId,
@@ -3133,6 +3152,39 @@ function buildDirectRetentionNoteForExport(
   return `Сообщение скрыто локально у одного участника (${humanizeDirectArchiveReason(leftReason ?? rightReason)}), но серверная запись сохранена.`
 }
 
+type VersionedExportRecord = {
+  createdAt?: string
+  editHistory?: PersistedMessageEditRecord[]
+  text: string
+}
+
+type ExportMessageVersionRow = {
+  archived: boolean
+  archivedAt?: string
+  createdAt?: string
+  text: string
+}
+
+function buildExportMessageVersionRows(
+  record: VersionedExportRecord,
+): ExportMessageVersionRow[] {
+  const archivedRows = (record.editHistory ?? []).map((entry) => ({
+    archived: true,
+    archivedAt: entry.editedAt,
+    createdAt: entry.createdAt,
+    text: entry.text,
+  }))
+
+  return [
+    ...archivedRows,
+    {
+      archived: false,
+      createdAt: record.createdAt,
+      text: record.text,
+    },
+  ]
+}
+
 function humanizeDirectArchiveReason(reason?: PersistedDialogMessage['archivedReason']) {
   if (reason === 'delete-message-me') return '«Удалить у меня»'
   if (reason === 'delete-history-me') return '«Удалить переписку у меня»'
@@ -3222,6 +3274,7 @@ function materializeSubscriptionPost(
       post.ownerIdentifier === viewerIdentifier ? 'self' : 'author',
     ),
     createdAt: post.createdAt,
+    editedAt: post.editedAt,
     id: post.id,
     replyTo: post.replyTo,
     sourceChannel:
@@ -6952,7 +7005,7 @@ export class TinychokStore {
     ).values()]
 
     const csv = [
-      ['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл'],
+      ['Когда', 'Тип', 'Автор', 'ID автора', 'Версия', 'Текст', 'Файл'],
       ...uniquePosts.flatMap((post) => {
         const parent = this.findSubscriptionChannel(post.ownerIdentifier, post.channelId)
         const threadKey = parent ? buildAdminChannelThreadKey(parent, post) : `${post.ownerIdentifier}:${post.channelId}:${post.id}`
@@ -6960,33 +7013,38 @@ export class TinychokStore {
         const managedChannel = this.findManagedChannelByHandle(normalizedHandleForPost)
         const authorIdentifier = managedChannel?.ownerIdentifier ?? post.ownerIdentifier
         const author = this.findAccount(authorIdentifier)
-        const rows: string[][] = [[
-          post.createdAt ?? '',
+        const rows: string[][] = buildExportMessageVersionRows(post).map((version) => [
+          version.createdAt ?? '',
           'post',
           author ? buildAccountDisplayLabel(author) : authorIdentifier,
           authorIdentifier,
-          post.text,
-          post.attachment?.fileName ?? '',
-        ]]
+          version.archived ? 'Архив версии' : 'Текущая',
+          version.text,
+          version.archived ? '' : (post.attachment?.fileName ?? ''),
+        ])
 
         const uniqueComments = [...new Map(
-          compactThreadComments(post.threadComments).map((comment) => {
+          (post.threadComments ?? []).flatMap((comment) => {
+            if (!comment) return []
             const key = buildAdminThreadCommentAggregateKey(threadKey, authorIdentifier, comment)
-            return [key, comment] as const
+            return [[key, comment] as const]
           }),
         ).values()]
 
         for (const comment of uniqueComments) {
           const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
           const commentAuthor = this.findAccount(commentAuthorIdentifier)
-          rows.push([
-            comment.createdAt ?? '',
-            'comment',
-            commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
-            commentAuthorIdentifier,
-            comment.text,
-            comment.attachment?.fileName ?? '',
-          ])
+          rows.push(
+            ...buildExportMessageVersionRows(comment).map((version) => [
+              version.createdAt ?? '',
+              'comment',
+              commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+              commentAuthorIdentifier,
+              version.archived ? 'Архив версии' : 'Текущая',
+              version.text,
+              version.archived ? '' : (comment.attachment?.fileName ?? ''),
+            ]),
+          )
         }
 
         return rows
@@ -7100,7 +7158,7 @@ export class TinychokStore {
     ).values()]
 
     const csv = [
-      ['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл'],
+      ['Когда', 'Тип', 'Автор', 'ID автора', 'Версия', 'Текст', 'Файл'],
       ...uniqueMessages.flatMap((message) => {
         const parentGroup = this.findGroup(message.ownerIdentifier, message.groupId) ?? primaryGroup
         const messageKey = buildAdminGroupThreadKey(parentGroup, message)
@@ -7112,33 +7170,38 @@ export class TinychokStore {
           normalizeIdentifier(parentGroup.creatorIdentifier ?? '') ||
           message.ownerIdentifier
         const author = this.findAccount(messageAuthorIdentifier)
-        const rows: string[][] = [[
-          message.createdAt ?? '',
+        const rows: string[][] = buildExportMessageVersionRows(message).map((version) => [
+          version.createdAt ?? '',
           'message',
           author ? buildAccountDisplayLabel(author) : messageAuthorIdentifier,
           messageAuthorIdentifier,
-          message.text,
-          message.attachment?.fileName ?? '',
-        ]]
+          version.archived ? 'Архив версии' : 'Текущая',
+          version.text,
+          version.archived ? '' : (message.attachment?.fileName ?? ''),
+        ])
 
         const uniqueComments = [...new Map(
-          compactThreadComments(message.threadComments).map((comment) => {
+          (message.threadComments ?? []).flatMap((comment) => {
+            if (!comment) return []
             const key = buildAdminThreadCommentAggregateKey(messageKey, messageAuthorIdentifier, comment)
-            return [key, comment] as const
+            return [[key, comment] as const]
           }),
         ).values()]
 
         for (const comment of uniqueComments) {
           const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
           const commentAuthor = this.findAccount(commentAuthorIdentifier)
-          rows.push([
-            comment.createdAt ?? '',
-            'thread-comment',
-            commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
-            commentAuthorIdentifier,
-            comment.text,
-            comment.attachment?.fileName ?? '',
-          ])
+          rows.push(
+            ...buildExportMessageVersionRows(comment).map((version) => [
+              version.createdAt ?? '',
+              'thread-comment',
+              commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+              commentAuthorIdentifier,
+              version.archived ? 'Архив версии' : 'Текущая',
+              version.text,
+              version.archived ? '' : (comment.attachment?.fileName ?? ''),
+            ]),
+          )
         }
 
         return rows
@@ -7397,7 +7460,7 @@ export class TinychokStore {
       throw new Error('Обсуждение не найдено.')
     }
 
-    const csvRows: string[][] = [['Когда', 'Тип', 'Автор', 'ID автора', 'Текст', 'Файл']]
+    const csvRows: string[][] = [['Когда', 'Тип', 'Автор', 'ID автора', 'Версия', 'Текст', 'Файл']]
 
     if (threadId.startsWith('admin-group-thread:')) {
       const message = this.database.groupMessages.find((candidate) => {
@@ -7406,25 +7469,31 @@ export class TinychokStore {
       })
       if (!message) throw new Error('Обсуждение группы не найдено.')
 
-      csvRows.push([
-        message.createdAt ?? '',
-        'root-message',
-        groupThread.owner.displayName,
-        groupThread.owner.identifier,
-        message.text,
-        message.attachment?.fileName ?? '',
-      ])
-      for (const comment of compactThreadComments(message.threadComments)) {
+      csvRows.push(
+        ...buildExportMessageVersionRows(message).map((version) => [
+          version.createdAt ?? '',
+          'root-message',
+          groupThread.owner.displayName,
+          groupThread.owner.identifier,
+          version.archived ? 'Архив версии' : 'Текущая',
+          version.text,
+          version.archived ? '' : (message.attachment?.fileName ?? ''),
+        ]),
+      )
+      for (const comment of message.threadComments ?? []) {
         const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
         const commentAuthor = this.findAccount(commentAuthorIdentifier)
-        csvRows.push([
-          comment.createdAt ?? '',
-          'thread-comment',
-          commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
-          commentAuthorIdentifier,
-          comment.text,
-          comment.attachment?.fileName ?? '',
-        ])
+        csvRows.push(
+          ...buildExportMessageVersionRows(comment).map((version) => [
+            version.createdAt ?? '',
+            'thread-comment',
+            commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+            commentAuthorIdentifier,
+            version.archived ? 'Архив версии' : 'Текущая',
+            version.text,
+            version.archived ? '' : (comment.attachment?.fileName ?? ''),
+          ]),
+        )
       }
     } else {
       const post = this.database.subscriptionPosts.find((candidate) => {
@@ -7433,25 +7502,31 @@ export class TinychokStore {
       })
       if (!post) throw new Error('Обсуждение канала не найдено.')
 
-      csvRows.push([
-        post.createdAt ?? '',
-        'root-post',
-        groupThread.owner.displayName,
-        groupThread.owner.identifier,
-        post.text,
-        post.attachment?.fileName ?? '',
-      ])
-      for (const comment of compactThreadComments(post.threadComments)) {
+      csvRows.push(
+        ...buildExportMessageVersionRows(post).map((version) => [
+          version.createdAt ?? '',
+          'root-post',
+          groupThread.owner.displayName,
+          groupThread.owner.identifier,
+          version.archived ? 'Архив версии' : 'Текущая',
+          version.text,
+          version.archived ? '' : (post.attachment?.fileName ?? ''),
+        ]),
+      )
+      for (const comment of post.threadComments ?? []) {
         const commentAuthorIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
         const commentAuthor = this.findAccount(commentAuthorIdentifier)
-        csvRows.push([
-          comment.createdAt ?? '',
-          'thread-comment',
-          commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
-          commentAuthorIdentifier,
-          comment.text,
-          comment.attachment?.fileName ?? '',
-        ])
+        csvRows.push(
+          ...buildExportMessageVersionRows(comment).map((version) => [
+            version.createdAt ?? '',
+            'thread-comment',
+            commentAuthor ? buildAccountDisplayLabel(commentAuthor) : commentAuthorIdentifier,
+            commentAuthorIdentifier,
+            version.archived ? 'Архив версии' : 'Текущая',
+            version.text,
+            version.archived ? '' : (comment.attachment?.fileName ?? ''),
+          ]),
+        )
       }
     }
 
@@ -7500,6 +7575,7 @@ export class TinychokStore {
         'Когда',
         'Автор',
         'ID автора',
+        'Версия',
         'Текст',
         'Файл',
         'Media URL',
@@ -7511,24 +7587,27 @@ export class TinychokStore {
         `Visible For ${leftIdentifier}`,
         `Visible For ${rightIdentifier}`,
       ],
-      ...messages.map((message) => {
+      ...messages.flatMap((message) => {
         const authorIdentifier = message.authorDisplayIdentifier
         const author = this.findAccount(authorIdentifier)
-        return [
-          message.createdAt ?? '',
+        return buildExportMessageVersionRows(message.logicalMessage).map((version) => [
+          version.createdAt ?? '',
           author ? buildAccountDisplayLabel(author) : authorIdentifier,
           authorIdentifier,
-          message.text,
-          message.attachment?.fileName ?? '',
-          message.attachment?.mediaUrl ?? '',
+          version.archived ? 'Архив версии' : 'Текущая',
+          version.text,
+          version.archived ? '' : (message.attachment?.fileName ?? ''),
+          version.archived ? '' : (message.attachment?.mediaUrl ?? ''),
           message.replyTo?.text ?? '',
-          message.readAt ?? '',
-          message.archivedAt ?? '',
-          message.retentionNote ?? '',
-          message.archiveReason ?? '',
-          message.visibleForLeft ? 'yes' : 'no',
-          message.visibleForRight ? 'yes' : 'no',
-        ]
+          version.archived ? (version.archivedAt ?? '') : (message.readAt ?? ''),
+          version.archived ? (version.archivedAt ?? '') : (message.archivedAt ?? ''),
+          version.archived
+            ? 'Предыдущая версия сообщения сохранена после редактирования.'
+            : (message.retentionNote ?? ''),
+          version.archived ? 'edited-message-archive' : (message.archiveReason ?? ''),
+          version.archived ? 'no' : (message.visibleForLeft ? 'yes' : 'no'),
+          version.archived ? 'no' : (message.visibleForRight ? 'yes' : 'no'),
+        ])
       }),
     ]
       .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
@@ -9826,6 +9905,102 @@ export class TinychokStore {
     }
   }
 
+  async editDirectMessage(
+    token: string,
+    dialogId: number,
+    messageId: number,
+    payload: { text: string },
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const dialog = this.findDialog(account.identifier, dialogId)
+    if (!dialog) {
+      throw new Error('Диалог не найден.')
+    }
+
+    const message = this.database.dialogMessages.find(
+      (candidate) =>
+        candidate.ownerIdentifier === account.identifier &&
+        candidate.dialogId === dialogId &&
+        candidate.id === messageId &&
+        !candidate.archivedAt,
+    )
+    if (!message) {
+      throw new Error('Сообщение не найдено.')
+    }
+    if (message.author !== 'me') {
+      throw new Error('Можно редактировать только своё сообщение.')
+    }
+    this.assertEditableMessageLike(message)
+
+    const nextText = sanitizeMessageText(payload.text)
+    if (!nextText) {
+      throw new Error('Сообщение не может быть пустым.')
+    }
+    if (nextText === message.text) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    const previousCreatedAt = message.createdAt
+    const previousDeliveryId = message.deliveryId
+    const previousText = message.text
+    const editedAt = new Date().toISOString()
+    this.applyEditedTextRecord(message, nextText, editedAt)
+    message.sourceContact = resolveContactSourceReferenceFromText(this.database, nextText)
+
+    const broadcastIdentifiers = new Set<string>([account.identifier])
+    const peerIdentifier = normalizeIdentifier(dialog.phone)
+    const peerAccount =
+      peerIdentifier && peerIdentifier !== account.identifier
+        ? this.findAccount(peerIdentifier)
+        : null
+
+    if (peerAccount && !isPublicDeletedAccount(peerAccount) && !isArchivedIdentifier(dialog.phone)) {
+      const peerDialog = this.findDialogByPhone(peerAccount.identifier, account.identifier)
+      if (peerDialog) {
+        const peerCopy =
+          this.database.dialogMessages.find((candidate) => {
+            if (
+              candidate.ownerIdentifier !== peerAccount.identifier ||
+              candidate.dialogId !== peerDialog.id ||
+              candidate.archivedAt
+            ) {
+              return false
+            }
+
+            if (previousDeliveryId && candidate.deliveryId) {
+              return previousDeliveryId === candidate.deliveryId
+            }
+
+            return (
+              candidate.createdAt === previousCreatedAt &&
+              candidate.text === previousText &&
+              candidate.author === 'them'
+            )
+          }) ?? null
+
+        if (peerCopy) {
+          this.applyEditedTextRecord(peerCopy, nextText, editedAt)
+          peerCopy.sourceContact = resolveContactSourceReferenceFromText(this.database, nextText)
+          broadcastIdentifiers.add(peerAccount.identifier)
+        }
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async setDialogFavorite(
     token: string,
     dialogId: number,
@@ -10393,6 +10568,78 @@ export class TinychokStore {
     }
   }
 
+  async editGroupMessage(
+    token: string,
+    groupId: number,
+    messageId: number,
+    payload: { text: string },
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getGroupMessageById(account.identifier, groupId, messageId)
+    if (!target) {
+      throw new Error('Сообщение группы не найдено.')
+    }
+    if (target.message.author !== 'me') {
+      throw new Error('Можно редактировать только своё сообщение.')
+    }
+    if (target.message.groupSystemEvent) {
+      throw new Error('Системное сообщение редактировать нельзя.')
+    }
+    this.assertEditableMessageLike(target.message)
+
+    const nextText = sanitizeMessageText(payload.text)
+    if (!nextText) {
+      throw new Error('Сообщение не может быть пустым.')
+    }
+    if (nextText === target.message.text) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    const sharedId = this.getSharedGroupId(target.group)
+    const targetThreadId = getGroupMessageThreadId(target.group, target.message)
+    const editedAt = new Date().toISOString()
+    const broadcastIdentifiers = new Set<string>()
+
+    for (const groupCopy of this.listGroupCopies(sharedId)) {
+      const targetMessage = this.database.groupMessages.find(
+        (candidate) =>
+          candidate.ownerIdentifier === groupCopy.ownerIdentifier &&
+          candidate.groupId === groupCopy.id &&
+          getGroupMessageThreadId(groupCopy, candidate) === targetThreadId,
+      )
+      if (!targetMessage) continue
+
+      this.applyEditedTextRecord(targetMessage, nextText, editedAt)
+      targetMessage.sourceContact = resolveContactSourceReferenceFromText(this.database, nextText)
+
+      const latestMessage = [...this.database.groupMessages]
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.ownerIdentifier === groupCopy.ownerIdentifier && candidate.groupId === groupCopy.id,
+        )
+      if (latestMessage === targetMessage) {
+        groupCopy.preview = nextText
+        groupCopy.time = targetMessage.time
+      }
+      broadcastIdentifiers.add(groupCopy.ownerIdentifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async sendGroupThreadComment(
     token: string,
     groupId: number,
@@ -10468,6 +10715,77 @@ export class TinychokStore {
 
     return {
       broadcastIdentifiers,
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async editGroupThreadComment(
+    token: string,
+    groupId: number,
+    messageId: number,
+    commentId: number,
+    payload: { text: string },
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getGroupMessageById(account.identifier, groupId, messageId)
+    if (!target) {
+      throw new Error('Сообщение группы не найдено.')
+    }
+
+    const targetComment = compactThreadComments(target.message.threadComments).find(
+      (comment) => comment.id === commentId,
+    )
+    if (!targetComment) {
+      throw new Error('Комментарий не найден.')
+    }
+    if (normalizeIdentifier(targetComment.authorIdentifier ?? '') !== account.identifier) {
+      throw new Error('Можно редактировать только свой комментарий.')
+    }
+    this.assertEditableMessageLike(targetComment)
+
+    const nextText = sanitizeThreadCommentText(payload.text)
+    if (!nextText) {
+      throw new Error('Комментарий не может быть пустым.')
+    }
+    if (nextText === targetComment.text) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    const sharedId = this.getSharedGroupId(target.group)
+    const threadId = getGroupMessageThreadId(target.group, target.message)
+    const editedAt = new Date().toISOString()
+    const broadcastIdentifiers = new Set<string>()
+
+    for (const groupCopy of this.listGroupCopies(sharedId)) {
+      const targetMessages = this.database.groupMessages.filter(
+        (candidate) =>
+          candidate.ownerIdentifier === groupCopy.ownerIdentifier &&
+          candidate.groupId === groupCopy.id &&
+          getGroupMessageThreadId(groupCopy, candidate) === threadId,
+      )
+
+      for (const targetMessage of targetMessages) {
+        const storedComments = targetMessage.threadComments ?? []
+        const storedComment = storedComments.find((comment) => comment.id === commentId)
+        if (!storedComment) continue
+
+        this.applyEditedTextRecord(storedComment, nextText, editedAt)
+        storedComment.sourceContact = resolveContactSourceReferenceFromText(this.database, nextText)
+        broadcastIdentifiers.add(groupCopy.ownerIdentifier)
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -10784,6 +11102,91 @@ export class TinychokStore {
 
     return {
       broadcastIdentifiers: [...new Set(channelCopies.map((channelCopy) => channelCopy.ownerIdentifier))],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async editManagedChannelPost(
+    token: string,
+    channelId: number,
+    postId: number,
+    payload: { text: string },
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const managedChannel = this.findManagedChannel(account.identifier, channelId)
+    if (!managedChannel) {
+      throw new Error('Канал не найден.')
+    }
+    this.assertManagedChannelWritable(managedChannel)
+
+    const ownerCopy = this.listSubscriptionChannelCopiesByHandle(managedChannel.directLink).find(
+      (channel) => channel.ownerIdentifier === account.identifier,
+    )
+    if (!ownerCopy) {
+      throw new Error('Пост не найден.')
+    }
+
+    const ownerPost = this.database.subscriptionPosts.find(
+      (candidate) =>
+        candidate.ownerIdentifier === account.identifier &&
+        candidate.channelId === ownerCopy.id &&
+        candidate.id === postId,
+    )
+    if (!ownerPost) {
+      throw new Error('Пост не найден.')
+    }
+    this.assertEditableMessageLike(ownerPost)
+
+    const nextText = sanitizeMessageText(payload.text)
+    if (!nextText) {
+      throw new Error('Пост не может быть пустым.')
+    }
+    if (nextText === ownerPost.text) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    const normalizedHandle = sanitizeChannelDirectLink(managedChannel.directLink) || managedChannel.directLink
+    const threadId = getSubscriptionPostThreadId(ownerCopy, ownerPost)
+    const fallbackPreview = buildManagedChannelFallbackPreview(managedChannel)
+    const editedAt = new Date().toISOString()
+    const broadcastIdentifiers = new Set<string>()
+
+    for (const channelCopy of this.listSubscriptionChannelCopiesByHandle(normalizedHandle)) {
+      const targetPost = this.database.subscriptionPosts.find(
+        (candidate) =>
+          candidate.ownerIdentifier === channelCopy.ownerIdentifier &&
+          candidate.channelId === channelCopy.id &&
+          getSubscriptionPostThreadId(channelCopy, candidate) === threadId,
+      )
+      if (!targetPost) continue
+
+      this.applyEditedTextRecord(targetPost, nextText, editedAt)
+      targetPost.sourceContact = resolveContactSourceReferenceFromText(this.database, nextText)
+
+      const latestPost = [...this.database.subscriptionPosts]
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.ownerIdentifier === channelCopy.ownerIdentifier && candidate.channelId === channelCopy.id,
+        )
+      if (latestPost === targetPost) {
+        channelCopy.preview = nextText || fallbackPreview
+        channelCopy.time = targetPost.time
+      }
+      broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -11827,6 +12230,77 @@ export class TinychokStore {
 
     return {
       broadcastIdentifiers,
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async editSubscriptionChannelThreadComment(
+    token: string,
+    channelId: number,
+    postId: number,
+    commentId: number,
+    payload: { text: string },
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getSubscriptionPostById(account.identifier, channelId, postId)
+    if (!target) {
+      throw new Error('Пост канала не найден.')
+    }
+
+    const targetComment = compactThreadComments(target.post.threadComments).find(
+      (comment) => comment.id === commentId,
+    )
+    if (!targetComment) {
+      throw new Error('Комментарий не найден.')
+    }
+    if (normalizeIdentifier(targetComment.authorIdentifier ?? '') !== account.identifier) {
+      throw new Error('Можно редактировать только свой комментарий.')
+    }
+    this.assertEditableMessageLike(targetComment)
+
+    const nextText = sanitizeThreadCommentText(payload.text)
+    if (!nextText) {
+      throw new Error('Комментарий не может быть пустым.')
+    }
+    if (nextText === targetComment.text) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    const normalizedHandle = sanitizeChannelDirectLink(target.channel.handle) || target.channel.handle
+    const threadId = getSubscriptionPostThreadId(target.channel, target.post)
+    const editedAt = new Date().toISOString()
+    const broadcastIdentifiers = new Set<string>()
+
+    for (const channelCopy of this.listSubscriptionChannelCopiesByHandle(normalizedHandle)) {
+      const targetPosts = this.database.subscriptionPosts.filter(
+        (candidate) =>
+          candidate.ownerIdentifier === channelCopy.ownerIdentifier &&
+          candidate.channelId === channelCopy.id &&
+          getSubscriptionPostThreadId(channelCopy, candidate) === threadId,
+      )
+
+      for (const targetPost of targetPosts) {
+        const storedComments = targetPost.threadComments ?? []
+        const storedComment = storedComments.find((comment) => comment.id === commentId)
+        if (!storedComment) continue
+
+        this.applyEditedTextRecord(storedComment, nextText, editedAt)
+        storedComment.sourceContact = resolveContactSourceReferenceFromText(this.database, nextText)
+        broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
       snapshot: this.buildSnapshot(account, token),
     }
   }
@@ -16869,6 +17343,58 @@ export class TinychokStore {
     }
   }
 
+  private buildEditHistoryEntry(
+    record: Pick<PersistedDialogMessage | PersistedGroupMessage | PersistedSubscriptionPost | PersistedThreadComment, 'createdAt' | 'text' | 'time'>,
+    editedAt: string,
+  ): PersistedMessageEditRecord {
+    return {
+      createdAt: record.createdAt,
+      editedAt,
+      text: record.text,
+      time: record.time,
+    }
+  }
+
+  private applyEditedTextRecord(
+    record: PersistedDialogMessage | PersistedGroupMessage | PersistedSubscriptionPost | PersistedThreadComment,
+    nextText: string,
+    editedAt: string,
+  ) {
+    record.editHistory = [...(record.editHistory ?? []), this.buildEditHistoryEntry(record, editedAt)]
+    record.createdAt = editedAt
+    record.editedAt = editedAt
+    record.text = nextText
+    record.time = formatNowTime()
+  }
+
+  private assertEditableMessageLike(
+    record:
+      | Pick<Message, 'attachment' | 'attachmentRemovedNotice' | 'forwarded' | 'sourceChannel' | 'sourceContact' | 'sourceGroup' | 'system' | 'text'>
+      | Pick<ChannelPost, 'attachment' | 'attachmentRemovedNotice' | 'sourceContact' | 'system' | 'text'>,
+  ) {
+    if (sanitizeMessageText(record.text).length === 0) {
+      throw new Error('Нельзя редактировать пустое сообщение.')
+    }
+    if (record.attachment || record.attachmentRemovedNotice) {
+      throw new Error('Пока можно редактировать только текстовые сообщения.')
+    }
+    if ('forwarded' in record && record.forwarded) {
+      throw new Error('Пересланное сообщение редактировать нельзя.')
+    }
+    if ('sourceChannel' in record && record.sourceChannel) {
+      throw new Error('Сообщение со встроенной ссылкой редактировать нельзя.')
+    }
+    if ('sourceGroup' in record && record.sourceGroup) {
+      throw new Error('Сообщение с приглашением в группу редактировать нельзя.')
+    }
+    if (record.sourceContact) {
+      throw new Error('Сообщение с карточкой контакта редактировать нельзя.')
+    }
+    if (record.system) {
+      throw new Error('Системное сообщение редактировать нельзя.')
+    }
+  }
+
   private buildSupportThreadId(ticketNumber: number) {
     return `support:${ticketNumber}`
   }
@@ -18178,13 +18704,17 @@ function normalizeChannelHandleForComparison(handle: string | undefined) {
 }
 
 function getPersistedSubscriptionPostSignature(
-  post: Pick<PersistedSubscriptionPost, 'attachment' | 'createdAt' | 'replyTo' | 'system' | 'text' | 'time'>,
+  post: Pick<
+    PersistedSubscriptionPost,
+    'attachment' | 'createdAt' | 'editedAt' | 'replyTo' | 'system' | 'text' | 'time'
+  >,
 ) {
   return JSON.stringify({
     attachmentFileName: post.attachment?.fileName ?? '',
     attachmentMimeType: post.attachment?.mimeType ?? '',
     attachmentSize: post.attachment?.size ?? 0,
     createdAt: post.createdAt ?? '',
+    editedAt: post.editedAt ?? '',
     replyAuthor: post.replyTo?.author ?? '',
     replyId: post.replyTo?.id ?? 0,
     replyText: post.replyTo?.text ?? '',
@@ -18220,13 +18750,20 @@ function buildSubscriptionPostPreviewText(
   return fallbackPreview
 }
 
-function cloneThreadCommentRecord(comment: ThreadComment): ThreadComment {
+function cloneEditHistory(
+  editHistory: PersistedMessageEditRecord[] | undefined,
+): PersistedMessageEditRecord[] | undefined {
+  return editHistory?.map((entry) => ({ ...entry }))
+}
+
+function cloneThreadCommentRecord(comment: PersistedThreadComment): PersistedThreadComment {
   return {
     ...comment,
     attachment: comment.attachment ? { ...comment.attachment } : undefined,
     attachmentRemovedNotice: comment.attachmentRemovedNotice
       ? { ...comment.attachmentRemovedNotice }
       : undefined,
+    editHistory: cloneEditHistory(comment.editHistory),
     replyTo: comment.replyTo ? { ...comment.replyTo } : undefined,
     sourceChannel: comment.sourceChannel ? { ...comment.sourceChannel } : undefined,
   }
@@ -18242,6 +18779,8 @@ function clonePersistedSubscriptionPostForCopy(
     attachmentRemovedNotice: post.attachmentRemovedNotice ? { ...post.attachmentRemovedNotice } : undefined,
     channelId: channelCopy.id,
     createdAt: post.createdAt,
+    editHistory: cloneEditHistory(post.editHistory),
+    editedAt: post.editedAt,
     id: nextId,
     ownerIdentifier: channelCopy.ownerIdentifier,
     replyTo: post.replyTo ? { ...post.replyTo } : undefined,

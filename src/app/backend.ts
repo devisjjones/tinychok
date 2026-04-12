@@ -57,6 +57,11 @@ import type {
   DeleteStorageItemBody,
   DeleteUserStorageItemBody,
   DebugPremiumBody,
+  EditDirectMessageBody,
+  EditGroupMessageBody,
+  EditGroupThreadCommentBody,
+  EditManagedChannelPostBody,
+  EditSubscriptionChannelThreadCommentBody,
   DiscoverySearchResponse,
   DirectDialogHistoryResponse,
   GroupHistoryResponse,
@@ -1638,6 +1643,20 @@ export async function sendDirectMessage(
   return normalizeMutationResponse(payload)
 }
 
+export async function editDirectMessage(
+  sessionToken: string,
+  dialogId: number,
+  messageId: number,
+  body: EditDirectMessageBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/dialogs/${dialogId}/messages/${messageId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function sendContactRequest(
   sessionToken: string,
   body: SendContactRequestBody,
@@ -1823,6 +1842,20 @@ export async function sendGroupMessage(
   return normalizeMutationResponse(payload)
 }
 
+export async function editGroupMessage(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+  body: EditGroupMessageBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function markDialogRead(sessionToken: string, dialogId: number) {
   const response = await fetch(
     makeHttpUrl(`/api/dialogs/${dialogId}/read`),
@@ -1874,6 +1907,21 @@ export async function sendGroupThreadComment(
   const response = await fetch(
     makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/comments`),
     makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function editGroupThreadComment(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+  commentId: number,
+  body: EditGroupThreadCommentBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/comments/${commentId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
@@ -1944,6 +1992,20 @@ export async function sendManagedChannelPost(
   return normalizeMutationResponse(payload)
 }
 
+export async function editManagedChannelPost(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+  body: EditManagedChannelPostBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/managed-channels/${channelId}/posts/${postId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function markSubscriptionChannelRead(sessionToken: string, channelId: number) {
   const response = await fetch(
     makeHttpUrl(`/api/subscription-channels/${channelId}/read`),
@@ -1975,6 +2037,21 @@ export async function sendSubscriptionChannelThreadComment(
   const response = await fetch(
     makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/comments`),
     makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function editSubscriptionChannelThreadComment(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+  commentId: number,
+  body: EditSubscriptionChannelThreadCommentBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/comments/${commentId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)

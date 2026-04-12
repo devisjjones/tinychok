@@ -20,6 +20,7 @@ test('EmojiOnlyMessageContent renders enlarged glyph with pale meta row and inli
   const markup = renderToStaticMarkup(
     <EmojiOnlyMessageContent
       deliveryIndicatorSrc="/icons/double-tick-50.png"
+      edited
       emoji="🔥"
       time="10:00"
     />,
@@ -27,6 +28,8 @@ test('EmojiOnlyMessageContent renders enlarged glyph with pale meta row and inli
 
   assert.match(markup, /emoji-only-message-glyph">🔥<\/span>/u)
   assert.match(markup, /emoji-only-message-meta/u)
+  assert.match(markup, /emoji-only-message-edited/u)
+  assert.match(markup, /Отредактировано/u)
   assert.match(markup, /emoji-only-message-indicator/u)
   assert.match(markup, /<time>10:00<\/time>/u)
   assert.doesNotMatch(markup, /bubble-delivery-indicator/u)

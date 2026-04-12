@@ -866,6 +866,10 @@ export type SendDirectMessageBody = {
   text: string
 }
 
+export type EditDirectMessageBody = {
+  text: string
+}
+
 export type SetDialogFavoriteBody = {
   pinned: boolean
 }
@@ -895,10 +899,18 @@ export type SendGroupMessageBody = {
   text: string
 }
 
+export type EditGroupMessageBody = {
+  text: string
+}
+
 export type SendGroupThreadCommentBody = {
   attachment?: MessageAttachment
   clientDeliveryId?: string
   replyTo?: Message['replyTo']
+  text: string
+}
+
+export type EditGroupThreadCommentBody = {
   text: string
 }
 
@@ -945,6 +957,10 @@ export type SendSubscriptionChannelThreadCommentBody = {
   text: string
 }
 
+export type EditSubscriptionChannelThreadCommentBody = {
+  text: string
+}
+
 export type SendSupportTicketBody = {
   attachment?: MessageAttachment
   clientDeliveryId?: string
@@ -966,6 +982,10 @@ export type SendManagedChannelPostBody = {
   attachment?: MessageAttachment
   clientDeliveryId?: string
   replyTo?: Message['replyTo']
+  text: string
+}
+
+export type EditManagedChannelPostBody = {
   text: string
 }
 
