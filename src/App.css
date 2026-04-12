@@ -4412,6 +4412,7 @@
 .channel-post.media-only-bubble.selected:has(.bubble-attachment-photo-video-note.is-inline-playing) {
   width: min(440px, 100%);
   max-width: min(440px, 100%);
+  min-width: 0;
 }
 
 .threaded-bubble.has-thread .threaded-bubble-main > .bubble.media-only-bubble,
@@ -5067,7 +5068,8 @@
 
 .bubble-attachment-video-note-shell.is-inline-playing {
   width: min(440px, 100%);
-  max-width: min(440px, calc(100vw - 72px), 100%);
+  max-width: min(440px, 100%);
+  min-width: 0;
   justify-items: stretch;
 }
 
@@ -7074,13 +7076,15 @@
   .channel-post.media-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
   .channel-post.video-note-only-bubble.selected:has(.bubble-attachment-photo-video-note.is-inline-playing),
   .channel-post.media-only-bubble.selected:has(.bubble-attachment-photo-video-note.is-inline-playing) {
-    width: min(440px, calc(100vw - 28px));
-    max-width: min(440px, calc(100vw - 28px));
+    width: min(440px, 100%);
+    max-width: min(440px, 100%);
+    min-width: 0;
   }
 
   .bubble-attachment-video-note-shell.is-inline-playing {
-    width: min(440px, calc(100vw - 28px));
-    max-width: min(440px, calc(100vw - 28px));
+    width: min(440px, 100%);
+    max-width: min(440px, 100%);
+    min-width: 0;
   }
 
   .video-note-recorder-preview-shell {
