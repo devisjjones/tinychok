@@ -61,60 +61,62 @@ export function MediaViewerOverlay({
       aria-label={attachment.fileName}
       onClick={onClose}
     >
-      <div className="media-viewer-actions">
-        {onPrimaryAction && primaryActionLabel ? (
-          <button
-            type="button"
-            className="media-viewer-download"
-            onClick={(event) => {
-              event.stopPropagation()
-              onPrimaryAction()
-            }}
-            disabled={primaryActionBusy}
-          >
-            <span className="media-viewer-download-label">
-              {primaryActionBusy ? 'Добавляем...' : primaryActionLabel}
-            </span>
-          </button>
-        ) : null}
-        {allowDownload ? (
-          <button
-            type="button"
-            className="media-viewer-download"
-            onClick={handleDownloadClick}
-            aria-label="Скачать вложение"
-            title="Скачать вложение"
-          >
-            <span className="media-viewer-download-label">Скачать</span>
-          </button>
-        ) : null}
-        {onReport ? (
-          <button
-            type="button"
-            className="media-viewer-report"
-            onClick={(event) => {
-              event.stopPropagation()
-              onReport()
-            }}
-            disabled={reportBusy || attachment.reportState?.alreadyReported}
-          >
-            {attachment.reportState?.alreadyReported
-              ? 'Вы уже отправляли жалобу'
-              : reportBusy
-                ? 'Отправляем...'
-                : 'Пожаловаться'}
-          </button>
-        ) : null}
+      <div className="media-viewer-toolbar" onClick={(event) => event.stopPropagation()}>
+        <div className="media-viewer-actions">
+          {onPrimaryAction && primaryActionLabel ? (
+            <button
+              type="button"
+              className="media-viewer-download"
+              onClick={(event) => {
+                event.stopPropagation()
+                onPrimaryAction()
+              }}
+              disabled={primaryActionBusy}
+            >
+              <span className="media-viewer-download-label">
+                {primaryActionBusy ? 'Добавляем...' : primaryActionLabel}
+              </span>
+            </button>
+          ) : null}
+          {allowDownload ? (
+            <button
+              type="button"
+              className="media-viewer-download"
+              onClick={handleDownloadClick}
+              aria-label="Скачать вложение"
+              title="Скачать вложение"
+            >
+              <span className="media-viewer-download-label">Скачать</span>
+            </button>
+          ) : null}
+          {onReport ? (
+            <button
+              type="button"
+              className="media-viewer-report"
+              onClick={(event) => {
+                event.stopPropagation()
+                onReport()
+              }}
+              disabled={reportBusy || attachment.reportState?.alreadyReported}
+            >
+              {attachment.reportState?.alreadyReported
+                ? 'Вы уже отправляли жалобу'
+                : reportBusy
+                  ? 'Отправляем...'
+                  : 'Пожаловаться'}
+            </button>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="media-viewer-close"
+          onClick={onClose}
+          aria-label="Закрыть просмотр"
+          title="Закрыть просмотр"
+        >
+          <img src="/icons/cancel.png" alt="" aria-hidden="true" />
+        </button>
       </div>
-      <button
-        type="button"
-        className="media-viewer-close"
-        onClick={onClose}
-        aria-label="Закрыть просмотр"
-        title="Закрыть просмотр"
-      >
-        <img src="/icons/cancel.png" alt="" aria-hidden="true" />
-      </button>
       <figure className="media-viewer-figure" onClick={onClose}>
         {isImage ? (
           <img src={attachment.mediaUrl} alt={attachment.fileName} className="media-viewer-image" />

@@ -449,6 +449,41 @@ test('composer attachment rename flow keeps extension outside the input and send
   assert.match(appCss, /\.composer-attachment-rename-extension/u)
 })
 
+test('media viewer keeps its action toolbar above videos on mobile browsers instead of letting the player cover the buttons', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const mediaViewerSource = readFileSync(
+    join(repoRoot, 'src', 'components', 'MediaViewerOverlay.tsx'),
+    'utf8',
+  )
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(mediaViewerSource, /className="media-viewer-toolbar"/u)
+  assert.match(
+    mediaViewerSource,
+    /<div className="media-viewer-toolbar" onClick=\{\(event\) => event\.stopPropagation\(\)\}>[\s\S]*className="media-viewer-actions"[\s\S]*className="media-viewer-close"/u,
+  )
+  assert.match(
+    appCss,
+    /\.media-viewer-overlay\s*\{[\s\S]*display:\s*grid;[\s\S]*grid-template-rows:\s*auto minmax\(0, 1fr\);[\s\S]*overflow-y:\s*auto;/u,
+  )
+  assert.match(
+    appCss,
+    /\.media-viewer-toolbar\s*\{[\s\S]*justify-content:\s*flex-end;[\s\S]*z-index:\s*2;/u,
+  )
+  assert.match(
+    appCss,
+    /\.media-viewer-actions\s*\{[\s\S]*flex-wrap:\s*wrap;[\s\S]*justify-content:\s*flex-end;/u,
+  )
+  assert.match(
+    appCss,
+    /\.media-viewer-close\s*\{[\s\S]*position:\s*relative;[\s\S]*z-index:\s*2;/u,
+  )
+  assert.match(
+    appCss,
+    /\.media-viewer-video\s*\{[\s\S]*max-height:\s*min\(calc\(100dvh - 190px\), 900px\);/u,
+  )
+})
+
 test('group history visibility for newly joined members stays wired through types, settings UI, and join-time backfill', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const sharedTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'types.ts'), 'utf8')
