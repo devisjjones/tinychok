@@ -7019,6 +7019,23 @@
     border-radius: 35px;
   }
 
+  .bubble.video-note-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
+  .bubble.media-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
+  .bubble-overlay.bubble-button.selected.video-note-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
+  .bubble-overlay.bubble-button.selected.media-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
+  .channel-post.video-note-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
+  .channel-post.media-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
+  .channel-post.video-note-only-bubble.selected:has(.bubble-attachment-photo-video-note.is-inline-playing),
+  .channel-post.media-only-bubble.selected:has(.bubble-attachment-photo-video-note.is-inline-playing) {
+    width: min(440px, calc(100vw - 28px));
+    max-width: min(440px, calc(100vw - 28px));
+  }
+
+  .bubble-attachment-video-note-shell.is-inline-playing {
+    width: min(440px, calc(100vw - 28px));
+    max-width: min(440px, calc(100vw - 28px));
+  }
+
   .video-note-recorder-preview-shell {
     width: min(320px, calc(100vw - 72px));
     border-radius: 34px;
