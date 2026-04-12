@@ -3961,6 +3961,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(720px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
   padding: 24px;
   border-radius: 24px;
   background: rgba(255, 251, 245, 0.98);
@@ -3969,6 +3970,8 @@
   z-index: 10;
   display: grid;
   gap: 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .room-confirm-copy {
@@ -8468,6 +8471,16 @@
     overflow: auto;
   }
 
+  .shell-settings {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+  }
+
   .shell-main-room {
     position: fixed;
     inset: 0;
@@ -8718,6 +8731,10 @@
 
   .stage.settings-open {
     padding: 16px 0;
+  }
+
+  .room-confirm {
+    -webkit-overflow-scrolling: touch;
   }
 
   .settings-view {
