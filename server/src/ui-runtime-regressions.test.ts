@@ -4065,6 +4065,8 @@ test('premium screen and create-group modal keep tariff group-count copy wired',
   assert.match(constantsSource, /export const defaultGroupsPerUserLimit = 5/u)
   assert.match(constantsSource, /export const premiumGroupsPerUserLimit = 20/u)
   assert.match(appSource, /До 20 групп вместо 5 на бесплатном аккаунте/u)
+  assert.match(appSource, /Загрузка своих GIF animation/u)
+  assert.doesNotMatch(appSource, /Загрузка и использование GIF animation/u)
   assert.match(appSource, /На бесплатном аккаунте можно создать до/u)
   assert.match(appSource, /С премиумом можно создать до/u)
   assert.match(appSource, /Открыть премиум/u)
