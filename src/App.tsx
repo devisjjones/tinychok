@@ -156,6 +156,7 @@ import {
 } from './app/backend'
 import { configureAnalyticsRuntime, trackAnalyticsEvent, trackAnalyticsPageView } from './app/analytics'
 import {
+  ensureBrowserNotificationDeliveryReady,
   getBrowserNotificationStatus,
   requestBrowserNotificationPermission,
   showBrowserNotification,
@@ -391,6 +392,29 @@ type BrowserNotificationDigestEntry = {
 }
 
 type BrowserNotificationDigest = Map<string, BrowserNotificationDigestEntry>
+
+function isBrowserNotificationTarget(value: unknown): value is BrowserNotificationTarget {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<BrowserNotificationTarget> & { kind?: unknown }
+  switch (candidate.kind) {
+    case 'chat':
+      return typeof (candidate as { chatId?: unknown }).chatId === 'number'
+    case 'group':
+      return typeof (candidate as { groupId?: unknown }).groupId === 'number'
+    case 'channel':
+      return typeof (candidate as { channelId?: unknown }).channelId === 'number'
+    case 'thread':
+      return Boolean(
+        (candidate as { item?: Partial<ThreadInboxItem> }).item &&
+          typeof (candidate as { item?: Partial<ThreadInboxItem> }).item?.threadId === 'string',
+      )
+    default:
+      return false
+  }
+}
 
 type ProfileSettingsDraft = Pick<
   Session,
@@ -4281,6 +4305,46 @@ function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [syncBrowserNotificationStatus])
+
+  useEffect(() => {
+    if (browserNotificationStatus !== 'granted') {
+      return
+    }
+
+    void ensureBrowserNotificationDeliveryReady()
+  }, [browserNotificationStatus])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      return undefined
+    }
+
+    const handleBrowserNotificationClick = (event: MessageEvent) => {
+      const payload = event.data
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      const candidate = payload as {
+        target?: unknown
+        type?: string
+      }
+      if (candidate.type !== 'tinychok.browser-notification.click') {
+        return
+      }
+      if (!isBrowserNotificationTarget(candidate.target)) {
+        return
+      }
+
+      void window.focus()
+      browserNotificationOpenTargetRef.current(candidate.target)
+    }
+
+    navigator.serviceWorker.addEventListener('message', handleBrowserNotificationClick)
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleBrowserNotificationClick)
+    }
+  }, [])
 
   useEffect(() => {
     setBrowserNotificationsEnabled(session?.browserNotificationsEnabled !== false)
@@ -10622,8 +10686,9 @@ function App() {
         return
       }
 
-      showBrowserNotification(entry.title, {
+      void showBrowserNotification(entry.title, {
         body: entry.body,
+        clickData: entry.target,
         icon: '/logo/round/512round.png',
         onClick: () => browserNotificationOpenTargetRef.current(entry.target),
         tag: `tinychok:${key}`,

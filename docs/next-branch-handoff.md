@@ -688,6 +688,8 @@
 - desktop продолжает рендерить сверху promo-card включения уведомлений, если browser permission ещё не `granted` и пользователь сам не выключил уведомления в настройках
 - mobile browser не должен показывать верхнюю promo-card-просьбу; при включенной настройке приложение один раз просит `Notification` permission на первом пользовательском тапе
 - если пользователь выключил браузерные уведомления в настройках, это должно одновременно гасить desktop promo-card и mobile auto-request
+- browser notifications сначала идут через `/browser-notifications-sw.js`; если service worker недоступен, только тогда используется `new Notification(...)`
+- click по system notification должен возвращать пользователя в уже открытую вкладку Тайничка через `tinychok.browser-notification.click`, а не теряться внутри browser chrome
 - `Тихо` нельзя трактовать только как локальный UI-toggle:
   - server-side `Session/Account.quietModeEnabled` используется как продуктовый quiet-флаг
 - stealth join/leave в группах опираются именно на server-side `quietModeEnabled`, а не на текущее состояние браузера

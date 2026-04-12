@@ -3527,6 +3527,11 @@ test('quiet settings scene keeps category-specific notification contract wired t
 test('browser notifications preference is server-side and mobile skips the promo banner in favor of one auto-request', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const browserNotificationsSource = readFileSync(join(repoRoot, 'src', 'app', 'browserNotifications.ts'), 'utf8')
+  const browserNotificationsServiceWorkerSource = readFileSync(
+    join(repoRoot, 'public', 'browser-notifications-sw.js'),
+    'utf8',
+  )
   const appStorageSource = readFileSync(join(repoRoot, 'src', 'app', 'storage.ts'), 'utf8')
   const backendSource = readFileSync(join(repoRoot, 'src', 'app', 'backend.ts'), 'utf8')
   const appUtilsSource = readFileSync(join(repoRoot, 'src', 'app', 'utils.ts'), 'utf8')
@@ -3553,12 +3558,22 @@ test('browser notifications preference is server-side and mobile skips the promo
   assert.match(appSource, /!mobileBrowserNotificationsEnabledByDefault/u)
   assert.match(appSource, /mobileBrowserNotificationsAutoRequestAttemptedRef/u)
   assert.match(appSource, /requestBrowserNotificationsAccess\('mobile-auto-request'\)/u)
+  assert.match(appSource, /void ensureBrowserNotificationDeliveryReady\(\)/u)
+  assert.match(appSource, /tinychok\.browser-notification\.click/u)
   assert.match(appSource, /browserNotificationsDisabled = !browserNotificationsEnabled/u)
   assert.match(appSource, /browserNotificationsEnabled: enabled/u)
+  assert.match(browserNotificationsSource, /const browserNotificationServiceWorkerPath = '\/browser-notifications-sw\.js'/u)
+  assert.match(browserNotificationsSource, /await registration\.showNotification\(title, notificationOptions\)/u)
+  assert.match(browserNotificationsSource, /new window\.Notification\(title, notificationOptions\)/u)
+  assert.match(browserNotificationsServiceWorkerSource, /self\.addEventListener\('notificationclick'/u)
+  assert.match(browserNotificationsServiceWorkerSource, /self\.clients\.openWindow\(url\)/u)
+  assert.match(browserNotificationsServiceWorkerSource, /tinychok\.browser-notification\.click/u)
   assert.match(handoffDoc, /on\/off preference хранится server-side/u)
   assert.match(handoffDoc, /mobile browser не должен показывать верхнюю promo-card-просьбу/u)
+  assert.match(handoffDoc, /browser notifications сначала идут через `\/browser-notifications-sw\.js`/u)
   assert.match(rolloutDoc, /mobile не показывает promo-card/u)
   assert.match(rolloutDoc, /`browserNotificationsEnabled` хранится server-side/u)
+  assert.match(rolloutDoc, /delivery сначала идёт через service worker `\/browser-notifications-sw\.js`/u)
 })
 
 test('profile settings fields keep lightweight label-and-input layout instead of large wrapper cards', () => {

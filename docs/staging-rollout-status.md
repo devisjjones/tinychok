@@ -854,6 +854,8 @@ curl -s https://api.staging.tinychok.ru/healthz
   - desktop показывает promo-card включения уведомлений, пока permission не `granted` и настройка не выключена вручную
   - mobile не показывает promo-card; при включенной настройке permission спрашивается один раз на первом пользовательском тапе
   - ручное выключение в настройках должно отключать и desktop promo-card, и mobile auto-request
+  - delivery сначала идёт через service worker `/browser-notifications-sw.js`, а fallback на `new Notification(...)` нужен только для сред без service worker
+  - click по browser notification должен возвращать target в приложение через `tinychok.browser-notification.click`
 - admin login под staff account
 - dashboard cards в admin:
   - пользователи
