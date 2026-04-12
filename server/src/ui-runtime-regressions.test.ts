@@ -6477,6 +6477,34 @@ test('free accounts can search and reuse existing GIFs but still cannot upload t
   assert.equal(searchResult.items.length, 1)
   assert.equal(searchResult.items[0]?.mediaUrl, 'https://cdn.example.com/user-gifs/pikachu-party.gif')
 
+  seedAcceptedContactLink(database, viewer.identifier, source.identifier)
+  const dialogResponse = await store.openDirectDialog(viewerToken, { identifier: source.identifier })
+  const groupResponse = await store.createGroup(viewerToken, {
+    commentsEnabledForAll: true,
+    memberDialogIds: [dialogResponse.dialogId],
+    title: 'GIF Search Reuse',
+  })
+
+  await assert.doesNotReject(() =>
+    store.sendDirectMessage(viewerToken, dialogResponse.dialogId, {
+      attachment: {
+        ...searchResult.items[0]!,
+      },
+      text: '',
+    }),
+  )
+
+  await assert.doesNotReject(() =>
+    store.sendGroupMessage(viewerToken, groupResponse.groupId, {
+      attachment: {
+        ...searchResult.items[0]!,
+      },
+      text: '',
+    }),
+  )
+
+  assert.equal(store.getSnapshotByToken(viewerToken)?.session.gifLibrary?.length ?? 0, 0)
+
   const reusedGifResult = await store.addUserGif(viewerToken, {
     createdAt: '2026-04-11T18:05:00.000Z',
     fileName: 'pikachu-party.gif',

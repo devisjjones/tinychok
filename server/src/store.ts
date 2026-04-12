@@ -14629,6 +14629,25 @@ export class TinychokStore {
       }
     }
 
+    const sharedGif = this.database.sharedGifs.find(
+      (item) => item.mediaUrl === sanitizedAttachment.mediaUrl,
+    )
+    if (sharedGif) {
+      if (
+        sharedGif.fileName !== sanitizedAttachment.fileName ||
+        sharedGif.mimeType !== sanitizedAttachment.mimeType ||
+        sharedGif.size !== sanitizedAttachment.size
+      ) {
+        throw new Error(invalidOwnedAttachmentMessage)
+      }
+
+      return {
+        ...sanitizedAttachment,
+        height: sanitizedAttachment.height ?? sharedGif.height,
+        width: sanitizedAttachment.width ?? sharedGif.width,
+      }
+    }
+
     const pendingUpload = this.database.pendingMediaUploads.find(
       (upload) =>
         upload.ownerIdentifier === ownerIdentifier &&
