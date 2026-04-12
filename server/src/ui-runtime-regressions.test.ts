@@ -2678,8 +2678,12 @@ test('text bubbles use inline meta so time does not force a separate footer row'
   )
   assert.doesNotMatch(overlaySource, /<time>\{props\.(?:message|post|comment)\.time\}<\/time>/u)
   assert.match(appCss, /\.bubble-text-paragraph-with-inline-meta \{\s*position: relative;\s*padding-right: 44px;\s*min-height: 14px;/u)
+  assert.match(appCss, /\.bubble-text-paragraph-with-inline-meta:has\(\.bubble-text-inline-meta-stacked\) \{\s*display: grid;\s*gap: 4px;\s*padding-right: 0;\s*min-height: 0;/u)
   assert.match(appCss, /\.bubble\.has-delivery-indicator \.bubble-text-paragraph-with-inline-meta \{\s*padding-right: 64px;/u)
+  assert.match(appCss, /\.bubble\.has-delivery-indicator \.bubble-text-paragraph-with-inline-meta:has\(\.bubble-text-inline-meta-stacked\) \{\s*padding-right: 0;/u)
   assert.match(appCss, /\.bubble \.bubble-text-inline-meta \{\s*position: absolute;\s*right: 0;\s*bottom: 0;/u)
+  assert.match(appCss, /\.bubble \.bubble-text-inline-meta\.bubble-text-inline-meta-stacked \{\s*position: static;\s*width: 100%;\s*justify-content: flex-end;\s*align-items: center;/u)
+  assert.match(bubbleSource, /className=\{edited \? 'bubble-text-inline-meta bubble-text-inline-meta-stacked' : 'bubble-text-inline-meta'\}/u)
   assert.match(appCss, /\.bubble-text-paragraph-with-inline-meta > \.bubble-text-content \{\s*white-space: pre-wrap;/u)
   assert.match(
     appCss,

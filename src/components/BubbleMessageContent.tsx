@@ -562,7 +562,7 @@ export function BubbleTextInlineMeta({
   time,
 }: BubbleTextInlineMetaProps) {
   return (
-    <span className="bubble-text-inline-meta">
+    <span className={edited ? 'bubble-text-inline-meta bubble-text-inline-meta-stacked' : 'bubble-text-inline-meta'}>
       {edited ? <em className="bubble-text-inline-meta-edited">Отредактировано</em> : null}
       <time>{time}</time>
       {deliveryIndicatorSrc ? (

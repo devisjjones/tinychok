@@ -6025,8 +6025,19 @@
   white-space: pre-wrap;
 }
 
+.bubble-text-paragraph-with-inline-meta:has(.bubble-text-inline-meta-stacked) {
+  display: grid;
+  gap: 4px;
+  padding-right: 0;
+  min-height: 0;
+}
+
 .bubble.has-delivery-indicator .bubble-text-paragraph-with-inline-meta {
   padding-right: 64px;
+}
+
+.bubble.has-delivery-indicator .bubble-text-paragraph-with-inline-meta:has(.bubble-text-inline-meta-stacked) {
+  padding-right: 0;
 }
 
 .bubble .bubble-text-inline-meta {
@@ -6040,6 +6051,13 @@
   font-size: 0.8rem;
   line-height: 14px;
   opacity: 0.72;
+}
+
+.bubble .bubble-text-inline-meta.bubble-text-inline-meta-stacked {
+  position: static;
+  width: 100%;
+  justify-content: flex-end;
+  align-items: center;
 }
 
 .bubble .bubble-text-inline-meta-edited {
