@@ -4798,7 +4798,7 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(appSource, /Перекрасить интерфейс в спокойные серые оттенки\./u)
   assert.match(
     indexCss,
-    /:root\s*\{[\s\S]*--surface-bubble:\s*rgba\(255,\s*253,\s*249,\s*0\.98\);[\s\S]*--surface-bubble-mine:\s*rgba\(255,\s*255,\s*255,\s*0\.96\);[\s\S]*--surface-bubble-mine-ink:\s*#5a4032;[\s\S]*--surface-bubble-border:\s*rgba\(132,\s*123,\s*117,\s*0\.16\);[\s\S]*--shadow-bubble-incoming:\s*rgba\(72,\s*52,\s*33,\s*0\.1\);/u,
+    /:root\s*\{[\s\S]*--surface-bubble:\s*rgba\(255,\s*253,\s*249,\s*0\.98\);[\s\S]*--surface-bubble-mine:\s*rgba\(255,\s*255,\s*255,\s*1\);[\s\S]*--surface-bubble-mine-ink:\s*#5a4032;[\s\S]*--surface-bubble-border:\s*rgba\(132,\s*123,\s*117,\s*0\.16\);[\s\S]*--shadow-bubble-incoming:\s*rgba\(72,\s*52,\s*33,\s*0\.1\);/u,
   )
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*color-scheme:\s*dark;[\s\S]*--app-background:[\s\S]*#111214/u)
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(55,\s*57,\s*65,\s*0\.96\);[\s\S]*--surface-bubble-border:\s*rgba\(255,\s*255,\s*255,\s*0\.1\);[\s\S]*--shadow-bubble-incoming:\s*rgba\(0,\s*0,\s*0,\s*0\.28\);/u)

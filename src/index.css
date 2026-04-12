@@ -38,7 +38,7 @@
   --surface-button-active-ink: #fff9f3;
   --surface-bubble: rgba(255, 253, 249, 0.98);
   --surface-bubble-selected: rgba(255, 255, 255, 0.98);
-  --surface-bubble-mine: rgba(255, 255, 255, 0.96);
+  --surface-bubble-mine: rgba(255, 255, 255, 1);
   --surface-bubble-mine-ink: #5a4032;
   --surface-bubble-border: rgba(132, 123, 117, 0.16);
   --surface-reply: rgba(77, 58, 46, 0.08);
