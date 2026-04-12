@@ -4746,7 +4746,7 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(appSource, /Перекрасить интерфейс в спокойные серые оттенки\./u)
   assert.match(
     indexCss,
-    /:root\s*\{[\s\S]*--surface-bubble:\s*rgba\(248,\s*237,\s*227,\s*0\.94\);[\s\S]*--surface-bubble-mine:\s*rgba\(255,\s*255,\s*255,\s*0\.96\);[\s\S]*--surface-bubble-mine-ink:\s*#5a4032;/u,
+    /:root\s*\{[\s\S]*--surface-bubble:\s*rgba\(252,\s*244,\s*236,\s*0\.96\);[\s\S]*--surface-bubble-mine:\s*rgba\(255,\s*255,\s*255,\s*0\.96\);[\s\S]*--surface-bubble-mine-ink:\s*#5a4032;/u,
   )
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*color-scheme:\s*dark;[\s\S]*--app-background:[\s\S]*#111214/u)
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(55,\s*57,\s*65,\s*0\.96\);/u)
