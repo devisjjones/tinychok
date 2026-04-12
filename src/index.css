@@ -36,10 +36,11 @@
   --surface-button-hover: rgba(77, 58, 46, 0.14);
   --surface-button-active: var(--accent);
   --surface-button-active-ink: #fff9f3;
-  --surface-bubble: rgba(252, 244, 236, 0.96);
+  --surface-bubble: rgba(255, 253, 249, 0.98);
   --surface-bubble-selected: rgba(255, 255, 255, 0.98);
   --surface-bubble-mine: rgba(255, 255, 255, 0.96);
   --surface-bubble-mine-ink: #5a4032;
+  --surface-bubble-border: rgba(132, 123, 117, 0.16);
   --surface-reply: rgba(77, 58, 46, 0.08);
   --surface-reply-mine: rgba(176, 129, 91, 0.16);
   --surface-selection-outline: rgba(141, 89, 57, 0.22);
@@ -47,6 +48,7 @@
   --shadow-panel: rgba(64, 35, 18, 0.07);
   --shadow-strong: rgba(128, 76, 45, 0.22);
   --shadow-bubble: rgba(72, 52, 33, 0.08);
+  --shadow-bubble-incoming: rgba(72, 52, 33, 0.1);
   --focus-border: rgba(155, 93, 57, 0.3);
   --focus-ring: rgba(214, 173, 132, 0.18);
   --status-text: rgba(105, 72, 51, 0.92);
@@ -81,6 +83,7 @@ html[data-theme='dark'] {
   --surface-bubble-selected: rgba(36, 37, 43, 0.98);
   --surface-bubble-mine: rgba(55, 57, 65, 0.96);
   --surface-bubble-mine-ink: #f7f7f8;
+  --surface-bubble-border: rgba(255, 255, 255, 0.1);
   --surface-reply: rgba(255, 255, 255, 0.08);
   --surface-reply-mine: rgba(255, 255, 255, 0.12);
   --surface-selection-outline: rgba(255, 255, 255, 0.14);
@@ -88,6 +91,7 @@ html[data-theme='dark'] {
   --shadow-panel: rgba(0, 0, 0, 0.34);
   --shadow-strong: rgba(0, 0, 0, 0.28);
   --shadow-bubble: rgba(0, 0, 0, 0.28);
+  --shadow-bubble-incoming: rgba(0, 0, 0, 0.28);
   --focus-border: rgba(255, 255, 255, 0.24);
   --focus-ring: rgba(255, 255, 255, 0.12);
   --status-text: #b8bbc3;

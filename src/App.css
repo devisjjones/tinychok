@@ -4202,6 +4202,11 @@
   position: relative;
 }
 
+.bubble:not(.mine):not(.media-only-bubble):not(.emoji-only-message):not(.video-note-only-bubble) {
+  border: 1px solid var(--surface-bubble-border);
+  box-shadow: 0 18px 34px var(--shadow-bubble-incoming);
+}
+
 .media-bubble-row {
   display: grid;
   grid-template-columns: auto minmax(52px, 1fr);

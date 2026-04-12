@@ -4794,11 +4794,12 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(appSource, /Перекрасить интерфейс в спокойные серые оттенки\./u)
   assert.match(
     indexCss,
-    /:root\s*\{[\s\S]*--surface-bubble:\s*rgba\(252,\s*244,\s*236,\s*0\.96\);[\s\S]*--surface-bubble-mine:\s*rgba\(255,\s*255,\s*255,\s*0\.96\);[\s\S]*--surface-bubble-mine-ink:\s*#5a4032;/u,
+    /:root\s*\{[\s\S]*--surface-bubble:\s*rgba\(255,\s*253,\s*249,\s*0\.98\);[\s\S]*--surface-bubble-mine:\s*rgba\(255,\s*255,\s*255,\s*0\.96\);[\s\S]*--surface-bubble-mine-ink:\s*#5a4032;[\s\S]*--surface-bubble-border:\s*rgba\(132,\s*123,\s*117,\s*0\.16\);[\s\S]*--shadow-bubble-incoming:\s*rgba\(72,\s*52,\s*33,\s*0\.1\);/u,
   )
   assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*color-scheme:\s*dark;[\s\S]*--app-background:[\s\S]*#111214/u)
-  assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(55,\s*57,\s*65,\s*0\.96\);/u)
+  assert.match(indexCss, /html\[data-theme='dark'\]\s*\{[\s\S]*--surface-bubble-mine:\s*rgba\(55,\s*57,\s*65,\s*0\.96\);[\s\S]*--surface-bubble-border:\s*rgba\(255,\s*255,\s*255,\s*0\.1\);[\s\S]*--shadow-bubble-incoming:\s*rgba\(0,\s*0,\s*0,\s*0\.28\);/u)
   assert.match(appCss, /\.bubble\.mine \.bubble-delivery-caption\s*\{[\s\S]*color:\s*rgba\(90,\s*64,\s*50,\s*0\.76\);/u)
+  assert.match(appCss, /\.bubble:not\(\.mine\):not\(\.media-only-bubble\):not\(\.emoji-only-message\):not\(\.video-note-only-bubble\) \{\s*border:\s*1px solid var\(--surface-bubble-border\);[\s\S]*box-shadow:\s*0 18px 34px var\(--shadow-bubble-incoming\);/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.room-header\s*\{/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.channel-description-dialog-text\s*\{[\s\S]*color:\s*var\(--ink\);/u)
   assert.match(appCss, /\.composer-reply\s*\{[\s\S]*margin-bottom:\s*4px;/u)
