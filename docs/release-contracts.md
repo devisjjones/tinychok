@@ -597,6 +597,7 @@
   - это нужно, чтобы viewer-facing UI не подменял автора цитаты двусмысленным `Вы`
 - mobile viewport тоже входит в контракт:
   - composer не должен давать horizontal overflow на `390px` ширине
+  - mobile composer обязан держать справа safe-area под cluster `emoji + attach + primary action`, чтобы текст даже на второй строке не наезжал на иконки
   - если пользователь уже печатает в composer на mobile browser, tap по primary submit-button не должен схлопывать клавиатуру и потом открывать её заново
   - mobile submit обязан сохранять фокус на textarea до тех пор, пока пользователь сам не закроет клавиатуру или не уйдёт из комнаты
   - direct-room status на mobile по умолчанию clamp-ится до `2` строк

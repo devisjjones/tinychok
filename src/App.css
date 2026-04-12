@@ -8864,7 +8864,7 @@
   .composer textarea {
     min-height: 52px;
     max-height: 50dvh;
-    padding: 13px 94px 16px 14px;
+    padding: 13px 126px 16px 14px;
   }
 
   .settings-support-composer textarea {
@@ -8881,7 +8881,8 @@
   }
 
   .composer-tools {
-    right: 8px;
+    right: 7px;
+    gap: 6px;
   }
 
   .composer-entry {
@@ -9575,6 +9576,10 @@
   .bottom-nav {
     padding: 8px;
     gap: 5px;
+  }
+
+  .composer textarea {
+    padding: 13px 116px 16px 14px;
   }
 
   .room-header {

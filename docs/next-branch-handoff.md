@@ -472,6 +472,7 @@
   - direct / generic thread держат общий compact textarea contract
   - idle textarea у общего composer держим визуально однострочной
   - mobile `390px` не даёт horizontal overflow у composer-а
+  - mobile textarea держит отдельный правый safe-area под `emoji + attach + primary action`; даже двухстрочный ввод не должен залезать под смайлик или скрепку
 - direct-room mobile status contract:
   - длинный статус в шапке по умолчанию clamp-ится до `2` строк
   - toggle раскрывает полный текст и должен уметь обратно свернуть его
