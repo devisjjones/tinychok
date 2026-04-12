@@ -6292,6 +6292,10 @@ test('video-note messages render as standalone circles without a rectangular med
   )
   assert.match(
     appCss,
+    /\.bubble-attachment-photo-video-note \.bubble-attachment-image-video-note,\s*[\s\S]*\.bubble-attachment-photo-video-note\.image-only \.bubble-attachment-image-video-note\s*\{[\s\S]*border-radius:\s*34px;/u,
+  )
+  assert.match(
+    appCss,
     /\.bubble-attachment-video-note-meta > \.bubble-attachment-image-overlay\s*\{[\s\S]*position:\s*static;[\s\S]*right:\s*auto;[\s\S]*bottom:\s*auto;/u,
   )
 })
@@ -6306,9 +6310,14 @@ test('mobile video-note contract keeps bubble and recorder preview square-ish on
     /@media \(max-width: 960px\) and \(pointer: coarse\) \{[\s\S]*\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*30px;[\s\S]*\.bubble-attachment-video-note-progress\s*\{[\s\S]*width:\s*calc\(100% - 20px\);[\s\S]*margin:\s*2px 10px 0;[\s\S]*height:\s*3px;[\s\S]*\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*border-radius:\s*35px;[\s\S]*\.bubble-stack:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*min\(320px,\s*100%\);[\s\S]*max-width:\s*min\(320px,\s*100%\);[\s\S]*min-width:\s*0;[\s\S]*\.bubble-stack:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\) > \.bubble-stack-main\s*\{[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;[\s\S]*\.bubble\.video-note-only-bubble:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;[\s\S]*\.bubble-attachment-video-note-shell\.is-inline-playing\s*\{[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;[\s\S]*\.video-note-recorder-preview-shell\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);[\s\S]*\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);/u,
   )
   assert.match(handoffDoc, /на всех платформах: `Видео-квадратик`/u)
+  assert.match(handoffDoc, /острые 90° углы у превью в комнате считаются регрессией/u)
   assert.match(handoffDoc, /mobile browser intentionally keeps video-note surfaces square-ish:/u)
   assert.match(handoffDoc, /при inline playback mobile квадратик всё равно обязан расширяться заметно больше базового preview/u)
   assert.match(handoffDoc, /КРИТИЧНО: во время inline playback у video-note \/ video-square обязана идти тонкая белая playback-полоска/u)
+  assert.match(
+    appCss,
+    /@media \(max-width: 960px\) and \(pointer: coarse\) \{[\s\S]*\.bubble-attachment-photo-video-note \.bubble-attachment-image-video-note,\s*[\s\S]*\.bubble-attachment-photo-video-note\.image-only \.bubble-attachment-image-video-note\s*\{[\s\S]*border-radius:\s*30px;/u,
+  )
 })
 
 test('pending video-note uploads keep a circular ring plus a linear progress bar under the shell', () => {

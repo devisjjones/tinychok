@@ -239,6 +239,9 @@
 - support composer не должен показывать кнопку записи кружочка
 - popup записи держит один пользовательский заголовок:
   - на всех платформах: `Видео-квадратик`
+- video-square в самой переписке обязан сохранять те же мягкие скругления, что и recorder preview:
+  - острые 90° углы у превью в комнате считаются регрессией
+  - desktop room bubble держит мягкий rounded-square, а не circle и не sharp rectangle
 - mobile browser intentionally keeps video-note surfaces square-ish:
   - inline bubble рендерится скруглённым квадратиком, а не кругом
   - preview записи в recorder-modal тоже квадратный; десктопный recorder использует тот же скруглённый квадрат, чтобы preview не расходился между платформами

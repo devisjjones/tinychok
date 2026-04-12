@@ -5179,6 +5179,11 @@
   background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.16), rgba(66, 44, 31, 0.58));
 }
 
+.bubble-attachment-photo-video-note .bubble-attachment-image-video-note,
+.bubble-attachment-photo-video-note.image-only .bubble-attachment-image-video-note {
+  border-radius: 34px;
+}
+
 .bubble-attachment-video-fallback {
   display: block;
   background:
@@ -7067,6 +7072,11 @@
 
 @media (max-width: 960px) and (pointer: coarse) {
   .bubble-attachment-photo-video-note {
+    border-radius: 30px;
+  }
+
+  .bubble-attachment-photo-video-note .bubble-attachment-image-video-note,
+  .bubble-attachment-photo-video-note.image-only .bubble-attachment-image-video-note {
     border-radius: 30px;
   }
 
