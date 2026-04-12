@@ -6262,6 +6262,14 @@ test('pending video-note uploads keep a circular progress ring and separate send
     /\.bubble-attachment-video-note-upload-status\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*white-space:\s*nowrap;/u,
   )
   assert.match(
+    appCss,
+    /\.bubble\.video-note-only-bubble\.has-delivery-issue,[\s\S]*\.channel-post\.video-note-only-bubble\.selected\.delivery-failed\s*\{[\s\S]*background:\s*transparent;[\s\S]*box-shadow:\s*none;[\s\S]*outline:\s*none;/u,
+  )
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.bubble\.video-note-only-bubble\.has-delivery-issue,[\s\S]*html\[data-theme='dark'\] \.channel-post\.video-note-only-bubble\.selected\.delivery-failed\s*\{[\s\S]*background:\s*transparent;[\s\S]*box-shadow:\s*none;[\s\S]*outline:\s*none;/u,
+  )
+  assert.match(
     directRoomSource,
     /const isVideoNoteOnlyBubble =[\s\S]*const videoNoteDeliveryIndicatorSrc =[\s\S]*messagePending && isVideoNoteOnlyBubble[\s\S]*bubbleClassNames\.push\('video-note-only-bubble'\)/u,
   )

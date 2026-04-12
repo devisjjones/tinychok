@@ -4488,6 +4488,20 @@
   color: var(--surface-bubble-mine-ink);
 }
 
+.bubble.video-note-only-bubble.has-delivery-issue,
+.bubble.video-note-only-bubble.delivery-failed,
+.bubble-overlay.bubble-button.selected.video-note-only-bubble.has-delivery-issue,
+.bubble-overlay.bubble-button.selected.video-note-only-bubble.delivery-failed,
+.channel-post.video-note-only-bubble.has-delivery-issue,
+.channel-post.video-note-only-bubble.delivery-failed,
+.channel-post.video-note-only-bubble.selected.has-delivery-issue,
+.channel-post.video-note-only-bubble.selected.delivery-failed {
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  outline: none;
+}
+
 .channel-post {
   max-width: min(620px, 100%);
 }
@@ -10513,6 +10527,20 @@ html[data-theme='dark'] .bubble.mine.delivery-failed {
 html[data-theme='dark'] .bubble.mine.has-delivery-issue time,
 html[data-theme='dark'] .bubble.mine.delivery-failed time {
   color: rgba(239, 240, 243, 0.72);
+}
+
+html[data-theme='dark'] .bubble.video-note-only-bubble.has-delivery-issue,
+html[data-theme='dark'] .bubble.video-note-only-bubble.delivery-failed,
+html[data-theme='dark'] .bubble-overlay.bubble-button.selected.video-note-only-bubble.has-delivery-issue,
+html[data-theme='dark'] .bubble-overlay.bubble-button.selected.video-note-only-bubble.delivery-failed,
+html[data-theme='dark'] .channel-post.video-note-only-bubble.has-delivery-issue,
+html[data-theme='dark'] .channel-post.video-note-only-bubble.delivery-failed,
+html[data-theme='dark'] .channel-post.video-note-only-bubble.selected.has-delivery-issue,
+html[data-theme='dark'] .channel-post.video-note-only-bubble.selected.delivery-failed {
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  outline: none;
 }
 
 html[data-theme='dark'] .group-create-member-checkbox {
