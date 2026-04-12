@@ -136,3 +136,22 @@ test('direct, group, channel and thread-support surfaces reuse the shared room c
   assert.match(appSource, /<RoomComposer[\s\S]*className="settings-item settings-support-composer"/u)
   assert.doesNotMatch(appSource, /className="settings-input settings-support-textarea"/u)
 })
+
+test('room composer keeps mobile submit taps on the textarea instead of letting the primary button steal focus', () => {
+  const roomComposerSource = readFileSync(join(process.cwd(), 'src/components/RoomComposer.tsx'), 'utf8')
+  const directSource = readFileSync(join(process.cwd(), 'src/rooms/DirectChatRoom.tsx'), 'utf8')
+  const groupSource = readFileSync(join(process.cwd(), 'src/rooms/GroupRoom.tsx'), 'utf8')
+
+  assert.match(roomComposerSource, /import \{ preserveComposerFocusOnPrimaryAction \} from '\.\.\/shared\/utils'/u)
+  assert.match(roomComposerSource, /function preserveDraftFocusOnPrimaryAction/u)
+  assert.match(roomComposerSource, /onMouseDown=\{preserveDraftFocusOnPrimaryAction\}/u)
+  assert.match(roomComposerSource, /onPointerDown=\{preserveDraftFocusOnPrimaryAction\}/u)
+  assert.match(
+    directSource,
+    /await Promise\.resolve\(onSubmit\(\)\)\s*if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return/u,
+  )
+  assert.match(
+    groupSource,
+    /await Promise\.resolve\(onSubmit\(\)\)\s*if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return/u,
+  )
+})

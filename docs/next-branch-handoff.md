@@ -1295,3 +1295,6 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
 - `shouldAutoFocusTextInputOnSceneOpen()` — единый guard для scene-open autofocus:
   - direct/group/channel/thread/support composer на mobile browser не должны фокуситься сами при входе в экран
   - это правило не распространяется на intentional flows вроде `Ответ`, где пользователь уже явно инициировал набор
+- mobile submit/focus invariant:
+  - если textarea уже в фокусе и пользователь нажимает primary send-button, mobile keyboard не должна закрываться и открываться заново
+  - shared `RoomComposer` держит этот контракт через pointer/mouse submit-guard, а direct/group submit-wrapper не делает post-submit refocus на mobile

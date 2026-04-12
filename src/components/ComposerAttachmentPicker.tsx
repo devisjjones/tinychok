@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import React, { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+
+void React
 
 type ComposerAttachmentPickerProps = {
   attachmentName: string

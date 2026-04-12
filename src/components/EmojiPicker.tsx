@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import React, { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { messageGifUploadMaxSizeBytes } from '../app/constants'
 import { duplicateUserGifMessage } from '../app/gifLibrary'
 import type { UserGifLibraryItem } from '../app/types'
 import { compactEmojiCategories, fullEmojiCategories } from '../shared/emoji'
 import { formatAttachmentImageDimensions, formatAttachmentSize } from '../app/utils'
+
+void React
 
 type EmojiPickerProps = {
   canSelectGif?: boolean

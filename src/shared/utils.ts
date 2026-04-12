@@ -191,6 +191,26 @@ export function shouldAutoFocusTextInputOnSceneOpen() {
   return !isMobileBrowserEnvironment()
 }
 
+export function shouldPreserveComposerFocusOnPrimaryAction(input: HTMLTextAreaElement | null) {
+  if (typeof document === 'undefined') {
+    return false
+  }
+
+  return isMobileBrowserEnvironment() && Boolean(input) && document.activeElement === input
+}
+
+export function preserveComposerFocusOnPrimaryAction(
+  input: HTMLTextAreaElement | null,
+  event: { preventDefault: () => void },
+) {
+  if (!shouldPreserveComposerFocusOnPrimaryAction(input)) {
+    return false
+  }
+
+  event.preventDefault()
+  return true
+}
+
 export function shouldSubmitComposerWithEnter(options: {
   key: string
   altKey: boolean

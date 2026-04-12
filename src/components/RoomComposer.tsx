@@ -3,16 +3,21 @@ import type {
   ClipboardEvent,
   FormEvent,
   KeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
   ReactNode,
   RefObject,
 } from 'react'
-import { useLayoutEffect, useState } from 'react'
+import React, { useLayoutEffect, useState } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import { insertComposerTextAtCursor, resizeComposerTextarea } from '../app/utils'
 import type { EditTarget, ReplyTarget, UserGifLibraryItem } from '../app/types'
+import { preserveComposerFocusOnPrimaryAction } from '../shared/utils'
 import { ComposerAttachmentPicker } from './ComposerAttachmentPicker'
 import { ComposerAttachmentPreview } from './ComposerAttachmentPreview'
 import { EmojiPicker } from './EmojiPicker'
+
+void React
 
 type RoomComposerProps = {
   attachmentDraft?: ComposerAttachmentDraft
@@ -142,6 +147,12 @@ export function RoomComposer({
     }
   }, [draft, draftInputRef])
 
+  function preserveDraftFocusOnPrimaryAction(
+    event: ReactMouseEvent<HTMLButtonElement> | ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    preserveComposerFocusOnPrimaryAction(draftInputRef.current, event)
+  }
+
   return (
     <form
       className={className ? `composer ${className}` : 'composer'}
@@ -232,6 +243,8 @@ export function RoomComposer({
                   type="submit"
                   className="send-button composer-send"
                   disabled={submitDisabled}
+                  onMouseDown={preserveDraftFocusOnPrimaryAction}
+                  onPointerDown={preserveDraftFocusOnPrimaryAction}
                   aria-label={submitAriaLabel}
                   title={submitTitle}
                 >

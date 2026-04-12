@@ -233,6 +233,7 @@ export function DirectChatRoom({
 
   async function submitComposer() {
     await Promise.resolve(onSubmit())
+    if (!shouldAutoFocusTextInputOnSceneOpen()) return
     window.requestAnimationFrame(() => {
       draftInputRef.current?.focus()
     })
