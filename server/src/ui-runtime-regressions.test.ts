@@ -4194,6 +4194,8 @@ test('attachment picker keeps premium upsell crown inline with premium copy and 
   assert.match(appCss, /\.composer-attachment-option-icon/u)
   assert.match(appCss, /\.composer-attachment-option-icon img\s*\{[\s\S]*filter:\s*var\(--icon-filter\);/u)
   assert.match(appCss, /@media \(max-width:\s*720px\)\s*\{[\s\S]*?\.composer-attachment-popover\s*\{[\s\S]*width:\s*min\(340px,\s*calc\(100vw - 20px\)\);/u)
+  assert.match(appCss, /@media \(max-width:\s*720px\)\s*\{[\s\S]*?\.composer-attachment-picker\s*\{[\s\S]*position:\s*static;/u)
+  assert.match(appCss, /@media \(max-width:\s*720px\)\s*\{[\s\S]*?\.composer-attachment-popover\s*\{[\s\S]*left:\s*auto;[\s\S]*right:\s*0;[\s\S]*max-width:\s*calc\(100vw - 20px\);/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.composer-attachment-option-icon/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.composer-attachment-option:hover \.composer-attachment-option-icon/u)
 })

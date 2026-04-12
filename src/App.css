@@ -6333,6 +6333,18 @@
   max-width: 100%;
 }
 
+@media (max-width: 720px) {
+  .composer-attachment-picker {
+    position: static;
+  }
+
+  .composer-attachment-popover {
+    left: auto;
+    right: 0;
+    max-width: calc(100vw - 20px);
+  }
+}
+
 .emoji-picker {
   position: relative;
   display: inline-flex;
