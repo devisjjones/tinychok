@@ -4757,11 +4757,11 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   )
   assert.match(
     appCss,
-    /html\[data-theme='dark'\] \.emoji-picker-gif-search-input\s*\{[\s\S]*color:\s*var\(--ink\);[\s\S]*caret-color:\s*var\(--ink\);[\s\S]*-webkit-text-fill-color:\s*var\(--ink\);/u,
+    /html\[data-theme='dark'\] \.emoji-picker-gif-search-input\s*\{[\s\S]*color-scheme:\s*light;[\s\S]*color:\s*rgba\(51,\s*35,\s*25,\s*0\.96\)\s*!important;[\s\S]*caret-color:\s*rgba\(51,\s*35,\s*25,\s*0\.96\);[\s\S]*-webkit-text-fill-color:\s*rgba\(51,\s*35,\s*25,\s*0\.96\)\s*!important;/u,
   )
   assert.match(
     appCss,
-    /html\[data-theme='dark'\] \.emoji-picker-gif-search-input::placeholder\s*\{[\s\S]*color:\s*var\(--muted\);[\s\S]*-webkit-text-fill-color:\s*var\(--muted\);/u,
+    /html\[data-theme='dark'\] \.emoji-picker-gif-search-input::placeholder\s*\{[\s\S]*color:\s*rgba\(117,\s*83,\s*60,\s*0\.64\);[\s\S]*-webkit-text-fill-color:\s*rgba\(117,\s*83,\s*60,\s*0\.64\);/u,
   )
   assert.match(
     appCss,

@@ -9875,14 +9875,15 @@ html[data-theme='dark'] .emoji-picker-gif-blocked p {
 }
 
 html[data-theme='dark'] .emoji-picker-gif-search-input {
-  color: var(--ink);
-  caret-color: var(--ink);
-  -webkit-text-fill-color: var(--ink);
+  color-scheme: light;
+  color: rgba(51, 35, 25, 0.96) !important;
+  caret-color: rgba(51, 35, 25, 0.96);
+  -webkit-text-fill-color: rgba(51, 35, 25, 0.96) !important;
 }
 
 html[data-theme='dark'] .emoji-picker-gif-search-input::placeholder {
-  color: var(--muted);
-  -webkit-text-fill-color: var(--muted);
+  color: rgba(117, 83, 60, 0.64);
+  -webkit-text-fill-color: rgba(117, 83, 60, 0.64);
 }
 
 html[data-theme='dark'] .premium-annual-badge,
