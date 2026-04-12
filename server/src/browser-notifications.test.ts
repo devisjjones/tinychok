@@ -69,8 +69,12 @@ function withBrowserNotificationEnvironment(
 type NotificationInstanceMock = {
   closeCalls: number
   onclick: ((event: { preventDefault: () => void }) => void) | null
-  options: NotificationOptions
+  options: BrowserNotificationOptionsMock
   title: string
+}
+
+type BrowserNotificationOptionsMock = NotificationOptions & {
+  renotify?: boolean
 }
 
 type NotificationConstructorMock = {
@@ -81,12 +85,16 @@ type NotificationConstructorMock = {
 
 type ServiceWorkerRegistrationMock = {
   showNotification: (title: string, options?: NotificationOptions) => Promise<void>
+  update?: () => Promise<void>
 }
 
 type NavigatorMock = {
   serviceWorker?: {
     ready: Promise<ServiceWorkerRegistrationMock>
-    register: (scriptUrl: string, options?: { scope?: string }) => Promise<ServiceWorkerRegistrationMock>
+    register: (
+      scriptUrl: string,
+      options?: { scope?: string; updateViaCache?: 'all' | 'imports' | 'none' },
+    ) => Promise<ServiceWorkerRegistrationMock>
   }
 }
 
@@ -134,14 +142,21 @@ function createNotificationConstructor(options?: {
 
 test('browser notifications prefer the service worker delivery path when permission is granted', async () => {
   const { NotificationMock, instances } = createNotificationConstructor()
-  const registerCalls: Array<{ options?: { scope?: string }; scriptUrl: string }> = []
-  const showCalls: Array<{ options?: NotificationOptions; title: string }> = []
+  const registerCalls: Array<{
+    options?: { scope?: string; updateViaCache?: 'all' | 'imports' | 'none' }
+    scriptUrl: string
+  }> = []
+  const showCalls: Array<{ options?: BrowserNotificationOptionsMock; title: string }> = []
+  let updateCalls = 0
   const registration: ServiceWorkerRegistrationMock = {
     async showNotification(title, notificationOptions) {
       showCalls.push({
         options: notificationOptions,
         title,
       })
+    },
+    async update() {
+      updateCalls += 1
     },
   }
 
@@ -178,13 +193,14 @@ test('browser notifications prefer the service worker delivery path when permiss
   assert.equal(instances.length, 0)
   assert.deepEqual(registerCalls, [
     {
-      options: { scope: '/' },
+      options: { scope: '/', updateViaCache: 'none' },
       scriptUrl: '/browser-notifications-sw.js',
     },
   ])
   assert.equal(showCalls.length, 1)
   assert.equal(showCalls[0]?.title, 'Новое сообщение')
   assert.equal(showCalls[0]?.options?.body, 'Проверь Тайничок')
+  assert.equal(showCalls[0]?.options?.renotify, true)
   assert.equal(showCalls[0]?.options?.tag, 'tinychok:direct:17')
   assert.deepEqual(showCalls[0]?.options?.data, {
     clickData: {
@@ -193,6 +209,7 @@ test('browser notifications prefer the service worker delivery path when permiss
     },
     url: 'https://staging.tinychok.ru/app',
   })
+  assert.equal(updateCalls, 2)
 })
 
 test('browser notifications fall back to the Notification constructor when service workers are unavailable', async () => {
@@ -268,4 +285,42 @@ test('permission request eagerly prepares notification delivery for browsers tha
   )
 
   assert.deepEqual(registerCalls, ['/browser-notifications-sw.js'])
+})
+
+test('browser notifications do not hang on browsers where serviceWorker.ready stays pending', async () => {
+  const { NotificationMock, instances } = createNotificationConstructor()
+  const showCalls: Array<{ options?: BrowserNotificationOptionsMock; title: string }> = []
+  const registration: ServiceWorkerRegistrationMock = {
+    async showNotification(title, notificationOptions) {
+      showCalls.push({
+        options: notificationOptions,
+        title,
+      })
+    },
+  }
+
+  await withBrowserNotificationEnvironment(
+    {
+      navigator: {
+        serviceWorker: {
+          ready: new Promise<ServiceWorkerRegistrationMock>(() => {}),
+          register: async () => registration,
+        },
+      },
+      notification: NotificationMock,
+    },
+    async () => {
+      const result = await showBrowserNotification('Новое сообщение', {
+        body: 'Chrome не должен зависать на ready',
+        tag: 'tinychok:direct:42',
+      })
+
+      assert.equal(result, null)
+    },
+  )
+
+  assert.equal(instances.length, 0)
+  assert.equal(showCalls.length, 1)
+  assert.equal(showCalls[0]?.title, 'Новое сообщение')
+  assert.equal(showCalls[0]?.options?.renotify, true)
 })

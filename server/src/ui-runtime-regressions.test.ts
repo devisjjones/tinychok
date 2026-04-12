@@ -3563,6 +3563,9 @@ test('browser notifications preference is server-side and mobile skips the promo
   assert.match(appSource, /browserNotificationsDisabled = !browserNotificationsEnabled/u)
   assert.match(appSource, /browserNotificationsEnabled: enabled/u)
   assert.match(browserNotificationsSource, /const browserNotificationServiceWorkerPath = '\/browser-notifications-sw\.js'/u)
+  assert.match(browserNotificationsSource, /updateViaCache:\s*'none'/u)
+  assert.match(browserNotificationsSource, /navigator\.serviceWorker\.ready/u)
+  assert.match(browserNotificationsSource, /renotify:\s*Boolean\(options\.tag\)/u)
   assert.match(browserNotificationsSource, /await registration\.showNotification\(title, notificationOptions\)/u)
   assert.match(browserNotificationsSource, /new window\.Notification\(title, notificationOptions\)/u)
   assert.match(browserNotificationsServiceWorkerSource, /self\.addEventListener\('notificationclick'/u)
@@ -3571,9 +3574,13 @@ test('browser notifications preference is server-side and mobile skips the promo
   assert.match(handoffDoc, /on\/off preference хранится server-side/u)
   assert.match(handoffDoc, /mobile browser не должен показывать верхнюю promo-card-просьбу/u)
   assert.match(handoffDoc, /browser notifications сначала идут через `\/browser-notifications-sw\.js`/u)
+  assert.match(handoffDoc, /updateViaCache: 'none'/u)
+  assert.match(handoffDoc, /renotify/u)
   assert.match(rolloutDoc, /mobile не показывает promo-card/u)
   assert.match(rolloutDoc, /`browserNotificationsEnabled` хранится server-side/u)
   assert.match(rolloutDoc, /delivery сначала идёт через service worker `\/browser-notifications-sw\.js`/u)
+  assert.match(rolloutDoc, /updateViaCache: 'none'/u)
+  assert.match(rolloutDoc, /renotify/u)
 })
 
 test('profile settings fields keep lightweight label-and-input layout instead of large wrapper cards', () => {

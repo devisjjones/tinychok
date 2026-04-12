@@ -11,6 +11,10 @@ type ShowBrowserNotificationOptions = {
   url?: string
 }
 
+type BrowserNotificationDeliveryOptions = NotificationOptions & {
+  renotify?: boolean
+}
+
 const browserNotificationServiceWorkerPath = '/browser-notifications-sw.js'
 let browserNotificationServiceWorkerRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null
 
@@ -66,13 +70,24 @@ async function getBrowserNotificationServiceWorkerRegistration(): Promise<Servic
     browserNotificationServiceWorkerRegistrationPromise = navigator.serviceWorker
       .register(browserNotificationServiceWorkerPath, {
         scope: '/',
+        updateViaCache: 'none',
       })
-      .then(async (registration) => {
-        try {
-          return await navigator.serviceWorker.ready
-        } catch {
-          return registration
+      .then((registration) => {
+        if (typeof registration.update === 'function') {
+          void registration.update().catch(() => {})
         }
+
+        void navigator.serviceWorker.ready
+          .then((readyRegistration) => {
+            browserNotificationServiceWorkerRegistrationPromise = Promise.resolve(readyRegistration)
+
+            if (typeof readyRegistration.update === 'function') {
+              void readyRegistration.update().catch(() => {})
+            }
+          })
+          .catch(() => {})
+
+        return registration
       })
       .catch((error) => {
         console.error('Failed to register Tinychok browser notification service worker', error)
@@ -104,13 +119,14 @@ export async function showBrowserNotification(
     return null
   }
 
-  const notificationOptions: NotificationOptions = {
+  const notificationOptions: BrowserNotificationDeliveryOptions = {
     body: options.body,
     data: {
       clickData: options.clickData ?? null,
       url: options.url ?? window.location.href,
     },
     icon: options.icon,
+    renotify: Boolean(options.tag),
     tag: options.tag,
   }
 
