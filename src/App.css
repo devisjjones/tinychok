@@ -6966,7 +6966,7 @@
   aspect-ratio: 1;
   margin: 0 auto;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: 34px;
   background:
     radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.2), transparent 42%),
     linear-gradient(160deg, rgba(143, 95, 64, 0.42), rgba(55, 35, 23, 0.72));
@@ -7073,7 +7073,6 @@
 
   .video-note-recorder-preview-shell {
     width: min(320px, calc(100vw - 72px));
-    border-radius: 34px;
   }
 
   .video-note-recorder-preview-meta {

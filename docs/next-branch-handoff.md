@@ -242,7 +242,7 @@
   - mobile browser: `Видео-квадратик`
 - mobile browser intentionally keeps video-note surfaces square-ish:
   - inline bubble рендерится скруглённым квадратиком, а не кругом
-  - preview записи в recorder-modal тоже квадратный
+  - preview записи в recorder-modal тоже квадратный; десктопный recorder использует тот же скруглённый квадрат, чтобы preview не расходился между платформами
   - при inline playback mobile квадратик всё равно обязан расширяться заметно больше базового preview и упираться только в viewport-safe width комнаты, а не оставаться маленьким
 - inline playback кружочка должен расширять сам круг примерно до `440px`, но не ломать room layout:
   - playing-state обязан расти только в пределах доступной ширины комнаты

@@ -6189,7 +6189,7 @@ test('video-note recorder close button keeps the cancel icon centered and the ti
   )
 })
 
-test('video-note recorder review preview stays control-free inside the circular bubble', () => {
+test('video-note recorder review preview stays control-free inside the square preview shell', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
@@ -6208,6 +6208,10 @@ test('video-note recorder review preview stays control-free inside the circular 
   )
   assert.match(recorderSource, /className="video-note-recorder-preview-meta"/u)
   assert.doesNotMatch(recorderSource, /className="video-note-recorder-preview-overlay"/u)
+  assert.match(
+    appCss,
+    /\.video-note-recorder-preview-shell\s*\{[\s\S]*width:\s*min\(300px,\s*70vw\);[\s\S]*aspect-ratio:\s*1;[\s\S]*border-radius:\s*34px;/u,
+  )
   assert.match(
     appCss,
     /\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(300px,\s*70vw\);[\s\S]*margin:\s*-2px auto 0;/u,
@@ -6286,7 +6290,7 @@ test('mobile video-note contract keeps bubble and recorder preview square-ish on
 
   assert.match(
     appCss,
-    /@media \(max-width: 960px\) and \(pointer: coarse\) \{[\s\S]*\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*30px;[\s\S]*\.bubble-attachment-video-note-progress\s*\{[\s\S]*border-radius:\s*34px;[\s\S]*\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*border-radius:\s*35px;[\s\S]*\.bubble\.video-note-only-bubble:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*min\(440px,\s*calc\(100vw - 28px\)\);[\s\S]*max-width:\s*min\(440px,\s*calc\(100vw - 28px\)\);[\s\S]*\.bubble-attachment-video-note-shell\.is-inline-playing\s*\{[\s\S]*width:\s*min\(440px,\s*calc\(100vw - 28px\)\);[\s\S]*max-width:\s*min\(440px,\s*calc\(100vw - 28px\)\);[\s\S]*\.video-note-recorder-preview-shell\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);[\s\S]*border-radius:\s*34px;[\s\S]*\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);/u,
+    /@media \(max-width: 960px\) and \(pointer: coarse\) \{[\s\S]*\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*30px;[\s\S]*\.bubble-attachment-video-note-progress\s*\{[\s\S]*border-radius:\s*34px;[\s\S]*\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*border-radius:\s*35px;[\s\S]*\.bubble\.video-note-only-bubble:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*min\(440px,\s*calc\(100vw - 28px\)\);[\s\S]*max-width:\s*min\(440px,\s*calc\(100vw - 28px\)\);[\s\S]*\.bubble-attachment-video-note-shell\.is-inline-playing\s*\{[\s\S]*width:\s*min\(440px,\s*calc\(100vw - 28px\)\);[\s\S]*max-width:\s*min\(440px,\s*calc\(100vw - 28px\)\);[\s\S]*\.video-note-recorder-preview-shell\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);[\s\S]*\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);/u,
   )
   assert.match(handoffDoc, /mobile browser: `Видео-квадратик`/u)
   assert.match(handoffDoc, /mobile browser intentionally keeps video-note surfaces square-ish:/u)
