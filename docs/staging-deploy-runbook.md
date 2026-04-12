@@ -23,6 +23,8 @@
 4. Live frontend bundle:
    - открыть `https://staging.tinychok.ru`
    - вытащить текущий `/assets/main-*.js`
+   - практическая проверка:
+     - `curl -s https://staging.tinychok.ru | rg -o 'assets/main-[^"]+\\.js'`
    - убедиться, что хост реально отдаёт уже новый bundle, а не старый
 5. Runtime:
    - `GET https://api.staging.tinychok.ru/healthz`
@@ -42,6 +44,9 @@
    - или зайти на VM и выполнить:
      - `cd /home/devis/tinychok`
      - `bash scripts/deploy-staging.sh`
+   - если менялся frontend, отдельно помнить:
+     - новый commit на VM и зелёный `systemctl` ещё не значат, что `/var/www/tinychok-staging` уже синхронизирован с новым `dist/`
+     - proof-pointом считается только новый live `assets/main-*.js`, который реально отдал `https://staging.tinychok.ru`
 5. После deploy подтвердить все пять proof-points сверху.
 
 ## Что нельзя больше путать
@@ -50,6 +55,9 @@
   - deploy не завершён
 - VM fast-forward'нулась, но live bundle старый:
   - frontend rollout не завершён
+- VM уже на новом commit, но `/var/www/tinychok-staging` продолжает отдавать старую статику:
+  - frontend rollout не завершён
+  - первым делом повторить staging build и rsync на самой VM, а не спорить с живым URL
 - локально `npm run deploy:staging` дошёл до build, но VM release-script не выполнялся:
   - deploy не начинался
 - `systemd` зелёный, но `readyz`/`healthz` не пройдены:

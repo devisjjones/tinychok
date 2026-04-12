@@ -73,7 +73,7 @@ export function useRoomFeedAutoScroll(options: {
     pendingRoomFeedScrollFrameRef.current = null
   }, [])
 
-  const runPendingRoomFeedScroll = useCallback(() => {
+  const runPendingRoomFeedScroll = useCallback(function runPendingRoomFeedScroll() {
     const feed = feedRef.current
     const pendingScroll = pendingRoomFeedScrollRef.current
 

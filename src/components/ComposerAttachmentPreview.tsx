@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, type ReactNode } from 'react'
+import React, { useMemo, useState, type ReactNode } from 'react'
 
 import { composerAttachmentRenameMaxLength } from '../app/constants'
 import {
@@ -32,7 +32,7 @@ export function ComposerAttachmentPreview({
   storageCleanupWarning = null,
 }: ComposerAttachmentPreviewProps) {
   const [renameOpen, setRenameOpen] = useState(false)
-  const [videoPreviewFailed, setVideoPreviewFailed] = useState(false)
+  const [videoPreviewFailedUrl, setVideoPreviewFailedUrl] = useState<string | null>(null)
   const imageAttachment = attachmentDraft.kind === 'image'
   const videoNoteAttachment = attachmentDraft.kind === 'video-note'
   const videoAttachment = !imageAttachment && isVideoMimeType(attachmentDraft.mimeType)
@@ -43,19 +43,11 @@ export function ComposerAttachmentPreview({
   const [renameBaseName, setRenameBaseName] = useState(
     fileNameParts.baseName.slice(0, composerAttachmentRenameMaxLength),
   )
+  const videoPreviewFailed = videoPreviewFailedUrl === attachmentDraft.previewUrl
   const dimensionsLabel = imageAttachment
     ? formatAttachmentImageDimensions(attachmentDraft.width, attachmentDraft.height)
     : null
   let statusCopy: string
-
-  useEffect(() => {
-    if (renameOpen) return
-    setRenameBaseName(fileNameParts.baseName.slice(0, composerAttachmentRenameMaxLength))
-  }, [fileNameParts.baseName, renameOpen])
-
-  useEffect(() => {
-    setVideoPreviewFailed(false)
-  }, [attachmentDraft.previewUrl])
 
   if (attachmentDraft.status === 'preparing') {
     statusCopy = videoNoteAttachment ? 'Подготавливаем видеосообщение...' : 'Подготавливаем фото...'
@@ -111,7 +103,7 @@ export function ComposerAttachmentPreview({
               muted
               playsInline
               preload="metadata"
-              onError={() => setVideoPreviewFailed(true)}
+              onError={() => setVideoPreviewFailedUrl(attachmentDraft.previewUrl)}
             />
           ) : (
             <span className="composer-attachment-preview-video-note-fallback" aria-hidden="true">

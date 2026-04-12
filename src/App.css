@@ -3612,16 +3612,15 @@
 }
 
 .thread-pill.mine {
-  border-color: transparent;
-  background: #a86d44;
-  color: #fff8f2;
+  border-color: rgba(141, 89, 57, 0.14);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--muted);
   box-shadow: 0 16px 30px rgba(72, 52, 33, 0.08);
 }
 
 .thread-pill.mine .thread-pill-icon {
-  opacity: 0.92;
-  filter: brightness(0) saturate(100%) invert(98%) sepia(23%) saturate(506%) hue-rotate(300deg)
-    brightness(106%) contrast(95%);
+  opacity: 0.78;
+  filter: var(--icon-filter);
 }
 
 .thread-pill-icon {

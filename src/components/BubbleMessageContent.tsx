@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, {
   type CSSProperties,
   useEffect,
@@ -173,16 +174,25 @@ function VideoAttachmentPreview({
     !inlinePreviewPosterFailed
 
   useEffect(() => {
-    if (!isVideoNote || !isInlinePlaying) {
-      setInlinePreviewPosterFailed(false)
-      setIsInlinePlaybackFrameReady(false)
-      onInlinePlaybackFrameReadyChange?.(false)
+    if (typeof window === 'undefined') {
       return
     }
 
-    setInlinePreviewPosterFailed(false)
-    setIsInlinePlaybackFrameReady(false)
-    onInlinePlaybackFrameReadyChange?.(false)
+    const frameId = window.requestAnimationFrame(() => {
+      setInlinePreviewPosterFailed(false)
+      setIsInlinePlaybackFrameReady(false)
+      onInlinePlaybackFrameReadyChange?.(false)
+    })
+
+    if (!isVideoNote || !isInlinePlaying) {
+      return () => {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
   }, [isInlinePlaying, isVideoNote, mediaUrl, onInlinePlaybackFrameReadyChange])
 
   useEffect(() => {
@@ -889,19 +899,39 @@ export function BubbleMessageContent({
         : `${isVideoAttachment ? 'Загрузка видео' : isImageAttachment ? 'Загрузка фото' : 'Загрузка файла'} ${uploadProgressPercent}%`
 
   useEffect(() => {
-    setIsVideoNotePlaying(false)
-    setIsVideoNoteLoading(false)
-    setHasVideoNoteInlineFrame(false)
-    setVideoNoteLoadProgress(0)
-    setVideoNotePlaybackProgress(0)
-  }, [isVideoNote, message.attachment?.mediaUrl])
+    if (typeof window === 'undefined') {
+      return
+    }
 
-  useEffect(() => {
-    if (!isVideoNotePlaying) {
+    const frameId = window.requestAnimationFrame(() => {
+      setIsVideoNotePlaying(false)
       setIsVideoNoteLoading(false)
       setHasVideoNoteInlineFrame(false)
       setVideoNoteLoadProgress(0)
       setVideoNotePlaybackProgress(0)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [isVideoNote, message.attachment?.mediaUrl])
+
+  useEffect(() => {
+    if (!isVideoNotePlaying) {
+      if (typeof window === 'undefined') {
+        return
+      }
+
+      const frameId = window.requestAnimationFrame(() => {
+        setIsVideoNoteLoading(false)
+        setHasVideoNoteInlineFrame(false)
+        setVideoNoteLoadProgress(0)
+        setVideoNotePlaybackProgress(0)
+      })
+
+      return () => {
+        window.cancelAnimationFrame(frameId)
+      }
     }
   }, [isVideoNotePlaying])
 

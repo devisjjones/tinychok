@@ -276,7 +276,15 @@ export function DirectChatRoom({
   }, [activeChat.id, activeChat.archivedAccount, effectiveComposerDisabledNotice, effectiveComposerGate])
 
   useEffect(() => {
-    setRoomStatusExpanded(false)
+    if (typeof window === 'undefined') return
+
+    const frameId = window.requestAnimationFrame(() => {
+      setRoomStatusExpanded(false)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
   }, [activeChat.id, roomPresenceText])
 
   useLayoutEffect(() => {
@@ -354,9 +362,14 @@ export function DirectChatRoom({
     const measure = roomPresenceMeasureRef.current
     const titleHeading = roomTitleHeadingRef.current
     if (!block || !measure || !roomPresenceText.trim()) {
-      setRoomStatusExpandable(false)
-      setRoomStatusCollapsedLines(2)
-      return
+      const frameId = window.requestAnimationFrame(() => {
+        setRoomStatusExpandable(false)
+        setRoomStatusCollapsedLines(2)
+      })
+
+      return () => {
+        window.cancelAnimationFrame(frameId)
+      }
     }
 
     let animationFrameId = 0

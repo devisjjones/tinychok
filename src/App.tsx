@@ -2,6 +2,8 @@ import {
   type ChangeEvent,
   type ClipboardEvent as ReactClipboardEvent,
   type KeyboardEvent,
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -14,7 +16,6 @@ import {
   accountNameMinFontSize,
   accountStatusMaxFontSize,
   accountStatusMinFontSize,
-  accountsStorageKey,
   browserNotificationsBannerDismissedStorageKey,
   defaultGroupsPerUserLimit,
   defaultGroupMemberLimit,
@@ -42,7 +43,6 @@ import {
   premiumMessageFileUploadMaxSizeBytes,
   premiumDebugAutoCheckoutStorageKey,
   quickFilters,
-  sessionStorageKey,
   statusFieldMaxLength,
   surnameFieldMaxLength,
 } from './app/constants'
@@ -55,7 +55,13 @@ import {
 } from './app/mockData'
 import { buildGroupParticipantFromChat, hydrateGroupParticipants } from './app/groupParticipants'
 import { prepareAvatarUpload } from './app/avatarProcessing'
-import { loadAccounts, loadSession } from './app/storage'
+import {
+  loadAccounts,
+  loadPersistedAuthState,
+  saveAccounts,
+  saveSession,
+  type PersistedAuthState,
+} from './app/storage'
 import {
   buildComposerAttachmentDraft,
   buildGifLibraryAttachmentDraft,
@@ -310,12 +316,10 @@ import {
 import { AttachedReplyBubble } from './components/AttachedReplyBubble'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { MediaOnlyBubbleRow } from './components/MediaOnlyBubbleRow'
-import { MediaViewerOverlay } from './components/MediaViewerOverlay'
 import { RoomComposer } from './components/RoomComposer'
-import { SelectedBubbleOverlay } from './components/SelectedBubbleOverlay'
 import { ThreadedBubble } from './components/ThreadedBubble'
-import { VideoNoteRecorderOverlay } from './components/VideoNoteRecorderOverlay'
 import { useCookieConsent } from './app/useCookieConsent'
+import { useDocumentTheme } from './app/useDocumentTheme'
 import {
   PENDING_ATTACHMENT_FINALIZING_PROGRESS,
   type PendingAttachmentDraft,
@@ -323,6 +327,7 @@ import {
   type PendingGroupMessage,
   usePendingMessageOutbox,
 } from './app/usePendingMessageOutbox'
+import { useRuntimeSessionRecovery } from './app/useRuntimeSessionRecovery'
 import type {
   AppSnapshot,
   ComplaintReason,
@@ -341,6 +346,16 @@ const deliveryIndicatorIconPaths = [
   '/icons/warning-48.png',
   '/icons/double-tick-50.png',
 ]
+
+const MediaViewerOverlay = lazy(() =>
+  import('./components/MediaViewerOverlay').then((module) => ({ default: module.MediaViewerOverlay })),
+)
+const SelectedBubbleOverlay = lazy(() =>
+  import('./components/SelectedBubbleOverlay').then((module) => ({ default: module.SelectedBubbleOverlay })),
+)
+const VideoNoteRecorderOverlay = lazy(() =>
+  import('./components/VideoNoteRecorderOverlay').then((module) => ({ default: module.VideoNoteRecorderOverlay })),
+)
 
 const contactComplaintReasonOptions: Array<{ label: string; value: ComplaintReason }> = [
   { label: 'Спам', value: 'spam' },
@@ -1304,6 +1319,12 @@ function App() {
   const appNavigationRestoringRef = useRef(false)
   const appNavigationIgnoreNextPopstateRef = useRef(false)
   const blockedBrowserPopstateRef = useRef<AppNavigationHistoryState | null>(null)
+  const initialPersistedAuthStateRef = useRef<PersistedAuthState | null>(null)
+  if (initialPersistedAuthStateRef.current === null) {
+    initialPersistedAuthStateRef.current = loadPersistedAuthState()
+  }
+  const initialPersistedAuthState = initialPersistedAuthStateRef.current
+  const initialPersistedSession = initialPersistedAuthState.session
   // These refs keep the debounced write-path transparent: text fields update locally first,
   // then the latest snapshot/patch is flushed through dedicated backend mutations.
   const latestSnapshotRef = useRef<AppSnapshot | null>(null)
@@ -1325,7 +1346,7 @@ function App() {
     contactRequests: [],
     outgoingContactRequests: [],
     groups: initialGroups,
-    session: loadSession(),
+    session: initialPersistedSession,
     supportTicketCooldownUntil: undefined,
     supportTickets: [],
     supportUnreadCount: 0,
@@ -1397,7 +1418,7 @@ function App() {
     )
   })
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(
-    () => loadSession()?.browserNotificationsEnabled !== false,
+    () => initialPersistedSession?.browserNotificationsEnabled !== false,
   )
   const [authStep, setAuthStep] = useState<AuthStep>('phone')
   const [displayName, setDisplayName] = useState('')
@@ -1411,10 +1432,10 @@ function App() {
   const [authBlockedNoticeOpen, setAuthBlockedNoticeOpen] = useState(false)
   const [authPhoneBlockedNotice, setAuthPhoneBlockedNotice] = useState(false)
   const [passwordLoginCaptchaRequired, setPasswordLoginCaptchaRequired] = useState(false)
-  const [session, setSession] = useState<Session | null>(() => loadSession())
+  const [session, setSession] = useState<Session | null>(() => initialPersistedSession)
   const [sessionRecoveryVersion, setSessionRecoveryVersion] = useState(0)
   const [profileSettingsDraft, setProfileSettingsDraft] = useState<ProfileSettingsDraft | null>(() => {
-    const storedSession = loadSession()
+    const storedSession = initialPersistedSession
     return storedSession ? buildProfileSettingsDraft(storedSession) : null
   })
   const [profileSettingsBusy, setProfileSettingsBusy] = useState(false)
@@ -3924,20 +3945,7 @@ function App() {
     setQuietMode(Boolean(session?.quietModeEnabled))
   }, [session?.quietModeEnabled])
 
-  useEffect(() => {
-    if (typeof document === 'undefined') return
-
-    const root = document.documentElement
-    const body = document.body
-    const themeColorMeta = document.querySelector('meta[name="theme-color"]')
-    const nextTheme = darkThemeEnabled ? 'dark' : 'light'
-
-    root.dataset.theme = nextTheme
-    body.dataset.theme = nextTheme
-    if (themeColorMeta instanceof HTMLMetaElement) {
-      themeColorMeta.content = darkThemeEnabled ? '#17181c' : '#f7efe5'
-    }
-  }, [darkThemeEnabled])
+  useDocumentTheme(darkThemeEnabled)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -4016,13 +4024,7 @@ function App() {
   const persistSession = useCallback((nextSession: Session | null) => {
     setSession(nextSession)
 
-    if (typeof window === 'undefined') return
-
-    if (nextSession) {
-      window.localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession))
-    } else {
-      window.localStorage.removeItem(sessionStorageKey)
-    }
+    saveSession(nextSession)
   }, [])
 
   const clearQueuedSessionRecovery = useCallback(() => {
@@ -4106,7 +4108,7 @@ function App() {
           },
         ]
 
-    window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
+    saveAccounts(nextAccounts)
   }, [persistSession])
 
   const syncBrowserNotificationStatus = useCallback(() => {
@@ -5008,63 +5010,13 @@ function App() {
     }
   }, [applySnapshot, clearQueuedSessionRecovery, queueSessionRecovery, session?.sessionToken, sessionRecoveryVersion])
 
-  useEffect(() => {
-    if (!session?.sessionToken || typeof window === 'undefined' || typeof document === 'undefined') {
-      return
-    }
-
-    const shouldRecoverStaleRuntime = (force = false) => {
-      if (document.visibilityState !== 'visible') {
-        return false
-      }
-
-      if (force || !backendReady) {
-        return true
-      }
-
-      return Date.now() - latestAuthoritativeSnapshotAtRef.current >= STALE_RUNTIME_RECOVERY_INTERVAL_MS
-    }
-
-    const recoverIfNeeded = (reason: 'focus' | 'pageshow' | 'visibilitychange', force = false) => {
-      if (!shouldRecoverStaleRuntime(force)) {
-        return
-      }
-
-      void refreshVisibleSessionSnapshot(reason)
-    }
-
-    const handlePageshow = (event: PageTransitionEvent) => {
-      const navigationEntry = window.performance.getEntriesByType('navigation')[0]
-      const restoredFromHistory =
-        typeof PerformanceNavigationTiming !== 'undefined' &&
-        navigationEntry instanceof PerformanceNavigationTiming &&
-        navigationEntry.type === 'back_forward'
-
-      if (event.persisted || restoredFromHistory) {
-        recoverIfNeeded('pageshow', true)
-      }
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        recoverIfNeeded('visibilitychange')
-      }
-    }
-
-    const handleFocus = () => {
-      recoverIfNeeded('focus')
-    }
-
-    window.addEventListener('pageshow', handlePageshow)
-    window.addEventListener('focus', handleFocus)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      window.removeEventListener('pageshow', handlePageshow)
-      window.removeEventListener('focus', handleFocus)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [backendReady, refreshVisibleSessionSnapshot, session?.sessionToken])
+  useRuntimeSessionRecovery({
+    backendReady,
+    latestAuthoritativeSnapshotAtRef,
+    refreshVisibleSessionSnapshot,
+    sessionToken: session?.sessionToken,
+    staleRuntimeRecoveryIntervalMs: STALE_RUNTIME_RECOVERY_INTERVAL_MS,
+  })
 
   useEffect(() => {
     if (!searchOpen || topListView !== 'none') {
@@ -11491,11 +11443,9 @@ function App() {
         password: deleteAccountPasswordValue,
       })
 
-      if (typeof window !== 'undefined') {
-        const currentAccounts = loadAccounts()
-        const nextAccounts = currentAccounts.filter((account) => account.identifier !== session.identifier)
-        window.localStorage.setItem(accountsStorageKey, JSON.stringify(nextAccounts))
-      }
+      const currentAccounts = loadAccounts()
+      const nextAccounts = currentAccounts.filter((account) => account.identifier !== session.identifier)
+      saveAccounts(nextAccounts)
 
       resetDeleteAccountForm()
       setDeleteAccountOpen(false)
@@ -14126,16 +14076,18 @@ function App() {
         onClick={closeSubscriptionPostActions}
       />
       {subscriptionPostActionAnchor && !forwardingSubscriptionPostText ? (
-        <SelectedBubbleOverlay
-          anchor={subscriptionPostActionAnchor}
-          channelTitle={currentSubscriptionChannel?.title ?? ''}
-          kind="channel"
-          onOpenAttachment={openMediaViewer}
-          onOpenExternalLink={requestOpenExternalLink}
-          onOpenPremiumUpsell={openPremiumUpsell}
-          post={activeSubscriptionPost}
-          draft={Boolean(currentSubscriptionChannel?.draft)}
-        />
+        <Suspense fallback={null}>
+          <SelectedBubbleOverlay
+            anchor={subscriptionPostActionAnchor}
+            channelTitle={currentSubscriptionChannel?.title ?? ''}
+            kind="channel"
+            onOpenAttachment={openMediaViewer}
+            onOpenExternalLink={requestOpenExternalLink}
+            onOpenPremiumUpsell={openPremiumUpsell}
+            post={activeSubscriptionPost}
+            draft={Boolean(currentSubscriptionChannel?.draft)}
+          />
+        </Suspense>
       ) : null}
       {currentSubscriptionChannel?.visibility === 'closed' ? (
         subscriptionPostActionAnchor ? (
@@ -15039,16 +14991,18 @@ function App() {
             }}
           />
           {threadCommentActionAnchor && !forwardingThreadCommentText ? (
-            <SelectedBubbleOverlay
-              anchor={threadCommentActionAnchor}
-              kind="thread-comment"
-              comment={activeThreadComment}
-              mine={activeThreadComment.author === 'me'}
-              onOpenAttachment={openMediaViewer}
-              onOpenExternalLink={requestOpenExternalLink}
-              onOpenPremiumUpsell={openPremiumUpsell}
-              participant={activeThreadCommentParticipant}
-            />
+            <Suspense fallback={null}>
+              <SelectedBubbleOverlay
+                anchor={threadCommentActionAnchor}
+                kind="thread-comment"
+                comment={activeThreadComment}
+                mine={activeThreadComment.author === 'me'}
+                onOpenAttachment={openMediaViewer}
+                onOpenExternalLink={requestOpenExternalLink}
+                onOpenPremiumUpsell={openPremiumUpsell}
+                participant={activeThreadCommentParticipant}
+              />
+            </Suspense>
           ) : null}
           {forwardingThreadCommentText ? (
             <div className="room-confirm room-forward">
@@ -15834,19 +15788,21 @@ function App() {
         onClick={closeGroupMessageActions}
       />
       {groupMessageActionAnchor && !forwardingGroupMessageText ? (
-        <SelectedBubbleOverlay
-          anchor={groupMessageActionAnchor}
-          deliveryIssue={activeGroupMessageDeliveryIssue ?? undefined}
-          kind="group"
-          linkedChannel={activeGroupMessage ? resolveEmbeddedChannelFromMessage(activeGroupMessage) : null}
-          message={activeGroupMessage}
-          mine={activeGroupMessage.author === 'me'}
-          onOpenAttachment={openMediaViewer}
-          onOpenExternalLink={requestOpenExternalLink}
-          onOpenPremiumUpsell={openPremiumUpsell}
-          participant={activeGroupMessageParticipant}
-          uploadProgress={activeGroupMessageUploadProgress ?? undefined}
-        />
+        <Suspense fallback={null}>
+          <SelectedBubbleOverlay
+            anchor={groupMessageActionAnchor}
+            deliveryIssue={activeGroupMessageDeliveryIssue ?? undefined}
+            kind="group"
+            linkedChannel={activeGroupMessage ? resolveEmbeddedChannelFromMessage(activeGroupMessage) : null}
+            message={activeGroupMessage}
+            mine={activeGroupMessage.author === 'me'}
+            onOpenAttachment={openMediaViewer}
+            onOpenExternalLink={requestOpenExternalLink}
+            onOpenPremiumUpsell={openPremiumUpsell}
+            participant={activeGroupMessageParticipant}
+            uploadProgress={activeGroupMessageUploadProgress ?? undefined}
+          />
+        </Suspense>
       ) : null}
       {forwardingGroupMessageText ? (
         <div className="room-confirm room-forward">
@@ -20147,19 +20103,21 @@ function App() {
                   }}
                 />
                 {messageActionAnchor ? (
-                  <SelectedBubbleOverlay
-                    anchor={messageActionAnchor}
-                    deliveryIssue={activeMessageDeliveryIssue ?? undefined}
-                    kind="direct"
-                    linkedChannel={resolveEmbeddedChannelFromMessage(activeMessage)}
-                    message={activeMessage}
-                    mine={activeMessage.author === 'me'}
-                    onOpenAttachment={openMediaViewer}
-                    onOpenExternalLink={requestOpenExternalLink}
-                    onOpenPremiumUpsell={openPremiumUpsell}
-                    replyChatTitle={activeChat.title}
-                    uploadProgress={activeMessageUploadProgress ?? undefined}
-                  />
+                  <Suspense fallback={null}>
+                    <SelectedBubbleOverlay
+                      anchor={messageActionAnchor}
+                      deliveryIssue={activeMessageDeliveryIssue ?? undefined}
+                      kind="direct"
+                      linkedChannel={resolveEmbeddedChannelFromMessage(activeMessage)}
+                      message={activeMessage}
+                      mine={activeMessage.author === 'me'}
+                      onOpenAttachment={openMediaViewer}
+                      onOpenExternalLink={requestOpenExternalLink}
+                      onOpenPremiumUpsell={openPremiumUpsell}
+                      replyChatTitle={activeChat.title}
+                      uploadProgress={activeMessageUploadProgress ?? undefined}
+                    />
+                  </Suspense>
                 ) : null}
                 {messageActionAnchor ? (
                   <div
@@ -21712,29 +21670,33 @@ function App() {
       ) : null}
       </main>
       {mediaViewerAttachment ? (
-        <MediaViewerOverlay
-          attachment={mediaViewerAttachment}
-          onClose={closeMediaViewer}
-          allowDownload={mediaViewerDownloadEnabled}
-          onPrimaryAction={
-            mediaViewerGifAddEnabled ? () => {
-              void addOpenedGifToLibrary()
-            } : undefined
-          }
-          primaryActionBusy={mediaViewerGifActionBusy}
-          primaryActionLabel={mediaViewerGifAddEnabled ? 'Добавить ГИФ себе' : ''}
-          onReport={() => void reportOpenedMediaAttachment()}
-          reportBusy={mediaViewerReportBusy}
-          reportToast={mediaViewerReportToast}
-        />
+        <Suspense fallback={null}>
+          <MediaViewerOverlay
+            attachment={mediaViewerAttachment}
+            onClose={closeMediaViewer}
+            allowDownload={mediaViewerDownloadEnabled}
+            onPrimaryAction={
+              mediaViewerGifAddEnabled ? () => {
+                void addOpenedGifToLibrary()
+              } : undefined
+            }
+            primaryActionBusy={mediaViewerGifActionBusy}
+            primaryActionLabel={mediaViewerGifAddEnabled ? 'Добавить ГИФ себе' : ''}
+            onReport={() => void reportOpenedMediaAttachment()}
+            reportBusy={mediaViewerReportBusy}
+            reportToast={mediaViewerReportToast}
+          />
+        </Suspense>
       ) : null}
       {videoNoteRecorderTarget ? (
-        <VideoNoteRecorderOverlay
-          onClose={() => {
-            setVideoNoteRecorderTarget(null)
-          }}
-          onUse={handleVideoNoteRecorderUse}
-        />
+        <Suspense fallback={null}>
+          <VideoNoteRecorderOverlay
+            onClose={() => {
+              setVideoNoteRecorderTarget(null)
+            }}
+            onUse={handleVideoNoteRecorderUse}
+          />
+        </Suspense>
       ) : null}
       {cookieConsentBanner}
     </>

@@ -443,6 +443,7 @@
   - принадлежит текущему owner
   - зарегистрирован в `pendingMediaUploads` как его upload
   - совпадает по `fileName / mimeType / size` с серверной записью
+  - проходит сравнение после нормализации pending-upload metadata, чтобы длинные video filenames и browser-renamed uploads не ломали валидный send-path
 - reuse из GIF library допустим только через server-owned shared GIF pool Tinychok
 - GIF picker contract:
   - вход во вкладку, поиск и отправка GIF не требуют premium
@@ -662,6 +663,7 @@
   - time-row не должен оставлять лишний пустой block под текстом
 - bubble с открываемыми комментариями и нижняя `thread-pill` должны визуально сливаться в один block:
   - нижние углы bubble не должны возвращаться после рефакторинга обёрток
+  - в light theme outgoing `thread-pill` у сообщения текущего пользователя не должна возвращаться к коричневой accent surface; это светлая neutral-плашка того же семейства, что и остальные comment pills
 - если root-message в треде снова начинает занимать почти всю ширину/высоту comments-room, это release-blocking UI regression
 
 ### 12.1. Thread Inbox Unread Contract
@@ -728,10 +730,10 @@
   - live `assets/main-*.js`
   - `healthz` / `readyz`
 - полный anti-confusion checklist лежит в [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md)
-- текущее подтверждённое состояние staging после live deploy `2026-04-10`:
-  - `origin/codex/staging-deploy = e5dc0e4`
-  - staging VM `HEAD = e5dc0e4`
-  - live frontend bundle = `assets/main-_QqNNVPz.js`
+- текущее подтверждённое состояние staging после live deploy `2026-04-13`:
+  - `origin/codex/staging-deploy = 5af9915`
+  - staging VM `HEAD = 5af9915`
+  - live frontend bundle = `assets/main-DSXa58mu.js`
 
 ## Автоматические проверки
 

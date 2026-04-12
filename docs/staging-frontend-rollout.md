@@ -1,6 +1,6 @@
 # Staging Frontend Rollout
 
-Короткий frontend-only rollout для `staging.tinychok.ru` по состоянию на `2026-03-26`.
+Короткий frontend-only rollout для `staging.tinychok.ru` по состоянию на `2026-04-13`.
 
 ## Решение
 
@@ -14,7 +14,11 @@
   - `privacy-policy.html`
   - `user-agreement.html`
   - `contacts.html`
+  - `premium-terms.html`
+  - `refund-policy.html`
 - websocket идёт напрямую в `wss://api.staging.tinychok.ru/ws`, так что frontend site не должен сам проксировать websocket.
+
+Если меняется не только frontend, а ещё backend/runtime, этот файл уже недостаточен: использовать полный [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md).
 
 Явной кодовой причины уводить staging frontend в отдельный bucket или отдельный runtime сейчас нет.
 
@@ -106,6 +110,8 @@ curl -I http://staging.tinychok.ru
 curl -I https://staging.tinychok.ru
 curl -I https://staging.tinychok.ru/privacy-policy.html
 curl -I https://staging.tinychok.ru/user-agreement.html
+curl -I https://staging.tinychok.ru/premium-terms.html
+curl -I https://staging.tinychok.ru/refund-policy.html
 curl -I https://staging.tinychok.ru/contacts.html
 ```
 
@@ -134,6 +140,14 @@ EOF
 ```
 
 Ожидаемый результат: `close:4002:Unknown session`.
+
+Проверка live bundle после rsync обязательна:
+
+```bash
+curl -s https://staging.tinychok.ru | rg -o 'assets/main-[^"]+\\.js'
+```
+
+Если VM уже на новом commit, а `https://staging.tinychok.ru` всё ещё отдаёт старый `assets/main-*.js`, frontend rollout не завершён: нужно повторить build/rsync на VM, а не считать выкладку успешной по одному `git pull`.
 
 Финальная browser-проверка:
 

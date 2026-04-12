@@ -356,6 +356,7 @@
   - длинный text bubble держит `time` внутри самого bubble у правого нижнего края, а не выносит его в отдельный footer-row
   - тот же inline-meta contract должен держаться и у text-only root/source card, а не только у самих комментариев
   - bubble с комментариями и нижняя `thread-pill` визуально сливаются без возвращённого нижнего скругления у bubble
+  - в светлой теме outgoing `thread-pill` у сообщения текущего пользователя не должна возвращаться к коричневой accent-плашке; это pale neutral surface того же семейства, что и обычные comment pills
 - admin archive smoke:
   - в admin detail треда есть `Архивировать тред` / `Разархивировать тред`
   - после архивации тред исчезает из user thread inbox и не открывается пользователю как comments-room
@@ -440,9 +441,11 @@
 - группа больше не имеет собственного storage-subject
 - корневые group attachments и group thread attachments считаются в личном хранилище автора
 - channel storage сохраняется как отдельная сущность, а primary quota канала поднята до `500 MB`
-- если premium истёк, а пользователь раньше уже получил premium storage, квота назад не сжимается:
-  - primary quota остаётся premium-sized
-  - archive quota тоже остаётся premium-sized
+- если premium истёк, user storage quota снова сжимается до free:
+  - primary quota возвращается к free-лимиту
+  - archive quota тоже возвращается к free-лимиту
+  - overflow active media не уезжают автоматически в archive, а остаются frozen в active storage
+  - frozen active media в админке продолжают учитываться и рисуются синей полосой
 - если auto-cleanup уже отправил вложения пользователя в архив, а потом quota выросла и свободного места снова хватает:
   - backend должен попытаться вернуть такие auto-archived вложения обратно в исходные сообщения / посты / комментарии
   - это особенно важно проверить после покупки premium поверх уже переполненного storage
@@ -465,6 +468,7 @@
   - незарегистрированный `mediaUrl`
   - mismatch по `fileName / mimeType / size`
   должны отклоняться сервером с явной ошибкой
+  - сравнение должно идти по нормализованным pending-upload метаданным, чтобы длинные имена видео и browser-renamed uploads не ломали валидную отправку после регистрации upload
 - после успешной отправки attachment во всех surface upload обязан становиться `linked`
 - orphan cleanup по TTL больше не должен удалять реально используемые вложения из group / support / channel / thread из-за пропущенного `linked=true`
 - root-message в открытом треде канала должен оставаться компактным:
@@ -719,9 +723,9 @@ bash scripts/deploy-staging.sh
   - `https://api.staging.tinychok.ru/healthz` → `{"status":"ok"}`
   - `https://api.staging.tinychok.ru/readyz` → `storage.layout = hybrid-normalized`
   - `https://api.staging.tinychok.ru/api/client-config` → `analytics.enabled=true`, `provider=log`, `metricaCounterId=108249405`
-  - `https://staging.tinychok.ru` реально отдаёт `assets/main-_QqNNVPz.js`
+  - `https://staging.tinychok.ru` реально отдаёт `assets/main-DSXa58mu.js`
   - dist bootstrap больше не монолитный: runtime URLs подтверждаются через split assets, а не через один giant main chunk
-  - подтверждённый staging VM commit после live deploy `2026-04-10`: `e5dc0e4`
+  - подтверждённый staging VM commit после live deploy `2026-04-13`: `5af9915`
 
 ## Minimal Post-Deploy Check
 
@@ -775,6 +779,8 @@ curl -s https://api.staging.tinychok.ru/healthz
 - публичные статические страницы тоже входят в staging build:
   - `/privacy-policy.html`
   - `/user-agreement.html`
+  - `/premium-terms.html`
+  - `/refund-policy.html`
   - `/contacts.html`
 
 ## Manual Smoke Checklist

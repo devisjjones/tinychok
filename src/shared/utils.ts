@@ -674,7 +674,7 @@ export function ensureUniqueChannelDirectLink(
 export function sanitizeChannelDescription(value: string) {
   return value
     .replace(/\r\n?/g, '\n')
-    .replace(/\u0000/g, '')
+    .replaceAll('\u0000', '')
     .slice(0, channelDescriptionMaxLength)
 }
 

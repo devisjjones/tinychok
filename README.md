@@ -2,13 +2,13 @@
 
 Репозиторий MVP-мессенджера `Tinychok`.
 
-Production-архитектура под `Yandex Cloud` для `10k+` пользователей описана отдельно в [docs/yandex-production-architecture.md](/Users/devisjones/Documents/New%20project/tinychok/docs/yandex-production-architecture.md).
-Постоянный чек-лист того, что нужно от владельца проекта для production, лежит в [docs/founder-checklist.md](/Users/devisjones/Documents/New%20project/tinychok/docs/founder-checklist.md).
-Короткая точка продолжения для новой ветки или нового треда лежит в [docs/next-branch-handoff.md](/Users/devisjones/Documents/New%20project/tinychok/docs/next-branch-handoff.md).
-Текущее состояние staging rollout зафиксировано в [docs/staging-rollout-status.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-rollout-status.md).
-Короткий runbook по защите staging для тестеров лежит в [docs/staging-access-guard.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-access-guard.md).
-Текущая схема аналитики и goals описана в [docs/analytics-instrumentation.md](/Users/devisjones/Documents/New%20project/tinychok/docs/analytics-instrumentation.md).
-Текущая политика хранения данных описана в [docs/data-retention.md](/Users/devisjones/Documents/New%20project/tinychok/docs/data-retention.md).
+Production-архитектура под `Yandex Cloud` для `10k+` пользователей описана отдельно в [docs/yandex-production-architecture.md](/Users/devisjjones/Documents/tinychok/docs/yandex-production-architecture.md).
+Постоянный чек-лист того, что нужно от владельца проекта для production, лежит в [docs/founder-checklist.md](/Users/devisjjones/Documents/tinychok/docs/founder-checklist.md).
+Короткая точка продолжения для новой ветки или нового треда лежит в [docs/next-branch-handoff.md](/Users/devisjjones/Documents/tinychok/docs/next-branch-handoff.md).
+Текущее состояние staging rollout зафиксировано в [docs/staging-rollout-status.md](/Users/devisjjones/Documents/tinychok/docs/staging-rollout-status.md).
+Короткий runbook по защите staging для тестеров лежит в [docs/staging-access-guard.md](/Users/devisjjones/Documents/tinychok/docs/staging-access-guard.md).
+Текущая схема аналитики и goals описана в [docs/analytics-instrumentation.md](/Users/devisjjones/Documents/tinychok/docs/analytics-instrumentation.md).
+Текущая политика хранения данных описана в [docs/data-retention.md](/Users/devisjjones/Documents/tinychok/docs/data-retention.md).
 
 Сейчас в проекте уже есть:
 
@@ -39,6 +39,8 @@ Production-архитектура под `Yandex Cloud` для `10k+` польз
 - публичные страницы:
   - `privacy-policy.html`
   - `user-agreement.html`
+  - `premium-terms.html`
+  - `refund-policy.html`
   - `contacts.html`
 - серверный bootstrap, realtime snapshot fanout и mutation API для горячих сценариев
 - файловое dev-хранилище в `server/data/dev-db.json`
@@ -68,8 +70,8 @@ npm run start:server
 
 ## Production env
 
-Пример production-переменных под Яндекс Облако лежит в [.env.production.example](/Users/devisjones/Documents/New%20project/tinychok/.env.production.example).
-Пример staging-переменных лежит в [.env.staging.example](/Users/devisjones/Documents/New%20project/tinychok/.env.staging.example).
+Пример production-переменных под Яндекс Облако лежит в [.env.production.example](/Users/devisjjones/Documents/tinychok/.env.production.example).
+Пример staging-переменных лежит в [.env.staging.example](/Users/devisjjones/Documents/tinychok/.env.staging.example).
 Текущий staging-пример уже синхронизирован с реальным staging-контуром на VM: локальный `PostgreSQL` на `127.0.0.1:5432`, `POSTGRES_SSL=false`.
 
 Сейчас особенно важны:
@@ -166,8 +168,8 @@ npm run start:server
 - `Yandex Object Storage` для медиа и вложений
 - отдельный realtime-gateway для websocket-соединений
 
-SQL-схема под PostgreSQL уже подготовлена в [server/sql/yandex-postgres-schema.sql](/Users/devisjones/Documents/New%20project/tinychok/server/sql/yandex-postgres-schema.sql).
-Переходный PostgreSQL state store для первого migration-шага лежит в [server/sql/yandex-postgres-state-store.sql](/Users/devisjones/Documents/New%20project/tinychok/server/sql/yandex-postgres-state-store.sql).
+SQL-схема под PostgreSQL уже подготовлена в [server/sql/yandex-postgres-schema.sql](/Users/devisjjones/Documents/tinychok/server/sql/yandex-postgres-schema.sql).
+Переходный PostgreSQL state store для первого migration-шага лежит в [server/sql/yandex-postgres-state-store.sql](/Users/devisjjones/Documents/tinychok/server/sql/yandex-postgres-state-store.sql).
 
 Следующий архитектурный этап после текущего dev-backend:
 
@@ -185,4 +187,4 @@ npm run build
 npm run build:frontend:staging
 ```
 
-Для отдельной выкладки staging frontend использовать `npm run build:frontend:staging`. Эта команда собирает только клиентский `dist/` и сразу вшивает `https://api.staging.tinychok.ru` и `wss://api.staging.tinychok.ru`. Короткий VM+`nginx` rollout лежит в [docs/staging-frontend-rollout.md](/Users/devisjones/Documents/New%20project/tinychok/docs/staging-frontend-rollout.md).
+Для отдельной выкладки staging frontend использовать `npm run build:frontend:staging`. Эта команда собирает только клиентский `dist/` и сразу вшивает `https://api.staging.tinychok.ru` и `wss://api.staging.tinychok.ru`. Короткий VM+`nginx` rollout лежит в [docs/staging-frontend-rollout.md](/Users/devisjjones/Documents/tinychok/docs/staging-frontend-rollout.md).

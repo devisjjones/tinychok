@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, extname, resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { extname, resolve } from 'node:path'
 import { zipSync } from 'fflate'
 import {
   defaultGroupsPerUserLimit,
@@ -172,6 +172,10 @@ import {
   verifyPassword,
 } from './auth-security'
 import { HttpError } from './http-error'
+import {
+  createCoalescedJsonFilePersistence,
+  persistJsonFileValue,
+} from './jsonFilePersistence'
 import { deleteStoredMediaByUrl, readStoredMediaByUrl } from './media'
 
 type StoredAccount = SharedAccount & StoredAccountPasswordFields
@@ -1471,14 +1475,16 @@ function isAccountBlocked(account: Pick<Account, 'blockedAt'> | null | undefined
 }
 
 function normalizeRetainedStorageQuotaBytes(
-  _account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedStorageQuotaBytes'> | null,
+  account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedStorageQuotaBytes'> | null,
 ) {
+  void account
   return undefined
 }
 
 function normalizeRetainedArchiveStorageQuotaBytes(
-  _account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedArchiveStorageQuotaBytes'> | null,
+  account?: Pick<Account, 'premium' | 'premiumExpiresAt' | 'retainedArchiveStorageQuotaBytes'> | null,
 ) {
+  void account
   return undefined
 }
 
@@ -4515,9 +4521,8 @@ export class TinychokStore {
 
   static async load(dataFilePath = DEFAULT_DATA_FILE) {
     const { database, needsPersistenceRewrite } = await loadDatabaseFromFile(dataFilePath)
-    const store = new TinychokStore(database, async (nextDatabase) =>
-      persistDatabaseToFile(dataFilePath, nextDatabase),
-    )
+    const persistDatabase = createCoalescedJsonFilePersistence<Database>(dataFilePath)
+    const store = new TinychokStore(database, persistDatabase)
 
     const droppedLegacyGroupStorage = store.dropLegacyGroupStorageState()
     if (needsPersistenceRewrite || droppedLegacyGroupStorage) {
@@ -9216,7 +9221,8 @@ export class TinychokStore {
   }
 
   private buildSharedGifResponseItem(item: SharedGifCatalogItem): UserGifLibraryItem {
-    const { uploadedByIdentifier: _uploadedByIdentifier, ...gif } = item
+    const gif = { ...item }
+    delete gif.uploadedByIdentifier
     return gif
   }
 
@@ -21206,6 +21212,5 @@ export async function loadDatabaseFromFile(dataFilePath = DEFAULT_DATA_FILE) {
 }
 
 export async function persistDatabaseToFile(dataFilePath: string, database: Database) {
-  await mkdir(dirname(dataFilePath), { recursive: true })
-  await writeFile(dataFilePath, JSON.stringify(database, null, 2))
+  await persistJsonFileValue(dataFilePath, database)
 }

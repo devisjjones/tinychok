@@ -3678,7 +3678,7 @@ test('browser notifications preference is server-side and mobile skips the promo
   assert.match(sharedUtilsSource, /export function isMobileBrowserEnvironment/u)
   assert.match(appUtilsSource, /isMobileBrowserEnvironment/u)
   assert.match(appStorageSource, /browserNotificationsEnabled: account\.browserNotificationsEnabled !== false/u)
-  assert.match(appStorageSource, /browserNotificationsEnabled: parsed\.browserNotificationsEnabled !== false/u)
+  assert.match(appStorageSource, /browserNotificationsEnabled: session\.browserNotificationsEnabled !== false/u)
   assert.match(backendSource, /browserNotificationsEnabled: snapshot\.session\.browserNotificationsEnabled !== false/u)
   assert.match(storeSource, /browserNotificationsEnabled: legacyAccount\.browserNotificationsEnabled !== false/u)
   assert.match(storeSource, /browserNotificationsEnabled: true/u)
@@ -3989,7 +3989,7 @@ test('self presence and invisibility contract stay wired through app, css and do
   assert.match(sharedTypesSource, /invisibilityAutoEnabled\?: boolean/u)
   assert.match(sharedUtilsSource, /export function resolveQuietModeInvisibilityState/u)
   assert.match(appStorageSource, /invisibilityAutoEnabled: Boolean\(account\.invisibilityAutoEnabled\)/u)
-  assert.match(appStorageSource, /invisibilityAutoEnabled: Boolean\(parsed\.invisibilityAutoEnabled\)/u)
+  assert.match(appStorageSource, /invisibilityAutoEnabled: Boolean\(session\.invisibilityAutoEnabled\)/u)
   assert.match(storeSource, /function getStoredInvisibilityPreference/u)
   assert.match(storeSource, /function isInvisibleModeActive/u)
   assert.match(storeSource, /function shouldHidePresenceFromOthers/u)
@@ -4879,6 +4879,10 @@ test('narrow mobile view keeps settings, room headers and admin panels from over
 test('dark theme toggle persists in session snapshots and ships a gray dark-surface contract', async () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const documentThemeHookSource = readFileSync(
+    join(repoRoot, 'src', 'app', 'useDocumentTheme.ts'),
+    'utf8',
+  )
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
   const indexCss = readFileSync(join(repoRoot, 'src', 'index.css'), 'utf8')
   const storageSource = readFileSync(join(repoRoot, 'src', 'app', 'storage.ts'), 'utf8')
@@ -4891,12 +4895,13 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(sharedTypesSource, /darkThemeEnabled\?: boolean/u)
   assert.match(backendTypesSource, /'darkThemeEnabled'/u)
   assert.match(storageSource, /darkThemeEnabled: Boolean\(account\.darkThemeEnabled\)/u)
-  assert.match(storageSource, /darkThemeEnabled: Boolean\(parsed\.darkThemeEnabled\)/u)
+  assert.match(storageSource, /darkThemeEnabled: Boolean\(session\.darkThemeEnabled\)/u)
   assert.match(appSource, /buildProfileSettingsDraft\(session: Session\)[\s\S]*darkThemeEnabled: Boolean\(session\.darkThemeEnabled\)/u)
   assert.match(appSource, /const darkThemeEnabled = Boolean\(profilePreviewSession\?\.darkThemeEnabled\)/u)
-  assert.match(appSource, /root\.dataset\.theme = nextTheme/u)
-  assert.match(appSource, /body\.dataset\.theme = nextTheme/u)
-  assert.match(appSource, /themeColorMeta\.content = darkThemeEnabled \? '#17181c' : '#f7efe5'/u)
+  assert.match(appSource, /useDocumentTheme\(darkThemeEnabled\)/u)
+  assert.match(documentThemeHookSource, /root\.dataset\.theme = nextTheme/u)
+  assert.match(documentThemeHookSource, /body\.dataset\.theme = nextTheme/u)
+  assert.match(documentThemeHookSource, /themeColorMeta\.content = darkThemeEnabled \? '#17181c' : '#f7efe5'/u)
   assert.match(appSource, /<span>Тёмная тема<\/span>/u)
   assert.match(appSource, /Перекрасить интерфейс в спокойные серые оттенки\./u)
   assert.match(
@@ -5015,6 +5020,21 @@ test('light theme keeps outgoing pending bubbles on the same white surface as de
   )
   assert.doesNotMatch(appCss, /\.bubble\.mine\.has-delivery-issue\s*\{[\s\S]*#b97c50/u)
   assert.doesNotMatch(appCss, /\.bubble\.mine\.delivery-failed\s*\{[\s\S]*#b06e45/u)
+})
+
+test('light theme keeps outgoing thread pills on the same pale surface as incoming comment pills', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    appCss,
+    /\.thread-pill\.mine\s*\{[\s\S]*border-color:\s*rgba\(141,\s*89,\s*57,\s*0\.14\);[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.82\);[\s\S]*color:\s*var\(--muted\);/u,
+  )
+  assert.match(
+    appCss,
+    /\.thread-pill\.mine\s+\.thread-pill-icon\s*\{[\s\S]*opacity:\s*0\.78;[\s\S]*filter:\s*var\(--icon-filter\);/u,
+  )
+  assert.doesNotMatch(appCss, /\.thread-pill\.mine\s*\{[\s\S]*background:\s*#a86d44;/u)
 })
 
 test('search pane keeps the main search heading aligned with search results heading rhythm', () => {
@@ -5307,8 +5327,14 @@ test('runbooks keep the autotest gate explicit before final answers and staging 
   const collaborationDoc = readFileSync(join(repoRoot, 'docs', 'collaboration-instructions.md'), 'utf8')
   const deployRunbook = readFileSync(join(repoRoot, 'docs', 'staging-deploy-runbook.md'), 'utf8')
 
-  assert.match(packageJson, /"test:ui-contracts": "node --test --import tsx server\/src\/ui-runtime-regressions\.test\.ts"/u)
-  assert.match(packageJson, /"test:gate": "npm test && npm run audit:release && npm run build:staging"/u)
+  assert.match(packageJson, /"test:ui-contracts": "node --test --import tsx server\/src\/ui-runtime-regressions\.test\.ts/u)
+  assert.match(packageJson, /server\/src\/release-gate-contracts\.test\.ts/u)
+  assert.match(packageJson, /server\/src\/persisted-auth-storage\.test\.ts/u)
+  assert.match(packageJson, /server\/src\/json-file-persistence\.test\.ts/u)
+  assert.match(
+    packageJson,
+    /"test:gate": "npm run lint && npm test && npm run test:ui-contracts && npm run audit:release && npm run build:staging"/u,
+  )
 
   assert.match(newThreadRunbook, /быстрый контрактный прогон во время работы: `npm run test:ui-contracts`/u)
   assert.match(newThreadRunbook, /перед финальным ответом и любым staging deploy: `npm run test:gate`/u)
@@ -5413,6 +5439,10 @@ test('stale runtime recovery stays explicit in source, runtime config and rollou
   const sharedBackendSource = readFileSync(join(repoRoot, 'src', 'shared', 'backend.ts'), 'utf8')
   const backendSource = readFileSync(join(repoRoot, 'src', 'app', 'backend.ts'), 'utf8')
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const runtimeRecoveryHookSource = readFileSync(
+    join(repoRoot, 'src', 'app', 'useRuntimeSessionRecovery.ts'),
+    'utf8',
+  )
   const viteConfigSource = readFileSync(join(repoRoot, 'vite.config.ts'), 'utf8')
   const viteEnvSource = readFileSync(join(repoRoot, 'src', 'vite-env.d.ts'), 'utf8')
   const serverConfigSource = readFileSync(join(repoRoot, 'server', 'src', 'config.ts'), 'utf8')
@@ -5440,9 +5470,10 @@ test('stale runtime recovery stays explicit in source, runtime config and rollou
   assert.match(appSource, /STALE_RUNTIME_RECOVERY_INTERVAL_MS = 15_000/u)
   assert.match(appSource, /triggerOneShotRuntimeReload/u)
   assert.match(appSource, /nextConfig\.release\.buildId !== __TINYCHOK_FRONTEND_BUILD_ID__/u)
-  assert.match(appSource, /window\.addEventListener\('pageshow', handlePageshow\)/u)
-  assert.match(appSource, /window\.addEventListener\('focus', handleFocus\)/u)
-  assert.match(appSource, /document\.addEventListener\('visibilitychange', handleVisibilityChange\)/u)
+  assert.match(appSource, /useRuntimeSessionRecovery\(\{/u)
+  assert.match(runtimeRecoveryHookSource, /window\.addEventListener\('pageshow', handlePageshow\)/u)
+  assert.match(runtimeRecoveryHookSource, /window\.addEventListener\('focus', handleFocus\)/u)
+  assert.match(runtimeRecoveryHookSource, /document\.addEventListener\('visibilitychange', handleVisibilityChange\)/u)
   assert.match(appSource, /fetchBootstrap\(sessionToken\)/u)
 
   assert.match(handoffDoc, /runtime self-heal contract для stale mobile\/browser tabs:/u)

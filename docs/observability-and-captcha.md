@@ -54,7 +54,7 @@ TINYCHOK_CAPTCHA_VERIFY_URL=
 
 ## Analytics Layer
 
-Подробная схема событий и pageview описана отдельно в [docs/analytics-instrumentation.md](/Users/devisjones/Documents/New%20project/tinychok/docs/analytics-instrumentation.md).
+Подробная схема событий и pageview описана отдельно в [docs/analytics-instrumentation.md](/Users/devisjjones/Documents/tinychok/docs/analytics-instrumentation.md).
 
 ### Current Behavior
 

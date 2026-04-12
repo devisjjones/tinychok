@@ -12,8 +12,8 @@
 ## Technical Placement
 
 - debug toggle хранится в `localStorage` по ключу `tinychok.debug.premium-auto-checkout`
-- UI-логика живёт в [src/App.tsx](/Users/devisjones/Documents/New%20project/tinychok/src/App.tsx)
-- стили debug premium layer живут в [src/App.css](/Users/devisjones/Documents/New%20project/tinychok/src/App.css)
+- UI-логика живёт в [src/App.tsx](/Users/devisjjones/Documents/tinychok/src/App.tsx)
+- стили debug premium layer живут в [src/App.css](/Users/devisjjones/Documents/tinychok/src/App.css)
 
 ## What This Covers
 

@@ -67,10 +67,10 @@
 - fallback-защита на web-vhost тоже важна:
   - `staging.tinychok.ru/api/*` и `staging.tinychok.ru/ws` должны проксироваться на backend без повторного basic-auth challenge
   - even so, этот proxy не отменяет requirement собирать staging именно через `build:staging`
-- текущий подтверждённый user-frontend asset на staging после deploy `2026-04-10`:
-  - `assets/main-_QqNNVPz.js`
-- подтверждённый staging VM commit после live deploy `2026-04-10`:
-  - `e5dc0e4`
+- текущий подтверждённый user-frontend asset на staging после deploy `2026-04-13`:
+  - `assets/main-DSXa58mu.js`
+- подтверждённый staging VM commit после live deploy `2026-04-13`:
+  - `5af9915`
 - временное review-исключение активно с `2026-04-07`:
   - public user frontend `https://staging.tinychok.ru` намеренно открыт без user `basic auth`
   - причина: внешний review с новых устройств без логин/пароль prompt
@@ -225,9 +225,9 @@
 
 ### Video Note Composer Contract
 
-- видео-кружочек использует тот же primary action slot, что и обычная отправка сообщения
+- видео-квадратик использует тот же primary action slot, что и обычная отправка сообщения
 - если composer пустой:
-  - справа показывается кнопка записи кружочка
+  - справа показывается кнопка записи квадратика
   - иконка берётся из `/icons/round.svg`
 - если в composer есть хоть что-то:
   - текст
@@ -236,7 +236,7 @@
   - любое вложение
   правая кнопка обязана переключаться обратно на обычную стрелку отправки
 - отдельную вторую кнопку записи рядом со скрепкой не возвращать
-- support composer не должен показывать кнопку записи кружочка
+- support composer не должен показывать кнопку записи квадратика
 - popup записи держит один пользовательский заголовок:
   - на всех платформах: `Видео-квадратик`
 - video-square в самой переписке обязан сохранять те же мягкие скругления, что и recorder preview:
@@ -250,17 +250,17 @@
   - inline bubble рендерится скруглённым квадратиком, а не кругом
   - preview записи в recorder-modal тоже квадратный; десктопный recorder использует тот же скруглённый квадрат, чтобы preview не расходился между платформами
   - при inline playback mobile квадратик всё равно обязан расширяться заметно больше базового preview и упираться только в viewport-safe width комнаты, а не оставаться маленьким
-- inline playback кружочка должен расширять сам круг примерно до `440px`, но не ломать room layout:
+- inline playback квадратика должен расширять само превью примерно до `440px`, но не ломать room layout:
   - playing-state обязан расти только в пределах доступной ширины комнаты
   - в mobile Google Chrome нельзя завязывать этот playing-state на `100vw` или viewport-calculation: ширина должна считаться от контейнера комнаты, иначе feed начинает раздвигаться вправо
-  - если room уже уже этого значения, кружочек должен упереться в width комнаты, а не обрезаться прямоугольным bubble max-width из общего text/media path
+  - если room уже уже этого значения, квадратик должен упереться в width комнаты, а не обрезаться прямоугольным bubble max-width из общего text/media path
 - КРИТИЧНО: во время inline playback у video-note / video-square обязана идти тонкая белая playback-полоска по нижней границе превью:
   - не внутри самого видео, чтобы не искажать картинку
   - не через native browser controls
   - прогресс обязан стартовать сразу с начала проигрывания, а не "просыпаться" ближе к концу ролика
   - даже на первом кадре у полоски должен быть видимый стартовый хвост, чтобы пользователь сразу видел, что playback пошёл
 - во время pending upload у video-note под shell обязана быть отдельная линейная progress-полоска:
-  - она живёт под квадратиком / кружочком, а не внутри media preview
+  - она живёт под квадратиком, а не внутри media preview
   - она использует реальный `uploadProgressPercent`
   - визуальные `100%` означают, что загрузка действительно завершилась и pending-state должен исчезнуть
 
@@ -413,6 +413,7 @@
   - time-row не должен оставлять жирный пустой хвост под текстом
 - bubble с `thread-pill` ниже должен оставаться единым блоком:
   - нижние углы bubble не должны снова скругляться из-за новой wrapper-иерархии
+  - в light theme outgoing `thread-pill` должен оставаться pale-neutral, а не возвращаться в старую коричневую accent-плашку
 - staff archive для треда — отдельный moderation-контур:
   - archive reason = `admin-archived`
   - archived thread пропадает из user thread inbox
@@ -1005,7 +1006,10 @@
   - это касается direct / group / support / managed channel / channel thread
 - usage и quota показываются в настройках пользователя
 - в settings есть отдельный storage-screen, где пользователь видит и удаляет только свои вложения
-- если premium истёк после уже активированного premium-периода, active quota и archive quota не должны сжиматься назад
+- если premium истёк после уже активированного premium-периода, active quota и archive quota снова сжимаются до free
+- файлы сверх free-лимита при этом не должны автоматически переезжать в archive:
+  - они остаются frozen в active storage
+  - frozen active media остаются доступны для admin export и размораживаются при следующем росте quota
 - при росте quota backend может восстановить часть auto-archived вложений обратно в live message surfaces, если для них сохранён restore-route
 
 ### Snapshot and Attachment Security Boundaries
@@ -1030,6 +1034,7 @@
   - принадлежит текущему owner
   - подтверждён как его pending upload или его GIF library item
   - совпадает по `fileName / mimeType / size` с серверной записью
+  - сравнивается после нормализации pending-upload metadata, чтобы длинные video filenames и browser-renamed uploads не отваливались ложно после успешной регистрации файла
 - если ownership-check не проходит, send должен падать с явной ошибкой `загрузите файл заново`, а не отправлять сообщение как будто всё в порядке
 
 - этот security-контракт считается regression-sensitive:

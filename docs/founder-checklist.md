@@ -112,6 +112,8 @@
 - публичные production legal pages уже подготовлены в коде:
   - `https://tinychok.ru/user-agreement.html`
   - `https://tinychok.ru/privacy-policy.html`
+  - `https://tinychok.ru/premium-terms.html`
+  - `https://tinychok.ru/refund-policy.html`
 - для YooKassa всё ещё нужно будет открыть production frontend публично и показать premium-тарифы на `.ru`
 - список тестовых пользователей для закрытой альфы
 - список устройств и браузеров для ручной проверки

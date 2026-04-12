@@ -38,7 +38,7 @@ function createFeed(options: {
     },
   })
 
-  feed.scrollTo = ((valueOrOptions?: number | ScrollToOptions, _y?: number) => {
+  feed.scrollTo = ((valueOrOptions?: number | ScrollToOptions) => {
     const resolvedTop =
       typeof valueOrOptions === 'number'
         ? valueOrOptions

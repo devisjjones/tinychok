@@ -466,7 +466,8 @@ function stripAccountStatusHistoriesFromAccounts(database: Database): Database['
       return account
     }
 
-    const { statusHistory: _ignored, ...rest } = account
+    const rest = { ...account }
+    delete rest.statusHistory
     return rest
   })
 }
@@ -498,7 +499,8 @@ function hydrateAccountsWithStatusHistories(
     if (account.statusHistory === undefined) {
       return account
     }
-    const { statusHistory: _ignored, ...rest } = account
+    const rest = { ...account }
+    delete rest.statusHistory
     return rest
   })
 }

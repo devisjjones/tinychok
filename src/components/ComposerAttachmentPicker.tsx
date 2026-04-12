@@ -25,9 +25,10 @@ export function ComposerAttachmentPicker({
   const supportsFileAttachments = availableAttachmentModes.includes('file')
   const singleAttachmentMode: 'file' | 'photo' | null =
     availableAttachmentModes.length === 1 ? availableAttachmentModes[0] : null
+  const isOpen = open && !disabled
 
   useEffect(() => {
-    if (!open) return
+    if (!isOpen) return
 
     function handlePointerDown(event: MouseEvent) {
       if (!rootRef.current?.contains(event.target as Node)) {
@@ -48,13 +49,7 @@ export function ComposerAttachmentPicker({
       window.removeEventListener('mousedown', handlePointerDown)
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [open])
-
-  useEffect(() => {
-    if (disabled && open) {
-      setOpen(false)
-    }
-  }, [disabled, open])
+  }, [isOpen])
 
   function handleToggle(event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault()
@@ -87,7 +82,7 @@ export function ComposerAttachmentPicker({
       >
         <img src="/icons/attach.png" alt="" />
       </button>
-      {open && !singleAttachmentMode ? (
+      {isOpen && !singleAttachmentMode ? (
         <div className="composer-attachment-popover">
           {supportsPhotoAttachments ? (
             <button
