@@ -18475,14 +18475,18 @@ function App() {
                 </button>
               </div>
             </div>
-            <div className="premium-legal-links premium-legal-links-outside" aria-label="Условия Premium перед оплатой">
+            <div className="premium-legal-links premium-legal-links-outside" aria-label="Условия Premium и политика возвратов перед оплатой">
               {/* Premium checkout keeps one primary legal surface here: explicit purchase
-                  must reference Premium terms directly, while other public legal pages stay
-                  available elsewhere on the site and inside the linked documents. */}
+                  must reference Premium terms and refund policy directly, while other public
+                  legal pages stay available elsewhere on the site and inside the linked documents. */}
               <p className="premium-consent-copy">
                 Нажимая «Купить», вы подтверждаете, что ознакомились и соглашаетесь с{' '}
                 <a className="settings-inline-link" href="/premium-terms.html">
                   Условиями Premium
+                </a>
+                {' '}и{' '}
+                <a className="settings-inline-link" href="/refund-policy.html">
+                  Политикой возвратов
                 </a>
                 .
               </p>

@@ -125,6 +125,7 @@
   - `https://tinychok.ru/user-agreement.html`
   - `https://tinychok.ru/privacy-policy.html`
   - `https://tinychok.ru/premium-terms.html`
+  - `https://tinychok.ru/refund-policy.html`
   - `https://tinychok.ru/contacts.html`
 - у каждой страницы должен оставаться прямой публичный PDF:
   - `/user-agreement.pdf`
@@ -134,6 +135,7 @@
   - `src/userAgreementContent.ts`
   - `src/privacyPolicyContent.ts`
   - `src/premiumTermsContent.ts`
+  - `src/refundPolicyContent.ts`
   - `src/ContactsPage.tsx`
 - эти источники должны синхронизироваться с утверждёнными документами и не могут “слегка сокращаться” ради удобства вёрстки
 - текущие критичные public invariants:
@@ -147,9 +149,10 @@
     - ОГРНИП `326774600067696`
     - адрес регистрации `г. Москва, ул. Перовское шоссе, д. 2, к. 2, кв. 640`
   - `Контакты и реквизиты` не должны снова содержать отдельный provider-only блок `Для YooKassa`
+  - `Политика возвратов` использует дату `11.04.2026`
   - premium checkout сейчас intentionally упрощён:
-    - на экране покупки остаётся только ссылка на `Условия Premium`
-    - под CTA есть короткая consent-copy `Нажимая «Купить»...`
+    - на экране покупки остаются только ссылки на `Условия Premium` и `Политику возвратов`
+    - под CTA есть короткая consent-copy `Нажимая «Купить»...` с обеими ссылками
     - `Пользовательское соглашение`, `Политика` и `Контакты` остаются публичными legal pages, но не дублируются в самом checkout-блоке
   - checkout-link contract для premium считается юридически существенным и не должен исчезать из `App.tsx`
 - `Условия Premium` считаются отдельным документом, а не абзацем внутри общего соглашения:
@@ -160,14 +163,14 @@
   - premium features на публичной странице и PDF должны включать:
     - тонкую настройку режима `Тихо`
     - `Режим невидимки`
-    - GIF-анимации
+    - загрузку своих GIF-анимаций
     - отправку фото в оригинальном размере
-    - хранилище до `500 МБ`
+    - хранилище до `1000 МБ`
     - создание тематических каналов
     - группы до `200` участников
 - если меняется хоть одна из этих legal pages, нужно обновлять:
   - страницу HTML
-  - публичный PDF
+  - публичный PDF, если у страницы есть отдельная PDF-версия
   - regression tests
   - staging rollout docs
 - public legal pages должны оставаться public/static routes и не должны зависеть от auth/snapshot state

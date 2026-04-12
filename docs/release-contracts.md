@@ -92,10 +92,14 @@
   - `/user-agreement.html`
   - `/privacy-policy.html`
   - `/premium-terms.html`
+  - `/refund-policy.html`
   - `/contacts.html`
   - `/user-agreement.pdf`
   - `/privacy-policy.pdf`
   - `/premium-terms.pdf`
+- premium checkout legal consent должен держать обе ссылки:
+  - `/premium-terms.html`
+  - `/refund-policy.html`
 - support email на публичных страницах:
   - `tinychok.help@yandex.com`
 - legal/general email:

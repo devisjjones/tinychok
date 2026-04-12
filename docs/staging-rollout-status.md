@@ -197,7 +197,7 @@
 
 ### Legal Pages And Checkout Documents
 
-- `user-agreement.html`, `privacy-policy.html`, `premium-terms.html` и `contacts.html` считаются release-blocking public pages
+- `user-agreement.html`, `privacy-policy.html`, `premium-terms.html`, `refund-policy.html` и `contacts.html` считаются release-blocking public pages
 - на staging нужно проверять:
   - legal pages открываются как отдельные static routes
   - `Скачать` и `Открыть PDF` ведут в соответствующий публичный PDF
@@ -206,14 +206,16 @@
   - в `Контактах и реквизитах` нет отдельного блока `Для YooKassa`
   - `Пользовательское соглашение` и `Политика` используют дату `31.03.2026`
   - `Условия Premium` используют дату `31.03.2026`
+  - `Политика возвратов` использует дату `11.04.2026`
 - premium checkout smoke:
-  - на экране покупки premium есть ссылка на `Условия Premium`
-  - под CTA есть короткий текст согласия `Нажимая «Купить»...` со ссылкой на `Условия Premium`
+  - на экране покупки premium есть ссылки на `Условия Premium` и `Политику возвратов`
+  - под CTA есть короткий текст согласия `Нажимая «Купить»...` с обеими ссылками
   - `Условия Premium` и `premium-terms.pdf` отражают текущие тарифы `199 ₽ / 30 дней` и `1390 ₽ / 365 дней`
+  - `Политика возвратов` открывается как отдельная HTML-only страница и содержит кнопки `Вернуться в Тайничок` и `Наверх`
   - `Условия Premium` явно говорят, что premium — это цифровой доступ без физической доставки
 - любые изменения публичных legal pages требуют:
   - обновить HTML/text source
-  - обновить PDF asset
+  - обновить PDF asset, если у страницы есть отдельная PDF-версия
   - прогнать static regression tests
   - перепроверить staging public URLs вручную
 

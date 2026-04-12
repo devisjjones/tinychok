@@ -4548,6 +4548,53 @@ test('premium terms page mirrors the approved premium document and checkout link
   assert.ok(existsSync(join(repoRoot, 'public', 'premium-terms.pdf')))
 })
 
+test('refund policy page mirrors the approved refund document and premium checkout links to it', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const refundPolicyContentSource = readFileSync(
+    join(repoRoot, 'src', 'refundPolicyContent.ts'),
+    'utf8',
+  )
+  const refundPolicyPageSource = readFileSync(
+    join(repoRoot, 'src', 'RefundPolicyPage.tsx'),
+    'utf8',
+  )
+  const premiumCheckoutSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const viteConfigSource = readFileSync(join(repoRoot, 'vite.config.ts'), 'utf8')
+
+  assert.match(refundPolicyContentSource, /export const refundPolicyEffectiveDate = '11\.04\.2026'/u)
+  assert.match(
+    refundPolicyContentSource,
+    /Настоящая Политика возвратов регулирует порядок отмены автопродления подписки «Премиум Тайничок»/u,
+  )
+  assert.match(refundPolicyContentSource, /199 ₽ за 30 календарных дней доступа/u)
+  assert.match(refundPolicyContentSource, /1390 ₽ за 365 календарных дней доступа/u)
+  assert.match(
+    refundPolicyContentSource,
+    /пользователю возвращается полная одобренная к возврату сумма/u,
+  )
+  assert.match(
+    refundPolicyContentSource,
+    /Исполнитель: Индивидуальный предприниматель Мерзляков Алексей Сергеевич/u,
+  )
+  assert.match(refundPolicyContentSource, /Email поддержки: tinychok\.help@yandex\.com/u)
+  assert.match(refundPolicyPageSource, /Дата вступления в силу: \{refundPolicyEffectiveDate\}/u)
+  assert.match(refundPolicyPageSource, /handleScrollToTop/u)
+  assert.match(refundPolicyPageSource, /window\.scrollTo\(\{[\s\S]*behavior:\s*'smooth'/u)
+  assert.match(refundPolicyPageSource, /Вернуться в Тайничок/u)
+  assert.match(refundPolicyPageSource, /Наверх/u)
+  assert.match(premiumCheckoutSource, /href="\/refund-policy\.html"/u)
+  assert.match(
+    premiumCheckoutSource,
+    /Условиями Premium[\s\S]*Политикой возвратов/u,
+  )
+  assert.match(
+    premiumCheckoutSource,
+    /aria-label="Условия Premium и политика возвратов перед оплатой"/u,
+  )
+  assert.match(viteConfigSource, /refundPolicy: resolve\(viteConfigDir, 'refund-policy\.html'\)/u)
+  assert.ok(existsSync(join(repoRoot, 'refund-policy.html')))
+})
+
 test('premium debug toggle stays in the top-right header cluster without helper copy', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
@@ -4572,8 +4619,8 @@ test('premium footer keeps legal links on the right and cards align their CTA ro
   assert.match(appSource, /<\/div>\s*<\/div>\s*<div className="premium-legal-links premium-legal-links-outside"/u)
   assert.match(appSource, /Нажимая «Купить», вы подтверждаете, что ознакомились и соглашаетесь с/u)
   assert.match(appSource, /href="\/premium-terms\.html"[\s\S]*Условиями Premium/u)
-  assert.match(appSource, /aria-label="Условия Premium перед оплатой"/u)
-  assert.doesNotMatch(appSource, /<a className="settings-inline-link" href="\/premium-terms\.html">\s*Условия Premium\s*<\/a>/u)
+  assert.match(appSource, /href="\/refund-policy\.html"[\s\S]*Политикой возвратов/u)
+  assert.match(appSource, /aria-label="Условия Premium и политика возвратов перед оплатой"/u)
   assert.doesNotMatch(appSource, /href="\/user-agreement\.html"[\s\S]{0,600}<div className="premium-legal-links"/u)
   assert.doesNotMatch(appSource, /href="\/privacy-policy\.html"[\s\S]{0,600}<div className="premium-legal-links"/u)
   assert.doesNotMatch(appSource, /href="\/contacts\.html"[\s\S]{0,600}<div className="premium-legal-links"/u)
@@ -4888,15 +4935,19 @@ test('all public legal pages keep static routes, public pdf assets and stable so
   const contactsSource = readFileSync(join(repoRoot, 'src', 'ContactsPage.tsx'), 'utf8')
   const premiumPageSource = readFileSync(join(repoRoot, 'src', 'PremiumTermsPage.tsx'), 'utf8')
   const privacyPageSource = readFileSync(join(repoRoot, 'src', 'PrivacyPolicyPage.tsx'), 'utf8')
+  const refundPolicySource = readFileSync(join(repoRoot, 'src', 'refundPolicyContent.ts'), 'utf8')
+  const refundPolicyPageSource = readFileSync(join(repoRoot, 'src', 'RefundPolicyPage.tsx'), 'utf8')
   const agreementPageSource = readFileSync(join(repoRoot, 'src', 'UserAgreementPage.tsx'), 'utf8')
 
   assert.match(viteConfigSource, /contacts: resolve\(viteConfigDir, 'contacts\.html'\)/u)
   assert.match(viteConfigSource, /privacyPolicy: resolve\(viteConfigDir, 'privacy-policy\.html'\)/u)
+  assert.match(viteConfigSource, /refundPolicy: resolve\(viteConfigDir, 'refund-policy\.html'\)/u)
   assert.match(viteConfigSource, /userAgreement: resolve\(viteConfigDir, 'user-agreement\.html'\)/u)
   assert.match(viteConfigSource, /premiumTerms: resolve\(viteConfigDir, 'premium-terms\.html'\)/u)
 
   assert.ok(existsSync(join(repoRoot, 'contacts.html')))
   assert.ok(existsSync(join(repoRoot, 'privacy-policy.html')))
+  assert.ok(existsSync(join(repoRoot, 'refund-policy.html')))
   assert.ok(existsSync(join(repoRoot, 'user-agreement.html')))
   assert.ok(existsSync(join(repoRoot, 'premium-terms.html')))
 
@@ -4907,11 +4958,13 @@ test('all public legal pages keep static routes, public pdf assets and stable so
   assert.match(privacySource, /Release-blocking legal source for `\/privacy-policy\.html` and `\/privacy-policy\.pdf`\./u)
   assert.match(agreementSource, /Release-blocking legal source for `\/user-agreement\.html` and `\/user-agreement\.pdf`\./u)
   assert.match(premiumSource, /Release-blocking legal source for `\/premium-terms\.html` and `\/premium-terms\.pdf`\./u)
+  assert.match(refundPolicySource, /Release-blocking legal source for `\/refund-policy\.html`\./u)
   assert.match(contactsSource, /Public requisites page for users, payment providers and legal references\./u)
 
   assert.match(privacyPageSource, /Legal pages are public compliance surfaces\./u)
   assert.match(agreementPageSource, /Legal pages are public compliance surfaces\./u)
   assert.match(premiumPageSource, /Premium checkout relies on this public page and PDF\./u)
+  assert.match(refundPolicyPageSource, /Premium checkout relies on this public page\./u)
 })
 
 test('favicon and home-screen icon contract stays wired to the new logo assets', () => {
@@ -4922,6 +4975,7 @@ test('favicon and home-screen icon contract stays wired to the new logo assets',
     'index.html',
     'contacts.html',
     'privacy-policy.html',
+    'refund-policy.html',
     'user-agreement.html',
     'premium-terms.html',
     'avatar-upload-rules.html',

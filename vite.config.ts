@@ -55,6 +55,7 @@ export default defineConfig({
         main: resolve(viteConfigDir, 'index.html'),
         premiumTerms: resolve(viteConfigDir, 'premium-terms.html'),
         privacyPolicy: resolve(viteConfigDir, 'privacy-policy.html'),
+        refundPolicy: resolve(viteConfigDir, 'refund-policy.html'),
         userAgreement: resolve(viteConfigDir, 'user-agreement.html'),
       },
     },

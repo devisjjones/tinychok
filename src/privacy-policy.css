@@ -72,6 +72,12 @@
   line-height: 1.6;
 }
 
+.policy-page-callout h2 {
+  margin: 0;
+  font-size: 1.18rem;
+  color: var(--ink);
+}
+
 .policy-page-grid {
   display: grid;
   gap: 16px;
@@ -114,6 +120,7 @@
 
 .policy-page-button,
 .policy-page-link {
+  font-family: inherit;
   min-height: 52px;
   padding: 0 18px;
   border-radius: 18px;
