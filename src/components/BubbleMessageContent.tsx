@@ -587,7 +587,11 @@ export function EmojiOnlyMessageContent({
         <time>{time}</time>
         {deliveryIndicatorSrc ? (
           <img
-            className="emoji-only-message-indicator"
+            className={
+              shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
+                ? 'emoji-only-message-indicator emoji-only-message-indicator-light'
+                : 'emoji-only-message-indicator'
+            }
             src={deliveryIndicatorSrc}
             alt=""
             aria-hidden="true"

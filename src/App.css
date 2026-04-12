@@ -4352,6 +4352,10 @@
   opacity: 0.58;
 }
 
+.bubble.emoji-only-message .emoji-only-message-indicator-light {
+  filter: brightness(0) invert(1);
+}
+
 .bubble.media-only-bubble {
   padding: 0;
   overflow: hidden;
@@ -10002,6 +10006,14 @@ html[data-theme='dark'] .bubble-attachment-video-note-upload-status {
 html[data-theme='dark'] .bubble-attachment-video-note-upload-status-indicator {
   filter: brightness(0) invert(1);
   opacity: 0.84;
+}
+
+html[data-theme='dark'] .bubble.emoji-only-message .emoji-only-message-meta {
+  color: rgba(255, 248, 242, 0.66);
+}
+
+html[data-theme='dark'] .bubble.emoji-only-message .emoji-only-message-indicator {
+  opacity: 0.82;
 }
 
 html[data-theme='dark'] .bubble-attachment-video-note-loading-overlay {

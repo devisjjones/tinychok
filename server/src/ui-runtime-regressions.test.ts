@@ -2877,7 +2877,16 @@ test('standalone emoji messages stay bubbleless only in direct and unthreaded gr
   )
   assert.match(appCss, /\.bubble\.emoji-only-message \.emoji-only-message-meta \{\s*display: inline-flex;/u)
   assert.match(appCss, /\.bubble\.emoji-only-message\.bubble-button\.selected,\s*\.bubble-overlay\.bubble-button\.selected\.emoji-only-message \{/u)
-})
+  assert.match(
+    bubbleSource,
+    /shouldUseLightDeliveryIndicatorTint\(deliveryIndicatorSrc\)[\s\S]*'emoji-only-message-indicator emoji-only-message-indicator-light'/u,
+  )
+  assert.match(appCss, /\.bubble\.emoji-only-message \.emoji-only-message-indicator-light \{\s*filter: brightness\(0\) invert\(1\);/u)
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.bubble\.emoji-only-message \.emoji-only-message-meta \{\s*color: rgba\(255,\s*248,\s*242,\s*0\.66\);/u,
+  )
+  })
 
 test('contact cards have an explicit UI contract and open direct dialogs on tap', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
