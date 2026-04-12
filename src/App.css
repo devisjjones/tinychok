@@ -5026,16 +5026,16 @@
 }
 
 .bubble-attachment-video-note-progress {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 12px;
-  z-index: 2;
+  position: relative;
+  z-index: 3;
+  justify-self: stretch;
+  width: calc(100% - 24px);
+  margin: 2px 12px 0;
   height: 3px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(95, 66, 46, 0.14);
   overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(17, 11, 8, 0.04);
+  box-shadow: 0 0 0 1px rgba(17, 11, 8, 0.05);
   pointer-events: none;
 }
 
@@ -5065,7 +5065,7 @@
 .bubble-attachment-video-note-shell {
   display: inline-grid;
   justify-items: end;
-  gap: 8px;
+  gap: 0;
   width: fit-content;
   max-width: 100%;
 }
@@ -5091,6 +5091,7 @@
   display: flex;
   justify-content: flex-end;
   width: auto;
+  margin-top: 8px;
   pointer-events: none;
 }
 
@@ -5112,6 +5113,7 @@
 .bubble-attachment-video-note-upload-stack {
   display: grid;
   gap: 6px;
+  margin-top: 8px;
   width: 100%;
 }
 
@@ -7069,9 +7071,8 @@
   }
 
   .bubble-attachment-video-note-progress {
-    left: 12px;
-    right: 12px;
-    bottom: 10px;
+    width: calc(100% - 20px);
+    margin: 2px 10px 0;
     height: 3px;
   }
 

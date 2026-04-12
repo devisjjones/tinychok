@@ -6303,11 +6303,12 @@ test('mobile video-note contract keeps bubble and recorder preview square-ish on
 
   assert.match(
     appCss,
-    /@media \(max-width: 960px\) and \(pointer: coarse\) \{[\s\S]*\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*30px;[\s\S]*\.bubble-attachment-video-note-progress\s*\{[\s\S]*left:\s*12px;[\s\S]*right:\s*12px;[\s\S]*bottom:\s*10px;[\s\S]*height:\s*3px;[\s\S]*\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*border-radius:\s*35px;[\s\S]*\.bubble-stack:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*min\(320px,\s*100%\);[\s\S]*max-width:\s*min\(320px,\s*100%\);[\s\S]*min-width:\s*0;[\s\S]*\.bubble-stack:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\) > \.bubble-stack-main\s*\{[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;[\s\S]*\.bubble\.video-note-only-bubble:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;[\s\S]*\.bubble-attachment-video-note-shell\.is-inline-playing\s*\{[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;[\s\S]*\.video-note-recorder-preview-shell\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);[\s\S]*\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);/u,
+    /@media \(max-width: 960px\) and \(pointer: coarse\) \{[\s\S]*\.bubble-attachment-photo-video-note\s*\{[\s\S]*border-radius:\s*30px;[\s\S]*\.bubble-attachment-video-note-progress\s*\{[\s\S]*width:\s*calc\(100% - 20px\);[\s\S]*margin:\s*2px 10px 0;[\s\S]*height:\s*3px;[\s\S]*\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*border-radius:\s*35px;[\s\S]*\.bubble-stack:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*min\(320px,\s*100%\);[\s\S]*max-width:\s*min\(320px,\s*100%\);[\s\S]*min-width:\s*0;[\s\S]*\.bubble-stack:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\) > \.bubble-stack-main\s*\{[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;[\s\S]*\.bubble\.video-note-only-bubble:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\),[\s\S]*\.channel-post\.media-only-bubble\.selected:has\(\.bubble-attachment-photo-video-note\.is-inline-playing\)\s*\{[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;[\s\S]*\.bubble-attachment-video-note-shell\.is-inline-playing\s*\{[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*min-width:\s*0;[\s\S]*\.video-note-recorder-preview-shell\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);[\s\S]*\.video-note-recorder-preview-meta\s*\{[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 72px\)\);/u,
   )
   assert.match(handoffDoc, /на всех платформах: `Видео-квадратик`/u)
   assert.match(handoffDoc, /mobile browser intentionally keeps video-note surfaces square-ish:/u)
   assert.match(handoffDoc, /при inline playback mobile квадратик всё равно обязан расширяться заметно больше базового preview/u)
+  assert.match(handoffDoc, /КРИТИЧНО: во время inline playback у video-note \/ video-square обязана идти тонкая белая playback-полоска/u)
 })
 
 test('pending video-note uploads keep a circular ring plus a linear progress bar under the shell', () => {
@@ -6410,7 +6411,11 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   )
   assert.match(
     bubbleSource,
-    /isVideoNote && isVideoNotePlaying \? \([\s\S]*className="bubble-attachment-video-note-progress"[\s\S]*className="bubble-attachment-video-note-progress-fill"[\s\S]*width: `\$\{Math\.round\(videoNotePlaybackProgress \* 100\)\}%`/u,
+    /useEffect\(\(\) => \{[\s\S]*if \(!isVideoNote \|\| !isInlinePlaying \|\| typeof window === 'undefined'\) \{[\s\S]*const syncPlaybackProgress = \(\) => \{[\s\S]*normalizeInlinePlaybackProgress\(inlineVideo\.currentTime,\s*inlineVideo\.duration\)[\s\S]*window\.requestAnimationFrame\(syncPlaybackProgress\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /const videoNotePlaybackPercent = Math\.min\([\s\S]*isVideoNotePlaying \? Math\.max\(0\.8,\s*videoNotePlaybackProgress \* 100\) : 0[\s\S]*isVideoNotePlaying \? \([\s\S]*className="bubble-attachment-video-note-progress"[\s\S]*className="bubble-attachment-video-note-progress-fill"[\s\S]*minWidth:\s*isVideoNotePlaying \? '2px' : undefined,[\s\S]*width: `\$\{videoNotePlaybackPercent\}%`/u,
   )
   assert.match(
     bubbleSource,
@@ -6447,7 +6452,7 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-video-note-progress\s*\{[\s\S]*position:\s*absolute;[\s\S]*left:\s*14px;[\s\S]*right:\s*14px;[\s\S]*bottom:\s*12px;[\s\S]*height:\s*3px;[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.18\);[\s\S]*overflow:\s*hidden;/u,
+    /\.bubble-attachment-video-note-progress\s*\{[\s\S]*position:\s*relative;[\s\S]*justify-self:\s*stretch;[\s\S]*width:\s*calc\(100% - 24px\);[\s\S]*margin:\s*2px 12px 0;[\s\S]*height:\s*3px;[\s\S]*background:\s*rgba\(95,\s*66,\s*46,\s*0\.14\);[\s\S]*overflow:\s*hidden;/u,
   )
   assert.match(
     appCss,

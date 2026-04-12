@@ -162,6 +162,41 @@ function VideoAttachmentPreview({
   const previewUrl = buildVideoPreviewUrl(mediaUrl)
 
   useEffect(() => {
+    if (!isVideoNote || !isInlinePlaying || typeof window === 'undefined') {
+      return
+    }
+
+    let frameId = 0
+
+    const syncPlaybackProgress = () => {
+      const inlineVideo = inlineVideoRef.current
+      if (!inlineVideo) {
+        frameId = 0
+        return
+      }
+
+      onInlinePlaybackProgressChange?.(
+        normalizeInlinePlaybackProgress(inlineVideo.currentTime, inlineVideo.duration),
+      )
+
+      if (inlineVideo.ended) {
+        frameId = 0
+        return
+      }
+
+      frameId = window.requestAnimationFrame(syncPlaybackProgress)
+    }
+
+    frameId = window.requestAnimationFrame(syncPlaybackProgress)
+
+    return () => {
+      if (frameId !== 0) {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+  }, [isInlinePlaying, isVideoNote, onInlinePlaybackProgressChange])
+
+  useEffect(() => {
     if (!isVideoNote || !isInlinePlaying) {
       return
     }
@@ -771,6 +806,10 @@ export function BubbleMessageContent({
   const showVideoNoteUploadProgress = isVideoNote && showAttachmentUploadProgress
   const showLinearAttachmentUploadProgress = showAttachmentUploadProgress && !isVideoNote
   const videoNoteLoadPercent = Math.min(99, Math.max(0, Math.round(videoNoteLoadProgress * 100)))
+  const videoNotePlaybackPercent = Math.min(
+    100,
+    Math.max(0, isVideoNotePlaying ? Math.max(0.8, videoNotePlaybackProgress * 100) : 0),
+  )
   const showVideoNoteLoadProgress = isVideoNote && isVideoNotePlaying && isVideoNoteLoading
   const videoNoteShellRef = useRef<HTMLDivElement | null>(null)
   const attachmentUploadStage =
@@ -904,13 +943,6 @@ export function BubbleMessageContent({
             } as CSSProperties
           }
         />
-      ) : isVideoNote && isVideoNotePlaying ? (
-        <span className="bubble-attachment-video-note-progress" aria-hidden="true">
-          <span
-            className="bubble-attachment-video-note-progress-fill"
-            style={{ width: `${Math.round(videoNotePlaybackProgress * 100)}%` }}
-          />
-        </span>
       ) : null}
       {showVideoNoteLoadProgress ? (
         <span className="bubble-attachment-video-note-loading-overlay" role="status" aria-live="polite">
@@ -979,6 +1011,17 @@ export function BubbleMessageContent({
           }`}
         >
           {visualAttachmentNode}
+          {isVideoNotePlaying ? (
+            <span className="bubble-attachment-video-note-progress" aria-hidden="true">
+              <span
+                className="bubble-attachment-video-note-progress-fill"
+                style={{
+                  minWidth: isVideoNotePlaying ? '2px' : undefined,
+                  width: `${videoNotePlaybackPercent}%`,
+                }}
+              />
+            </span>
+          ) : null}
           {showVideoNoteUploadProgress ? (
             <div className="bubble-attachment-video-note-upload-stack">
               <div className="bubble-attachment-video-note-footer">
