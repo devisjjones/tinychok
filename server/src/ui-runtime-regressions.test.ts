@@ -6237,6 +6237,48 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   )
 })
 
+test('video-note inline playback shows loading percent while a remote clip is buffering', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(bubbleSource, /const \[isVideoNoteLoading, setIsVideoNoteLoading\] = useState\(false\)/u)
+  assert.match(bubbleSource, /const \[videoNoteLoadProgress, setVideoNoteLoadProgress\] = useState\(0\)/u)
+  assert.match(
+    bubbleSource,
+    /function normalizeInlinePlaybackLoadProgress\(video: HTMLVideoElement\) \{[\s\S]*video\.buffered\.length === 0[\s\S]*video\.buffered\.end\(video\.buffered\.length - 1\) \/ video\.duration/u,
+  )
+  assert.match(
+    bubbleSource,
+    /<VideoAttachmentPreview[\s\S]*onInlinePlaybackLoadProgressChange=\{setVideoNoteLoadProgress\}[\s\S]*onInlinePlaybackLoadingStateChange=\{setIsVideoNoteLoading\}/u,
+  )
+  assert.match(
+    bubbleSource,
+    /const showVideoNoteLoadProgress = isVideoNote && isVideoNotePlaying && isVideoNoteLoading/u,
+  )
+  assert.match(
+    bubbleSource,
+    /showVideoNoteLoadProgress \? \([\s\S]*className="bubble-attachment-video-note-loading-overlay"[\s\S]*Загрузка[\s\S]*videoNoteLoadPercent/u,
+  )
+  assert.match(
+    bubbleSource,
+    /onLoadStart=\{\(\) => \{[\s\S]*onInlinePlaybackLoadProgressChange\?\.\(0\)[\s\S]*onInlinePlaybackLoadingStateChange\?\.\(true\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /onProgress=\{\(event\) => \{[\s\S]*onInlinePlaybackLoadProgressChange\?\.\([\s\S]*normalizeInlinePlaybackLoadProgress\(event\.currentTarget\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /onPlaying=\{\(\) => \{[\s\S]*onInlinePlaybackLoadProgressChange\?\.\(1\)[\s\S]*onInlinePlaybackLoadingStateChange\?\.\(false\)/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-video-note-loading-overlay\s*\{[\s\S]*position:\s*absolute;[\s\S]*right:\s*10px;[\s\S]*bottom:\s*10px;[\s\S]*backdrop-filter:\s*blur\(10px\)/u,
+  )
+  assert.match(appCss, /\.bubble-attachment-video-note-loading-value\s*\{[\s\S]*font-weight:\s*600;/u)
+})
+
 test('video-note recorder auto-sends after stop and keeps retry on the same clip after an error', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const recorderSource = readFileSync(join(repoRoot, 'src', 'components', 'VideoNoteRecorderOverlay.tsx'), 'utf8')

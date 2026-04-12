@@ -107,6 +107,8 @@ type VideoAttachmentPreviewProps = {
   isInlinePlaying?: boolean
   isVideoNote: boolean
   mediaUrl: string
+  onInlinePlaybackLoadProgressChange?: (progress: number) => void
+  onInlinePlaybackLoadingStateChange?: (loading: boolean) => void
   onInlinePlaybackProgressChange?: (progress: number) => void
   onInlinePlaybackStateChange?: (playing: boolean) => void
 }
@@ -119,11 +121,30 @@ function normalizeInlinePlaybackProgress(currentTime: number, duration: number) 
   return Math.min(1, Math.max(0, currentTime / duration))
 }
 
+function normalizeInlinePlaybackLoadProgress(video: HTMLVideoElement) {
+  if (!Number.isFinite(video.duration) || video.duration <= 0 || video.buffered.length === 0) {
+    return 0
+  }
+
+  const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0
+  for (let rangeIndex = 0; rangeIndex < video.buffered.length; rangeIndex += 1) {
+    const rangeStart = video.buffered.start(rangeIndex)
+    const rangeEnd = video.buffered.end(rangeIndex)
+    if (currentTime >= rangeStart && currentTime <= rangeEnd) {
+      return Math.min(1, Math.max(0, rangeEnd / video.duration))
+    }
+  }
+
+  return Math.min(1, Math.max(0, video.buffered.end(video.buffered.length - 1) / video.duration))
+}
+
 function VideoAttachmentPreview({
   attachmentLayout,
   isInlinePlaying = false,
   isVideoNote,
   mediaUrl,
+  onInlinePlaybackLoadProgressChange,
+  onInlinePlaybackLoadingStateChange,
   onInlinePlaybackProgressChange,
   onInlinePlaybackStateChange,
 }: VideoAttachmentPreviewProps) {
@@ -149,11 +170,21 @@ function VideoAttachmentPreview({
     const playResult = inlineVideo.play()
     if (playResult && typeof playResult.catch === 'function') {
       void playResult.catch(() => {
+        onInlinePlaybackLoadProgressChange?.(0)
+        onInlinePlaybackLoadingStateChange?.(false)
         onInlinePlaybackProgressChange?.(0)
         onInlinePlaybackStateChange?.(false)
       })
     }
-  }, [isInlinePlaying, isVideoNote, mediaUrl, onInlinePlaybackProgressChange, onInlinePlaybackStateChange])
+  }, [
+    isInlinePlaying,
+    isVideoNote,
+    mediaUrl,
+    onInlinePlaybackLoadProgressChange,
+    onInlinePlaybackLoadingStateChange,
+    onInlinePlaybackProgressChange,
+    onInlinePlaybackStateChange,
+  ])
 
   if (previewFailed) {
     return <span className={`${imageClassName} bubble-attachment-video-fallback`} aria-hidden="true" />
@@ -168,10 +199,37 @@ function VideoAttachmentPreview({
         playsInline
         preload="metadata"
         poster={/^(blob:|data:)/u.test(mediaUrl) ? undefined : previewUrl}
+        onLoadStart={() => {
+          onInlinePlaybackLoadProgressChange?.(0)
+          onInlinePlaybackLoadingStateChange?.(true)
+        }}
         onLoadedMetadata={(event) => {
+          onInlinePlaybackLoadProgressChange?.(
+            normalizeInlinePlaybackLoadProgress(event.currentTarget),
+          )
           onInlinePlaybackProgressChange?.(
             normalizeInlinePlaybackProgress(event.currentTarget.currentTime, event.currentTarget.duration),
           )
+        }}
+        onProgress={(event) => {
+          onInlinePlaybackLoadProgressChange?.(
+            normalizeInlinePlaybackLoadProgress(event.currentTarget),
+          )
+        }}
+        onCanPlay={(event) => {
+          onInlinePlaybackLoadProgressChange?.(
+            normalizeInlinePlaybackLoadProgress(event.currentTarget),
+          )
+        }}
+        onPlaying={() => {
+          onInlinePlaybackLoadProgressChange?.(1)
+          onInlinePlaybackLoadingStateChange?.(false)
+        }}
+        onWaiting={(event) => {
+          onInlinePlaybackLoadProgressChange?.(
+            normalizeInlinePlaybackLoadProgress(event.currentTarget),
+          )
+          onInlinePlaybackLoadingStateChange?.(true)
         }}
         onTimeUpdate={(event) => {
           onInlinePlaybackProgressChange?.(
@@ -180,11 +238,15 @@ function VideoAttachmentPreview({
         }}
         onEnded={(event) => {
           event.currentTarget.currentTime = 0
+          onInlinePlaybackLoadProgressChange?.(0)
+          onInlinePlaybackLoadingStateChange?.(false)
           onInlinePlaybackProgressChange?.(0)
           onInlinePlaybackStateChange?.(false)
         }}
         onError={() => {
           setPreviewFailed(true)
+          onInlinePlaybackLoadProgressChange?.(0)
+          onInlinePlaybackLoadingStateChange?.(false)
           onInlinePlaybackProgressChange?.(0)
           onInlinePlaybackStateChange?.(false)
         }}
@@ -649,6 +711,8 @@ export function BubbleMessageContent({
   const trimmedText = message.text.trim()
   const isVideoNote = Boolean(message.attachment && isVideoNoteAttachment(message.attachment))
   const [isVideoNotePlaying, setIsVideoNotePlaying] = useState(false)
+  const [isVideoNoteLoading, setIsVideoNoteLoading] = useState(false)
+  const [videoNoteLoadProgress, setVideoNoteLoadProgress] = useState(0)
   const [videoNotePlaybackProgress, setVideoNotePlaybackProgress] = useState(0)
   const isVideoAttachment = Boolean(
     message.attachment && isVideoMimeType(message.attachment.mimeType),
@@ -693,6 +757,8 @@ export function BubbleMessageContent({
   const showAttachmentUploadProgress = Boolean(message.attachment) && uploadProgressPercent !== null
   const showVideoNoteUploadProgress = isVideoNote && showAttachmentUploadProgress
   const showLinearAttachmentUploadProgress = showAttachmentUploadProgress && !isVideoNote
+  const videoNoteLoadPercent = Math.min(99, Math.max(0, Math.round(videoNoteLoadProgress * 100)))
+  const showVideoNoteLoadProgress = isVideoNote && isVideoNotePlaying && isVideoNoteLoading
   const attachmentUploadStage =
     uploadProgressValue === null
       ? null
@@ -712,11 +778,15 @@ export function BubbleMessageContent({
 
   useEffect(() => {
     setIsVideoNotePlaying(false)
+    setIsVideoNoteLoading(false)
+    setVideoNoteLoadProgress(0)
     setVideoNotePlaybackProgress(0)
   }, [isVideoNote, message.attachment?.mediaUrl])
 
   useEffect(() => {
     if (!isVideoNotePlaying) {
+      setIsVideoNoteLoading(false)
+      setVideoNoteLoadProgress(0)
       setVideoNotePlaybackProgress(0)
     }
   }, [isVideoNotePlaying])
@@ -768,6 +838,12 @@ export function BubbleMessageContent({
           }
         />
       ) : null}
+      {showVideoNoteLoadProgress ? (
+        <span className="bubble-attachment-video-note-loading-overlay" role="status" aria-live="polite">
+          <span className="bubble-attachment-video-note-loading-label">Загрузка</span>
+          <span className="bubble-attachment-video-note-loading-value">{videoNoteLoadPercent}%</span>
+        </span>
+      ) : null}
       {isVideoAttachment ? (
         <>
           <VideoAttachmentPreview
@@ -775,6 +851,8 @@ export function BubbleMessageContent({
             isInlinePlaying={isVideoNotePlaying}
             isVideoNote={isVideoNote}
             mediaUrl={message.attachment!.mediaUrl}
+            onInlinePlaybackLoadProgressChange={setVideoNoteLoadProgress}
+            onInlinePlaybackLoadingStateChange={setIsVideoNoteLoading}
             onInlinePlaybackProgressChange={setVideoNotePlaybackProgress}
             onInlinePlaybackStateChange={setIsVideoNotePlaying}
           />
