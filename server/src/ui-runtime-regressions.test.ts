@@ -4234,6 +4234,8 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(appCss, /\.composer-field\.composer-field-expanded\s+\.composer-tools,[\s\S]*\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*bottom:\s*8px;[\s\S]*transform:\s*none;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.composer textarea\s*\{[\s\S]*padding:\s*13px 126px 16px 14px;/u)
   assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.composer textarea\s*\{[\s\S]*padding:\s*13px 116px 16px 14px;/u)
+  assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.emoji-picker\s*\{[\s\S]*position:\s*static;/u)
+  assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.emoji-picker-popover\s*\{[\s\S]*left:\s*auto;[\s\S]*right:\s*0;[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 24px\)\);[\s\S]*max-width:\s*calc\(100vw - 24px\);/u)
   assert.match(appCss, /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\)\s+\.composer-send\s*\{[\s\S]*margin-bottom:\s*0;/u)
   assert.doesNotMatch(appCss, /\.composer-format-toolbar/u)
   assert.doesNotMatch(appCss, /\.composer-rich-input/u)

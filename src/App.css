@@ -8889,6 +8889,17 @@
     display: block;
   }
 
+  .emoji-picker {
+    position: static;
+  }
+
+  .emoji-picker-popover {
+    left: auto;
+    right: 0;
+    width: min(320px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+  }
+
   .composer-send {
     width: 48px;
     min-width: 48px;
