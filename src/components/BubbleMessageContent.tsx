@@ -905,15 +905,12 @@ export function BubbleMessageContent({
           }
         />
       ) : isVideoNote && isVideoNotePlaying ? (
-        <span
-          className="bubble-attachment-video-note-progress"
-          aria-hidden="true"
-          style={
-            {
-              '--video-note-playback-progress': `${videoNotePlaybackProgress}`,
-            } as CSSProperties
-          }
-        />
+        <span className="bubble-attachment-video-note-progress" aria-hidden="true">
+          <span
+            className="bubble-attachment-video-note-progress-fill"
+            style={{ width: `${Math.round(videoNotePlaybackProgress * 100)}%` }}
+          />
+        </span>
       ) : null}
       {showVideoNoteLoadProgress ? (
         <span className="bubble-attachment-video-note-loading-overlay" role="status" aria-live="polite">

@@ -5027,16 +5027,24 @@
 
 .bubble-attachment-video-note-progress {
   position: absolute;
-  inset: -4px;
-  z-index: 0;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  z-index: 2;
+  height: 3px;
   border-radius: 999px;
-  background: conic-gradient(
-    rgba(245, 226, 209, 0.94) calc(var(--video-note-playback-progress, 0) * 1turn),
-    rgba(255, 255, 255, 0.14) 0
-  );
-  -webkit-mask: radial-gradient(circle, transparent calc(100% - 4px), #000 calc(100% - 4px));
-  mask: radial-gradient(circle, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(17, 11, 8, 0.04);
   pointer-events: none;
+}
+
+.bubble-attachment-video-note-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.22);
 }
 
 .bubble-attachment-video-note-upload-progress {
@@ -7061,11 +7069,26 @@
   }
 
   .bubble-attachment-video-note-progress {
-    border-radius: 34px;
+    left: 12px;
+    right: 12px;
+    bottom: 10px;
+    height: 3px;
   }
 
   .bubble-attachment-video-note-upload-progress {
     border-radius: 35px;
+  }
+
+  .bubble-stack:has(.bubble-attachment-photo-video-note.is-inline-playing) {
+    width: min(320px, 100%);
+    max-width: min(320px, 100%);
+    min-width: 0;
+  }
+
+  .bubble-stack:has(.bubble-attachment-photo-video-note.is-inline-playing) > .bubble-stack-main {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .bubble.video-note-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
@@ -7076,14 +7099,14 @@
   .channel-post.media-only-bubble:has(.bubble-attachment-photo-video-note.is-inline-playing),
   .channel-post.video-note-only-bubble.selected:has(.bubble-attachment-photo-video-note.is-inline-playing),
   .channel-post.media-only-bubble.selected:has(.bubble-attachment-photo-video-note.is-inline-playing) {
-    width: min(440px, 100%);
-    max-width: min(440px, 100%);
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
   }
 
   .bubble-attachment-video-note-shell.is-inline-playing {
-    width: min(440px, 100%);
-    max-width: min(440px, 100%);
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
   }
 
