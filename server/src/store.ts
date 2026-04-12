@@ -20287,6 +20287,81 @@ function normalizeDeletedAccountResidue(database: Database) {
   }
 }
 
+function normalizeLegacyGroupParticipantResidue(database: Database) {
+  let didMutate = false
+
+  for (const group of database.groups) {
+    const nextParticipants: GroupParticipant[] = []
+    const seenIdentifiers = new Set<string>()
+    const seenIds = new Set<number>()
+
+    for (const participant of group.participants ?? []) {
+      const normalizedIdentifier = normalizeStoredIdentifierReference(participant.identifier ?? '')
+      if (!normalizedIdentifier) {
+        didMutate = true
+        continue
+      }
+
+      if (seenIdentifiers.has(normalizedIdentifier) || seenIds.has(participant.id)) {
+        didMutate = true
+        continue
+      }
+
+      seenIdentifiers.add(normalizedIdentifier)
+      seenIds.add(participant.id)
+      nextParticipants.push({
+        ...participant,
+        identifier: normalizedIdentifier,
+      })
+    }
+
+    if (
+      nextParticipants.length !== (group.participants ?? []).length ||
+      group.members !== nextParticipants.length
+    ) {
+      group.participants = nextParticipants
+      group.members = nextParticipants.length
+      didMutate = true
+    }
+  }
+
+  for (const channel of database.subscriptionChannels) {
+    const nextParticipants: GroupParticipant[] = []
+    const seenIdentifiers = new Set<string>()
+    const seenIds = new Set<number>()
+
+    for (const participant of channel.participants ?? []) {
+      const normalizedIdentifier = normalizeStoredIdentifierReference(participant.identifier ?? '')
+      if (!normalizedIdentifier) {
+        didMutate = true
+        continue
+      }
+
+      if (seenIdentifiers.has(normalizedIdentifier) || seenIds.has(participant.id)) {
+        didMutate = true
+        continue
+      }
+
+      seenIdentifiers.add(normalizedIdentifier)
+      seenIds.add(participant.id)
+      nextParticipants.push({
+        ...participant,
+        identifier: normalizedIdentifier,
+      })
+    }
+
+    if (nextParticipants.length !== (channel.participants ?? []).length) {
+      channel.participants = nextParticipants
+      didMutate = true
+    }
+  }
+
+  return {
+    database,
+    needsPersistenceRewrite: didMutate,
+  }
+}
+
 function ensureAcceptedContactLinksForLegacyDialogs(database: Database) {
   let didMutate = false
   const dialogOwnersByPair = new Map<string, Set<string>>()
@@ -20369,6 +20444,7 @@ function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewri
       ? pruneLegacyNonProductionMockResidue(cleanupState.database)
       : { database: cleanupState.database, needsPersistenceRewrite: false }
   const normalizedDeletedResidue = normalizeDeletedAccountResidue(prunedLegacyMockResidue.database)
+  const normalizedLegacyGroupParticipants = normalizeLegacyGroupParticipantResidue(prunedLegacyMockResidue.database)
   const repairedDialogIdCollisions = repairPersistedDialogIdCollisions(prunedLegacyMockResidue.database)
   const normalizedDuplicateDialogs = normalizePersistedDuplicateDialogs(prunedLegacyMockResidue.database)
   const normalizedPersistedDialogs = normalizePersistedDialogs(prunedLegacyMockResidue.database)
@@ -20385,6 +20461,7 @@ function applyEnvironmentFixturePolicy(database: Database, needsPersistenceRewri
       fixtureState.needsPersistenceRewrite ||
       prunedLegacyMockResidue.needsPersistenceRewrite ||
       normalizedDeletedResidue.needsPersistenceRewrite ||
+      normalizedLegacyGroupParticipants.needsPersistenceRewrite ||
       repairedDialogIdCollisions ||
       normalizedDuplicateDialogs ||
       normalizedPersistedDialogs ||

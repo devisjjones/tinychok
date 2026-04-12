@@ -53,6 +53,7 @@ import {
   initialGroups,
   initialSubscribedChannels,
 } from './app/mockData'
+import { buildGroupParticipantFromChat, hydrateGroupParticipants } from './app/groupParticipants'
 import { prepareAvatarUpload } from './app/avatarProcessing'
 import { loadAccounts, loadSession } from './app/storage'
 import {
@@ -558,35 +559,6 @@ function buildBrowserNotificationDigest(
   return digest
 }
 
-function buildGroupParticipantFromChat(chat: Chat, participantId?: number): GroupParticipant {
-  return {
-    accent: chat.accent,
-    avatarImage: chat.avatarImage,
-    favorite: chat.pinned,
-    id: participantId ?? chat.id,
-    identifier: chat.phone,
-    nickname: chat.handle.replace(/^@+/u, ''),
-    online: chat.online,
-    premium: chat.premium,
-    status: formatContactStatus(chat),
-    title: chat.title,
-  }
-}
-
-function buildFallbackGroupParticipant(title: string, participantId: number): GroupParticipant {
-  return {
-    accent: '#cfb4a0',
-    archivedAccount: false,
-    avatarImage: undefined,
-    id: participantId,
-    identifier: undefined,
-    online: false,
-    premium: false,
-    status: 'Участник группы',
-    title,
-  }
-}
-
 const THREAD_PREVIEW_AUTHOR_FALLBACK_ACCENT = '#cfb4a0'
 
 function renderAccountAvatarContent(title: string, archivedAccount?: boolean, avatarImage?: string) {
@@ -716,63 +688,6 @@ function resolveChannelThreadInboxPreviewAuthor(
     accent: THREAD_PREVIEW_AUTHOR_FALLBACK_ACCENT,
     avatarImage: latestComment.author === 'me' ? session?.avatarImage : undefined,
   }
-}
-
-function hydrateGroupParticipants(group: GroupPreview, chats: Chat[]): GroupParticipant[] {
-  const chatByIdentifier = new Map(
-    chats
-      .map((chat) => [normalizeIdentifier(chat.phone), chat] as const)
-      .filter((entry): entry is [string, Chat] => Boolean(entry[0])),
-  )
-  const chatByTitle = new Map(chats.map((chat) => [chat.title, chat]))
-  const fallbackChatByTitle = new Map(initialChats.map((chat) => [chat.title, chat]))
-  const participantsById = new Map<number, GroupParticipant>()
-  const participantsByTitle = new Map<string, GroupParticipant>()
-
-  function upsertParticipant(participant: GroupParticipant) {
-    participantsById.set(participant.id, participant)
-    participantsByTitle.set(participant.title, participant)
-  }
-
-  group.participants.forEach((participant) => {
-    const normalizedParticipantIdentifier = normalizeIdentifier(participant.identifier ?? '')
-    const matchingChat =
-      (normalizedParticipantIdentifier ? chatByIdentifier.get(normalizedParticipantIdentifier) : null) ??
-      (!participant.archivedAccount ? chatByTitle.get(participant.title) ?? fallbackChatByTitle.get(participant.title) : null)
-
-    upsertParticipant(
-      matchingChat
-        ? {
-            ...buildGroupParticipantFromChat(matchingChat, participant.id),
-            archivedAccount: Boolean(participant.archivedAccount),
-          }
-        : participant,
-    )
-  })
-
-  group.messages.forEach((message) => {
-    if (message.author === 'me' || !message.displayAuthor) return
-
-    if (message.groupParticipantId !== undefined && participantsById.has(message.groupParticipantId)) {
-      return
-    }
-
-    if (participantsByTitle.has(message.displayAuthor)) return
-
-    const matchingChat =
-      chatByTitle.get(message.displayAuthor) ?? fallbackChatByTitle.get(message.displayAuthor)
-
-    upsertParticipant(
-      matchingChat
-        ? buildGroupParticipantFromChat(matchingChat, message.groupParticipantId)
-        : buildFallbackGroupParticipant(
-            message.displayAuthor,
-            message.groupParticipantId ?? getSyntheticChannelId(`${group.id}:${message.displayAuthor}`),
-          ),
-    )
-  })
-
-  return Array.from(participantsById.values())
 }
 
 function buildPreviewSubscriptionChannelFromManagedChannel(channel: Channel): SubscriptionChannel {
