@@ -3150,6 +3150,22 @@ test('image-only media bubble styling no longer uses destructive negative margin
   )
 })
 
+test('mobile gif bubbles stretch to the full media slot width instead of shrinking to intrinsic size', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
+
+  assert.match(bubbleSource, /const isGifAttachment = message\.attachment\?\.mimeType === 'image\/gif'/u)
+  assert.match(
+    bubbleSource,
+    /isVideoNote \? ' bubble-attachment-photo-video-note' : ''\}\$\{[\s\S]*isGifAttachment \? ' bubble-attachment-photo-gif' : ''/u,
+  )
+  assert.match(
+    appCss,
+    /@media \(max-width: 960px\) \{[\s\S]*\.media-bubble-row > \.bubble\.media-only-bubble \.bubble-attachment-photo-gif\.image-only,\s*[\s\S]*\.media-bubble-row > \.channel-post\.media-only-bubble \.bubble-attachment-photo-gif\.image-only \{\s*width:\s*100%;[\s\S]*max-width:\s*100%;/u,
+  )
+})
+
 test('nickname and channel direct link use inline copy buttons inside the field', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')

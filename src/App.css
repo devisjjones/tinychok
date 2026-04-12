@@ -8781,6 +8781,12 @@
     min-width: 0;
   }
 
+  .media-bubble-row > .bubble.media-only-bubble .bubble-attachment-photo-gif.image-only,
+  .media-bubble-row > .channel-post.media-only-bubble .bubble-attachment-photo-gif.image-only {
+    width: 100%;
+    max-width: 100%;
+  }
+
   .settings-panel {
     padding: 22px;
   }

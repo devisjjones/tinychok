@@ -732,6 +732,7 @@ export function BubbleMessageContent({
   const isImageAttachment = Boolean(
     message.attachment && isImageMimeType(message.attachment.mimeType),
   )
+  const isGifAttachment = message.attachment?.mimeType === 'image/gif'
   const hasVisualAttachment = isImageAttachment || isVideoAttachment
   const shouldRenderContactBodyText =
     Boolean(trimmedText) &&
@@ -870,6 +871,8 @@ export function BubbleMessageContent({
       className={`bubble-attachment bubble-attachment-photo bubble-attachment-button${
         hasBodyBelowAttachment ? ' has-body-below' : ' image-only'
       }${isVideoNote ? ' bubble-attachment-photo-video-note' : ''}${
+        isGifAttachment ? ' bubble-attachment-photo-gif' : ''
+      }${
         isVideoNote && isVideoNotePlaying ? ' is-inline-playing' : ''
       }${
         attachmentLayout === 'thread-source-thumbnail'
