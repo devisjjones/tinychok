@@ -108,6 +108,7 @@ function buildVideoPreviewUrl(mediaUrl: string) {
 
 type VideoAttachmentPreviewProps = {
   attachmentLayout: BubbleMessageContentProps['attachmentLayout']
+  onInlinePlaybackFrameReadyChange?: (ready: boolean) => void
   isInlinePlaying?: boolean
   isVideoNote: boolean
   mediaUrl: string
@@ -144,6 +145,7 @@ function normalizeInlinePlaybackLoadProgress(video: HTMLVideoElement) {
 
 function VideoAttachmentPreview({
   attachmentLayout,
+  onInlinePlaybackFrameReadyChange,
   isInlinePlaying = false,
   isVideoNote,
   mediaUrl,
@@ -153,6 +155,8 @@ function VideoAttachmentPreview({
   onInlinePlaybackStateChange,
 }: VideoAttachmentPreviewProps) {
   const [previewFailed, setPreviewFailed] = useState(false)
+  const [inlinePreviewPosterFailed, setInlinePreviewPosterFailed] = useState(false)
+  const [isInlinePlaybackFrameReady, setIsInlinePlaybackFrameReady] = useState(false)
   const inlineVideoRef = useRef<HTMLVideoElement | null>(null)
   const imageClassName = `bubble-attachment-image bubble-attachment-video-preview${
     attachmentLayout === 'thread-source-thumbnail' ? ' bubble-attachment-image-thread-source-thumbnail' : ''
@@ -160,6 +164,26 @@ function VideoAttachmentPreview({
     attachmentLayout === 'thread-source-card' ? ' bubble-attachment-image-thread-source-card' : ''
   }${isVideoNote ? ' bubble-attachment-image-video-note' : ''}`
   const previewUrl = buildVideoPreviewUrl(mediaUrl)
+  const canUseRemotePreviewPoster = !/^(blob:|data:)/u.test(mediaUrl)
+  const showInlinePreviewPoster =
+    isVideoNote &&
+    isInlinePlaying &&
+    !isInlinePlaybackFrameReady &&
+    canUseRemotePreviewPoster &&
+    !inlinePreviewPosterFailed
+
+  useEffect(() => {
+    if (!isVideoNote || !isInlinePlaying) {
+      setInlinePreviewPosterFailed(false)
+      setIsInlinePlaybackFrameReady(false)
+      onInlinePlaybackFrameReadyChange?.(false)
+      return
+    }
+
+    setInlinePreviewPosterFailed(false)
+    setIsInlinePlaybackFrameReady(false)
+    onInlinePlaybackFrameReadyChange?.(false)
+  }, [isInlinePlaying, isVideoNote, mediaUrl, onInlinePlaybackFrameReadyChange])
 
   useEffect(() => {
     if (!isVideoNote || !isInlinePlaying || typeof window === 'undefined') {
@@ -231,65 +255,98 @@ function VideoAttachmentPreview({
 
   if (isVideoNote && isInlinePlaying) {
     return (
-      <video
-        ref={inlineVideoRef}
-        src={mediaUrl}
-        className={imageClassName}
-        playsInline
-        preload="metadata"
-        poster={/^(blob:|data:)/u.test(mediaUrl) ? undefined : previewUrl}
-        onLoadStart={() => {
-          onInlinePlaybackLoadProgressChange?.(0)
-          onInlinePlaybackLoadingStateChange?.(true)
-        }}
-        onLoadedMetadata={(event) => {
-          onInlinePlaybackLoadProgressChange?.(
-            normalizeInlinePlaybackLoadProgress(event.currentTarget),
-          )
-          onInlinePlaybackProgressChange?.(
-            normalizeInlinePlaybackProgress(event.currentTarget.currentTime, event.currentTarget.duration),
-          )
-        }}
-        onProgress={(event) => {
-          onInlinePlaybackLoadProgressChange?.(
-            normalizeInlinePlaybackLoadProgress(event.currentTarget),
-          )
-        }}
-        onCanPlay={(event) => {
-          onInlinePlaybackLoadProgressChange?.(
-            normalizeInlinePlaybackLoadProgress(event.currentTarget),
-          )
-        }}
-        onPlaying={() => {
-          onInlinePlaybackLoadProgressChange?.(1)
-          onInlinePlaybackLoadingStateChange?.(false)
-        }}
-        onWaiting={(event) => {
-          onInlinePlaybackLoadProgressChange?.(
-            normalizeInlinePlaybackLoadProgress(event.currentTarget),
-          )
-          onInlinePlaybackLoadingStateChange?.(true)
-        }}
-        onTimeUpdate={(event) => {
-          onInlinePlaybackProgressChange?.(
-            normalizeInlinePlaybackProgress(event.currentTarget.currentTime, event.currentTarget.duration),
-          )
-        }}
-        onEnded={(event) => {
-          event.currentTarget.currentTime = 0
-          onInlinePlaybackLoadProgressChange?.(0)
-          onInlinePlaybackLoadingStateChange?.(false)
-          onInlinePlaybackProgressChange?.(0)
-          onInlinePlaybackStateChange?.(false)
-        }}
-        onError={() => {
-          setPreviewFailed(true)
-          onInlinePlaybackLoadProgressChange?.(0)
-          onInlinePlaybackLoadingStateChange?.(false)
-          onInlinePlaybackProgressChange?.(0)
-          onInlinePlaybackStateChange?.(false)
-        }}
-      />
+      <>
+        {showInlinePreviewPoster ? (
+          <img
+            src={previewUrl}
+            className={`${imageClassName} bubble-attachment-image-video-note-poster`}
+            alt=""
+            aria-hidden="true"
+            onError={() => {
+              setInlinePreviewPosterFailed(true)
+            }}
+          />
+        ) : null}
+        <video
+          ref={inlineVideoRef}
+          src={mediaUrl}
+          className={`${imageClassName}${
+            isInlinePlaybackFrameReady ? ' is-inline-frame-ready' : ' is-inline-frame-pending'
+          }`}
+          playsInline
+          preload="metadata"
+          poster={canUseRemotePreviewPoster ? previewUrl : undefined}
+          onLoadStart={() => {
+            setIsInlinePlaybackFrameReady(false)
+            onInlinePlaybackFrameReadyChange?.(false)
+            onInlinePlaybackLoadProgressChange?.(0)
+            onInlinePlaybackLoadingStateChange?.(true)
+          }}
+          onLoadedMetadata={(event) => {
+            onInlinePlaybackLoadProgressChange?.(
+              normalizeInlinePlaybackLoadProgress(event.currentTarget),
+            )
+            onInlinePlaybackProgressChange?.(
+              normalizeInlinePlaybackProgress(event.currentTarget.currentTime, event.currentTarget.duration),
+            )
+          }}
+          onLoadedData={(event) => {
+            setIsInlinePlaybackFrameReady(true)
+            onInlinePlaybackFrameReadyChange?.(true)
+            onInlinePlaybackLoadProgressChange?.(
+              normalizeInlinePlaybackLoadProgress(event.currentTarget),
+            )
+            onInlinePlaybackProgressChange?.(
+              normalizeInlinePlaybackProgress(event.currentTarget.currentTime, event.currentTarget.duration),
+            )
+          }}
+          onProgress={(event) => {
+            onInlinePlaybackLoadProgressChange?.(
+              normalizeInlinePlaybackLoadProgress(event.currentTarget),
+            )
+          }}
+          onCanPlay={(event) => {
+            onInlinePlaybackLoadProgressChange?.(
+              normalizeInlinePlaybackLoadProgress(event.currentTarget),
+            )
+          }}
+          onPlaying={() => {
+            setIsInlinePlaybackFrameReady(true)
+            onInlinePlaybackFrameReadyChange?.(true)
+            onInlinePlaybackLoadProgressChange?.(1)
+            onInlinePlaybackLoadingStateChange?.(false)
+          }}
+          onWaiting={(event) => {
+            onInlinePlaybackLoadProgressChange?.(
+              normalizeInlinePlaybackLoadProgress(event.currentTarget),
+            )
+            onInlinePlaybackLoadingStateChange?.(true)
+          }}
+          onTimeUpdate={(event) => {
+            onInlinePlaybackProgressChange?.(
+              normalizeInlinePlaybackProgress(event.currentTarget.currentTime, event.currentTarget.duration),
+            )
+          }}
+          onEnded={(event) => {
+            event.currentTarget.currentTime = 0
+            setIsInlinePlaybackFrameReady(false)
+            onInlinePlaybackFrameReadyChange?.(false)
+            onInlinePlaybackLoadProgressChange?.(0)
+            onInlinePlaybackLoadingStateChange?.(false)
+            onInlinePlaybackProgressChange?.(0)
+            onInlinePlaybackStateChange?.(false)
+          }}
+          onError={() => {
+            setPreviewFailed(true)
+            setIsInlinePlaybackFrameReady(false)
+            onInlinePlaybackFrameReadyChange?.(false)
+            onInlinePlaybackLoadProgressChange?.(0)
+            onInlinePlaybackLoadingStateChange?.(false)
+            onInlinePlaybackProgressChange?.(0)
+            onInlinePlaybackStateChange?.(false)
+          }}
+        />
+      </>
     )
   }
 
@@ -759,6 +816,7 @@ export function BubbleMessageContent({
   const isVideoNote = Boolean(message.attachment && isVideoNoteAttachment(message.attachment))
   const [isVideoNotePlaying, setIsVideoNotePlaying] = useState(false)
   const [isVideoNoteLoading, setIsVideoNoteLoading] = useState(false)
+  const [hasVideoNoteInlineFrame, setHasVideoNoteInlineFrame] = useState(false)
   const [videoNoteLoadProgress, setVideoNoteLoadProgress] = useState(0)
   const [videoNotePlaybackProgress, setVideoNotePlaybackProgress] = useState(0)
   const isVideoAttachment = Boolean(
@@ -810,7 +868,8 @@ export function BubbleMessageContent({
     100,
     Math.max(0, isVideoNotePlaying ? Math.max(0.8, videoNotePlaybackProgress * 100) : 0),
   )
-  const showVideoNoteLoadProgress = isVideoNote && isVideoNotePlaying && isVideoNoteLoading
+  const showVideoNoteLoadProgress =
+    isVideoNote && isVideoNotePlaying && (isVideoNoteLoading || !hasVideoNoteInlineFrame)
   const videoNoteShellRef = useRef<HTMLDivElement | null>(null)
   const attachmentUploadStage =
     uploadProgressValue === null
@@ -832,6 +891,7 @@ export function BubbleMessageContent({
   useEffect(() => {
     setIsVideoNotePlaying(false)
     setIsVideoNoteLoading(false)
+    setHasVideoNoteInlineFrame(false)
     setVideoNoteLoadProgress(0)
     setVideoNotePlaybackProgress(0)
   }, [isVideoNote, message.attachment?.mediaUrl])
@@ -839,6 +899,7 @@ export function BubbleMessageContent({
   useEffect(() => {
     if (!isVideoNotePlaying) {
       setIsVideoNoteLoading(false)
+      setHasVideoNoteInlineFrame(false)
       setVideoNoteLoadProgress(0)
       setVideoNotePlaybackProgress(0)
     }
@@ -957,6 +1018,7 @@ export function BubbleMessageContent({
             isInlinePlaying={isVideoNotePlaying}
             isVideoNote={isVideoNote}
             mediaUrl={message.attachment!.mediaUrl}
+            onInlinePlaybackFrameReadyChange={setHasVideoNoteInlineFrame}
             onInlinePlaybackLoadProgressChange={setVideoNoteLoadProgress}
             onInlinePlaybackLoadingStateChange={setIsVideoNoteLoading}
             onInlinePlaybackProgressChange={setVideoNotePlaybackProgress}

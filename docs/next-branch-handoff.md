@@ -242,6 +242,10 @@
 - video-square в самой переписке обязан сохранять те же мягкие скругления, что и recorder preview:
   - острые 90° углы у превью в комнате считаются регрессией
   - desktop room bubble держит мягкий rounded-square, а не circle и не sharp rectangle
+- remote video-square / video-note при первом тапе на play не должен проваливаться в голый коричневый placeholder:
+  - до готовности первого кадра в bubble остаётся видимым preview/poster
+  - поверх bubble показывается `Загрузка` и проценты старта воспроизведения
+  - hiding loading процентов до появления первого кадра считается регрессией
 - mobile browser intentionally keeps video-note surfaces square-ish:
   - inline bubble рендерится скруглённым квадратиком, а не кругом
   - preview записи в recorder-modal тоже квадратный; десктопный recorder использует тот же скруглённый квадрат, чтобы preview не расходился между платформами

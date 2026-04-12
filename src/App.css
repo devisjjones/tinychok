@@ -5025,6 +5025,27 @@
   border-radius: inherit;
 }
 
+.bubble-attachment-photo-video-note .bubble-attachment-image-video-note {
+  z-index: 2;
+}
+
+.bubble-attachment-photo-video-note .bubble-attachment-image-video-note.is-inline-frame-pending {
+  opacity: 0;
+}
+
+.bubble-attachment-photo-video-note .bubble-attachment-image-video-note-poster {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
 .bubble-attachment-video-note-progress {
   position: relative;
   z-index: 3;

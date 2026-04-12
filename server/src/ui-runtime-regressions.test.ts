@@ -6416,6 +6416,10 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   )
   assert.match(
     bubbleSource,
+    /<VideoAttachmentPreview[\s\S]*onInlinePlaybackFrameReadyChange=\{setHasVideoNoteInlineFrame\}[\s\S]*onInlinePlaybackLoadProgressChange=\{setVideoNoteLoadProgress\}/u,
+  )
+  assert.match(
+    bubbleSource,
     /bubble-attachment-photo-video-note' : ''\}\$\{[\s\S]*isVideoNote && isVideoNotePlaying \? ' is-inline-playing' : ''/u,
   )
   assert.match(
@@ -6432,11 +6436,15 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   )
   assert.match(
     bubbleSource,
-    /if \(isVideoNote && isInlinePlaying\) \{[\s\S]*<video[\s\S]*ref=\{inlineVideoRef\}[\s\S]*src=\{mediaUrl\}[\s\S]*playsInline[\s\S]*preload="metadata"/u,
+    /if \(isVideoNote && isInlinePlaying\) \{[\s\S]*showInlinePreviewPoster \? \([\s\S]*<img[\s\S]*src=\{previewUrl\}[\s\S]*bubble-attachment-image-video-note-poster[\s\S]*\) : null[\s\S]*<video[\s\S]*ref=\{inlineVideoRef\}[\s\S]*src=\{mediaUrl\}[\s\S]*playsInline[\s\S]*preload="metadata"/u,
   )
   assert.match(
     bubbleSource,
     /onLoadedMetadata=\{\(event\) => \{[\s\S]*onInlinePlaybackProgressChange\?\.\([\s\S]*normalizeInlinePlaybackProgress\(event\.currentTarget\.currentTime,\s*event\.currentTarget\.duration\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /onLoadedData=\{\(event\) => \{[\s\S]*setIsInlinePlaybackFrameReady\(true\)[\s\S]*onInlinePlaybackFrameReadyChange\?\.\(true\)[\s\S]*onInlinePlaybackLoadProgressChange\?\.\([\s\S]*normalizeInlinePlaybackLoadProgress\(event\.currentTarget\)/u,
   )
   assert.match(
     bubbleSource,
@@ -6466,6 +6474,18 @@ test('video-note bubbles play inline inside the circle instead of opening the gl
   assert.match(
     appCss,
     /\.bubble-attachment-video-note-progress-fill\s*\{[\s\S]*display:\s*block;[\s\S]*height:\s*100%;[\s\S]*border-radius:\s*inherit;[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.96\);/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-photo-video-note \.bubble-attachment-image-video-note\s*\{[\s\S]*z-index:\s*2;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-photo-video-note \.bubble-attachment-image-video-note\.is-inline-frame-pending\s*\{[\s\S]*opacity:\s*0;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-photo-video-note \.bubble-attachment-image-video-note-poster\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*0;[\s\S]*z-index:\s*1;[\s\S]*object-fit:\s*cover;[\s\S]*border-radius:\s*inherit;/u,
   )
 })
 
@@ -6505,6 +6525,7 @@ test('video-note inline playback shows loading percent while a remote clip is bu
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(bubbleSource, /const \[isVideoNoteLoading, setIsVideoNoteLoading\] = useState\(false\)/u)
+  assert.match(bubbleSource, /const \[hasVideoNoteInlineFrame, setHasVideoNoteInlineFrame\] = useState\(false\)/u)
   assert.match(bubbleSource, /const \[videoNoteLoadProgress, setVideoNoteLoadProgress\] = useState\(0\)/u)
   assert.match(
     bubbleSource,
@@ -6516,7 +6537,7 @@ test('video-note inline playback shows loading percent while a remote clip is bu
   )
   assert.match(
     bubbleSource,
-    /const showVideoNoteLoadProgress = isVideoNote && isVideoNotePlaying && isVideoNoteLoading/u,
+    /const showVideoNoteLoadProgress =[\s\S]*isVideoNote && isVideoNotePlaying && \(isVideoNoteLoading \|\| !hasVideoNoteInlineFrame\)/u,
   )
   assert.match(
     bubbleSource,
@@ -6524,11 +6545,15 @@ test('video-note inline playback shows loading percent while a remote clip is bu
   )
   assert.match(
     bubbleSource,
-    /onLoadStart=\{\(\) => \{[\s\S]*onInlinePlaybackLoadProgressChange\?\.\(0\)[\s\S]*onInlinePlaybackLoadingStateChange\?\.\(true\)/u,
+    /onLoadStart=\{\(\) => \{[\s\S]*setIsInlinePlaybackFrameReady\(false\)[\s\S]*onInlinePlaybackFrameReadyChange\?\.\(false\)[\s\S]*onInlinePlaybackLoadProgressChange\?\.\(0\)[\s\S]*onInlinePlaybackLoadingStateChange\?\.\(true\)/u,
   )
   assert.match(
     bubbleSource,
     /onProgress=\{\(event\) => \{[\s\S]*onInlinePlaybackLoadProgressChange\?\.\([\s\S]*normalizeInlinePlaybackLoadProgress\(event\.currentTarget\)/u,
+  )
+  assert.match(
+    bubbleSource,
+    /const showInlinePreviewPoster =[\s\S]*isVideoNote &&[\s\S]*isInlinePlaying &&[\s\S]*!isInlinePlaybackFrameReady &&[\s\S]*canUseRemotePreviewPoster &&[\s\S]*!inlinePreviewPosterFailed/u,
   )
   assert.match(
     bubbleSource,
