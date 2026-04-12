@@ -68,9 +68,9 @@
   - `staging.tinychok.ru/api/*` и `staging.tinychok.ru/ws` должны проксироваться на backend без повторного basic-auth challenge
   - even so, этот proxy не отменяет requirement собирать staging именно через `build:staging`
 - текущий подтверждённый user-frontend asset на staging после deploy `2026-04-13`:
-  - `assets/main-DSXa58mu.js`
+  - `assets/main-VpBVZlFJ.js`
 - подтверждённый staging VM commit после live deploy `2026-04-13`:
-  - `5af9915`
+  - `bb74930`
 - временное review-исключение активно с `2026-04-07`:
   - public user frontend `https://staging.tinychok.ru` намеренно открыт без user `basic auth`
   - причина: внешний review с новых устройств без логин/пароль prompt
