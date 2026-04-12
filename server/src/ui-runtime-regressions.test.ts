@@ -6251,7 +6251,15 @@ test('pending video-note uploads keep a circular progress ring and separate send
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*-5px;[\s\S]*conic-gradient\([\s\S]*--video-note-upload-progress[\s\S]*-webkit-mask:\s*radial-gradient/u,
+    /\.bubble-attachment-video-note-upload-progress\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*-5px;[\s\S]*z-index:\s*0;[\s\S]*conic-gradient\([\s\S]*--video-note-upload-progress[\s\S]*-webkit-mask:\s*radial-gradient/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-photo-video-note\s*\{[\s\S]*position:\s*relative;[\s\S]*overflow:\s*visible;[\s\S]*isolation:\s*isolate;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-photo-video-note \.bubble-attachment-image\s*\{[\s\S]*position:\s*relative;[\s\S]*z-index:\s*1;/u,
   )
   assert.match(
     appCss,

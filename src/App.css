@@ -4981,9 +4981,12 @@
 }
 
 .bubble-attachment-photo-video-note {
+  position: relative;
   width: min(220px, 56vw);
   aspect-ratio: 1;
   border-radius: 999px;
+  overflow: visible;
+  isolation: isolate;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
   transition: width 180ms ease, box-shadow 180ms ease;
 }
@@ -4997,6 +5000,8 @@
 }
 
 .bubble-attachment-photo-video-note .bubble-attachment-image {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   max-height: none;
@@ -5007,6 +5012,7 @@
 .bubble-attachment-video-note-progress {
   position: absolute;
   inset: -4px;
+  z-index: 0;
   border-radius: 999px;
   background: conic-gradient(
     rgba(245, 226, 209, 0.94) calc(var(--video-note-playback-progress, 0) * 1turn),
@@ -5020,6 +5026,7 @@
 .bubble-attachment-video-note-upload-progress {
   position: absolute;
   inset: -5px;
+  z-index: 0;
   border-radius: 999px;
   background: conic-gradient(
     rgba(244, 223, 206, 0.98) calc(var(--video-note-upload-progress, 0) * 1turn),
@@ -5099,6 +5106,7 @@
   position: absolute;
   right: 10px;
   bottom: 10px;
+  z-index: 3;
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
@@ -5149,6 +5157,7 @@
   position: absolute;
   right: 10px;
   bottom: 10px;
+  z-index: 3;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -5184,6 +5193,7 @@
   position: absolute;
   left: 50%;
   top: 50%;
+  z-index: 2;
   width: 52px;
   height: 52px;
   display: inline-flex;
