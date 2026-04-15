@@ -5388,12 +5388,16 @@ test('analytics and release runtime contracts stay explicit in env examples, dep
   assert.ok(existsSync(join(repoRoot, 'server', 'sql', 'yandex-clickhouse-analytics.sql')))
   assert.match(
     packageJson,
-    /"verify:staging-runtime": "node scripts\/verify-release-runtime\.mjs --client-config-url https:\/\/api\.staging\.tinychok\.ru\/api\/client-config --health-url https:\/\/api\.staging\.tinychok\.ru\/healthz --ready-url https:\/\/api\.staging\.tinychok\.ru\/readyz --require-analytics --expected-metrica-counter-id 108249405 --expected-analytics-provider \$\{TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-log\}"/u,
+    /"verify:staging-runtime": "node scripts\/verify-release-runtime\.mjs --client-config-url https:\/\/api\.staging\.tinychok\.ru\/api\/client-config --health-url https:\/\/api\.staging\.tinychok\.ru\/healthz --ready-url https:\/\/api\.staging\.tinychok\.ru\/readyz --require-analytics --expected-metrica-counter-id 108249405 --expected-analytics-provider \$\{TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-clickhouse\}"/u,
   )
 
+  assert.match(stagingEnvExample, /TINYCHOK_ANALYTICS_ENABLED=true/u)
+  assert.match(stagingEnvExample, /TINYCHOK_ANALYTICS_PROVIDER=clickhouse/u)
+  assert.match(stagingEnvExample, /Current staging is already cut over to ClickHouse/u)
+  assert.match(productionEnvExample, /TINYCHOK_ANALYTICS_ENABLED=true/u)
+  assert.match(productionEnvExample, /TINYCHOK_ANALYTICS_PROVIDER=log/u)
+
   for (const envSource of [stagingEnvExample, productionEnvExample]) {
-    assert.match(envSource, /TINYCHOK_ANALYTICS_ENABLED=true/u)
-    assert.match(envSource, /TINYCHOK_ANALYTICS_PROVIDER=log/u)
     assert.match(envSource, /TINYCHOK_ANALYTICS_FLUSH_INTERVAL_MS=5000/u)
     assert.match(envSource, /TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20/u)
     assert.match(envSource, /TINYCHOK_YANDEX_METRICA_COUNTER_ID=change-me/u)
@@ -5407,7 +5411,7 @@ test('analytics and release runtime contracts stay explicit in env examples, dep
 
   assert.match(deployScript, /Verifying staging runtime release contracts/u)
   assert.match(deployScript, /counter id 108249405/u)
-  assert.match(deployScript, /EXPECTED_ANALYTICS_PROVIDER="\$\{TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-log\}"/u)
+  assert.match(deployScript, /EXPECTED_ANALYTICS_PROVIDER="\$\{TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-clickhouse\}"/u)
   assert.match(deployScript, /verify-release-runtime\.mjs/u)
   assert.match(deployScript, /wait_for_staging_runtime_release/u)
   assert.match(deployScript, /Runtime not ready yet; retrying release verification/u)
@@ -5438,16 +5442,16 @@ test('analytics and release runtime contracts stay explicit in env examples, dep
   assert.match(handoffDoc, /staging и production не должны тихо запускаться с `analytics\.disabled`/u)
   assert.match(handoffDoc, /108249405/u)
   assert.match(handoffDoc, /TINYCHOK_YANDEX_METRICA_COUNTER_ID/u)
-  assert.match(handoffDoc, /`log` по умолчанию, `clickhouse` после cutover/u)
+  assert.match(handoffDoc, /`clickhouse` по умолчанию на текущем staging/u)
   assert.match(handoffDoc, /analytics regressions ловятся только через runtime config smoke-check/u)
-  assert.match(handoffDoc, /TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse/u)
+  assert.match(handoffDoc, /live verify\/deploy по умолчанию ждут `provider=clickhouse`/u)
   assert.match(handoffDoc, /docs\/release-contracts\.md/u)
 
   assert.match(rolloutDoc, /Staging Analytics Guard/u)
   assert.match(rolloutDoc, /GET https:\/\/api\.staging\.tinychok\.ru\/api\/client-config/u)
   assert.match(rolloutDoc, /108249405/u)
-  assert.match(rolloutDoc, /ожидаемым sink \(`log` по умолчанию, `clickhouse` после cutover\)/u)
-  assert.match(rolloutDoc, /TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse/u)
+  assert.match(rolloutDoc, /ожидаемым sink \(`clickhouse` по умолчанию на текущем staging\)/u)
+  assert.match(rolloutDoc, /deploy\/runtime verify по умолчанию ждут именно этот sink/u)
   assert.match(rolloutDoc, /expected result = JSON with positive `analytics\.metricaCounterId` и ожидаемым `analytics\.provider`/u)
   assert.match(rolloutDoc, /\?analytics_debug=1/u)
 
@@ -5456,7 +5460,7 @@ test('analytics and release runtime contracts stay explicit in env examples, dep
   assert.match(releaseContractsDoc, /npm run verify:staging-runtime/u)
   assert.match(releaseContractsDoc, /TINYCHOK_ANALYTICS_PROVIDER=<log\|clickhouse>/u)
   assert.match(releaseContractsDoc, /server\/sql\/yandex-clickhouse-analytics\.sql/u)
-  assert.match(releaseContractsDoc, /TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse/u)
+  assert.match(releaseContractsDoc, /по умолчанию ждёт `provider=clickhouse`/u)
   assert.match(releaseContractsDoc, /`В сети` = только живое websocket-соединение/u)
   assert.match(releaseContractsDoc, /Direct Delete-For-Everyone Contract/u)
 

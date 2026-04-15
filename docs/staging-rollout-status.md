@@ -106,7 +106,7 @@
 
 - staging analytics считаются release-blocking runtime-контрактом:
   - `analytics.enabled` должен быть `true`
-  - `analytics.provider` должен совпадать с ожидаемым sink (`log` по умолчанию, `clickhouse` после cutover)
+  - `analytics.provider` должен совпадать с ожидаемым sink (`clickhouse` по умолчанию на текущем staging)
   - `metricaCounterId` должен быть положительным числом
 - это нужно проверять не только по env template, но и по живому `GET https://api.staging.tinychok.ru/api/client-config`
 - deploy staging должен падать, если runtime config внезапно отдаёт:
@@ -129,7 +129,7 @@
   - `TINYCHOK_ANALYTICS_CLICKHOUSE_USER`
   - `TINYCHOK_ANALYTICS_CLICKHOUSE_PASSWORD`
   - `TINYCHOK_ANALYTICS_CLICKHOUSE_TIMEOUT_MS`
-  - `TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse` для deploy/runtime verify
+- текущий staging уже живёт на `clickhouse`, поэтому deploy/runtime verify по умолчанию ждут именно этот sink
 - после каждой env-правки или restart smoke-check:
   - `curl -s https://api.staging.tinychok.ru/api/client-config`
   - expected result = JSON with positive `analytics.metricaCounterId` и ожидаемым `analytics.provider`

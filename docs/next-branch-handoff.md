@@ -109,11 +109,11 @@
 - если staging runtime внезапно вернул другой counter id или `null`, deploy нужно считать сломанным
 - staging deploy обязан проверять живой `GET /api/client-config` после restart:
   - `analytics.enabled === true`
-  - `analytics.provider` должен совпадать с ожидаемым runtime sink (`log` по умолчанию, `clickhouse` после cutover)
+  - `analytics.provider` должен совпадать с ожидаемым runtime sink (`clickhouse` по умолчанию на текущем staging)
   - `analytics.metricaCounterId` должен быть положительным числом
 - нельзя считать проблему закрытой только потому, что frontend собрался и `healthz` зелёный:
 - analytics regressions ловятся только через runtime config smoke-check
-- для ClickHouse cutover source-of-truth лежит в `server/sql/yandex-clickhouse-analytics.sql`, а live verify запускается с `TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse`
+- source-of-truth для текущего staging ClickHouse sink лежит в `server/sql/yandex-clickhouse-analytics.sql`, а live verify/deploy по умолчанию ждут `provider=clickhouse`
 - единый release-blocking список теперь собран в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
 ## Core Product Mechanics

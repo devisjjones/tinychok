@@ -77,7 +77,8 @@
 - `108249405` — это текущий staging Yandex Metrica counter id
 - production должен использовать отдельный production counter id и не должен молча наследовать staging id
 - deploy staging обязан валидировать именно живой `/api/client-config`, а не только env template
-- `npm run verify:staging-runtime` по умолчанию ждёт `provider=log`; для ClickHouse cutover запускать с `TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse`
+- `npm run verify:staging-runtime` теперь по умолчанию ждёт `provider=clickhouse` для staging
+- если staging временно откатывается обратно на `log`, verify/deploy нужно запускать с `TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=log`
 
 ### 4. Staging Access Contract
 
