@@ -80,7 +80,7 @@ import { useBlacklistFlow } from './app/useBlacklistFlow'
 import { useGroupSettingsFlow } from './app/useGroupSettingsFlow'
 import { useRoomHistoryWindow } from './app/useRoomHistoryWindow'
 import { useRoomMessageActions } from './app/useRoomMessageActions'
-import { useThreadFlow } from './app/useThreadFlow'
+import { useThreadFlow, type ThreadTarget } from './app/useThreadFlow'
 import {
   ApiError,
   fetchClientRuntimeConfig,
@@ -1102,10 +1102,22 @@ function isExpiredSessionError(error: unknown) {
 
 function getAnalyticsAttachmentKind(attachment?: Message['attachment']) {
   if (!attachment) return 'none'
-  if (isVideoNoteAttachment(attachment)) return 'video-note'
   if (attachment.mimeType === 'image/gif') return 'gif'
   if (isImageMimeType(attachment.mimeType)) return 'image'
+  if (isVideoMimeType(attachment.mimeType)) return 'video'
   return 'file'
+}
+
+function getAnalyticsAttachmentPresentation(
+  attachment?:
+    | Message['attachment']
+    | Pick<ComposerAttachmentDraft, 'presentation'>
+    | Pick<PendingAttachmentDraft, 'presentation'>
+    | null,
+) {
+  return getMessageAttachmentPresentation(attachment?.presentation) === 'video-note'
+    ? 'video-note'
+    : 'regular'
 }
 
 function isVideoNoteDraft(
@@ -1121,17 +1133,120 @@ function isPhotoMimeType(mimeType: string | undefined) {
   return Boolean(mimeType && isImageMimeType(mimeType) && mimeType !== 'image/gif')
 }
 
-function trackPhotoAttachmentSelected(
+function getAnalyticsFileExtension(fileName: string) {
+  const normalizedName = fileName.trim().toLowerCase()
+  const lastDotIndex = normalizedName.lastIndexOf('.')
+  if (lastDotIndex <= 0 || lastDotIndex === normalizedName.length - 1) {
+    return 'none'
+  }
+
+  return normalizedName.slice(lastDotIndex + 1)
+}
+
+function getAnalyticsFileKind(args: {
+  fileName?: string
+  mimeType?: string
+  presentation?: NonNullable<Message['attachment']>['presentation'] | ComposerAttachmentDraft['presentation']
+}) {
+  const presentation = getMessageAttachmentPresentation(args.presentation)
+  if (presentation === 'video-note') return 'video-note'
+  if (args.mimeType === 'image/gif') return 'gif'
+  if (args.mimeType && isImageMimeType(args.mimeType)) return 'image'
+  if (args.mimeType && isVideoMimeType(args.mimeType)) return 'video'
+  const extension = getAnalyticsFileExtension(args.fileName ?? '')
+  if (extension === 'pdf') return 'document'
+  return 'file'
+}
+
+function getAnalyticsSizeBucket(size: number) {
+  if (size < 1_000_000) return 'under-1mb'
+  if (size < 10_000_000) return '1mb-to-10mb'
+  if (size < 50_000_000) return '10mb-to-50mb'
+  if (size < 200_000_000) return '50mb-to-200mb'
+  return '200mb-plus'
+}
+
+function getAnalyticsQueryLength(query: string) {
+  return query.trim().length
+}
+
+function getAnalyticsSearchSource(bottomSection: 'chats' | 'contacts') {
+  return bottomSection === 'contacts' ? 'contacts-tab' : 'chats-tab'
+}
+
+function getAnalyticsReason(error: unknown, fallbackMessage: string) {
+  return getErrorMessage(error, fallbackMessage)
+}
+
+function getAnalyticsVideoNoteDurationBucket(durationMs: number) {
+  if (durationMs <= 5_000) return '0s-to-5s'
+  if (durationMs <= 15_000) return '5s-to-15s'
+  if (durationMs <= 30_000) return '15s-to-30s'
+  return '30s-plus'
+}
+
+function trackAttachmentSelected(
   surface: 'channel' | 'direct' | 'group' | 'support' | 'thread',
   file: File,
   sendOriginalPreferred: boolean,
 ) {
-  if (!isPhotoMimeType(file.type)) return
+  if (isPhotoMimeType(file.type)) {
+    trackAnalyticsEvent('photo_attachment_selected', {
+      fileSize: file.size,
+      mimeType: file.type,
+      sendOriginalPreferred,
+      surface,
+    })
+    return
+  }
 
-  trackAnalyticsEvent('photo_attachment_selected', {
+  if (isVideoMimeType(file.type)) {
+    trackAnalyticsEvent('video_attachment_selected', {
+      fileSize: file.size,
+      mimeType: file.type,
+      surface,
+    })
+    return
+  }
+
+  trackAnalyticsEvent('file_attachment_selected', {
+    extension: getAnalyticsFileExtension(file.name),
     fileSize: file.size,
-    mimeType: file.type,
-    sendOriginalPreferred,
+    mimeType: file.type || 'application/octet-stream',
+    surface,
+  })
+}
+
+function trackAttachmentUploadFailed(
+  attachmentDraft: PendingAttachmentDraft,
+  error: unknown,
+  surface: 'channel' | 'direct' | 'group' | 'support' | 'thread',
+) {
+  if (isPhotoMimeType(attachmentDraft.mimeType)) {
+    trackAnalyticsEvent('photo_upload_failed', {
+      fileSize: attachmentDraft.size,
+      mimeType: attachmentDraft.mimeType,
+      reason: getAnalyticsReason(error, 'upload-failed'),
+      surface,
+    })
+    return
+  }
+
+  if (isVideoMimeType(attachmentDraft.mimeType)) {
+    trackAnalyticsEvent('video_upload_failed', {
+      fileSize: attachmentDraft.size,
+      mimeType: attachmentDraft.mimeType,
+      reason: getAnalyticsReason(error, 'upload-failed'),
+      surface,
+    })
+    return
+  }
+
+  trackAnalyticsEvent('file_upload_failed', {
+    extension: getAnalyticsFileExtension(attachmentDraft.fileName),
+    fileSize: attachmentDraft.size,
+    mimeType: attachmentDraft.mimeType || 'application/octet-stream',
+    reason: getAnalyticsReason(error, 'upload-failed'),
     surface,
   })
 }
@@ -1245,6 +1360,22 @@ function buildAnalyticsVirtualPageView(args: {
       }
 }
 
+function getAnalyticsAppSurface(path: string) {
+  if (path === '/dialogs') return 'dialogs'
+  if (path.startsWith('/dialogs/')) return 'direct-dialog'
+  if (path === '/groups') return 'groups'
+  if (path.startsWith('/groups/')) return 'group-room'
+  if (path === '/feed/channels') return 'channels-feed'
+  if (path.startsWith('/feed/channels/')) return 'channel-room'
+  if (path === '/threads') return 'threads'
+  if (path === '/premium') return 'premium'
+  if (path === '/channels') return 'channels'
+  if (path === '/channels/create') return 'channel-create'
+  if (path.startsWith('/channels/manage/')) return 'channel-management'
+  if (path.startsWith('/settings/')) return 'settings'
+  return 'app'
+}
+
 function getErrorMessage(error: unknown, fallbackMessage: string) {
   if (error instanceof ApiError) {
     return error.message || fallbackMessage
@@ -1304,7 +1435,21 @@ function App() {
   const threadAttachmentSelectionTokenRef = useRef(0)
   const supportAttachmentSelectionTokenRef = useRef(0)
   const lastAnalyticsPageViewKeyRef = useRef<string | null>(null)
+  const lastAnalyticsAppOpenedSessionTokenRef = useRef<string | null>(null)
   const lastTrackedGifSearchKeyRef = useRef<string | null>(null)
+  const lastTrackedContactSearchKeyRef = useRef<string | null>(null)
+  const lastTrackedChannelSearchKeyRef = useRef<string | null>(null)
+  const lastTrackedEmptySearchKeyRef = useRef<string | null>(null)
+  const previousSearchOpenRef = useRef(false)
+  const previousTopListViewRef = useRef<TopListView>('none')
+  const previousSettingsViewRef = useRef<SettingsView>('profile')
+  const previousSupportTicketStatusesRef = useRef(new Map<number, SupportTicket['status']>())
+  const supportTicketSnapshotOwnerRef = useRef<string | null>(null)
+  const pendingVideoNoteAnalyticsRef = useRef<{
+    durationBucket: string
+    roomKind: 'channel' | 'direct' | 'group'
+    surface: 'channel' | 'direct' | 'group' | 'thread'
+  } | null>(null)
   const nextOptimisticMessageIdRef = useRef(-1)
   const pendingRetryInFlightRef = useRef(false)
   const sessionRecoveryTimeoutRef = useRef<number | null>(null)
@@ -1325,6 +1470,44 @@ function App() {
   }
   const initialPersistedAuthState = initialPersistedAuthStateRef.current
   const initialPersistedSession = initialPersistedAuthState.session
+
+  function clearPendingVideoNoteAnalytics() {
+    pendingVideoNoteAnalyticsRef.current = null
+  }
+
+  function trackPendingVideoNoteSendSucceeded() {
+    const pendingVideoNoteAnalytics = pendingVideoNoteAnalyticsRef.current
+    if (!pendingVideoNoteAnalytics) return
+
+    clearPendingVideoNoteAnalytics()
+    trackAnalyticsEvent('video_note_send_succeeded', {
+      durationBucket: pendingVideoNoteAnalytics.durationBucket,
+      roomKind: pendingVideoNoteAnalytics.roomKind,
+      source: pendingVideoNoteAnalytics.surface,
+    })
+  }
+
+  function trackPendingVideoNoteSendFailed(reason: string) {
+    const pendingVideoNoteAnalytics = pendingVideoNoteAnalyticsRef.current
+    if (!pendingVideoNoteAnalytics) return
+
+    clearPendingVideoNoteAnalytics()
+    trackAnalyticsEvent('video_note_send_failed', {
+      durationBucket: pendingVideoNoteAnalytics.durationBucket,
+      reason,
+      roomKind: pendingVideoNoteAnalytics.roomKind,
+      source: pendingVideoNoteAnalytics.surface,
+    })
+  }
+
+  function handleQuietSettingsLockedInteraction(settingKey: keyof QuietModeSettings) {
+    trackAnalyticsEvent('quiet_settings_locked_interaction', {
+      hasPremium: sessionHasPremium,
+      settingKey,
+      source: 'settings-profile',
+    })
+    openPremiumUpsell()
+  }
   // These refs keep the debounced write-path transparent: text fields update locally first,
   // then the latest snapshot/patch is flushed through dedicated backend mutations.
   const latestSnapshotRef = useRef<AppSnapshot | null>(null)
@@ -1942,6 +2125,59 @@ function App() {
     channelsView,
     clientRuntimeConfig.analytics.metricaCounterId,
     cookieConsent,
+    session,
+    settingsView,
+    stageView,
+    topListView,
+  ])
+
+  useEffect(() => {
+    if (!session?.sessionToken) {
+      lastAnalyticsAppOpenedSessionTokenRef.current = null
+      return
+    }
+
+    if (!documentVisible || cookieConsent !== 'analytics' || !clientRuntimeConfig.analytics.enabled) {
+      return
+    }
+
+    const pageView = buildAnalyticsVirtualPageView({
+      activeChannelId,
+      activeChatId,
+      activeGroupId,
+      activeSubscriptionChannelId,
+      authStep,
+      channelsView,
+      session,
+      settingsView,
+      stageView,
+      topListView,
+    })
+
+    if (pageView.path.startsWith('/auth/')) {
+      return
+    }
+
+    if (lastAnalyticsAppOpenedSessionTokenRef.current === session.sessionToken) {
+      return
+    }
+
+    lastAnalyticsAppOpenedSessionTokenRef.current = session.sessionToken
+    trackAnalyticsEvent('app_opened', {
+      deviceType: isMobileBrowserEnvironment() ? 'mobile' : 'desktop',
+      path: pageView.path,
+      surface: getAnalyticsAppSurface(pageView.path),
+    })
+  }, [
+    activeChannelId,
+    activeChatId,
+    activeGroupId,
+    activeSubscriptionChannelId,
+    authStep,
+    channelsView,
+    clientRuntimeConfig.analytics.enabled,
+    cookieConsent,
+    documentVisible,
     session,
     settingsView,
     stageView,
@@ -2769,6 +3005,32 @@ function App() {
     threadTarget?.kind === 'support'
       ? supportTickets.find((ticket) => ticket.id === threadTarget.ticketId) ?? null
       : null
+  const buildThreadOpenAnalyticsPayload = useCallback((target: ThreadTarget) => {
+    const sourceMessage =
+      target.kind === 'group'
+        ? groups
+            .find((group) => group.id === target.groupId)
+            ?.messages.find((message) => message.id === target.messageId) ?? null
+        : target.kind === 'channel'
+          ? subscriptionChannels
+              .find((channel) => channel.id === target.channelId)
+              ?.posts.find((post) => post.id === target.postId) ?? null
+          : supportTickets.find((ticket) => ticket.id === target.ticketId) ?? null
+
+    return {
+      attachmentKind: getAnalyticsAttachmentKind(sourceMessage?.attachment),
+      hasAttachment: Boolean(sourceMessage?.attachment),
+      hasReply: Boolean(sourceMessage?.replyTo),
+      presentation: getAnalyticsAttachmentPresentation(sourceMessage?.attachment),
+      roomKind: target.kind,
+    }
+  }, [groups, subscriptionChannels, supportTickets])
+
+  const openTrackedThread = useCallback((target: ThreadTarget) => {
+    trackAnalyticsEvent('thread_opened', buildThreadOpenAnalyticsPayload(target))
+    openThread(target)
+  }, [buildThreadOpenAnalyticsPayload, openThread])
+
   const activeThreadComments =
     threadTarget?.kind === 'group'
       ? threadGroupMessage?.threadComments ?? []
@@ -4516,6 +4778,26 @@ function App() {
     const mergedSubscriptionChannels = mergePendingChannelThreadCommentsIntoChannels(
       snapshot.subscriptionChannels,
     )
+    if (supportTicketSnapshotOwnerRef.current !== snapshot.session.identifier) {
+      supportTicketSnapshotOwnerRef.current = snapshot.session.identifier
+      previousSupportTicketStatusesRef.current = new Map()
+    }
+
+    const previousSupportTicketStatuses = previousSupportTicketStatusesRef.current
+    const nextSupportTicketStatuses = new Map<number, SupportTicket['status']>()
+    for (const ticket of snapshot.supportTickets) {
+      nextSupportTicketStatuses.set(ticket.id, ticket.status)
+      const previousStatus = previousSupportTicketStatuses.get(ticket.id)
+      if (previousStatus && previousStatus !== 'resolved' && ticket.status === 'resolved') {
+        trackAnalyticsEvent('support_ticket_resolved', {
+          previousStatus,
+          source: 'support-snapshot-sync',
+          threadId: ticket.threadId,
+          unreadCount: ticket.unreadCount,
+        })
+      }
+    }
+    previousSupportTicketStatusesRef.current = nextSupportTicketStatuses
 
     skipNextBackendSyncRef.current = true
     setChats(mergedChats)
@@ -4565,6 +4847,7 @@ function App() {
     mergePendingChannelThreadCommentsIntoChannels,
     mergePendingGroupThreadCommentsIntoGroups,
     syncSession,
+    trackAnalyticsEvent,
   ])
 
   const refreshVisibleSessionSnapshot = useCallback(async (reason: 'focus' | 'pageshow' | 'visibilitychange') => {
@@ -4697,6 +4980,14 @@ function App() {
       applySnapshot(response.snapshot)
       const nextItems = await fetchUserStorageItemsRequest(session.sessionToken)
       setStorageItems(nextItems.items)
+      trackAnalyticsEvent('storage_file_deleted', {
+        fileKind: getAnalyticsFileKind({
+          fileName: storageItem.fileName,
+          mimeType: storageItem.mimeType,
+        }),
+        sizeBucket: getAnalyticsSizeBucket(storageItem.size),
+        source: 'settings-storage',
+      })
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Не удалось удалить объект из хранилища.'
       setStorageItemsError(message)
@@ -4716,6 +5007,14 @@ function App() {
       applySnapshot(response.snapshot)
       const nextItems = await fetchChannelStorageItemsRequest(session.sessionToken, activeChannel.id)
       setChannelStorageItems(nextItems.items)
+      trackAnalyticsEvent('storage_file_deleted', {
+        fileKind: getAnalyticsFileKind({
+          fileName: storageItem.fileName,
+          mimeType: storageItem.mimeType,
+        }),
+        sizeBucket: getAnalyticsSizeBucket(storageItem.size),
+        source: 'channel-storage',
+      })
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Не удалось удалить объект из хранилища канала.'
       setChannelStorageItemsError(message)
@@ -5070,6 +5369,103 @@ function App() {
   }, [backendReady, query, searchOpen, session?.sessionToken, topListView])
 
   useEffect(() => {
+    if (searchOpen && !previousSearchOpenRef.current) {
+      trackAnalyticsEvent('search_screen_opened', {
+        source: getAnalyticsSearchSource(bottomSection),
+        topFilter: searchTopFilter,
+      })
+    }
+
+    previousSearchOpenRef.current = searchOpen
+  }, [bottomSection, searchOpen, searchTopFilter])
+
+  useEffect(() => {
+    if (!searchOpen || topListView !== 'none' || trimmedSearchQuery === '') {
+      return
+    }
+
+    const searchKey = `${searchTopFilter}:${trimmedSearchQuery}`
+    const queryLength = getAnalyticsQueryLength(trimmedSearchQuery)
+    const source = getAnalyticsSearchSource(bottomSection)
+
+    if (searchShowsContacts && lastTrackedContactSearchKeyRef.current !== searchKey) {
+      trackAnalyticsEvent('contact_search_used', {
+        queryLength,
+        source,
+        topFilter: searchTopFilter,
+      })
+      lastTrackedContactSearchKeyRef.current = searchKey
+    }
+
+    if (searchShowsChannels && lastTrackedChannelSearchKeyRef.current !== searchKey) {
+      trackAnalyticsEvent('channel_search_used', {
+        queryLength,
+        source,
+        topFilter: searchTopFilter,
+      })
+      lastTrackedChannelSearchKeyRef.current = searchKey
+    }
+  }, [
+    bottomSection,
+    searchOpen,
+    searchShowsChannels,
+    searchShowsContacts,
+    searchTopFilter,
+    topListView,
+    trimmedSearchQuery,
+  ])
+
+  useEffect(() => {
+    if (!searchOpen || topListView !== 'none' || trimmedSearchQuery === '' || hasVisibleSearchResults) {
+      return
+    }
+
+    const searchKey = `${searchTopFilter}:${trimmedSearchQuery}`
+    if (lastTrackedEmptySearchKeyRef.current === searchKey) {
+      return
+    }
+
+    trackAnalyticsEvent('search_empty_result_shown', {
+      queryLength: getAnalyticsQueryLength(trimmedSearchQuery),
+      source: getAnalyticsSearchSource(bottomSection),
+      topFilter: searchTopFilter,
+    })
+    lastTrackedEmptySearchKeyRef.current = searchKey
+  }, [bottomSection, hasVisibleSearchResults, searchOpen, searchTopFilter, topListView, trimmedSearchQuery])
+
+  useEffect(() => {
+    if (topListView === 'threads' && previousTopListViewRef.current !== 'threads') {
+      trackAnalyticsEvent('thread_inbox_opened', {
+        source: 'top-list-filter',
+      })
+    }
+
+    previousTopListViewRef.current = topListView
+  }, [topListView])
+
+  useEffect(() => {
+    if (!isSettingsView) {
+      previousSettingsViewRef.current = settingsView
+      return
+    }
+
+    if (settingsView === 'quiet' && previousSettingsViewRef.current !== 'quiet') {
+      trackAnalyticsEvent('quiet_settings_opened', {
+        hasPremium: sessionHasPremium,
+        source: 'settings-profile',
+      })
+    }
+
+    if (settingsView === 'storage' && previousSettingsViewRef.current !== 'storage') {
+      trackAnalyticsEvent('storage_manager_opened', {
+        source: 'settings-profile',
+      })
+    }
+
+    previousSettingsViewRef.current = settingsView
+  }, [isSettingsView, sessionHasPremium, settingsView])
+
+  useEffect(() => {
     if (!backendReady || !session?.sessionToken) return
 
     const sessionToken = session.sessionToken
@@ -5142,21 +5538,18 @@ function App() {
           reconnectAttempt = 0
           clearFallbackRefresh()
           suppressNextBrowserNotificationDiffRef.current = true
-          trackAnalyticsEvent('realtime_connected', {})
         }
         applySnapshot(event.snapshot)
       })
 
       socket.addEventListener('error', () => {
         if (cancelled) return
-        trackAnalyticsEvent('realtime_error', {})
         socket?.close()
       })
 
       socket.addEventListener('close', () => {
         if (cancelled) return
         socket = null
-        trackAnalyticsEvent('realtime_disconnected', {})
         handleRealtimeDisconnect()
       })
     }
@@ -5826,6 +6219,32 @@ function App() {
         mimeType: attachment.mimeType,
         size: attachment.size,
       })
+    } else if (isVideoMimeType(attachment.mimeType)) {
+      const roomKind = threadTarget
+        ? 'thread'
+        : isChatOpen
+          ? 'direct'
+          : isGroupOpen
+            ? 'group'
+            : isSubscriptionChannelOpen
+              ? 'channel'
+              : isSettingsView && settingsView === 'support'
+                ? 'support'
+                : 'unknown'
+
+      if (isVideoNoteAttachment(attachment)) {
+        trackAnalyticsEvent('video_note_viewer_opened', {
+          allowDownload: options?.allowDownload ?? true,
+          roomKind,
+          source: 'media-viewer',
+        })
+      } else {
+        trackAnalyticsEvent('video_viewer_opened', {
+          allowDownload: options?.allowDownload ?? true,
+          mimeType: attachment.mimeType,
+          size: attachment.size,
+        })
+      }
     }
 
     setMediaViewerAttachment(attachment)
@@ -6912,14 +7331,7 @@ function App() {
         { onProgress: options?.onProgress },
       )
     } catch (error) {
-      if (isPhotoMimeType(attachmentDraft.mimeType)) {
-        trackAnalyticsEvent('photo_upload_failed', {
-          fileSize: attachmentDraft.size,
-          mimeType: attachmentDraft.mimeType,
-          reason: getErrorMessage(error, 'upload-failed'),
-          surface: options?.surface ?? 'direct',
-        })
-      }
+      trackAttachmentUploadFailed(attachmentDraft, error, options?.surface ?? 'direct')
 
       throw error
     }
@@ -7042,7 +7454,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
-    trackPhotoAttachmentSelected(
+    trackAttachmentSelected(
       options.surface,
       file,
       sessionHasPremium && photoSendOriginalPreference,
@@ -7151,13 +7563,6 @@ function App() {
       }
     } catch (error) {
       if (error instanceof ApiError && error.status === 429) {
-        trackAnalyticsEvent('gif_upload_monthly_limit_reached', {
-          fileName: file.name,
-          limit: 100,
-          month: new Date().toISOString().slice(0, 7),
-          source: 'server',
-          userIdentifier: session.identifier,
-        })
         throw error
       }
 
@@ -7990,6 +8395,11 @@ function App() {
           quietModeEnabled: nextQuietModeEnabled,
         })
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent(nextQuietModeEnabled ? 'quiet_mode_enabled' : 'quiet_mode_disabled', {
+          hasPremium: sessionHasPremium,
+          invisibilityEnabledAfterToggle: nextInvisibilityState.invisibilityEnabled,
+          source: 'main-quiet-toggle',
+        })
         return
       } catch (error) {
         console.error('Failed to update quiet mode', error)
@@ -8002,6 +8412,11 @@ function App() {
       invisibilityEnabled: nextInvisibilityState.invisibilityEnabled,
       quietModeEnabled: nextQuietModeEnabled,
     })
+    trackAnalyticsEvent(nextQuietModeEnabled ? 'quiet_mode_enabled' : 'quiet_mode_disabled', {
+      hasPremium: sessionHasPremium,
+      invisibilityEnabledAfterToggle: nextInvisibilityState.invisibilityEnabled,
+      source: 'main-quiet-toggle',
+    })
   }
 
   async function updateQuietModeSettingsPreference(
@@ -8013,6 +8428,8 @@ function App() {
       ...storedQuietModeSettings,
       ...patch,
     })
+    const changedSettingEntries = Object.entries(patch) as Array<[keyof QuietModeSettings, boolean | undefined]>
+    const changedSetting = changedSettingEntries.find(([, value]) => value !== undefined) ?? null
 
     setQuietSettingsBusy(true)
     setQuietSettingsError('')
@@ -8023,6 +8440,13 @@ function App() {
           quietModeSettings: nextQuietModeSettings,
         })
         applySnapshot(response.snapshot)
+        if (changedSetting) {
+          trackAnalyticsEvent('quiet_settings_changed', {
+            enabled: Boolean(changedSetting[1]),
+            hasPremium: sessionHasPremium,
+            settingKey: changedSetting[0],
+          })
+        }
         return
       } catch (error) {
         console.error('Failed to update quiet mode settings', error)
@@ -8041,6 +8465,13 @@ function App() {
       quietModeSettings: nextQuietModeSettings,
     })
     setQuietSettingsBusy(false)
+    if (changedSetting) {
+      trackAnalyticsEvent('quiet_settings_changed', {
+        enabled: Boolean(changedSetting[1]),
+        hasPremium: sessionHasPremium,
+        settingKey: changedSetting[0],
+      })
+    }
   }
 
   async function setInvisibilityPreference(nextInvisibilityEnabled: boolean) {
@@ -8060,6 +8491,14 @@ function App() {
           invisibilityEnabled: nextInvisibilityEnabled,
         })
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent(
+          nextInvisibilityEnabled
+            ? 'forced_invisible_mode_enabled'
+            : 'forced_invisible_mode_disabled',
+          {
+            source: 'settings-profile',
+          },
+        )
         return
       } catch (error) {
         console.error('Failed to update invisibility mode', error)
@@ -8071,6 +8510,12 @@ function App() {
       invisibilityAutoEnabled: false,
       invisibilityEnabled: nextInvisibilityEnabled,
     })
+    trackAnalyticsEvent(
+      nextInvisibilityEnabled ? 'forced_invisible_mode_enabled' : 'forced_invisible_mode_disabled',
+      {
+        source: 'settings-profile',
+      },
+    )
   }
 
   async function sendSupportMessage() {
@@ -8117,6 +8562,10 @@ function App() {
       setSupportError('')
       setSupportDraft('')
       clearSupportAttachmentDraft()
+      trackAnalyticsEvent('support_ticket_created', {
+        hasAttachment: Boolean(resolvedAttachment.attachment),
+        source: 'settings-support',
+      })
     } catch (error) {
       console.error('Failed to create support ticket', error)
       const errorMessage = error instanceof Error ? error.message : 'Не удалось отправить обращение.'
@@ -8141,7 +8590,7 @@ function App() {
     // Support invariant:
     // opening a support ticket must only open its thread. Root tickets are created separately,
     // and replies live exclusively in comments so support never behaves like a normal direct chat.
-    openThread({ kind: 'support', ticketId })
+    openTrackedThread({ kind: 'support', ticketId })
   }
 
   async function syncDialogRead(dialogId: number) {
@@ -8496,11 +8945,16 @@ function App() {
           attachmentKind: getAnalyticsAttachmentKind(attachment),
           hasAttachment: Boolean(attachment),
           hasReply: Boolean(replyTo),
+          presentation: getAnalyticsAttachmentPresentation(attachment),
         })
+        trackPendingVideoNoteSendSucceeded()
       } catch (error) {
         console.error('Failed to send direct message', error)
         if (isExpiredSessionError(error)) {
           markPendingDirectMessageAttemptFailed(localId)
+          trackPendingVideoNoteSendFailed(
+            getAnalyticsReason(error, 'Не удалось отправить видеосообщение в диалог.'),
+          )
           queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
           return
         }
@@ -8509,7 +8963,11 @@ function App() {
           attachmentKind: getAnalyticsAttachmentKind(attachment),
           hasAttachment: Boolean(attachment),
           hasReply: Boolean(replyTo),
+          presentation: getAnalyticsAttachmentPresentation(attachment),
         })
+        trackPendingVideoNoteSendFailed(
+          getAnalyticsReason(error, 'Не удалось отправить видеосообщение в диалог.'),
+        )
       }
     }
   }
@@ -8656,11 +9114,16 @@ function App() {
           groupId,
           hasAttachment: Boolean(attachment),
           hasReply: Boolean(replyTo),
+          presentation: getAnalyticsAttachmentPresentation(attachment),
         })
+        trackPendingVideoNoteSendSucceeded()
       } catch (error) {
         console.error('Failed to send group message', error)
         if (isExpiredSessionError(error)) {
           markPendingGroupMessageAttemptFailed(localId)
+          trackPendingVideoNoteSendFailed(
+            getAnalyticsReason(error, 'Не удалось отправить видеосообщение в группу.'),
+          )
           queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
           return
         }
@@ -8670,7 +9133,11 @@ function App() {
           groupId,
           hasAttachment: Boolean(attachment),
           hasReply: Boolean(replyTo),
+          presentation: getAnalyticsAttachmentPresentation(attachment),
         })
+        trackPendingVideoNoteSendFailed(
+          getAnalyticsReason(error, 'Не удалось отправить видеосообщение в группу.'),
+        )
       }
     }
   }
@@ -8758,7 +9225,9 @@ function App() {
           channelId: ownedCurrentManagedChannel.id,
           hasAttachment: Boolean(attachment),
           hasReply: Boolean(replyTo),
+          presentation: getAnalyticsAttachmentPresentation(attachment),
         })
+        trackPendingVideoNoteSendSucceeded()
 
         if (previewSubscriptionChannel) {
           const matchedChannel = response.snapshot.subscriptionChannels.find(
@@ -8781,20 +9250,27 @@ function App() {
       } catch (error) {
         console.error('Failed to send managed channel post', error)
         if (isExpiredSessionError(error)) {
-          setChannelPostError('Подключение к каналу временно прервано. Пытаемся восстановить доступ.')
-          setChannelPostBusy(false)
-          queueSessionRecovery()
-          return
-        }
-        setChannelPostError(error instanceof Error ? error.message : 'Не удалось отправить сообщение.')
+        setChannelPostError('Подключение к каналу временно прервано. Пытаемся восстановить доступ.')
         setChannelPostBusy(false)
-        trackAnalyticsEvent('channel_post_send_failed', {
-          attachmentKind: getAnalyticsAttachmentKind(attachment),
-          channelId: ownedCurrentManagedChannel.id,
-          hasAttachment: Boolean(attachment),
-          hasReply: Boolean(replyTo),
-        })
+        trackPendingVideoNoteSendFailed(
+          getAnalyticsReason(error, 'Не удалось отправить видеосообщение в канал.'),
+        )
+        queueSessionRecovery()
         return
+      }
+      setChannelPostError(error instanceof Error ? error.message : 'Не удалось отправить сообщение.')
+      setChannelPostBusy(false)
+      trackAnalyticsEvent('channel_post_send_failed', {
+        attachmentKind: getAnalyticsAttachmentKind(attachment),
+        channelId: ownedCurrentManagedChannel.id,
+        hasAttachment: Boolean(attachment),
+        hasReply: Boolean(replyTo),
+        presentation: getAnalyticsAttachmentPresentation(attachment),
+      })
+      trackPendingVideoNoteSendFailed(
+        getAnalyticsReason(error, 'Не удалось отправить видеосообщение в канал.'),
+      )
+      return
       }
     } else {
       applyLocalManagedChannelPost(ownedCurrentManagedChannel, text, {
@@ -8853,15 +9329,22 @@ function App() {
     })
   }
 
-  async function handleVideoNoteRecorderUse(file: File) {
+  async function handleVideoNoteRecorderUse(file: File, meta?: { durationMs: number }) {
     if (!videoNoteRecorderTarget) {
+      clearPendingVideoNoteAnalytics()
       throw new Error('Окно записи уже не привязано к комнате. Откройте его заново.')
     }
 
     const nextAttachmentDraft = await prepareVideoNoteDraftForImmediateSend(file)
+    pendingVideoNoteAnalyticsRef.current = {
+      durationBucket: getAnalyticsVideoNoteDurationBucket(meta?.durationMs ?? 0),
+      roomKind: videoNoteRecorderTarget.kind === 'thread' ? videoNoteRecorderTarget.room : videoNoteRecorderTarget.kind,
+      surface: videoNoteRecorderTarget.kind === 'thread' ? 'thread' : videoNoteRecorderTarget.kind,
+    }
 
     if (videoNoteRecorderTarget.kind === 'direct') {
       if (activeChatId !== videoNoteRecorderTarget.chatId) {
+        clearPendingVideoNoteAnalytics()
         releaseComposerAttachmentDraft(nextAttachmentDraft)
         throw new Error('Откройте нужный диалог и попробуйте ещё раз.')
       }
@@ -8871,6 +9354,7 @@ function App() {
 
     if (videoNoteRecorderTarget.kind === 'group') {
       if (activeGroupId !== videoNoteRecorderTarget.groupId) {
+        clearPendingVideoNoteAnalytics()
         releaseComposerAttachmentDraft(nextAttachmentDraft)
         throw new Error('Откройте нужную группу и попробуйте ещё раз.')
       }
@@ -8880,6 +9364,7 @@ function App() {
 
     if (videoNoteRecorderTarget.kind === 'channel') {
       if (currentSubscriptionChannel?.id !== videoNoteRecorderTarget.channelId) {
+        clearPendingVideoNoteAnalytics()
         releaseComposerAttachmentDraft(nextAttachmentDraft)
         throw new Error('Откройте нужный канал и попробуйте ещё раз.')
       }
@@ -8888,6 +9373,7 @@ function App() {
     }
 
     if (!threadTarget || threadTarget.kind === 'support') {
+      clearPendingVideoNoteAnalytics()
       releaseComposerAttachmentDraft(nextAttachmentDraft)
       throw new Error('Откройте нужные комментарии и попробуйте ещё раз.')
     }
@@ -8903,6 +9389,7 @@ function App() {
         threadTarget.postId === videoNoteRecorderTarget.postId)
 
     if (!threadTargetMatches) {
+      clearPendingVideoNoteAnalytics()
       releaseComposerAttachmentDraft(nextAttachmentDraft)
       throw new Error('Откройте нужные комментарии и попробуйте ещё раз.')
     }
@@ -8933,7 +9420,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
-    trackPhotoAttachmentSelected('direct', file, sessionHasPremium && photoSendOriginalPreference)
+    trackAttachmentSelected('direct', file, sessionHasPremium && photoSendOriginalPreference)
     setChatAttachmentDrafts((currentAttachments) => {
       if (selectionToken !== chatAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -8981,7 +9468,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
-    trackPhotoAttachmentSelected('group', file, sessionHasPremium && photoSendOriginalPreference)
+    trackAttachmentSelected('group', file, sessionHasPremium && photoSendOriginalPreference)
     setGroupAttachmentDrafts((currentAttachments) => {
       if (selectionToken !== groupAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -9028,7 +9515,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
-    trackPhotoAttachmentSelected('channel', file, sessionHasPremium && photoSendOriginalPreference)
+    trackAttachmentSelected('channel', file, sessionHasPremium && photoSendOriginalPreference)
     setChannelAttachmentDrafts((currentAttachments) => {
       if (selectionToken !== channelAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -9078,7 +9565,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
-    trackPhotoAttachmentSelected('thread', file, sessionHasPremium && photoSendOriginalPreference)
+    trackAttachmentSelected('thread', file, sessionHasPremium && photoSendOriginalPreference)
     setThreadAttachmentDraft((currentDraft) => {
       if (selectionToken !== threadAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -9111,7 +9598,7 @@ function App() {
     const nextAttachmentDraft = applyPhotoSendOriginalPreferenceToDraft(
       await createComposerDraft(file, { previewUrl: preparingDraft.previewUrl }),
     )
-    trackPhotoAttachmentSelected('support', file, sessionHasPremium && photoSendOriginalPreference)
+    trackAttachmentSelected('support', file, sessionHasPremium && photoSendOriginalPreference)
     setSupportAttachmentDraft((currentDraft) => {
       if (selectionToken !== supportAttachmentSelectionTokenRef.current) {
         releaseComposerAttachmentDraft(nextAttachmentDraft)
@@ -9338,11 +9825,6 @@ function App() {
       if (nextDirectMessage) {
         attemptedDirectMessage = nextDirectMessage
         markPendingDirectMessageSending(nextDirectMessage.localId)
-        trackAnalyticsEvent('direct_message_retry_started', {
-          hasAttachment: Boolean(nextDirectMessage.attachment || nextDirectMessage.attachmentDraft),
-          hasReply: Boolean(nextDirectMessage.replyTo),
-          retryCount: nextDirectMessage.retryCount + 1,
-        })
 
         const resolvedAttachment = await resolvePendingAttachmentForSend(
           session.sessionToken,
@@ -9384,12 +9866,6 @@ function App() {
 
       attemptedGroupMessage = nextGroupMessage
       markPendingGroupMessageSending(nextGroupMessage.localId)
-      trackAnalyticsEvent('group_message_retry_started', {
-        groupId: nextGroupMessage.groupId,
-        hasAttachment: Boolean(nextGroupMessage.attachment || nextGroupMessage.attachmentDraft),
-        hasReply: Boolean(nextGroupMessage.replyTo),
-        retryCount: nextGroupMessage.retryCount + 1,
-      })
 
       const resolvedAttachment = await resolvePendingAttachmentForSend(
         session.sessionToken,
@@ -9435,20 +9911,9 @@ function App() {
       }
       if (attemptedDirectMessage) {
         markPendingDirectMessageAttemptFailed(attemptedDirectMessage.localId)
-        trackAnalyticsEvent('direct_message_retry_failed', {
-          hasAttachment: Boolean(attemptedDirectMessage.attachment || attemptedDirectMessage.attachmentDraft),
-          hasReply: Boolean(attemptedDirectMessage.replyTo),
-          retryCount: attemptedDirectMessage.retryCount + 1,
-        })
       } else {
         if (attemptedGroupMessage) {
           markPendingGroupMessageAttemptFailed(attemptedGroupMessage.localId)
-          trackAnalyticsEvent('group_message_retry_failed', {
-            groupId: attemptedGroupMessage.groupId,
-            hasAttachment: Boolean(attemptedGroupMessage.attachment || attemptedGroupMessage.attachmentDraft),
-            hasReply: Boolean(attemptedGroupMessage.replyTo),
-            retryCount: attemptedGroupMessage.retryCount + 1,
-          })
         }
       }
     } finally {
@@ -9516,7 +9981,7 @@ function App() {
       setConfirmingLeaveGroupId(null)
       setGroupActionsAnchor(null)
       window.requestAnimationFrame(() => {
-        openThread({ groupId: item.groupId, kind: 'group', messageId: item.messageId })
+        openTrackedThread({ groupId: item.groupId, kind: 'group', messageId: item.messageId })
       })
       void syncGroupRead(item.groupId)
       return
@@ -9537,7 +10002,7 @@ function App() {
     setChannelPostReplyTarget(null)
     resetSubscriptionPostActions()
     window.requestAnimationFrame(() => {
-      openThread({ channelId: item.channelId, kind: 'channel', postId: item.postId })
+      openTrackedThread({ channelId: item.channelId, kind: 'channel', postId: item.postId })
     })
     void syncSubscriptionChannelRead(item.channelId)
   }
@@ -10018,6 +10483,12 @@ function App() {
   }
 
   async function leaveCurrentGroup(groupId: number) {
+    const targetGroup =
+      groups.find((group) => group.id === groupId) ??
+      (activeGroupId === groupId ? activeGroup : null) ??
+      null
+    const deletingOwnedGroup = targetGroup ? isOwnedGroupPreview(targetGroup) : false
+
     if (backendReady && session?.sessionToken) {
       try {
         const response = await leaveGroupRequest(session.sessionToken, groupId)
@@ -10037,6 +10508,13 @@ function App() {
     if (activeGroupId === groupId) {
       closeActiveRoom()
       setStageView('main')
+    }
+
+    if (deletingOwnedGroup) {
+      trackAnalyticsEvent('group_deleted', {
+        deleteMode: 'owner-delete',
+        membersCount: targetGroup?.members ?? 1,
+      })
     }
   }
 
@@ -10169,14 +10647,14 @@ function App() {
   function openGroupThread(messageId: number) {
     if (!activeGroup) return
     clearThreadAttachmentDraft()
-    openThread({ groupId: activeGroup.id, kind: 'group', messageId })
+    openTrackedThread({ groupId: activeGroup.id, kind: 'group', messageId })
     resetGroupMessageActions()
   }
 
   function openChannelThread(postId: number) {
     if (!currentSubscriptionChannel || isPreviewSubscriptionChannel) return
     clearThreadAttachmentDraft()
-    openThread({ channelId: currentSubscriptionChannel.id, kind: 'channel', postId })
+    openTrackedThread({ channelId: currentSubscriptionChannel.id, kind: 'channel', postId })
     resetSubscriptionPostActions()
   }
 
@@ -10318,6 +10796,10 @@ function App() {
         resetThreadComposer()
         clearThreadAttachmentDraft()
         setThreadBusy(false)
+        trackAnalyticsEvent('support_ticket_reply_sent', {
+          hasAttachment: Boolean(resolvedAttachment.attachment),
+          threadId: activeSupportTicket?.threadId ?? `support:${threadTarget.ticketId}`,
+        })
       } catch (error) {
         console.error('Failed to send support ticket comment', error)
         setThreadBusy(false)
@@ -10441,8 +10923,10 @@ function App() {
             attachmentKind: getAnalyticsAttachmentKind(pendingGroupThreadComment?.attachment),
             hasAttachment: Boolean(pendingGroupThreadComment?.attachment),
             hasReply: Boolean(replyTo),
+            presentation: getAnalyticsAttachmentPresentation(pendingGroupThreadComment?.attachment),
             roomKind: 'group',
           })
+          trackPendingVideoNoteSendSucceeded()
         }
       } else {
         if (backendReady && session?.sessionToken) {
@@ -10469,8 +10953,10 @@ function App() {
             attachmentKind: getAnalyticsAttachmentKind(pendingChannelThreadComment?.attachment),
             hasAttachment: Boolean(pendingChannelThreadComment?.attachment),
             hasReply: Boolean(replyTo),
+            presentation: getAnalyticsAttachmentPresentation(pendingChannelThreadComment?.attachment),
             roomKind: 'channel',
           })
+          trackPendingVideoNoteSendSucceeded()
         }
       }
 
@@ -10486,6 +10972,9 @@ function App() {
           applyLocalDeleteSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, localId)
         }
         setThreadBusy(false)
+        trackPendingVideoNoteSendFailed(
+          getAnalyticsReason(error, 'Не удалось отправить видеосообщение в тред.'),
+        )
         queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
         return
       }
@@ -10503,8 +10992,15 @@ function App() {
           threadTarget.kind === 'group'
             ? getAnalyticsAttachmentKind(pendingGroupThreadComment?.attachment)
             : getAnalyticsAttachmentKind(pendingChannelThreadComment?.attachment),
+        presentation:
+          threadTarget.kind === 'group'
+            ? getAnalyticsAttachmentPresentation(pendingGroupThreadComment?.attachment)
+            : getAnalyticsAttachmentPresentation(pendingChannelThreadComment?.attachment),
         roomKind: threadTarget.kind,
       })
+      trackPendingVideoNoteSendFailed(
+        getAnalyticsReason(error, 'Не удалось отправить видеосообщение в тред.'),
+      )
     }
   }
 
@@ -10719,7 +11215,7 @@ function App() {
     setPreviewSubscriptionChannel(route.previewSubscriptionChannel)
 
     if (route.threadTarget) {
-      openThread(route.threadTarget)
+      openTrackedThread(route.threadTarget)
       return
     }
 
@@ -10727,7 +11223,7 @@ function App() {
   }, [
     clearThreadEditTarget,
     clearThreadAttachmentDraft,
-    openThread,
+    openTrackedThread,
     resetBlacklistFlow,
     resetRoomMessageActions,
     resetThreadState,
@@ -11082,6 +11578,12 @@ function App() {
   }
 
   async function openSearchResult(result: SearchResult) {
+    trackAnalyticsEvent('contact_search_result_opened', {
+      resultSource: 'globalResults',
+      source: 'search-screen',
+      topFilter: searchTopFilter,
+    })
+
     const normalizedPhone = normalizeIdentifier(result.phone)
     const existingChat = chats.find((chat) => normalizeIdentifier(chat.phone) === normalizedPhone)
     if (existingChat) {
@@ -11115,6 +11617,18 @@ function App() {
     // Search channel taps must resolve the exact clicked result first:
     // never fall back by title, otherwise one visible result can open another.
     const target = resolveSearchChannelOpenTarget(channel, subscriptionChannels, channels)
+    const resultSource =
+      target.kind === 'subscribed'
+        ? 'subscribedPreview'
+        : target.kind === 'managed-preview'
+          ? 'managedPreview'
+          : 'discoveryResults'
+
+    trackAnalyticsEvent('channel_search_result_opened', {
+      resultSource,
+      source: 'search-screen',
+      topFilter: searchTopFilter,
+    })
 
     if (target.kind === 'subscribed') {
       openSubscriptionChannel(target.channelId)
@@ -11543,6 +12057,13 @@ function App() {
         changedNickname: nextNickname !== (session.nickname ?? ''),
         changedStatus: nextStatus !== (session.status ?? ''),
       })
+      if (nextDarkThemeEnabled !== Boolean(session.darkThemeEnabled)) {
+        trackAnalyticsEvent('theme_switched', {
+          fromTheme: session.darkThemeEnabled ? 'dark' : 'light',
+          source: 'settings-profile',
+          toTheme: nextDarkThemeEnabled ? 'dark' : 'light',
+        })
+      }
 
       return true
     } catch (error) {
@@ -12335,32 +12856,65 @@ function App() {
   }
 
   async function deleteGroupMessage(groupId: number, messageId: number) {
+    const targetMessage =
+      groups.find((group) => group.id === groupId)?.messages.find((message) => message.id === messageId) ??
+      null
+
     if (backendReady && session?.sessionToken) {
       try {
         const response = await deleteGroupMessageRequest(session.sessionToken, groupId, messageId)
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent('group_message_deleted', {
+          hasAttachment: Boolean(targetMessage?.attachment),
+          hasReply: Boolean(targetMessage?.replyTo),
+        })
       } catch (error) {
         console.error('Failed to delete group message', error)
         applyLocalDeleteGroupMessage(groupId, messageId)
+        trackAnalyticsEvent('group_message_deleted', {
+          hasAttachment: Boolean(targetMessage?.attachment),
+          hasReply: Boolean(targetMessage?.replyTo),
+        })
       }
     } else {
       applyLocalDeleteGroupMessage(groupId, messageId)
+      trackAnalyticsEvent('group_message_deleted', {
+        hasAttachment: Boolean(targetMessage?.attachment),
+        hasReply: Boolean(targetMessage?.replyTo),
+      })
     }
 
     resetGroupMessageActions()
   }
 
   async function deleteManagedChannelPost(channelId: number, postId: number) {
+    const targetPost =
+      subscriptionChannels
+        .find((channel) => channel.id === channelId)
+        ?.posts.find((post) => post.id === postId) ?? null
+
     if (backendReady && session?.sessionToken) {
       try {
         const response = await deleteManagedChannelPostRequest(session.sessionToken, channelId, postId)
         applySnapshot(response.snapshot)
+        trackAnalyticsEvent('channel_post_deleted', {
+          hasAttachment: Boolean(targetPost?.attachment),
+          hasThread: Boolean(targetPost?.threadId || targetPost?.threadComments?.length),
+        })
       } catch (error) {
         console.error('Failed to delete managed channel post', error)
         applyLocalDeleteManagedChannelPost(channelId, postId)
+        trackAnalyticsEvent('channel_post_deleted', {
+          hasAttachment: Boolean(targetPost?.attachment),
+          hasThread: Boolean(targetPost?.threadId || targetPost?.threadComments?.length),
+        })
       }
     } else {
       applyLocalDeleteManagedChannelPost(channelId, postId)
+      trackAnalyticsEvent('channel_post_deleted', {
+        hasAttachment: Boolean(targetPost?.attachment),
+        hasThread: Boolean(targetPost?.threadId || targetPost?.threadComments?.length),
+      })
     }
 
     if (channelPostReplyTarget?.id === postId) {
@@ -12371,10 +12925,14 @@ function App() {
   }
 
   async function deleteMessage(chatId: number, messageId: number, scope: 'everyone' | 'me' = 'me') {
+    const targetMessage = chats.find((chat) => chat.id === chatId)?.messages.find((message) => message.id === messageId) ?? null
+    let messageDeleted = false
+
     if (backendReady && session?.sessionToken) {
       try {
         const response = await deleteDialogMessageRequest(session.sessionToken, chatId, messageId, { scope })
         applySnapshot(response.snapshot)
+        messageDeleted = true
       } catch (error) {
         console.error('Failed to delete message', error)
         if (scope === 'everyone') {
@@ -12385,6 +12943,7 @@ function App() {
           }
         } else {
           applyLocalDeleteMessage(chatId, messageId)
+          messageDeleted = true
         }
       }
     } else {
@@ -12392,7 +12951,18 @@ function App() {
         window.alert('Удаление сообщения у всех сейчас недоступно без подключения к серверу.')
       } else {
         applyLocalDeleteMessage(chatId, messageId)
+        messageDeleted = true
       }
+    }
+
+    if (messageDeleted) {
+      trackAnalyticsEvent(
+        scope === 'everyone' ? 'direct_message_deleted_everyone' : 'direct_message_deleted_me',
+        {
+          hasAttachment: Boolean(targetMessage?.attachment),
+          hasReply: Boolean(targetMessage?.replyTo),
+        },
+      )
     }
 
     if (replyTarget?.id === messageId) {
@@ -12407,6 +12977,7 @@ function App() {
 
   async function deleteThreadComment(commentId: number) {
     if (!threadTarget) return
+    const targetComment = activeThreadComments.find((comment) => comment.id === commentId) ?? null
 
     if (threadTarget.kind === 'group') {
       if (backendReady && session?.sessionToken) {
@@ -12418,12 +12989,27 @@ function App() {
             commentId,
           )
           applySnapshot(response.snapshot)
+          trackAnalyticsEvent('thread_comment_deleted', {
+            hasAttachment: Boolean(targetComment?.attachment),
+            hasReply: Boolean(targetComment?.replyTo),
+            roomKind: 'group',
+          })
         } catch (error) {
           console.error('Failed to delete group thread comment', error)
           applyLocalDeleteGroupThreadComment(threadTarget.groupId, threadTarget.messageId, commentId)
+          trackAnalyticsEvent('thread_comment_deleted', {
+            hasAttachment: Boolean(targetComment?.attachment),
+            hasReply: Boolean(targetComment?.replyTo),
+            roomKind: 'group',
+          })
         }
       } else {
         applyLocalDeleteGroupThreadComment(threadTarget.groupId, threadTarget.messageId, commentId)
+        trackAnalyticsEvent('thread_comment_deleted', {
+          hasAttachment: Boolean(targetComment?.attachment),
+          hasReply: Boolean(targetComment?.replyTo),
+          roomKind: 'group',
+        })
       }
     } else if (threadTarget.kind === 'channel') {
       if (backendReady && session?.sessionToken) {
@@ -12435,12 +13021,27 @@ function App() {
             commentId,
           )
           applySnapshot(response.snapshot)
+          trackAnalyticsEvent('thread_comment_deleted', {
+            hasAttachment: Boolean(targetComment?.attachment),
+            hasReply: Boolean(targetComment?.replyTo),
+            roomKind: 'channel',
+          })
         } catch (error) {
           console.error('Failed to delete subscription thread comment', error)
           applyLocalDeleteSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, commentId)
+          trackAnalyticsEvent('thread_comment_deleted', {
+            hasAttachment: Boolean(targetComment?.attachment),
+            hasReply: Boolean(targetComment?.replyTo),
+            roomKind: 'channel',
+          })
         }
       } else {
         applyLocalDeleteSubscriptionThreadComment(threadTarget.channelId, threadTarget.postId, commentId)
+        trackAnalyticsEvent('thread_comment_deleted', {
+          hasAttachment: Boolean(targetComment?.attachment),
+          hasReply: Boolean(targetComment?.replyTo),
+          roomKind: 'channel',
+        })
       }
     } else {
       setThreadError('Комментарии поддержки нельзя удалять из пользовательского интерфейса.')
@@ -13561,11 +14162,19 @@ function App() {
     if (creatingGroupLimitReached) {
       setCreatingGroupError(getGroupCreationLimitError(creatingGroupsPerUserLimit))
       setCreatingGroupSelectionHint('')
+      trackAnalyticsEvent('group_create_failed', {
+        memberCount: selectedGroupCreateChats.length + 1,
+        reason: 'group-limit-reached',
+      })
       return
     }
 
     if (!canCreateGroup) {
       setCreatingGroupSelectionHint(creatingGroupSelectionRequiredMessage)
+      trackAnalyticsEvent('group_create_failed', {
+        memberCount: selectedGroupCreateChats.length + 1,
+        reason: 'selection-required',
+      })
       return
     }
 
@@ -13575,6 +14184,10 @@ function App() {
           ? `Даже с премиумом владельца в группе может быть максимум ${premiumGroupMemberLimit} человек.`
           : `Максимальный размер одной группы — ${defaultGroupMemberLimit} человек. Чтобы приглашать больше людей, необходимо активировать премиум владельцу группы.`,
       )
+      trackAnalyticsEvent('group_create_failed', {
+        memberCount: selectedGroupCreateChats.length + 1,
+        reason: 'member-limit-reached',
+      })
       return
     }
 
@@ -13704,12 +14317,20 @@ function App() {
       console.error('Failed to create group', error)
       setCreatingGroupError(error instanceof Error ? error.message : 'Не удалось создать группу.')
       setCreatingGroupBusy(false)
+      trackAnalyticsEvent('group_create_failed', {
+        memberCount: selectedGroupCreateChats.length + 1,
+        reason: getAnalyticsReason(error, 'Не удалось создать группу.'),
+      })
     }
   }
 
   async function createChannel() {
     if (channels.length >= managedChannelsPerUserLimit) {
       openManagedChannelLimitError()
+      trackAnalyticsEvent('channel_create_failed', {
+        reason: 'channel-limit-reached',
+        visibility: 'private',
+      })
       return
     }
 
@@ -13760,15 +14381,27 @@ function App() {
           error.message === `Один пользователь может управлять только ${managedChannelsPerUserLimit} каналами.`
         ) {
           openManagedChannelLimitError()
+          trackAnalyticsEvent('channel_create_failed', {
+            reason: 'channel-limit-reached',
+            visibility: 'private',
+          })
           return
         }
 
         console.error('Failed to create managed channel', error)
+        trackAnalyticsEvent('channel_create_failed', {
+          reason: getAnalyticsReason(error, 'Не удалось создать канал.'),
+          visibility: 'private',
+        })
       }
     }
 
     if (channels.length >= managedChannelsPerUserLimit) {
       openManagedChannelLimitError()
+      trackAnalyticsEvent('channel_create_failed', {
+        reason: 'channel-limit-reached',
+        visibility: 'private',
+      })
       return
     }
 
@@ -13884,6 +14517,15 @@ function App() {
   }
 
   async function deleteChannel(channelId: number) {
+    const targetChannel =
+      channels.find((channel) => channel.id === channelId) ??
+      (activeChannel?.id === channelId ? activeChannel : null) ??
+      null
+    const previewChannel =
+      subscriptionChannels.find((channel) => channel.id === channelId) ??
+      (currentSubscriptionChannel?.id === channelId ? currentSubscriptionChannel : null) ??
+      null
+
     if (backendReady && session?.sessionToken) {
       try {
         const response = await deleteManagedChannelRequest(session.sessionToken, channelId)
@@ -13898,6 +14540,11 @@ function App() {
 
     setConfirmingDeleteChannelId(null)
     setChannelsView('list')
+    trackAnalyticsEvent('channel_deleted', {
+      hadAvatar: Boolean(targetChannel?.avatarImage),
+      hadSubscribers: Boolean(previewChannel?.readers),
+      visibility: targetChannel?.visibility ?? previewChannel?.visibility ?? 'private',
+    })
   }
 
   function openChannelTitleEditor(channel: Channel) {
@@ -16968,7 +17615,14 @@ function App() {
                     key={chat.id}
                     type="button"
                     className={chat.id === activeChat?.id ? 'chat-card dialog-list-card active' : 'chat-card dialog-list-card'}
-                    onClick={() => openChat(chat.id)}
+                    onClick={() => {
+                      trackAnalyticsEvent('contact_search_result_opened', {
+                        resultSource: 'myContacts',
+                        source: 'search-screen',
+                        topFilter: searchTopFilter,
+                      })
+                      openChat(chat.id)
+                    }}
                   >
                     <span className="chat-avatar-stack">
                       <span className="avatar" style={{ backgroundColor: chat.accent }}>
@@ -17994,7 +18648,17 @@ function App() {
                       key={option.key}
                       className="settings-item settings-item-quiet-option"
                     >
-                      <label className="settings-checkbox settings-checkbox-expanded">
+                      <label
+                        className="settings-checkbox settings-checkbox-expanded"
+                        onClick={
+                          !sessionHasPremium
+                            ? (event) => {
+                                event.preventDefault()
+                                handleQuietSettingsLockedInteraction(option.key)
+                              }
+                            : undefined
+                        }
+                      >
                         <input
                           type="checkbox"
                           checked={quietSettingsToggleValues[option.key]}
@@ -21693,6 +22357,15 @@ function App() {
           <VideoNoteRecorderOverlay
             onClose={() => {
               setVideoNoteRecorderTarget(null)
+            }}
+            onRecordingStart={() => {
+              trackAnalyticsEvent('video_note_record_started', {
+                roomKind:
+                  videoNoteRecorderTarget.kind === 'thread'
+                    ? videoNoteRecorderTarget.room
+                    : videoNoteRecorderTarget.kind,
+                source: videoNoteRecorderTarget.kind === 'thread' ? 'thread' : videoNoteRecorderTarget.kind,
+              })
             }}
             onUse={handleVideoNoteRecorderUse}
           />

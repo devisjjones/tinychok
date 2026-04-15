@@ -1,4 +1,5 @@
 import { useCookieConsent } from './app/useCookieConsent'
+import { usePublicLegalAnalytics } from './app/usePublicLegalAnalytics'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 
 // Public requisites page for users, payment providers and legal references. Keep реквизиты/support
@@ -33,7 +34,11 @@ const contactCards = [
 ]
 
 export function ContactsPage() {
-  const { cookieConsent, updateCookieConsent } = useCookieConsent()
+  const { analyticsConsentGranted, cookieConsent, updateCookieConsent } = useCookieConsent()
+  usePublicLegalAnalytics({
+    analyticsConsentGranted,
+    document: 'contacts',
+  })
 
   return (
     <>

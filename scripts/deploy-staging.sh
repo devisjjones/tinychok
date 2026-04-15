@@ -5,6 +5,7 @@ set -euo pipefail
 BRANCH="${TINYCHOK_STAGING_BRANCH:-codex/staging-deploy}"
 SERVICE_NAME="${TINYCHOK_STAGING_SERVICE:-tinychok-staging}"
 FRONTEND_DIR="${TINYCHOK_STAGING_FRONTEND_DIR:-/var/www/tinychok-staging}"
+EXPECTED_ANALYTICS_PROVIDER="${TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-log}"
 SKIP_PULL=0
 
 usage() {
@@ -57,7 +58,8 @@ verify_staging_runtime_release() {
     --health-url https://api.staging.tinychok.ru/healthz \
     --ready-url https://api.staging.tinychok.ru/readyz \
     --require-analytics \
-    --expected-metrica-counter-id 108249405
+    --expected-metrica-counter-id 108249405 \
+    --expected-analytics-provider "$EXPECTED_ANALYTICS_PROVIDER"
 }
 
 wait_for_staging_runtime_release() {
@@ -166,10 +168,11 @@ sudo systemctl restart "$SERVICE_NAME"
 
 echo "==> Verifying staging runtime release contracts"
 # Release must fail if live runtime contracts drift even when the app still boots.
-# Staging analytics must stay explicitly enabled with the expected counter id 108249405,
-# otherwise Yandex Metrica silently stops receiving new events. After restart,
-# nginx can briefly return 502 before the backend has rebound the socket, so the
-# release gate must wait for live healthz/readyz to recover before failing.
+# Staging analytics must stay explicitly enabled with the expected sink provider and
+# counter id 108249405, otherwise Metrica or internal analytics can silently stop
+# receiving new events. After restart, nginx can briefly return 502 before the backend
+# has rebound the socket, so the release gate must wait for live healthz/readyz to
+# recover before failing.
 wait_for_staging_runtime_release
 
 echo "==> Syncing dist/ to $FRONTEND_DIR"

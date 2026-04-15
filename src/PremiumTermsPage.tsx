@@ -1,4 +1,5 @@
 import { useCookieConsent } from './app/useCookieConsent'
+import { usePublicLegalAnalytics } from './app/usePublicLegalAnalytics'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import {
   premiumTermsIntroBlocks,
@@ -9,7 +10,11 @@ import {
 
 // Premium checkout relies on this public page and PDF. Breaking these links is a release blocker.
 export function PremiumTermsPage() {
-  const { cookieConsent, updateCookieConsent } = useCookieConsent()
+  const { analyticsConsentGranted, cookieConsent, updateCookieConsent } = useCookieConsent()
+  const { trackPdfOpen } = usePublicLegalAnalytics({
+    analyticsConsentGranted,
+    document: 'premium-terms',
+  })
 
   return (
     <>
@@ -52,6 +57,9 @@ export function PremiumTermsPage() {
                 className="policy-page-button"
                 href={premiumTermsPdfPath}
                 download="Условия Premium. Тайничок.pdf"
+                onClick={() => {
+                  trackPdfOpen('download')
+                }}
               >
                 Скачать
               </a>
@@ -60,6 +68,9 @@ export function PremiumTermsPage() {
                 href={premiumTermsPdfPath}
                 target="_blank"
                 rel="noreferrer"
+                onClick={() => {
+                  trackPdfOpen('new-tab')
+                }}
               >
                 Открыть PDF
               </a>
@@ -97,6 +108,9 @@ export function PremiumTermsPage() {
               className="policy-page-button"
               href={premiumTermsPdfPath}
               download="Условия Premium. Тайничок.pdf"
+              onClick={() => {
+                trackPdfOpen('download')
+              }}
             >
               Скачать PDF
             </a>

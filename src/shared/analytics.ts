@@ -2,6 +2,7 @@ export type AnalyticsScalar = string | number | boolean | null
 
 export type AnalyticsEventName =
   | 'analytics_consent_granted'
+  | 'app_opened'
   | 'auth_captcha_completed'
   | 'auth_code_request_succeeded'
   | 'auth_code_request_failed'
@@ -31,32 +32,59 @@ export type AnalyticsEventName =
   | 'auth_registration_succeeded'
   | 'auth_registration_failed'
   | 'auth_support_email_clicked'
+  | 'support_ticket_created'
+  | 'support_ticket_reply_sent'
+  | 'support_ticket_resolved'
   | 'direct_message_send_succeeded'
   | 'direct_message_send_failed'
-  | 'direct_message_retry_started'
-  | 'direct_message_retry_failed'
+  | 'direct_message_deleted_me'
+  | 'direct_message_deleted_everyone'
   | 'group_message_send_succeeded'
   | 'group_message_send_failed'
-  | 'group_message_retry_started'
-  | 'group_message_retry_failed'
+  | 'group_message_deleted'
   | 'channel_post_send_succeeded'
   | 'channel_post_send_failed'
+  | 'channel_post_deleted'
   | 'thread_comment_send_succeeded'
   | 'thread_comment_send_failed'
-  | 'realtime_connected'
-  | 'realtime_disconnected'
-  | 'realtime_error'
+  | 'thread_comment_deleted'
+  | 'thread_inbox_opened'
+  | 'thread_opened'
   | 'profile_settings_saved'
   | 'group_settings_saved'
   | 'channel_settings_saved'
+  | 'theme_switched'
+  | 'quiet_settings_opened'
+  | 'quiet_settings_changed'
+  | 'quiet_settings_locked_interaction'
+  | 'quiet_mode_enabled'
+  | 'quiet_mode_disabled'
+  | 'forced_invisible_mode_enabled'
+  | 'forced_invisible_mode_disabled'
+  | 'storage_manager_opened'
+  | 'storage_file_deleted'
   | 'gif_uploaded'
   | 'gif_deleted'
   | 'gif_search_used'
   | 'gif_added_from_viewer'
-  | 'gif_upload_monthly_limit_reached'
   | 'photo_attachment_selected'
   | 'photo_upload_failed'
+  | 'video_attachment_selected'
+  | 'video_upload_failed'
+  | 'file_attachment_selected'
+  | 'file_upload_failed'
+  | 'video_note_record_started'
+  | 'video_note_send_succeeded'
+  | 'video_note_send_failed'
   | 'image_viewer_opened'
+  | 'video_viewer_opened'
+  | 'video_note_viewer_opened'
+  | 'search_screen_opened'
+  | 'contact_search_used'
+  | 'contact_search_result_opened'
+  | 'channel_search_used'
+  | 'channel_search_result_opened'
+  | 'search_empty_result_shown'
   | 'browser_notifications_enabled'
   | 'browser_notifications_disabled'
   | 'browser_notifications_prompt_dismissed'
@@ -71,8 +99,14 @@ export type AnalyticsEventName =
   | 'premium_purchase_failed_month'
   | 'premium_purchase_failed_year'
   | 'group_created'
+  | 'group_create_failed'
+  | 'group_deleted'
   | 'channel_created'
+  | 'channel_create_failed'
+  | 'channel_deleted'
   | 'blacklist_add_confirmed'
+  | 'legal_page_opened'
+  | 'legal_pdf_opened'
 
 export type AnalyticsEventProperties = Record<string, AnalyticsScalar>
 
@@ -94,19 +128,27 @@ export const analyticsEventCatalog: Record<
       | 'auth'
       | 'messaging'
       | 'moderation'
-      | 'realtime'
       | 'settings'
+      | 'navigation'
       | 'consent'
-  | 'media'
-  | 'notifications'
-  | 'support'
-  | 'premium'
+      | 'media'
+      | 'notifications'
+      | 'support'
+      | 'premium'
+      | 'threads'
+      | 'search'
+      | 'storage'
+      | 'legal'
     description: string
   }
 > = {
   analytics_consent_granted: {
     category: 'consent',
     description: 'Пользователь явно разрешил аналитику через cookie banner.',
+  },
+  app_opened: {
+    category: 'navigation',
+    description: 'Пользователь открыл авторизованное приложение Tinychok на стартовой product-поверхности.',
   },
   auth_captcha_completed: {
     category: 'auth',
@@ -224,6 +266,18 @@ export const analyticsEventCatalog: Record<
     category: 'support',
     description: 'Пользователь нажал на email поддержки на auth-экране.',
   },
+  support_ticket_created: {
+    category: 'support',
+    description: 'Пользователь создал новое обращение в поддержку внутри приложения.',
+  },
+  support_ticket_reply_sent: {
+    category: 'support',
+    description: 'Пользователь отправил ответ в уже существующий тикет поддержки.',
+  },
+  support_ticket_resolved: {
+    category: 'support',
+    description: 'Тикет поддержки перешёл в статус resolved.',
+  },
   direct_message_send_succeeded: {
     category: 'messaging',
     description: 'Личное сообщение подтверждено backend-ом.',
@@ -232,13 +286,13 @@ export const analyticsEventCatalog: Record<
     category: 'messaging',
     description: 'Личное сообщение не подтвердилось backend-ом.',
   },
-  direct_message_retry_started: {
+  direct_message_deleted_me: {
     category: 'messaging',
-    description: 'Запущена повторная отправка личного сообщения из outbox.',
+    description: 'Пользователь удалил личное сообщение только у себя.',
   },
-  direct_message_retry_failed: {
+  direct_message_deleted_everyone: {
     category: 'messaging',
-    description: 'Повторная отправка личного сообщения завершилась ошибкой.',
+    description: 'Пользователь удалил своё личное сообщение у всех участников диалога.',
   },
   group_message_send_succeeded: {
     category: 'messaging',
@@ -248,13 +302,9 @@ export const analyticsEventCatalog: Record<
     category: 'messaging',
     description: 'Сообщение в группе не подтвердилось backend-ом.',
   },
-  group_message_retry_started: {
+  group_message_deleted: {
     category: 'messaging',
-    description: 'Запущена повторная отправка сообщения в группе из outbox.',
-  },
-  group_message_retry_failed: {
-    category: 'messaging',
-    description: 'Повторная отправка сообщения в группе завершилась ошибкой.',
+    description: 'Сообщение в группе было удалено.',
   },
   channel_post_send_succeeded: {
     category: 'messaging',
@@ -264,6 +314,10 @@ export const analyticsEventCatalog: Record<
     category: 'messaging',
     description: 'Публикация поста в канал завершилась ошибкой.',
   },
+  channel_post_deleted: {
+    category: 'messaging',
+    description: 'Пост канала был удалён владельцем или модерацией.',
+  },
   thread_comment_send_succeeded: {
     category: 'messaging',
     description: 'Комментарий подтверждён backend-ом.',
@@ -272,17 +326,17 @@ export const analyticsEventCatalog: Record<
     category: 'messaging',
     description: 'Комментарий не подтвердился backend-ом.',
   },
-  realtime_connected: {
-    category: 'realtime',
-    description: 'WebSocket realtime-соединение установлено.',
+  thread_comment_deleted: {
+    category: 'messaging',
+    description: 'Комментарий внутри треда был удалён.',
   },
-  realtime_disconnected: {
-    category: 'realtime',
-    description: 'WebSocket realtime-соединение закрыто.',
+  thread_inbox_opened: {
+    category: 'threads',
+    description: 'Пользователь открыл inbox тредов.',
   },
-  realtime_error: {
-    category: 'realtime',
-    description: 'WebSocket realtime-соединение дало ошибку.',
+  thread_opened: {
+    category: 'threads',
+    description: 'Пользователь открыл конкретный тред.',
   },
   profile_settings_saved: {
     category: 'settings',
@@ -295,6 +349,46 @@ export const analyticsEventCatalog: Record<
   channel_settings_saved: {
     category: 'settings',
     description: 'Настройки канала были сохранены пользователем.',
+  },
+  theme_switched: {
+    category: 'settings',
+    description: 'Пользователь переключил светлую и тёмную тему.',
+  },
+  quiet_settings_opened: {
+    category: 'settings',
+    description: 'Пользователь открыл экран настроек режима «Тихо».',
+  },
+  quiet_settings_changed: {
+    category: 'settings',
+    description: 'Пользователь изменил один из переключателей внутри настроек режима «Тихо».',
+  },
+  quiet_settings_locked_interaction: {
+    category: 'premium',
+    description: 'Пользователь без премиума попытался изменить locked-настройку режима «Тихо».',
+  },
+  quiet_mode_enabled: {
+    category: 'settings',
+    description: 'Пользователь включил режим «Тихо».',
+  },
+  quiet_mode_disabled: {
+    category: 'settings',
+    description: 'Пользователь выключил режим «Тихо».',
+  },
+  forced_invisible_mode_enabled: {
+    category: 'settings',
+    description: 'Пользователь включил принудительный режим невидимки.',
+  },
+  forced_invisible_mode_disabled: {
+    category: 'settings',
+    description: 'Пользователь выключил принудительный режим невидимки.',
+  },
+  storage_manager_opened: {
+    category: 'storage',
+    description: 'Пользователь открыл менеджер хранилища.',
+  },
+  storage_file_deleted: {
+    category: 'storage',
+    description: 'Пользователь успешно удалил файл из хранилища.',
   },
   gif_uploaded: {
     category: 'media',
@@ -312,10 +406,6 @@ export const analyticsEventCatalog: Record<
     category: 'media',
     description: 'Пользователь добавил GIF себе из fullscreen viewer.',
   },
-  gif_upload_monthly_limit_reached: {
-    category: 'media',
-    description: 'Пользователь упёрся в скрытый лимит загрузки своих GIF за текущий календарный месяц.',
-  },
   photo_attachment_selected: {
     category: 'media',
     description: 'Пользователь выбрал фотографию для вложения в composer.',
@@ -324,9 +414,69 @@ export const analyticsEventCatalog: Record<
     category: 'media',
     description: 'Загрузка фотографии завершилась ошибкой до отправки сообщения.',
   },
+  video_attachment_selected: {
+    category: 'media',
+    description: 'Пользователь подготовил видеофайл как вложение.',
+  },
+  video_upload_failed: {
+    category: 'media',
+    description: 'Загрузка видеофайла завершилась ошибкой до отправки сообщения.',
+  },
+  file_attachment_selected: {
+    category: 'media',
+    description: 'Пользователь подготовил обычный файл как вложение.',
+  },
+  file_upload_failed: {
+    category: 'media',
+    description: 'Загрузка обычного файла завершилась ошибкой до отправки сообщения.',
+  },
+  video_note_record_started: {
+    category: 'media',
+    description: 'Пользователь начал запись видеосообщения-квадратика.',
+  },
+  video_note_send_succeeded: {
+    category: 'messaging',
+    description: 'Видеосообщение-квадратик было успешно отправлено.',
+  },
+  video_note_send_failed: {
+    category: 'messaging',
+    description: 'Отправка видеосообщения-квадратика завершилась ошибкой.',
+  },
   image_viewer_opened: {
     category: 'media',
     description: 'Пользователь открыл fullscreen viewer для изображения или GIF.',
+  },
+  video_viewer_opened: {
+    category: 'media',
+    description: 'Пользователь открыл viewer для видео-вложения.',
+  },
+  video_note_viewer_opened: {
+    category: 'media',
+    description: 'Пользователь открыл viewer для видеосообщения-квадратика.',
+  },
+  search_screen_opened: {
+    category: 'search',
+    description: 'Пользователь открыл экран поиска.',
+  },
+  contact_search_used: {
+    category: 'search',
+    description: 'Пользователь воспользовался поиском контактов или пользователей.',
+  },
+  contact_search_result_opened: {
+    category: 'search',
+    description: 'Пользователь открыл контакт или личный диалог из результатов поиска.',
+  },
+  channel_search_used: {
+    category: 'search',
+    description: 'Пользователь воспользовался поиском каналов.',
+  },
+  channel_search_result_opened: {
+    category: 'search',
+    description: 'Пользователь открыл канал из результатов поиска.',
+  },
+  search_empty_result_shown: {
+    category: 'search',
+    description: 'Пользователю был показан пустой результат поиска.',
   },
   browser_notifications_enabled: {
     category: 'notifications',
@@ -384,12 +534,36 @@ export const analyticsEventCatalog: Record<
     category: 'messaging',
     description: 'Пользователь создал новую группу.',
   },
+  group_create_failed: {
+    category: 'messaging',
+    description: 'Создание группы завершилось ошибкой.',
+  },
+  group_deleted: {
+    category: 'messaging',
+    description: 'Владелец удалил группу или перевёл её в owner-deleted режим.',
+  },
   channel_created: {
     category: 'messaging',
     description: 'Пользователь создал новый канал.',
   },
+  channel_create_failed: {
+    category: 'messaging',
+    description: 'Создание канала завершилось ошибкой.',
+  },
+  channel_deleted: {
+    category: 'messaging',
+    description: 'Владелец удалил канал или перевёл его в owner-deleted режим.',
+  },
   blacklist_add_confirmed: {
     category: 'moderation',
     description: 'Пользователь подтверждённо добавлен в чёрный список комнаты.',
+  },
+  legal_page_opened: {
+    category: 'legal',
+    description: 'Пользователь открыл одну из публичных legal-страниц.',
+  },
+  legal_pdf_opened: {
+    category: 'legal',
+    description: 'Пользователь открыл или скачал PDF-версию legal-документа.',
   },
 }

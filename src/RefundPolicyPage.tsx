@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { useCookieConsent } from './app/useCookieConsent'
+import { usePublicLegalAnalytics } from './app/usePublicLegalAnalytics'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import {
   refundPolicyEffectiveDate,
@@ -10,7 +11,11 @@ import {
 
 // Premium checkout relies on this public page. Keep links and approved refund-policy copy stable.
 export function RefundPolicyPage() {
-  const { cookieConsent, updateCookieConsent } = useCookieConsent()
+  const { analyticsConsentGranted, cookieConsent, updateCookieConsent } = useCookieConsent()
+  usePublicLegalAnalytics({
+    analyticsConsentGranted,
+    document: 'refund-policy',
+  })
 
   const handleScrollToTop = useCallback(() => {
     if (typeof window === 'undefined') return

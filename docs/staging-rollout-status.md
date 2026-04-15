@@ -87,6 +87,16 @@
 - user app должна сама восстанавливаться от stale mobile Chrome tabs:
   - при несовпадении server `release.buildId` и frontend build id приложение делает один safe hard-refresh с cache-bust
   - при возврате вкладки через `pageshow` / `focus` / `visibilitychange` видимая user session заново тянет bootstrap snapshot, если текущий runtime успел устареть
+- текущий implementation ownership после рефакторинга:
+  - [src/app/useRuntimeSessionRecovery.ts](/Users/devisjjones/Documents/tinychok/src/app/useRuntimeSessionRecovery.ts) держит recovery lifecycle
+  - [src/app/useDocumentTheme.ts](/Users/devisjjones/Documents/tinychok/src/app/useDocumentTheme.ts) держит theme sync и browser chrome color
+  - [src/app/storage.ts](/Users/devisjjones/Documents/tinychok/src/app/storage.ts) держит schema-versioned persisted auth snapshot
+- если auth snapshot shape меняется несовместимо:
+  - нужно bump-нуть schema version в `src/app/storage.ts`
+  - иначе staging/mobile tabs могут подняться из старого local state и дать ложную "живую" сессию после deploy
+- если runtime logic снова переносится между `App.tsx` и этими helper-ами, нельзя забывать про contract tests:
+  - [server/src/ui-runtime-regressions.test.ts](/Users/devisjjones/Documents/tinychok/server/src/ui-runtime-regressions.test.ts)
+  - [server/src/persisted-auth-storage.test.ts](/Users/devisjjones/Documents/tinychok/server/src/persisted-auth-storage.test.ts)
 - smoke-check после runtime/frontend deploy:
   - `curl -I https://api.staging.tinychok.ru/api/client-config`
   - `curl -I -H 'Authorization: Bearer staging-smoke-invalid' https://api.staging.tinychok.ru/api/bootstrap`
@@ -96,7 +106,7 @@
 
 - staging analytics считаются release-blocking runtime-контрактом:
   - `analytics.enabled` должен быть `true`
-  - `analytics.provider` должен быть `log`
+  - `analytics.provider` должен совпадать с ожидаемым sink (`log` по умолчанию, `clickhouse` после cutover)
   - `metricaCounterId` должен быть положительным числом
 - это нужно проверять не только по env template, но и по живому `GET https://api.staging.tinychok.ru/api/client-config`
 - deploy staging должен падать, если runtime config внезапно отдаёт:
@@ -107,13 +117,22 @@
 - причина такого падения обычно не в frontend, а в перетёртом `/etc/tinychok/tinychok-staging.env`
 - обязательные analytics keys для staging env:
   - `TINYCHOK_ANALYTICS_ENABLED=true`
-  - `TINYCHOK_ANALYTICS_PROVIDER=log`
+  - `TINYCHOK_ANALYTICS_PROVIDER=<log|clickhouse>`
   - `TINYCHOK_ANALYTICS_FLUSH_INTERVAL_MS=5000`
   - `TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20`
   - `TINYCHOK_YANDEX_METRICA_COUNTER_ID=<real counter id>`
+- если staging переводится на `clickhouse`, до live cutover обязательны:
+  - `server/sql/yandex-clickhouse-analytics.sql`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_URL`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_DATABASE`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_TABLE`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_USER`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_PASSWORD`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_TIMEOUT_MS`
+  - `TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse` для deploy/runtime verify
 - после каждой env-правки или restart smoke-check:
   - `curl -s https://api.staging.tinychok.ru/api/client-config`
-  - expected result = JSON with positive `analytics.metricaCounterId`
+  - expected result = JSON with positive `analytics.metricaCounterId` и ожидаемым `analytics.provider`
   - открыть staging с `?analytics_debug=1` и убедиться, что в console есть `pageview` / `event`
 - единый список release-blocking runtime-контрактов лежит в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
@@ -722,7 +741,7 @@ bash scripts/deploy-staging.sh
 - после live deploy staging снаружи подтверждён по URL:
   - `https://api.staging.tinychok.ru/healthz` → `{"status":"ok"}`
   - `https://api.staging.tinychok.ru/readyz` → `storage.layout = hybrid-normalized`
-  - `https://api.staging.tinychok.ru/api/client-config` → `analytics.enabled=true`, `provider=log`, `metricaCounterId=108249405`
+  - `https://api.staging.tinychok.ru/api/client-config` → `analytics.enabled=true`, `provider=log`, `metricaCounterId=108249405` (исторический checkpoint до ClickHouse cutover)
 - live `assets/main-*.js` и staging VM commit не фиксировать здесь вручную:
   - каждый новый commit сразу делает эти значения устаревшими
   - актуальные proof-points нужно снимать по командам из [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md)

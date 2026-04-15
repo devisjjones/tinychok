@@ -20,7 +20,8 @@ type VideoNoteRecorderState =
 
 type VideoNoteRecorderOverlayProps = {
   onClose: () => void
-  onUse: (file: File) => void | Promise<void>
+  onRecordingStart?: () => void
+  onUse: (file: File, meta?: { durationMs: number }) => void | Promise<void>
 }
 
 const preferredVideoConstraints: MediaStreamConstraints[] = [
@@ -63,6 +64,7 @@ function buildRecorderErrorMessage(error: unknown) {
 
 export function VideoNoteRecorderOverlay({
   onClose,
+  onRecordingStart,
   onUse,
 }: VideoNoteRecorderOverlayProps) {
   const recorderTitle = 'Видео-квадратик'
@@ -226,13 +228,14 @@ export function VideoNoteRecorderOverlay({
         setPreviewUrl(URL.createObjectURL(nextBlob))
         setElapsedMs(nextElapsedMs)
         setState('review')
-        void handleUse()
+        void handleUse(nextElapsedMs)
       }
 
       recorder.start(250)
       startedAtRef.current = Date.now()
       setElapsedMs(0)
       setState('recording')
+      onRecordingStart?.()
 
       elapsedIntervalRef.current = window.setInterval(() => {
         const nextElapsedMs = Date.now() - startedAtRef.current
@@ -253,7 +256,7 @@ export function VideoNoteRecorderOverlay({
     }
   }
 
-  async function handleUse() {
+  async function handleUse(durationMs = elapsedMs) {
     if (!reviewBlobRef.current) {
       return
     }
@@ -266,6 +269,7 @@ export function VideoNoteRecorderOverlay({
           buildVideoNoteFile(reviewBlobRef.current, {
             mimeType: reviewBlobRef.current.type,
           }),
+          { durationMs },
         ),
       )
       onClose()

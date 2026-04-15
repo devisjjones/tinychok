@@ -5377,11 +5377,19 @@ test('analytics and release runtime contracts stay explicit in env examples, dep
   const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
   const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
   const releaseContractsDoc = readFileSync(join(repoRoot, 'docs', 'release-contracts.md'), 'utf8')
+  const clickhouseSchema = readFileSync(
+    join(repoRoot, 'server', 'sql', 'yandex-clickhouse-analytics.sql'),
+    'utf8',
+  )
 
   assert.ok(existsSync(join(repoRoot, 'scripts', 'verify-runtime-client-config.mjs')))
   assert.ok(existsSync(join(repoRoot, 'scripts', 'verify-release-runtime.mjs')))
   assert.ok(existsSync(join(repoRoot, 'docs', 'release-contracts.md')))
-  assert.match(packageJson, /"verify:staging-runtime": "node scripts\/verify-release-runtime\.mjs --client-config-url https:\/\/api\.staging\.tinychok\.ru\/api\/client-config --health-url https:\/\/api\.staging\.tinychok\.ru\/healthz --ready-url https:\/\/api\.staging\.tinychok\.ru\/readyz --require-analytics --expected-metrica-counter-id 108249405"/u)
+  assert.ok(existsSync(join(repoRoot, 'server', 'sql', 'yandex-clickhouse-analytics.sql')))
+  assert.match(
+    packageJson,
+    /"verify:staging-runtime": "node scripts\/verify-release-runtime\.mjs --client-config-url https:\/\/api\.staging\.tinychok\.ru\/api\/client-config --health-url https:\/\/api\.staging\.tinychok\.ru\/healthz --ready-url https:\/\/api\.staging\.tinychok\.ru\/readyz --require-analytics --expected-metrica-counter-id 108249405 --expected-analytics-provider \$\{TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-log\}"/u,
+  )
 
   for (const envSource of [stagingEnvExample, productionEnvExample]) {
     assert.match(envSource, /TINYCHOK_ANALYTICS_ENABLED=true/u)
@@ -5389,49 +5397,72 @@ test('analytics and release runtime contracts stay explicit in env examples, dep
     assert.match(envSource, /TINYCHOK_ANALYTICS_FLUSH_INTERVAL_MS=5000/u)
     assert.match(envSource, /TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20/u)
     assert.match(envSource, /TINYCHOK_YANDEX_METRICA_COUNTER_ID=change-me/u)
+    assert.match(envSource, /TINYCHOK_ANALYTICS_CLICKHOUSE_URL=/u)
+    assert.match(envSource, /TINYCHOK_ANALYTICS_CLICKHOUSE_DATABASE=tinychok_analytics/u)
+    assert.match(envSource, /TINYCHOK_ANALYTICS_CLICKHOUSE_TABLE=analytics_events/u)
+    assert.match(envSource, /TINYCHOK_ANALYTICS_CLICKHOUSE_USER=tinychok_admin/u)
+    assert.match(envSource, /TINYCHOK_ANALYTICS_CLICKHOUSE_PASSWORD=change-me/u)
+    assert.match(envSource, /TINYCHOK_ANALYTICS_CLICKHOUSE_TIMEOUT_MS=5000/u)
   }
 
   assert.match(deployScript, /Verifying staging runtime release contracts/u)
-  assert.match(deployScript, /expected counter id\s+108249405/u)
+  assert.match(deployScript, /counter id 108249405/u)
+  assert.match(deployScript, /EXPECTED_ANALYTICS_PROVIDER="\$\{TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-log\}"/u)
   assert.match(deployScript, /verify-release-runtime\.mjs/u)
   assert.match(deployScript, /wait_for_staging_runtime_release/u)
   assert.match(deployScript, /Runtime not ready yet; retrying release verification/u)
   assert.match(deployScript, /--require-analytics/u)
+  assert.match(deployScript, /--expected-analytics-provider/u)
   assert.match(deployScript, /--health-url https:\/\/api\.staging\.tinychok\.ru\/healthz/u)
   assert.match(deployScript, /--ready-url https:\/\/api\.staging\.tinychok\.ru\/readyz/u)
   assert.match(deployScript, /--expected-metrica-counter-id 108249405/u)
 
   assert.match(verifyRuntimeScript, /Missing required --url/u)
+  assert.match(verifyRuntimeScript, /expected-analytics-provider/u)
   assert.match(verifyRuntimeScript, /Runtime config analytics\.enabled=false/u)
-  assert.match(verifyRuntimeScript, /analytics\.provider must stay "log"/u)
+  assert.match(verifyRuntimeScript, /analytics\.provider mismatch/u)
   assert.match(verifyRuntimeScript, /metricaCounterId is missing/u)
   assert.match(verifyRuntimeScript, /publicUrls/u)
   assert.match(verifyRuntimeScript, /verifiedUrl/u)
 
   assert.match(verifyReleaseScript, /Missing required --client-config-url/u)
+  assert.match(verifyReleaseScript, /expected-analytics-provider/u)
   assert.match(verifyReleaseScript, /healthz/u)
   assert.match(verifyReleaseScript, /readyz/u)
   assert.match(verifyReleaseScript, /analytics\.enabled=false/u)
+  assert.match(verifyReleaseScript, /analytics\.provider mismatch/u)
   assert.match(verifyReleaseScript, /metricaCounterId mismatch/u)
+  assert.match(verifyReleaseScript, /expectedAnalyticsProvider/u)
   assert.match(verifyReleaseScript, /verifiedClientConfigUrl/u)
 
   assert.match(handoffDoc, /staging и production не должны тихо запускаться с `analytics\.disabled`/u)
   assert.match(handoffDoc, /108249405/u)
   assert.match(handoffDoc, /TINYCHOK_YANDEX_METRICA_COUNTER_ID/u)
+  assert.match(handoffDoc, /`log` по умолчанию, `clickhouse` после cutover/u)
   assert.match(handoffDoc, /analytics regressions ловятся только через runtime config smoke-check/u)
+  assert.match(handoffDoc, /TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse/u)
   assert.match(handoffDoc, /docs\/release-contracts\.md/u)
 
   assert.match(rolloutDoc, /Staging Analytics Guard/u)
   assert.match(rolloutDoc, /GET https:\/\/api\.staging\.tinychok\.ru\/api\/client-config/u)
   assert.match(rolloutDoc, /108249405/u)
-  assert.match(rolloutDoc, /expected result = JSON with positive `analytics\.metricaCounterId`/u)
+  assert.match(rolloutDoc, /ожидаемым sink \(`log` по умолчанию, `clickhouse` после cutover\)/u)
+  assert.match(rolloutDoc, /TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse/u)
+  assert.match(rolloutDoc, /expected result = JSON with positive `analytics\.metricaCounterId` и ожидаемым `analytics\.provider`/u)
   assert.match(rolloutDoc, /\?analytics_debug=1/u)
 
   assert.match(releaseContractsDoc, /Release Contracts/u)
   assert.match(releaseContractsDoc, /108249405/u)
   assert.match(releaseContractsDoc, /npm run verify:staging-runtime/u)
+  assert.match(releaseContractsDoc, /TINYCHOK_ANALYTICS_PROVIDER=<log\|clickhouse>/u)
+  assert.match(releaseContractsDoc, /server\/sql\/yandex-clickhouse-analytics\.sql/u)
+  assert.match(releaseContractsDoc, /TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse/u)
   assert.match(releaseContractsDoc, /`В сети` = только живое websocket-соединение/u)
   assert.match(releaseContractsDoc, /Direct Delete-For-Everyone Contract/u)
+
+  assert.match(clickhouseSchema, /CREATE DATABASE IF NOT EXISTS tinychok_analytics/u)
+  assert.match(clickhouseSchema, /CREATE TABLE IF NOT EXISTS tinychok_analytics\.analytics_events/u)
+  assert.match(clickhouseSchema, /properties_json String/u)
 })
 
 test('stale runtime recovery stays explicit in source, runtime config and rollout docs', () => {
@@ -7034,7 +7065,7 @@ test('premium gif uploads stop at 100 items per month and keep the shared pool s
   assert.equal(store.searchUserGifs(uploaderToken, 'pikachu').items.length, 1)
 })
 
-test('gif monthly upload limit is documented in analytics catalog and rollout docs', () => {
+test('gif monthly upload limit stays operational-only and out of clickhouse product analytics', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const analyticsSource = readFileSync(join(repoRoot, 'src', 'shared', 'analytics.ts'), 'utf8')
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
@@ -7042,17 +7073,158 @@ test('gif monthly upload limit is documented in analytics catalog and rollout do
   const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
   const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
 
-  assert.match(analyticsSource, /'gif_upload_monthly_limit_reached'/u)
-  assert.match(
-    analyticsSource,
-    /gif_upload_monthly_limit_reached: \{[\s\S]*скрытый лимит загрузки своих GIF/u,
-  )
-  assert.match(
-    appSource,
-    /trackAnalyticsEvent\('gif_upload_monthly_limit_reached', \{[\s\S]*userIdentifier: session\.identifier/u,
-  )
-  assert.match(analyticsDoc, /gif_upload_monthly_limit_reached/u)
-  assert.match(analyticsDoc, /даёт `userIdentifier`, чтобы владельца можно было сразу найти в админке/u)
+  assert.doesNotMatch(analyticsSource, /gif_upload_monthly_limit_reached/u)
+  assert.doesNotMatch(appSource, /trackAnalyticsEvent\('gif_upload_monthly_limit_reached'/u)
+  assert.doesNotMatch(analyticsDoc, /gif_upload_monthly_limit_reached/u)
   assert.match(rolloutDoc, /скрытый server-side лимит `100` upload своих GIF/u)
   assert.match(handoffDoc, /upload своих GIF ограничен скрытым server-side лимитом `100`/u)
+})
+
+test('clickhouse-approved analytics catalog stays wired through source docs and runtime boundaries', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const analyticsSource = readFileSync(join(repoRoot, 'src', 'shared', 'analytics.ts'), 'utf8')
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const analyticsDoc = readFileSync(join(repoRoot, 'docs', 'analytics-instrumentation.md'), 'utf8')
+  const verifyReleaseScript = readFileSync(join(repoRoot, 'scripts', 'verify-release-runtime.mjs'), 'utf8')
+
+  for (const eventName of [
+    'app_opened',
+    'support_ticket_created',
+    'support_ticket_reply_sent',
+    'support_ticket_resolved',
+    'thread_inbox_opened',
+    'thread_opened',
+    'direct_message_deleted_me',
+    'direct_message_deleted_everyone',
+    'group_message_deleted',
+    'channel_post_deleted',
+    'thread_comment_deleted',
+    'group_create_failed',
+    'group_deleted',
+    'channel_create_failed',
+    'channel_deleted',
+    'theme_switched',
+    'quiet_settings_opened',
+    'quiet_settings_changed',
+    'quiet_settings_locked_interaction',
+    'quiet_mode_enabled',
+    'quiet_mode_disabled',
+    'forced_invisible_mode_enabled',
+    'forced_invisible_mode_disabled',
+    'storage_manager_opened',
+    'storage_file_deleted',
+    'search_screen_opened',
+    'contact_search_used',
+    'contact_search_result_opened',
+    'channel_search_used',
+    'channel_search_result_opened',
+    'search_empty_result_shown',
+    'video_attachment_selected',
+    'video_upload_failed',
+    'file_attachment_selected',
+    'file_upload_failed',
+    'video_note_record_started',
+    'video_note_send_succeeded',
+    'video_note_send_failed',
+    'video_viewer_opened',
+    'video_note_viewer_opened',
+    'legal_page_opened',
+    'legal_pdf_opened',
+  ]) {
+    assert.match(analyticsSource, new RegExp(`'${eventName}'`, 'u'))
+    assert.match(analyticsDoc, new RegExp(`\`${eventName}\``, 'u'))
+  }
+
+  assert.match(analyticsSource, /\|\s*'threads'/u)
+  assert.match(analyticsSource, /\|\s*'search'/u)
+  assert.match(analyticsSource, /\|\s*'storage'/u)
+  assert.match(analyticsSource, /\|\s*'legal'/u)
+  assert.match(analyticsSource, /\|\s*'navigation'/u)
+  assert.doesNotMatch(analyticsSource, /direct_message_retry_started/u)
+  assert.doesNotMatch(analyticsSource, /direct_message_retry_failed/u)
+  assert.doesNotMatch(analyticsSource, /group_message_retry_started/u)
+  assert.doesNotMatch(analyticsSource, /group_message_retry_failed/u)
+  assert.doesNotMatch(analyticsSource, /thread_comment_retry_started/u)
+  assert.doesNotMatch(analyticsSource, /thread_comment_retry_failed/u)
+  assert.doesNotMatch(analyticsSource, /realtime_connected/u)
+  assert.doesNotMatch(analyticsSource, /realtime_disconnected/u)
+  assert.doesNotMatch(analyticsSource, /realtime_error/u)
+  assert.doesNotMatch(analyticsSource, /gif_upload_monthly_limit_reached/u)
+  assert.doesNotMatch(appSource, /direct_message_retry_started/u)
+  assert.doesNotMatch(appSource, /direct_message_retry_failed/u)
+  assert.doesNotMatch(appSource, /group_message_retry_started/u)
+  assert.doesNotMatch(appSource, /group_message_retry_failed/u)
+  assert.doesNotMatch(appSource, /realtime_connected/u)
+  assert.doesNotMatch(appSource, /realtime_disconnected/u)
+  assert.doesNotMatch(appSource, /realtime_error/u)
+  assert.doesNotMatch(appSource, /gif_upload_monthly_limit_reached/u)
+
+  assert.match(appSource, /trackAnalyticsEvent\('quiet_settings_locked_interaction'/u)
+  assert.match(appSource, /trackAnalyticsEvent\('app_opened'/u)
+  assert.match(appSource, /trackAnalyticsEvent\('storage_file_deleted'/u)
+  assert.match(appSource, /trackAnalyticsEvent\('video_note_record_started'/u)
+  assert.match(appSource, /trackAnalyticsEvent\('video_note_viewer_opened'/u)
+  assert.match(appSource, /trackAnalyticsEvent\('video_viewer_opened'/u)
+  assert.match(appSource, /trackAnalyticsEvent\('search_screen_opened'/u)
+  assert.match(appSource, /trackAnalyticsEvent\('thread_opened'/u)
+  assert.match(appSource, /presentation: getAnalyticsAttachmentPresentation\(attachment\)/u)
+
+  assert.match(analyticsDoc, /Обычные success-события по фото \/ видео \/ файлам/u)
+  assert.match(analyticsDoc, /### App Open Events/u)
+  assert.match(analyticsDoc, /`deviceType` для `app_opened`/u)
+  assert.match(analyticsDoc, /- `video`/u)
+  assert.match(analyticsDoc, /- `video-note`/u)
+  assert.match(analyticsDoc, /### Search \/ Discovery Events/u)
+  assert.match(analyticsDoc, /### Quiet \/ Storage \/ Thread Events/u)
+  assert.match(analyticsDoc, /### Legal Events/u)
+  assert.match(analyticsDoc, /backend provider должен быть явно задан как `log` или `clickhouse`/u)
+  assert.match(analyticsDoc, /server\/sql\/yandex-clickhouse-analytics\.sql/u)
+  assert.doesNotMatch(analyticsDoc, /direct_message_retry_started/u)
+  assert.doesNotMatch(analyticsDoc, /direct_message_retry_failed/u)
+  assert.doesNotMatch(analyticsDoc, /group_message_retry_started/u)
+  assert.doesNotMatch(analyticsDoc, /group_message_retry_failed/u)
+  assert.doesNotMatch(analyticsDoc, /thread_comment_retry_started/u)
+  assert.doesNotMatch(analyticsDoc, /thread_comment_retry_failed/u)
+  assert.doesNotMatch(analyticsDoc, /realtime_connected/u)
+  assert.doesNotMatch(analyticsDoc, /realtime_disconnected/u)
+  assert.doesNotMatch(analyticsDoc, /realtime_error/u)
+  assert.doesNotMatch(analyticsDoc, /gif_upload_monthly_limit_reached/u)
+
+  assert.match(verifyReleaseScript, /analytics\.provider mismatch/u)
+})
+
+test('public legal pages bootstrap analytics runtime and keep pdf tracking explicit', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const legalHookSource = readFileSync(join(repoRoot, 'src', 'app', 'usePublicLegalAnalytics.ts'), 'utf8')
+  const privacyPageSource = readFileSync(join(repoRoot, 'src', 'PrivacyPolicyPage.tsx'), 'utf8')
+  const agreementPageSource = readFileSync(join(repoRoot, 'src', 'UserAgreementPage.tsx'), 'utf8')
+  const premiumTermsPageSource = readFileSync(join(repoRoot, 'src', 'PremiumTermsPage.tsx'), 'utf8')
+  const refundPolicyPageSource = readFileSync(join(repoRoot, 'src', 'RefundPolicyPage.tsx'), 'utf8')
+  const contactsPageSource = readFileSync(join(repoRoot, 'src', 'ContactsPage.tsx'), 'utf8')
+
+  assert.match(legalHookSource, /fetchClientRuntimeConfig\(\)/u)
+  assert.match(legalHookSource, /configureAnalyticsRuntime\(\{/u)
+  assert.match(legalHookSource, /trackAnalyticsEvent\('legal_page_opened'/u)
+  assert.match(legalHookSource, /trackAnalyticsEvent\('legal_pdf_opened'/u)
+
+  assert.match(privacyPageSource, /usePublicLegalAnalytics/u)
+  assert.match(privacyPageSource, /document:\s*'privacy-policy'/u)
+  assert.match(privacyPageSource, /trackPdfOpen\('download'\)/u)
+  assert.match(privacyPageSource, /trackPdfOpen\('new-tab'\)/u)
+
+  assert.match(agreementPageSource, /usePublicLegalAnalytics/u)
+  assert.match(agreementPageSource, /document:\s*'user-agreement'/u)
+  assert.match(agreementPageSource, /trackPdfOpen\('download'\)/u)
+  assert.match(agreementPageSource, /trackPdfOpen\('new-tab'\)/u)
+
+  assert.match(premiumTermsPageSource, /usePublicLegalAnalytics/u)
+  assert.match(premiumTermsPageSource, /document:\s*'premium-terms'/u)
+  assert.match(premiumTermsPageSource, /trackPdfOpen\('download'\)/u)
+  assert.match(premiumTermsPageSource, /trackPdfOpen\('new-tab'\)/u)
+
+  assert.match(refundPolicyPageSource, /usePublicLegalAnalytics/u)
+  assert.match(refundPolicyPageSource, /document:\s*'refund-policy'/u)
+
+  assert.match(contactsPageSource, /usePublicLegalAnalytics/u)
+  assert.match(contactsPageSource, /document:\s*'contacts'/u)
 })

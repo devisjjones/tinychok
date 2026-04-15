@@ -5,7 +5,7 @@ type AppEnvironment = 'development' | 'staging' | 'production'
 type StoreMode = 'file' | 'postgres'
 type MediaBackend = 'local' | 'object-storage'
 type CaptchaProvider = 'disabled' | 'turnstile' | 'smartcaptcha'
-type AnalyticsProvider = 'disabled' | 'log'
+type AnalyticsProvider = 'disabled' | 'log' | 'clickhouse'
 type RuntimeEnv = NodeJS.ProcessEnv | Record<string, string | undefined>
 
 function normalizeBaseUrl(value: string | undefined) {
@@ -62,7 +62,16 @@ function getDefaultCaptchaVerifyUrl(provider: CaptchaProvider) {
 }
 
 function readAnalyticsProvider(value: string | undefined): AnalyticsProvider {
-  return value === 'log' ? 'log' : 'disabled'
+  if (value === 'log' || value === 'clickhouse') {
+    return value
+  }
+
+  return 'disabled'
+}
+
+function readOptionalString(value: string | undefined) {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
 }
 
 function readOptionalPositiveInteger(value: string | undefined) {
@@ -147,6 +156,32 @@ function assertCaptchaConfiguration(
   }
 }
 
+function assertAnalyticsConfiguration(analytics: {
+  clickhouse: {
+    password: string | null
+    url: string | null
+    user: string | null
+  }
+  enabled: boolean
+  provider: AnalyticsProvider
+}) {
+  if (!analytics.enabled || analytics.provider !== 'clickhouse') {
+    return
+  }
+
+  if (!analytics.clickhouse.url) {
+    throw new Error('ClickHouse analytics url обязателен, когда provider=clickhouse.')
+  }
+
+  if (!analytics.clickhouse.user) {
+    throw new Error('ClickHouse analytics user обязателен, когда provider=clickhouse.')
+  }
+
+  if (!analytics.clickhouse.password) {
+    throw new Error('ClickHouse analytics password обязателен, когда provider=clickhouse.')
+  }
+}
+
 export function createRuntimeConfig(env: RuntimeEnv = process.env) {
   const runtimeEnvironment = readEnvironment(env.TINYCHOK_APP_ENV ?? env.NODE_ENV)
   const captchaProvider = readCaptchaProvider(env.TINYCHOK_CAPTCHA_PROVIDER)
@@ -170,14 +205,32 @@ export function createRuntimeConfig(env: RuntimeEnv = process.env) {
 
   const captcha = {
     provider: captchaProvider,
-    siteKey: env.TINYCHOK_CAPTCHA_SITE_KEY?.trim() || null,
-    secretKey: env.TINYCHOK_CAPTCHA_SECRET_KEY?.trim() || null,
+    siteKey: readOptionalString(env.TINYCHOK_CAPTCHA_SITE_KEY),
+    secretKey: readOptionalString(env.TINYCHOK_CAPTCHA_SECRET_KEY),
     verifyUrl:
       normalizeBaseUrl(env.TINYCHOK_CAPTCHA_VERIFY_URL) ??
       getDefaultCaptchaVerifyUrl(captchaProvider),
   }
 
   assertCaptchaConfiguration(runtimeEnvironment, captcha)
+
+  const analytics = {
+    clickhouse: {
+      database: readOptionalString(env.TINYCHOK_ANALYTICS_CLICKHOUSE_DATABASE) ?? 'tinychok_analytics',
+      password: readOptionalString(env.TINYCHOK_ANALYTICS_CLICKHOUSE_PASSWORD),
+      table: readOptionalString(env.TINYCHOK_ANALYTICS_CLICKHOUSE_TABLE) ?? 'analytics_events',
+      timeoutMs: readPositiveInteger(env.TINYCHOK_ANALYTICS_CLICKHOUSE_TIMEOUT_MS, 5000),
+      url: normalizeBaseUrl(env.TINYCHOK_ANALYTICS_CLICKHOUSE_URL),
+      user: readOptionalString(env.TINYCHOK_ANALYTICS_CLICKHOUSE_USER),
+    },
+    enabled: readBoolean(env.TINYCHOK_ANALYTICS_ENABLED, false),
+    flushIntervalMs: readPort(env.TINYCHOK_ANALYTICS_FLUSH_INTERVAL_MS, 5000),
+    maxBatchSize: readPort(env.TINYCHOK_ANALYTICS_MAX_BATCH_SIZE, 20),
+    metricaCounterId: readOptionalPositiveInteger(env.TINYCHOK_YANDEX_METRICA_COUNTER_ID),
+    provider: readAnalyticsProvider(env.TINYCHOK_ANALYTICS_PROVIDER),
+  }
+
+  assertAnalyticsConfiguration(analytics)
 
   return {
     environment: runtimeEnvironment,
@@ -220,13 +273,7 @@ export function createRuntimeConfig(env: RuntimeEnv = process.env) {
         ipHourlyLimit: readPositiveInteger(env.TINYCHOK_AUTH_CODE_IP_HOURLY_LIMIT, 10),
       },
     },
-    analytics: {
-      enabled: readBoolean(env.TINYCHOK_ANALYTICS_ENABLED, false),
-      flushIntervalMs: readPort(env.TINYCHOK_ANALYTICS_FLUSH_INTERVAL_MS, 5000),
-      maxBatchSize: readPort(env.TINYCHOK_ANALYTICS_MAX_BATCH_SIZE, 20),
-      metricaCounterId: readOptionalPositiveInteger(env.TINYCHOK_YANDEX_METRICA_COUNTER_ID),
-      provider: readAnalyticsProvider(env.TINYCHOK_ANALYTICS_PROVIDER),
-    },
+    analytics,
     server: {
       host: env.HOST ?? '127.0.0.1',
       port: readPort(env.PORT, 8787),

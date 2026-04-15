@@ -41,6 +41,17 @@
   - `GET /api/client-config` обязан отдавать `release.buildId`
   - все `/api/*` ответы, кроме `GET /api/media/preview`, обязаны приходить с `Cache-Control: no-store`
   - user app обязана уметь один раз hard-refresh-нуться при build mismatch и перезапрашивать bootstrap при возврате stale вкладки из mobile Chrome / BFCache
+- persisted auth snapshot тоже входит в этот runtime contract:
+  - auth snapshot в [src/app/storage.ts](/Users/devisjjones/Documents/tinychok/src/app/storage.ts) обязан оставаться schema-versioned
+  - любое несовместимое изменение persisted auth shape должно bump-ать schema version, чтобы stale local storage не воскрешал сломанные сессии после deploy
+- implementation ownership после рефакторинга больше не монолитный:
+  - [src/app/useDocumentTheme.ts](/Users/devisjjones/Documents/tinychok/src/app/useDocumentTheme.ts)
+  - [src/app/useRuntimeSessionRecovery.ts](/Users/devisjjones/Documents/tinychok/src/app/useRuntimeSessionRecovery.ts)
+  - [src/app/storage.ts](/Users/devisjjones/Documents/tinychok/src/app/storage.ts)
+  - при переносе этого контракта между файлами одновременно обновлять runtime contract tests, а не оставлять их привязанными к старой географии
+- file-mode persistence для dev/runtime snapshots тоже считается release-sensitive contract:
+  - [server/src/jsonFilePersistence.ts](/Users/devisjjones/Documents/tinychok/server/src/jsonFilePersistence.ts) обязан коалесцировать соседние записи
+  - нельзя возвращать hand-written параллельные write-paths в `store.ts`, которые снова создают race-condition между snapshot write-ами
 
 ### 3. Analytics / Yandex Metrica Contract
 
@@ -51,13 +62,22 @@
   - `metricaCounterId=null`
 - обязательные staging env keys:
   - `TINYCHOK_ANALYTICS_ENABLED=true`
-  - `TINYCHOK_ANALYTICS_PROVIDER=log`
+  - `TINYCHOK_ANALYTICS_PROVIDER=<log|clickhouse>`
   - `TINYCHOK_ANALYTICS_FLUSH_INTERVAL_MS=5000`
   - `TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20`
   - `TINYCHOK_YANDEX_METRICA_COUNTER_ID=108249405`
+- если `TINYCHOK_ANALYTICS_PROVIDER=clickhouse`, дополнительно обязательны:
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_URL`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_DATABASE`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_TABLE`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_USER`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_PASSWORD`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_TIMEOUT_MS`
+  - schema из `server/sql/yandex-clickhouse-analytics.sql`
 - `108249405` — это текущий staging Yandex Metrica counter id
 - production должен использовать отдельный production counter id и не должен молча наследовать staging id
 - deploy staging обязан валидировать именно живой `/api/client-config`, а не только env template
+- `npm run verify:staging-runtime` по умолчанию ждёт `provider=log`; для ClickHouse cutover запускать с `TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse`
 
 ### 4. Staging Access Contract
 

@@ -1,4 +1,5 @@
 import { useCookieConsent } from './app/useCookieConsent'
+import { usePublicLegalAnalytics } from './app/usePublicLegalAnalytics'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import {
   privacyPolicyLead,
@@ -9,7 +10,11 @@ import {
 
 // Legal pages are public compliance surfaces. Keep links, PDF downloads and top-level copy stable.
 export function PrivacyPolicyPage() {
-  const { cookieConsent, updateCookieConsent } = useCookieConsent()
+  const { analyticsConsentGranted, cookieConsent, updateCookieConsent } = useCookieConsent()
+  const { trackPdfOpen } = usePublicLegalAnalytics({
+    analyticsConsentGranted,
+    document: 'privacy-policy',
+  })
 
   return (
     <>
@@ -36,6 +41,9 @@ export function PrivacyPolicyPage() {
                 className="policy-page-button"
                 href={privacyPolicyPdfPath}
                 download="Политика в отношении обработки персональных данных. Тайничок.pdf"
+                onClick={() => {
+                  trackPdfOpen('download')
+                }}
               >
                 Скачать
               </a>
@@ -44,6 +52,9 @@ export function PrivacyPolicyPage() {
                 href={privacyPolicyPdfPath}
                 target="_blank"
                 rel="noreferrer"
+                onClick={() => {
+                  trackPdfOpen('new-tab')
+                }}
               >
                 Открыть PDF
               </a>
@@ -82,6 +93,9 @@ export function PrivacyPolicyPage() {
               className="policy-page-button"
               href={privacyPolicyPdfPath}
               download="Политика в отношении обработки персональных данных. Тайничок.pdf"
+              onClick={() => {
+                trackPdfOpen('download')
+              }}
             >
               Скачать PDF
             </a>

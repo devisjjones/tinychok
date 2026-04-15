@@ -64,9 +64,26 @@ npm run dev
 npm run dev
 npm run dev:client
 npm run dev:server
+npm run test:ui-contracts
+npm run test:gate
 npm run build
+npm run build:staging
 npm run start:server
 ```
+
+## Quality Gate
+
+- быстрый контрактный прогон во время работы:
+  - `npm run test:ui-contracts`
+- обязательный локальный gate перед финальным ответом и staging deploy:
+  - `npm run test:gate`
+- `test:gate` сейчас жёстко включает:
+  - `lint`
+  - `npm test`
+  - `npm run test:ui-contracts`
+  - `npm run audit:release`
+  - `npm run build:staging`
+- если задача не `docs-only`, нельзя считать её завершённой, пока `npm run test:gate` не зелёный
 
 ## Production env
 

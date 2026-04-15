@@ -53,6 +53,7 @@ const readyUrl = readFlag('--ready-url')
 const requireAnalytics = hasFlag('--require-analytics')
 const expectedMetricaCounterIdRaw = readFlag('--expected-metrica-counter-id')
 const expectedMetricaCounterId = expectedMetricaCounterIdRaw ? Number(expectedMetricaCounterIdRaw) : null
+const expectedAnalyticsProvider = readFlag('--expected-analytics-provider') ?? 'log'
 
 if (!clientConfigUrl) {
   throw new Error('Missing required --client-config-url for release runtime verification.')
@@ -60,6 +61,12 @@ if (!clientConfigUrl) {
 
 if (expectedMetricaCounterIdRaw && !Number.isInteger(expectedMetricaCounterId)) {
   throw new Error('Expected --expected-metrica-counter-id to be an integer.')
+}
+
+if (!['log', 'clickhouse'].includes(expectedAnalyticsProvider)) {
+  throw new Error(
+    `Expected --expected-analytics-provider to be "log" or "clickhouse", got ${String(expectedAnalyticsProvider)}.`,
+  )
 }
 
 const healthPayload = healthUrl ? await fetchRuntimePayload(healthUrl) : null
@@ -83,8 +90,10 @@ if (requireAnalytics) {
     )
   }
 
-  if (analytics.provider !== 'log') {
-    throw new Error(`Runtime config analytics.provider must stay "log", got ${String(analytics.provider)}.`)
+  if (analytics.provider !== expectedAnalyticsProvider) {
+    throw new Error(
+      `Runtime config analytics.provider mismatch. Expected "${expectedAnalyticsProvider}", got ${String(analytics.provider)}.`,
+    )
   }
 
   if (!Number.isInteger(analytics.metricaCounterId) || analytics.metricaCounterId <= 0) {
@@ -110,6 +119,7 @@ console.log(
       verifiedHealthUrl: healthUrl,
       verifiedReadyUrl: readyUrl,
       analytics: clientConfigPayload?.analytics ?? null,
+      expectedAnalyticsProvider,
       health: healthPayload,
       ready: readyPayload,
     },

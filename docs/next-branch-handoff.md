@@ -109,10 +109,11 @@
 - если staging runtime внезапно вернул другой counter id или `null`, deploy нужно считать сломанным
 - staging deploy обязан проверять живой `GET /api/client-config` после restart:
   - `analytics.enabled === true`
-  - `analytics.provider === 'log'`
+  - `analytics.provider` должен совпадать с ожидаемым runtime sink (`log` по умолчанию, `clickhouse` после cutover)
   - `analytics.metricaCounterId` должен быть положительным числом
 - нельзя считать проблему закрытой только потому, что frontend собрался и `healthz` зелёный:
 - analytics regressions ловятся только через runtime config smoke-check
+- для ClickHouse cutover source-of-truth лежит в `server/sql/yandex-clickhouse-analytics.sql`, а live verify запускается с `TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=clickhouse`
 - единый release-blocking список теперь собран в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
 ## Core Product Mechanics
@@ -179,12 +180,28 @@
 - клиент поднимается через bootstrap snapshot
 - realtime обновления приходят по websocket и синхронизируют текущее состояние клиента
 - timeline data считаются `server-authoritative`
+- runtime ownership после рефакторинга больше не сводится к одному `App.tsx`:
+  - [src/app/storage.ts](/Users/devisjjones/Documents/tinychok/src/app/storage.ts) — source-of-truth для persisted auth snapshot и локальных `saveAccounts` / `saveSession`
+  - [src/app/useDocumentTheme.ts](/Users/devisjjones/Documents/tinychok/src/app/useDocumentTheme.ts) — синхронизация `data-theme` и `meta[name="theme-color"]`
+  - [src/app/useRuntimeSessionRecovery.ts](/Users/devisjjones/Documents/tinychok/src/app/useRuntimeSessionRecovery.ts) — recovery stale runtime через `pageshow` / `focus` / `visibilitychange`
+  - [src/App.tsx](/Users/devisjjones/Documents/tinychok/src/App.tsx) теперь только подключает эти модули и не должен снова забирать их внутрь монолита
+- persisted auth snapshot теперь schema-versioned:
+  - текущая версия хранится в [src/app/storage.ts](/Users/devisjjones/Documents/tinychok/src/app/storage.ts) как `persistedAuthSchemaVersion = 2`
+  - любое несовместимое изменение auth snapshot shape обязано bump-нуть schema version
+  - stale local auth snapshot при schema mismatch должен очищаться, а не "доживать" до следующего reload
 - runtime self-heal contract для stale mobile/browser tabs:
   - `GET /api/client-config` теперь обязан отдавать `release.buildId`
   - frontend bundle вшивает собственный `__TINYCHOK_FRONTEND_BUILD_ID__`
   - если runtime `buildId` отличается от build id загруженного frontend, user app делает один `hard reload` с cache-bust query param и не остаётся на старом bundle
   - все `/api/*` ответы, кроме `GET /api/media/preview`, должны приходить с `Cache-Control: no-store`, чтобы mobile Chrome не поднимал старый snapshot из HTTP cache
   - при возврате вкладки через `pageshow` / `focus` / `visibilitychange` видимая user session должна уметь сама перезапросить свежий bootstrap snapshot, если текущий runtime выглядит устаревшим
+- lazy-split contract после рефакторинга:
+  - тяжёлые user/admin entry и overlay paths больше не считаются одним bootstrap-бандлом
+  - проверки staging build и runtime нельзя снова строить только на grep одного `assets/main-*.js`
+  - если логика снова переезжает между `App.tsx` и отдельными runtime-хуками, одновременно обновлять:
+    - `ui-runtime-regressions.test.ts`
+    - `docs/release-contracts.md`
+    - этот handoff-файл
 - клиентский `saveSnapshot` не должен воскрешать удалённые сообщения, посты или комментарии из устаревшего local state
 - открытая и видимая комната не должна копить stale unread:
   - если пользователь уже видит входящее сообщение в открытом direct / group / channel room, оно должно сразу считаться прочитанным
@@ -221,6 +238,21 @@
   - viewer-facing quoted preview не показывает author-label вообще
   - не возвращать `Вы`, `Собеседник` или имя в `bubble-reply` и `bubble-reply-reference`
   - preview оставляет только текст / emoji цитируемого сообщения, а переход к оригиналу решается tap-навигацией
+
+### Dev File Persistence Contract
+
+- file-mode persistence после рефакторинга вынесен в [server/src/jsonFilePersistence.ts](/Users/devisjjones/Documents/tinychok/server/src/jsonFilePersistence.ts)
+- source-of-truth helper-ы:
+  - `persistJsonFileValue`
+  - `createCoalescedJsonFilePersistence`
+- [server/src/store.ts](/Users/devisjjones/Documents/tinychok/server/src/store.ts) должен только вызывать этот helper, а не возвращаться к hand-written параллельным `writeFile`
+- write-contract для file-mode теперь такой:
+  - параллельные записи коалесцируются
+  - побеждает последний queued snapshot
+  - helper не должен оставлять гонки между соседними persist-циклами
+- если меняется этот слой, обязательно обновлять:
+  - [server/src/json-file-persistence.test.ts](/Users/devisjjones/Documents/tinychok/server/src/json-file-persistence.test.ts)
+  - [server/src/release-gate-contracts.test.ts](/Users/devisjjones/Documents/tinychok/server/src/release-gate-contracts.test.ts), если меняется сам gate
 
 ### Video Note Composer Contract
 

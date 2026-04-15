@@ -94,7 +94,6 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 - group message send / retry
 - channel post send
 - thread comment send
-- realtime connected / disconnected / error
 - consent and selected product actions
 - browser notification prompt / enable flow
 - premium funnel with month/year split
@@ -117,7 +116,6 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 - `gif_deleted`
 - `gif_search_used`
 - `gif_added_from_viewer`
-- `gif_upload_monthly_limit_reached`
 - `photo_attachment_selected`
 - `photo_upload_failed`
 - `image_viewer_opened`
@@ -140,7 +138,7 @@ TINYCHOK_ANALYTICS_MAX_BATCH_SIZE=20
 
 ## What Must Happen Before Production-Ready Rollout
 
-- analytics нужен не только `log` sink, а нормальный ingestion target
+- analytics runtime уже поддерживает `clickhouse` sink; production/staging cutover всё ещё требует применить `server/sql/yandex-clickhouse-analytics.sql` и заполнить live env keys
 - captcha на staging уже включена и работает через SmartCaptcha widget; production rollout всё ещё требует отдельной проверки live-доменов и ключей
 - support footer на auth-экране должен оставаться видимым, чтобы пользователь мог написать на `tinychok.help@yandex.com`, если login сломан
 - transport metrics должны покрывать retries, fallback path и delete consistency

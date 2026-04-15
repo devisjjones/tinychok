@@ -132,5 +132,5 @@
 
 - staging `Yandex Metrica` уже подключена к user frontend через runtime counter id;
 - production counter id и отдельный production набор goals пока не включены;
-- production analytics sink для внутреннего `POST /api/analytics/events` по-прежнему остаётся `log`/transitional;
+- кодовый runtime уже поддерживает `clickhouse` sink для внутреннего `POST /api/analytics/events`, но live env и schema cutover для production ещё надо включить отдельно;
 - локальный resolver `127.0.0.53` на VM может продолжать кэшировать старый `NXDOMAIN`, поэтому для свежих DNS-проверок надёжнее спрашивать внешний resolver.

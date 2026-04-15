@@ -43,7 +43,7 @@ export type AppSnapshot = {
 
 export type CaptchaProvider = 'disabled' | 'turnstile' | 'smartcaptcha'
 
-export type AnalyticsProvider = 'disabled' | 'log'
+export type AnalyticsProvider = 'disabled' | 'log' | 'clickhouse'
 
 export type AdminPermission =
   | 'admin.access'

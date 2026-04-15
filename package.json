@@ -23,7 +23,7 @@
     "test": "node --test --import tsx server/src/*.test.ts",
     "audit:release": "npm audit --audit-level=high",
     "verify:staging-dist": "node scripts/verify-staging-dist.mjs",
-    "verify:staging-runtime": "node scripts/verify-release-runtime.mjs --client-config-url https://api.staging.tinychok.ru/api/client-config --health-url https://api.staging.tinychok.ru/healthz --ready-url https://api.staging.tinychok.ru/readyz --require-analytics --expected-metrica-counter-id 108249405"
+    "verify:staging-runtime": "node scripts/verify-release-runtime.mjs --client-config-url https://api.staging.tinychok.ru/api/client-config --health-url https://api.staging.tinychok.ru/healthz --ready-url https://api.staging.tinychok.ru/readyz --require-analytics --expected-metrica-counter-id 108249405 --expected-analytics-provider ${TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-log}"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1013.0",

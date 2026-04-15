@@ -12,9 +12,16 @@ function hasFlag(flag) {
 
 const targetUrl = readFlag('--url')
 const requireAnalytics = hasFlag('--require-analytics')
+const expectedAnalyticsProvider = readFlag('--expected-analytics-provider') ?? 'log'
 
 if (!targetUrl) {
   throw new Error('Missing required --url for runtime config verification.')
+}
+
+if (!['log', 'clickhouse'].includes(expectedAnalyticsProvider)) {
+  throw new Error(
+    `Expected --expected-analytics-provider to be "log" or "clickhouse", got ${String(expectedAnalyticsProvider)}.`,
+  )
 }
 
 const response = await fetch(targetUrl, {
@@ -38,8 +45,10 @@ if (requireAnalytics) {
     )
   }
 
-  if (analytics.provider !== 'log') {
-    throw new Error(`Runtime config analytics.provider must stay "log", got ${String(analytics.provider)}.`)
+  if (analytics.provider !== expectedAnalyticsProvider) {
+    throw new Error(
+      `Runtime config analytics.provider mismatch. Expected "${expectedAnalyticsProvider}", got ${String(analytics.provider)}.`,
+    )
   }
 
   if (!Number.isInteger(analytics.metricaCounterId) || analytics.metricaCounterId <= 0) {

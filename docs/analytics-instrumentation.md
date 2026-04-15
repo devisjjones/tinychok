@@ -1,6 +1,6 @@
 # Analytics Instrumentation
 
-Подробная схема текущей аналитики Tinychok по состоянию на `2026-03-27`.
+Подробная схема текущей аналитики Tinychok по состоянию на `2026-04-15`.
 
 ## Runtime Model
 
@@ -25,6 +25,9 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
     - `internal-batch-sent`
     - `internal-batch-requeued`
   - выключение: `?analytics_debug=0`
+- для ClickHouse / DataLens product-открытие приложения считается отдельным event `app_opened`
+  - он отправляется один раз на открытие авторизованного Tinychok
+  - это отдельный слой от Metrica pageview, чтобы можно было честно резать открытия по `deviceType`
 
 ## SPA Tracking
 
@@ -71,6 +74,10 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 
 - `analytics_consent_granted`
 
+### Navigation
+
+- `app_opened`
+
 ### Auth
 
 - `auth_captcha_completed`
@@ -106,28 +113,41 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 
 - `direct_message_send_succeeded`
 - `direct_message_send_failed`
-- `direct_message_retry_started`
-- `direct_message_retry_failed`
+- `direct_message_deleted_me`
+- `direct_message_deleted_everyone`
 - `group_message_send_succeeded`
 - `group_message_send_failed`
-- `group_message_retry_started`
-- `group_message_retry_failed`
+- `group_message_deleted`
 - `channel_post_send_succeeded`
 - `channel_post_send_failed`
+- `channel_post_deleted`
 - `thread_comment_send_succeeded`
 - `thread_comment_send_failed`
+- `thread_comment_deleted`
 
-### Realtime
+### Threads / Support
 
-- `realtime_connected`
-- `realtime_disconnected`
-- `realtime_error`
+- `thread_inbox_opened`
+- `thread_opened`
+- `support_ticket_created`
+- `support_ticket_reply_sent`
+- `support_ticket_resolved`
 
 ### Settings
 
 - `profile_settings_saved`
 - `group_settings_saved`
 - `channel_settings_saved`
+- `theme_switched`
+- `quiet_settings_opened`
+- `quiet_settings_changed`
+- `quiet_settings_locked_interaction`
+- `quiet_mode_enabled`
+- `quiet_mode_disabled`
+- `forced_invisible_mode_enabled`
+- `forced_invisible_mode_disabled`
+- `storage_manager_opened`
+- `storage_file_deleted`
 
 ### Media
 
@@ -135,10 +155,27 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `gif_deleted`
 - `gif_search_used`
 - `gif_added_from_viewer`
-- `gif_upload_monthly_limit_reached`
 - `photo_attachment_selected`
 - `photo_upload_failed`
+- `video_attachment_selected`
+- `video_upload_failed`
+- `file_attachment_selected`
+- `file_upload_failed`
+- `video_note_record_started`
+- `video_note_send_succeeded`
+- `video_note_send_failed`
 - `image_viewer_opened`
+- `video_viewer_opened`
+- `video_note_viewer_opened`
+
+### Search
+
+- `search_screen_opened`
+- `contact_search_used`
+- `contact_search_result_opened`
+- `channel_search_used`
+- `channel_search_result_opened`
+- `search_empty_result_shown`
 
 ### Notifications
 
@@ -162,12 +199,21 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 ### Entity Creation
 
 - `group_created`
+- `group_create_failed`
+- `group_deleted`
 - `channel_created`
+- `channel_create_failed`
+- `channel_deleted`
 
 ### Moderation / Support
 
 - `blacklist_add_confirmed`
 - `auth_support_email_clicked`
+
+### Legal
+
+- `legal_page_opened`
+- `legal_pdf_opened`
 
 ## Important Event Properties
 
@@ -178,15 +224,34 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `hasAttachment`
 - `hasReply`
 - `attachmentKind`
+- `presentation`
 
 `attachmentKind` нормализуется так:
 
 - `none`
 - `gif`
 - `image`
+- `video`
 - `file`
 
-Это позволяет в Метрике не плодить отдельные event names вроде `gif_sent_in_direct`, а резать отчёты по свойствам.
+`presentation` сейчас нормализуется так:
+
+- `regular`
+- `video-note`
+
+Обычные success-события по фото / видео / файлам не плодят отдельные event names. Они по-прежнему считаются через существующие send events (`direct_message_send_succeeded`, `group_message_send_succeeded`, `channel_post_send_succeeded`, `thread_comment_send_succeeded`) и режутся по `attachmentKind` + `presentation`.
+
+### App Open Events
+
+- `app_opened`
+  - `deviceType`
+  - `path`
+  - `surface`
+
+`deviceType` для `app_opened` сейчас нормализуется так:
+
+- `mobile`
+- `desktop`
 
 ### Auth Events
 
@@ -308,26 +373,14 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `gif_added_from_viewer`
   - `fileName`
   - `source`
-- `gif_upload_monthly_limit_reached`
-  - `fileName`
-  - `limit`
-  - `month`
-  - `source`
-  - `userIdentifier`
 
 `source` сейчас показывает, где произошёл action:
 
 - `local`
 - `server`
-
-`gif_upload_monthly_limit_reached` нужен для анти-абьюза общего GIF pool:
-
-- позволяет быстро увидеть, кто системно пытается заливать слишком много своих GIF в месяц
-- даёт `userIdentifier`, чтобы владельца можно было сразу найти в админке
-- помогает оценить, насколько часто скрытый лимит реально срабатывает и не душит ли обычных пользователей
 - `upload`
 
-### Photo / Viewer Events
+### Media / Viewer Events
 
 - `photo_attachment_selected`
   - `surface`
@@ -339,11 +392,51 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `mimeType`
   - `fileSize`
   - `reason`
+- `video_attachment_selected`
+  - `surface`
+  - `mimeType`
+  - `fileSize`
+- `video_upload_failed`
+  - `surface`
+  - `mimeType`
+  - `fileSize`
+  - `reason`
+- `file_attachment_selected`
+  - `surface`
+  - `fileKind`
+  - `fileSize`
+- `file_upload_failed`
+  - `surface`
+  - `fileKind`
+  - `fileSize`
+  - `reason`
+- `video_note_record_started`
+  - `roomKind`
+  - `source`
+- `video_note_send_succeeded`
+  - `durationBucket`
+  - `roomKind`
+  - `source`
+- `video_note_send_failed`
+  - `durationBucket`
+  - `roomKind`
+  - `source`
+  - `reason`
 - `image_viewer_opened`
   - `mimeType`
   - `size`
   - `isGif`
   - `allowDownload`
+- `video_viewer_opened`
+  - `mimeType`
+  - `size`
+  - `allowDownload`
+  - `roomKind`
+  - `source`
+- `video_note_viewer_opened`
+  - `allowDownload`
+  - `roomKind`
+  - `source`
 
 ### Browser Notifications
 
@@ -408,10 +501,122 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `memberCount`
   - `hasAvatar`
   - `threadsMode`
+- `group_create_failed`
+  - `memberCount`
+  - `reason`
+- `group_deleted`
+  - `deleteMode`
+  - `membersCount`
 - `channel_created`
   - `hasAvatar`
   - `threadsMode`
   - `visibility`
+- `channel_create_failed`
+  - `reason`
+  - `visibility`
+- `channel_deleted`
+  - `hadAvatar`
+  - `hadSubscribers`
+  - `visibility`
+
+### Search / Discovery Events
+
+- `search_screen_opened`
+  - `source`
+  - `topFilter`
+- `contact_search_used`
+  - `queryLength`
+  - `source`
+  - `topFilter`
+- `contact_search_result_opened`
+  - `resultSource`
+  - `source`
+  - `topFilter`
+- `channel_search_used`
+  - `queryLength`
+  - `source`
+  - `topFilter`
+- `channel_search_result_opened`
+  - `resultSource`
+  - `source`
+  - `topFilter`
+- `search_empty_result_shown`
+  - `queryLength`
+  - `source`
+  - `topFilter`
+
+`source` для поиска нормализуется так:
+
+- `contacts-tab`
+- `chats-tab`
+- `search-screen`
+
+`resultSource` нужен, чтобы различать:
+
+- `myContacts`
+- `globalResults`
+- `discoveryResults`
+- `subscribedPreview`
+- `managedPreview`
+
+### Quiet / Storage / Thread Events
+
+- `thread_inbox_opened`
+  - `source`
+- `thread_opened`
+  - `roomKind`
+  - `attachmentKind`
+  - `presentation`
+  - `hasAttachment`
+  - `hasReply`
+- `quiet_settings_opened`
+  - `hasPremium`
+  - `source`
+- `quiet_settings_changed`
+  - `enabled`
+  - `hasPremium`
+  - `settingKey`
+- `quiet_settings_locked_interaction`
+  - `hasPremium`
+  - `settingKey`
+  - `source`
+- `quiet_mode_enabled` / `quiet_mode_disabled`
+  - `hasPremium`
+  - `invisibilityEnabledAfterToggle`
+  - `source`
+- `forced_invisible_mode_enabled` / `forced_invisible_mode_disabled`
+  - `source`
+- `storage_manager_opened`
+  - `source`
+- `storage_file_deleted`
+  - `fileKind`
+  - `sizeBucket`
+  - `source`
+
+### Legal Events
+
+- `legal_page_opened`
+  - `document`
+  - `source`
+- `legal_pdf_opened`
+  - `document`
+  - `format`
+  - `source`
+
+Публичные legal-страницы сами поднимают analytics runtime через `GET /api/client-config`. Runtime boundary теперь остаётся explicit: backend provider должен быть явно задан как `log` или `clickhouse`, а live smoke-check обязан сверять его с ожидаемым sink через `scripts/verify-release-runtime.mjs --expected-analytics-provider ...`.
+
+## ClickHouse Sink
+
+- source of truth для ClickHouse schema: `server/sql/yandex-clickhouse-analytics.sql`
+- backend пишет batched events в единый table `tinychok_analytics.analytics_events`
+- обычные success-события по фото / видео / файлам по-прежнему считаются через existing send events + `attachmentKind`, без отдельного нового event name
+- если runtime переводится на `provider=clickhouse`, live env обязан содержать:
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_URL`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_DATABASE`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_TABLE`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_USER`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_PASSWORD`
+  - `TINYCHOK_ANALYTICS_CLICKHOUSE_TIMEOUT_MS`
 
 ## Yandex Metrica Goals
 
@@ -437,12 +642,8 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `auth_registration_failed`
 - `direct_message_send_succeeded`
 - `direct_message_send_failed`
-- `direct_message_retry_started`
-- `direct_message_retry_failed`
 - `group_message_send_succeeded`
 - `group_message_send_failed`
-- `group_message_retry_started`
-- `group_message_retry_failed`
 - `channel_post_send_succeeded`
 - `channel_post_send_failed`
 - `thread_comment_send_succeeded`
@@ -454,7 +655,6 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `gif_deleted`
 - `gif_search_used`
 - `gif_added_from_viewer`
-- `gif_upload_monthly_limit_reached`
 - `photo_attachment_selected`
 - `photo_upload_failed`
 - `image_viewer_opened`
@@ -474,6 +674,47 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `premium_purchase_failed_year`
 - `group_created`
 - `channel_created`
+- `group_create_failed`
+- `group_deleted`
+- `channel_create_failed`
+- `channel_deleted`
+- `support_ticket_created`
+- `support_ticket_reply_sent`
+- `support_ticket_resolved`
+- `thread_inbox_opened`
+- `thread_opened`
+- `direct_message_deleted_me`
+- `direct_message_deleted_everyone`
+- `group_message_deleted`
+- `channel_post_deleted`
+- `thread_comment_deleted`
+- `theme_switched`
+- `quiet_settings_opened`
+- `quiet_settings_changed`
+- `quiet_settings_locked_interaction`
+- `quiet_mode_enabled`
+- `quiet_mode_disabled`
+- `forced_invisible_mode_enabled`
+- `forced_invisible_mode_disabled`
+- `storage_manager_opened`
+- `storage_file_deleted`
+- `video_attachment_selected`
+- `video_upload_failed`
+- `file_attachment_selected`
+- `file_upload_failed`
+- `video_note_record_started`
+- `video_note_send_succeeded`
+- `video_note_send_failed`
+- `video_viewer_opened`
+- `video_note_viewer_opened`
+- `search_screen_opened`
+- `contact_search_used`
+- `contact_search_result_opened`
+- `channel_search_used`
+- `channel_search_result_opened`
+- `search_empty_result_shown`
+- `legal_page_opened`
+- `legal_pdf_opened`
 
 На staging goals уже заведены вручную в интерфейсе Яндекс Метрики. Для production тот же список нужно создать отдельно в production counter: цели не копируются автоматически между счётчиками.
 
@@ -532,8 +773,6 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 
 Следующий слой после текущего:
 
-- `thread_comment_retry_started`
-- `thread_comment_retry_failed`
 - `premium_gift_started`
 - `premium_gift_succeeded`
 - `group_invite_sent`

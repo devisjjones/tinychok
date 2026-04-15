@@ -1,12 +1,26 @@
 import type { FastifyBaseLogger } from 'fastify'
 import type { AnalyticsBatchBody, AnalyticsEvent } from '../../src/shared/analytics'
 import { analyticsEventCatalog } from '../../src/shared/analytics'
+import { writeClickHouseAnalyticsBatch } from './clickhouseAnalytics'
 import { runtimeConfig } from './config'
+
+type AnalyticsCategory = (typeof analyticsEventCatalog)[keyof typeof analyticsEventCatalog]['category']
 
 type AnalyticsRequestContext = {
   identifier?: string | null
   ip?: string
   userAgent?: string
+}
+
+type SanitizedAnalyticsEvent = {
+  category: AnalyticsCategory
+  identifier: string | null
+  ip: string | null
+  name: AnalyticsEvent['name']
+  occurredAt: string
+  properties: ReturnType<typeof sanitizeEventProperties>
+  source: AnalyticsEvent['source']
+  userAgent: string | null
 }
 
 function sanitizeScalar(value: unknown) {
@@ -21,24 +35,29 @@ function sanitizeScalar(value: unknown) {
   return null
 }
 
+function sanitizeEventProperties(event: AnalyticsEvent) {
+  return Object.fromEntries(
+    Object.entries(event.properties ?? {}).slice(0, 32).map(([key, value]) => [key, sanitizeScalar(value)]),
+  )
+}
+
 function sanitizeEvent(event: AnalyticsEvent, context: AnalyticsRequestContext) {
-  if (!(event.name in analyticsEventCatalog)) {
+  const catalogEntry = analyticsEventCatalog[event.name]
+
+  if (!catalogEntry) {
     throw new Error('Неизвестное имя analytics event.')
   }
 
-  const properties = Object.fromEntries(
-    Object.entries(event.properties ?? {}).slice(0, 32).map(([key, value]) => [key, sanitizeScalar(value)]),
-  )
-
   return {
+    category: catalogEntry.category,
     identifier: context.identifier ?? null,
     ip: context.ip ?? null,
     name: event.name,
     occurredAt: event.occurredAt,
-    properties,
+    properties: sanitizeEventProperties(event),
     source: event.source,
     userAgent: context.userAgent ?? null,
-  }
+  } satisfies SanitizedAnalyticsEvent
 }
 
 export function parseAnalyticsBatch(body: unknown) {
@@ -67,5 +86,16 @@ export async function ingestAnalyticsBatch(
     for (const event of sanitizedEvents) {
       logger.info({ analyticsEvent: event }, 'analytics.event')
     }
+
+    return
+  }
+
+  if (runtimeConfig.analytics.provider === 'clickhouse') {
+    await writeClickHouseAnalyticsBatch(
+      logger,
+      runtimeConfig.analytics.clickhouse,
+      runtimeConfig.environment,
+      sanitizedEvents,
+    )
   }
 }
