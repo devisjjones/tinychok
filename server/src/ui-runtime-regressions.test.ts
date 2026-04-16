@@ -4083,7 +4083,14 @@ test('support chat contract stays wired through app, store, admin surface and do
   assert.match(appCss, /@media[\s\S]*\.settings-support-composer \.composer-tools\s*\{[\s\S]*right:\s*14px;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.composer textarea\s*\{[\s\S]*padding:\s*13px 126px 16px 14px;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.composer-tools\s*\{[\s\S]*right:\s*7px;[\s\S]*gap:\s*6px;/u)
-  assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.composer textarea\s*\{[\s\S]*padding:\s*13px 116px 16px 14px;/u)
+  assert.match(
+    appCss,
+    /@media \(max-width: 560px\) \{[\s\S]*\.composer:not\(\.settings-support-composer\) textarea\s*\{[\s\S]*min-height:\s*46px;[\s\S]*padding:\s*10px 112px 10px 14px;/u,
+  )
+  assert.match(
+    appCss,
+    /@media \(max-width: 420px\) \{[\s\S]*\.composer:not\(\.settings-support-composer\) textarea\s*\{[\s\S]*min-height:\s*44px;[\s\S]*padding:\s*10px 108px 10px 13px;/u,
+  )
   assert.match(appCss, /\.support-ticket-status-badge-resolved/u)
   assert.match(appCss, /\.settings-support-chat-button\s*\{/u)
   assert.match(appCss, /\.settings-support-chat-badge\s*\{[^}]*position:\s*static;/u)
@@ -4619,7 +4626,14 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(appCss, /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\)\s+\.composer-tools\s*\{[\s\S]*top:\s*50%;[\s\S]*transform:\s*translateY\(-50%\);/u)
   assert.match(appCss, /\.composer-field\.composer-field-expanded\s+\.composer-tools,[\s\S]*\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*bottom:\s*8px;[\s\S]*transform:\s*none;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.composer textarea\s*\{[\s\S]*padding:\s*13px 126px 16px 14px;/u)
-  assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.composer textarea\s*\{[\s\S]*padding:\s*13px 116px 16px 14px;/u)
+  assert.match(
+    appCss,
+    /@media \(max-width: 560px\) \{[\s\S]*\.composer:not\(\.settings-support-composer\) textarea\s*\{[\s\S]*min-height:\s*46px;[\s\S]*padding:\s*10px 112px 10px 14px;/u,
+  )
+  assert.match(
+    appCss,
+    /@media \(max-width: 420px\) \{[\s\S]*\.composer:not\(\.settings-support-composer\) textarea\s*\{[\s\S]*min-height:\s*44px;[\s\S]*padding:\s*10px 108px 10px 13px;/u,
+  )
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.emoji-picker\s*\{[\s\S]*position:\s*static;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.emoji-picker-popover\s*\{[\s\S]*left:\s*auto;[\s\S]*right:\s*0;[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 24px\)\);[\s\S]*max-width:\s*calc\(100vw - 24px\);/u)
   assert.match(appCss, /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\)\s+\.composer-send\s*\{[\s\S]*margin-bottom:\s*0;/u)
@@ -5090,10 +5104,18 @@ test('narrow mobile view keeps settings, room headers and admin panels from over
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.chat-topline-meta,\s*[\s\S]*font-variant-numeric:\s*tabular-nums;[\s\S]*font-feature-settings:\s*"tnum" 1;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.contacts-filters\s*\{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/u)
   assert.match(appCss, /\.composer-attachment-preview-status\.error\s*\{[\s\S]*white-space:\s*normal;[\s\S]*overflow:\s*visible;[\s\S]*text-overflow:\s*clip;[\s\S]*line-height:\s*1\.35;/u)
+  assert.match(
+    appCss,
+    /@media \(max-width: 560px\) \{[\s\S]*\.composer:not\(\.settings-support-composer\) textarea\s*\{[\s\S]*min-height:\s*46px;[\s\S]*padding:\s*10px 112px 10px 14px;/u,
+  )
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.composer-attachment-preview\s*\{[\s\S]*gap:\s*10px;[\s\S]*padding-right:\s*10px;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.composer-attachment-preview-copy\s*\{[\s\S]*gap:\s*6px;[\s\S]*padding:\s*12px 0;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.composer-attachment-preview-title-row\s*\{[\s\S]*min-height:\s*34px;[\s\S]*padding-right:\s*44px;/u)
   assert.match(appCss, /@media \(max-width: 560px\) \{[\s\S]*\.composer-attachment-preview-clear\s*\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*10px;[\s\S]*right:\s*10px;[\s\S]*align-self:\s*auto;[\s\S]*width:\s*34px;[\s\S]*min-width:\s*34px;[\s\S]*height:\s*34px;[\s\S]*z-index:\s*1;/u)
+  assert.match(
+    appCss,
+    /@media \(max-width: 420px\) \{[\s\S]*\.composer:not\(\.settings-support-composer\) textarea\s*\{[\s\S]*min-height:\s*44px;[\s\S]*padding:\s*10px 108px 10px 13px;/u,
+  )
   assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.room-header\s*\{[\s\S]*padding:\s*8px 8px 7px;[\s\S]*grid-template-columns:\s*26px minmax\(0,\s*1fr\) auto;[\s\S]*gap:\s*5px;/u)
   assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.room-actions\s*\{[\s\S]*gap:\s*4px;[\s\S]*margin-right:\s*-2px;/u)
   assert.match(appCss, /@media \(max-width: 420px\) \{[\s\S]*\.room-mobile-back\s*\{[\s\S]*min-width:\s*26px;[\s\S]*height:\s*44px;[\s\S]*margin-left:\s*-2px;/u)
@@ -5221,6 +5243,7 @@ test('dark theme toggle persists in session snapshots and ships a gray dark-surf
   assert.match(appCss, /html\[data-theme='dark'\] \.settings-inline-copy-button img,/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.settings-actions \.icon-button img,/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.storage-usage-upsell-icon img,/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.channel-title-edit img,/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.browser-notification-banner-dismiss img,/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.chat-star img,/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.contact-request-card-icon img,/u)

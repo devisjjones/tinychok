@@ -9822,6 +9822,11 @@
     border-radius: 14px;
   }
 
+  .composer:not(.settings-support-composer) textarea {
+    min-height: 46px;
+    padding: 10px 112px 10px 14px;
+  }
+
   .composer-tools {
     min-height: 44px;
   }
@@ -9957,8 +9962,9 @@
     gap: 5px;
   }
 
-  .composer textarea {
-    padding: 13px 116px 16px 14px;
+  .composer:not(.settings-support-composer) textarea {
+    min-height: 44px;
+    padding: 10px 108px 10px 13px;
   }
 
   .room-header {
@@ -10886,6 +10892,7 @@ html[data-theme='dark'] .settings-action-card-icon img,
 html[data-theme='dark'] .settings-inline-copy-button img,
 html[data-theme='dark'] .settings-actions .icon-button img,
 html[data-theme='dark'] .storage-usage-upsell-icon img,
+html[data-theme='dark'] .channel-title-edit img,
 html[data-theme='dark'] .room-owner-edit-badge img,
 html[data-theme='dark'] .chat-owner-edit-badge img,
 html[data-theme='dark'] .chat-crown img,
