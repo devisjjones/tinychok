@@ -184,10 +184,11 @@ import {
   validateGifUploadFile,
 } from './app/gifLibrary'
 import {
-  isPasswordLoginCaptchaRequiredMessage,
   isPasswordLoginBlockedMessage,
   isPasswordLoginRateLimitedMessage,
   mapAuthAnalyticsFlow,
+  normalizePasswordLoginFailureMessage,
+  shouldActivatePasswordLoginCaptcha,
   type UserAuthAnalyticsFlow,
 } from './app/authAnalytics'
 import {
@@ -6134,9 +6135,10 @@ function App() {
       setPasswordLoginCaptchaRequired(false)
       trackAnalyticsEvent('auth_password_login_succeeded', {})
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Не удалось войти по паролю.'
+      const rawMessage = error instanceof Error ? error.message : 'Не удалось войти по паролю.'
+      const message = normalizePasswordLoginFailureMessage(rawMessage)
       setAuthError(message)
-      if (isPasswordLoginCaptchaRequiredMessage(message)) {
+      if (shouldActivatePasswordLoginCaptcha(rawMessage)) {
         setPasswordLoginCaptchaRequired(true)
         trackAnalyticsEvent('auth_password_login_captcha_required', {
           reason: message,
@@ -14818,6 +14820,7 @@ function App() {
             setAuthCodeFlow('registration')
             setAuthPassword('')
             setAuthPasswordConfirm('')
+            setPasswordLoginCaptchaRequired(false)
           }}
           onPasswordChange={(value) => {
             setAuthPassword(value)

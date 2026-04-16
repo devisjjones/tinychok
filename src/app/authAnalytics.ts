@@ -4,6 +4,7 @@ export const passwordLoginBlockedMessage =
   'Вход временно заблокирован после нескольких неудачных попыток. Повторите позже.'
 export const passwordLoginRateLimitedMessage =
   'Слишком много неудачных попыток входа. Повторите позже.'
+export const captchaVerificationRequiredMessage = 'Подтвердите, что вы не робот.'
 export const passwordLoginCaptchaRequiredMessage =
   'Подтвердите, что вы не робот, чтобы продолжить вход по паролю.'
 
@@ -21,4 +22,18 @@ export function isPasswordLoginRateLimitedMessage(message: string) {
 
 export function isPasswordLoginCaptchaRequiredMessage(message: string) {
   return message.trim() === passwordLoginCaptchaRequiredMessage
+}
+
+export function shouldActivatePasswordLoginCaptcha(message: string) {
+  const trimmedMessage = message.trim()
+  return (
+    trimmedMessage === captchaVerificationRequiredMessage ||
+    trimmedMessage === passwordLoginCaptchaRequiredMessage
+  )
+}
+
+export function normalizePasswordLoginFailureMessage(message: string) {
+  return shouldActivatePasswordLoginCaptcha(message)
+    ? passwordLoginCaptchaRequiredMessage
+    : message.trim()
 }
