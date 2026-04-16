@@ -5166,6 +5166,16 @@
   right: auto;
   bottom: auto;
   max-width: none;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.bubble-attachment-video-note-meta > .bubble-attachment-image-overlay .bubble-attachment-image-indicator-light {
+  filter: var(--icon-filter);
 }
 
 .bubble-attachment-video-note-footer {

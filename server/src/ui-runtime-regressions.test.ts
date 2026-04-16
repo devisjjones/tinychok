@@ -6735,7 +6735,11 @@ test('video-note messages render as standalone circles without a rectangular med
   )
   assert.match(
     appCss,
-    /\.bubble-attachment-video-note-meta > \.bubble-attachment-image-overlay\s*\{[\s\S]*position:\s*static;[\s\S]*right:\s*auto;[\s\S]*bottom:\s*auto;/u,
+    /\.bubble-attachment-video-note-meta > \.bubble-attachment-image-overlay\s*\{[\s\S]*position:\s*static;[\s\S]*right:\s*auto;[\s\S]*bottom:\s*auto;[\s\S]*padding:\s*0;[\s\S]*background:\s*transparent;[\s\S]*color:\s*var\(--muted\);[\s\S]*backdrop-filter:\s*none;[\s\S]*box-shadow:\s*none;/u,
+  )
+  assert.match(
+    appCss,
+    /\.bubble-attachment-video-note-meta > \.bubble-attachment-image-overlay \.bubble-attachment-image-indicator-light\s*\{[\s\S]*filter:\s*var\(--icon-filter\);/u,
   )
 })
 
