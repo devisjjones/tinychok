@@ -322,6 +322,7 @@ import { useCookieConsent } from './app/useCookieConsent'
 import { useDocumentTheme } from './app/useDocumentTheme'
 import {
   PENDING_ATTACHMENT_FINALIZING_PROGRESS,
+  preservePendingAttachmentPreview,
   type PendingAttachmentDraft,
   type PendingDirectMessage,
   type PendingGroupMessage,
@@ -8926,7 +8927,7 @@ function App() {
         ) {
           updatePendingDirectMessage(localId, (message) => ({
             ...message,
-            attachment: resolvedAttachment.attachment,
+            attachment: preservePendingAttachmentPreview(message.attachment, resolvedAttachment.attachment),
             attachmentDraft: resolvedAttachment.attachmentDraft,
           }))
         }
@@ -9090,16 +9091,16 @@ function App() {
           },
         )
 
-        if (
-          resolvedAttachment.attachmentDraft?.mediaUrl &&
-          resolvedAttachment.attachmentDraft.mediaUrl !== pendingMessage.attachmentDraft?.mediaUrl
-        ) {
-          updatePendingGroupMessage(localId, (message) => ({
-            ...message,
-            attachment: resolvedAttachment.attachment,
-            attachmentDraft: resolvedAttachment.attachmentDraft,
-          }))
-        }
+      if (
+        resolvedAttachment.attachmentDraft?.mediaUrl &&
+        resolvedAttachment.attachmentDraft.mediaUrl !== pendingMessage.attachmentDraft?.mediaUrl
+      ) {
+        updatePendingGroupMessage(localId, (message) => ({
+          ...message,
+          attachment: preservePendingAttachmentPreview(message.attachment, resolvedAttachment.attachment),
+          attachmentDraft: resolvedAttachment.attachmentDraft,
+        }))
+      }
 
         const response = await sendGroupMessageRequest(session.sessionToken, groupId, {
           attachment: resolvedAttachment.attachment,
@@ -9842,7 +9843,7 @@ function App() {
         ) {
           updatePendingDirectMessage(nextDirectMessage.localId, (message) => ({
             ...message,
-            attachment: resolvedAttachment.attachment,
+            attachment: preservePendingAttachmentPreview(message.attachment, resolvedAttachment.attachment),
             attachmentDraft: resolvedAttachment.attachmentDraft,
           }))
         }
@@ -9883,7 +9884,7 @@ function App() {
       ) {
         updatePendingGroupMessage(nextGroupMessage.localId, (message) => ({
           ...message,
-          attachment: resolvedAttachment.attachment,
+          attachment: preservePendingAttachmentPreview(message.attachment, resolvedAttachment.attachment),
           attachmentDraft: resolvedAttachment.attachmentDraft,
         }))
       }

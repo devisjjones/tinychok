@@ -69,6 +69,44 @@ function normalizeUploadProgress(progress: number | undefined) {
   return Math.min(PENDING_ATTACHMENT_FINALIZING_PROGRESS, Math.max(0, progress))
 }
 
+function isEphemeralAttachmentMediaUrl(mediaUrl: string | undefined) {
+  return typeof mediaUrl === 'string' && /^(blob:|data:)/u.test(mediaUrl)
+}
+
+function buildPersistablePendingAttachment(
+  attachmentDraft?: PendingAttachmentDraft,
+): Message['attachment'] | undefined {
+  if (!attachmentDraft?.mediaUrl) return undefined
+
+  return {
+    fileName: attachmentDraft.fileName,
+    height: attachmentDraft.height,
+    mediaUrl: attachmentDraft.mediaUrl,
+    mimeType: attachmentDraft.mimeType,
+    presentation: attachmentDraft.presentation,
+    size: attachmentDraft.size,
+    width: attachmentDraft.width,
+  }
+}
+
+export function preservePendingAttachmentPreview(
+  currentAttachment: Message['attachment'] | undefined,
+  nextAttachment: Message['attachment'] | undefined,
+) {
+  if (!currentAttachment || !nextAttachment) {
+    return nextAttachment
+  }
+
+  if (
+    isEphemeralAttachmentMediaUrl(currentAttachment.mediaUrl) &&
+    currentAttachment.mediaUrl !== nextAttachment.mediaUrl
+  ) {
+    return currentAttachment
+  }
+
+  return nextAttachment
+}
+
 function getFailedDirectMessagesStorageKey(identifier: string) {
   return `${failedDirectMessagesStorageKeyPrefix}:${identifier}`
 }
@@ -235,9 +273,14 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
 
     updatePendingDirectMessage(localId, (message) => {
       const shouldFail = Date.now() - Date.parse(message.queuedAt) >= DELIVERY_FAILURE_TIMEOUT_MS
+      const nextStatus = shouldFail ? 'failed' : 'pending'
 
       return {
         ...message,
+        attachment:
+          nextStatus === 'failed'
+            ? buildPersistablePendingAttachment(message.attachmentDraft) ?? message.attachment
+            : message.attachment,
         attachmentDraft: message.attachmentDraft
           ? {
               ...message.attachmentDraft,
@@ -245,7 +288,7 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
             }
           : message.attachmentDraft,
         retryCount: message.retryCount + 1,
-        status: shouldFail ? 'failed' : 'pending',
+        status: nextStatus,
       }
     })
 
@@ -287,9 +330,14 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
 
     updatePendingGroupMessage(localId, (message) => {
       const shouldFail = Date.now() - Date.parse(message.queuedAt) >= DELIVERY_FAILURE_TIMEOUT_MS
+      const nextStatus = shouldFail ? 'failed' : 'pending'
 
       return {
         ...message,
+        attachment:
+          nextStatus === 'failed'
+            ? buildPersistablePendingAttachment(message.attachmentDraft) ?? message.attachment
+            : message.attachment,
         attachmentDraft: message.attachmentDraft
           ? {
               ...message.attachmentDraft,
@@ -297,7 +345,7 @@ export function usePendingMessageOutbox(sessionIdentifier?: string) {
             }
           : message.attachmentDraft,
         retryCount: message.retryCount + 1,
-        status: shouldFail ? 'failed' : 'pending',
+        status: nextStatus,
       }
     })
 
