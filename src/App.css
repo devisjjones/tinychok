@@ -4790,7 +4790,7 @@
   align-self: center;
   align-items: center;
   gap: 10px;
-  margin: 2px auto 8px;
+  margin: 10px auto 12px;
   padding: 8px 14px;
   border-radius: 999px;
   background: rgba(255, 251, 245, 0.88);
@@ -4816,7 +4816,7 @@
   justify-content: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 4px auto 10px;
+  margin: 10px auto 12px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -5997,6 +5997,23 @@
 .group-room-feed > :first-child,
 .room-thread-feed > :first-child {
   margin-top: auto;
+}
+
+.direct-room-feed > .bubble-stack:has(.bubble-attachment-photo),
+.group-message-row:has(.bubble-attachment-photo),
+.thread-comment-row:has(.bubble-attachment-photo),
+.message-feed > .threaded-bubble.channel:has(.bubble-attachment-photo) {
+  padding-top: 4px;
+}
+
+.direct-room-feed > .bubble-stack:has(.bubble-attachment),
+.thread-comment-row:has(.bubble-attachment) {
+  padding-bottom: 4px;
+}
+
+.group-message-row:has(> .threaded-bubble:not(.has-thread)):has(.bubble-attachment),
+.message-feed > .threaded-bubble.channel:not(.has-thread):has(.bubble-attachment) {
+  padding-bottom: 4px;
 }
 
 .group-message-row,
@@ -8010,7 +8027,7 @@
 .direct-system-message {
   display: flex;
   justify-content: center;
-  margin: 6px 0 10px;
+  margin: 10px 0 12px;
 }
 
 .direct-system-message-label {

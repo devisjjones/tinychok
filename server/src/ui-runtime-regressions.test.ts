@@ -2797,6 +2797,27 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   )
 })
 
+test('system rows and attachment messages keep extra vertical breathing room in room feeds', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    appCss,
+    /\.direct-room-feed > \.bubble-stack:has\(\.bubble-attachment-photo\),\s*\.group-message-row:has\(\.bubble-attachment-photo\),\s*\.thread-comment-row:has\(\.bubble-attachment-photo\),\s*\.message-feed > \.threaded-bubble\.channel:has\(\.bubble-attachment-photo\) \{\s*padding-top:\s*4px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.direct-room-feed > \.bubble-stack:has\(\.bubble-attachment\),\s*\.thread-comment-row:has\(\.bubble-attachment\) \{\s*padding-bottom:\s*4px;/u,
+  )
+  assert.match(
+    appCss,
+    /\.group-message-row:has\(> \.threaded-bubble:not\(\.has-thread\)\):has\(\.bubble-attachment\),\s*\.message-feed > \.threaded-bubble\.channel:not\(\.has-thread\):has\(\.bubble-attachment\) \{\s*padding-bottom:\s*4px;/u,
+  )
+  assert.match(appCss, /\.channel-system-post \{[\s\S]*margin:\s*10px auto 12px;/u)
+  assert.match(appCss, /\.group-system-message \{[\s\S]*margin:\s*10px auto 12px;/u)
+  assert.match(appCss, /\.direct-system-message \{[\s\S]*margin:\s*10px 0 12px;/u)
+})
+
 test('text bubbles use inline meta so time does not force a separate footer row', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
