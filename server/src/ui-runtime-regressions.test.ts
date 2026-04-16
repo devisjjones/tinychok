@@ -2589,6 +2589,45 @@ test('selected message overlays anchor to the full author-strip layout and can n
   assert.match(appCss, /\.bubble-author-layout\.bubble-overlay-author-layout \{[\s\S]*gap:\s*3px;/u)
 })
 
+test('selected group and thread overlays keep the live author-chain contract instead of restoring hidden sender headers', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const overlaySource = readFileSync(join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'), 'utf8')
+
+  assert.match(
+    appSource,
+    /const activeGroupMessagePreviousMessage = resolvePreviousVisibleItem\([\s\S]*visibleGroupMessages,[\s\S]*activeGroupMessageId,[\s\S]*sameDayOnly: true[\s\S]*\)/u,
+  )
+  assert.match(
+    appSource,
+    /const shouldRenderActiveGroupMessageAuthorStrip = shouldRenderIncomingAuthorStrip\(\s*activeGroupMessage,\s*activeGroupMessagePreviousMessage,\s*\)/u,
+  )
+  assert.match(
+    appSource,
+    /<SelectedBubbleOverlay[\s\S]*kind="group"[\s\S]*showAuthor=\{shouldRenderActiveGroupMessageAuthorStrip\}/u,
+  )
+  assert.match(
+    appSource,
+    /const activeThreadCommentPreviousComment = resolvePreviousVisibleItem\([\s\S]*activeThreadComments,[\s\S]*threadCommentActionId,[\s\S]*\)/u,
+  )
+  assert.match(
+    appSource,
+    /const shouldRenderActiveThreadCommentAuthorStrip = shouldRenderIncomingAuthorStrip\(\s*activeThreadComment,\s*activeThreadCommentPreviousComment,\s*\)/u,
+  )
+  assert.match(
+    appSource,
+    /<SelectedBubbleOverlay[\s\S]*kind="thread-comment"[\s\S]*showAuthor=\{shouldRenderActiveThreadCommentAuthorStrip\}/u,
+  )
+  assert.match(
+    overlaySource,
+    /const authorNode = props\.showAuthor[\s\S]*renderGroupOverlayAuthor\(props\.mine,\s*props\.comment\.displayAuthor,\s*props\.participant\)[\s\S]*: null/u,
+  )
+  assert.match(
+    overlaySource,
+    /const groupOverlayAuthorNode =[\s\S]*props\.kind === 'group' && props\.showAuthor[\s\S]*renderGroupOverlayAuthor\(props\.message\.author === 'me',\s*props\.message\.displayAuthor,\s*props\.participant\)[\s\S]*: null/u,
+  )
+})
+
 test('group captioned media bubbles keep a dedicated author-safe layout in room and selected overlay', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')

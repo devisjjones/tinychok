@@ -42,6 +42,7 @@ type SelectedBubbleOverlayProps =
       onOpenExternalLink?: (url: string) => void
       onOpenPremiumUpsell?: () => void
       participant?: GroupParticipant | null
+      showAuthor: boolean
       uploadProgress?: number
     }
   | {
@@ -63,6 +64,7 @@ type SelectedBubbleOverlayProps =
       onOpenExternalLink?: (url: string) => void
       onOpenPremiumUpsell?: () => void
       participant?: GroupParticipant | null
+      showAuthor: boolean
     }
 
 function getOverlayPosition(anchor: ActionAnchor) {
@@ -198,7 +200,9 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     const shouldUseInlineTextMeta =
       !hasImageAttachment &&
       (props.comment.text.trim().length > 0 || Boolean(props.comment.attachment))
-    const authorNode = renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
+    const authorNode = props.showAuthor
+      ? renderGroupOverlayAuthor(props.mine, props.comment.displayAuthor, props.participant)
+      : null
     const shouldRenderExternalAuthor =
       Boolean(authorNode) && (!isImageOnlyBubble || isVideoNoteOnlyBubble)
     const compactOverlayClassName = ' bubble-overlay-compact'
@@ -292,7 +296,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
     ? stripMessageFormattingMarkup(props.message.text).trim()
     : ''
   const groupOverlayAuthorNode =
-    props.kind === 'group'
+    props.kind === 'group' && props.showAuthor
       ? renderGroupOverlayAuthor(props.message.author === 'me', props.message.displayAuthor, props.participant)
       : null
   const hasGroupCaptionedMediaHeader = isGroupCaptionedImageBubble && Boolean(groupOverlayAuthorNode)
@@ -473,9 +477,7 @@ export function SelectedBubbleOverlay(props: SelectedBubbleOverlayProps) {
       style={getOverlayPosition(props.anchor)}
       aria-hidden="true"
     >
-      <div className="bubble-author-strip">
-        {renderGroupOverlayAuthor(false, props.message.displayAuthor, props.participant)}
-      </div>
+      <div className="bubble-author-strip">{groupOverlayAuthorNode}</div>
       {bubbleNode}
     </div>
   ) : (

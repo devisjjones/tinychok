@@ -81,6 +81,7 @@ import { useGroupSettingsFlow } from './app/useGroupSettingsFlow'
 import { useRoomHistoryWindow } from './app/useRoomHistoryWindow'
 import { useRoomMessageActions } from './app/useRoomMessageActions'
 import { useThreadFlow, type ThreadTarget } from './app/useThreadFlow'
+import { getConversationDayKey } from './shared/utils'
 import {
   ApiError,
   fetchClientRuntimeConfig,
@@ -1080,6 +1081,38 @@ function filterUnconfirmedOutgoingItems<LocalItem, ConfirmedItem>(
     usedConfirmedIndexes.add(matchedIndex)
     return false
   })
+}
+
+function resolvePreviousVisibleItem<T extends { createdAt?: string; id: number }>(
+  items: T[],
+  targetId: number | null,
+  options?: {
+    sameDayOnly?: boolean
+  },
+) {
+  if (targetId === null) {
+    return null
+  }
+
+  const currentIndex = items.findIndex((item) => item.id === targetId)
+  if (currentIndex <= 0) {
+    return null
+  }
+
+  const currentItem = items[currentIndex]
+  const previousItem = items[currentIndex - 1]
+  if (!currentItem || !previousItem) {
+    return null
+  }
+
+  if (
+    options?.sameDayOnly &&
+    getConversationDayKey(previousItem.createdAt) !== getConversationDayKey(currentItem.createdAt)
+  ) {
+    return null
+  }
+
+  return previousItem
 }
 
 function getClientDeliveryId() {
@@ -2993,6 +3026,15 @@ function App() {
       : visibleGroupMessages.find((message) => message.id === activeGroupMessageId) ??
         activeGroup?.messages.find((message) => message.id === activeGroupMessageId) ??
         null
+  const activeGroupMessagePreviousMessage = resolvePreviousVisibleItem(
+    visibleGroupMessages,
+    activeGroupMessageId,
+    { sameDayOnly: true },
+  )
+  const shouldRenderActiveGroupMessageAuthorStrip = shouldRenderIncomingAuthorStrip(
+    activeGroupMessage,
+    activeGroupMessagePreviousMessage,
+  )
   const activeGroupMessageParticipant = resolveGroupParticipant(activeGroup, activeGroupMessage)
   const activeGroupWriteBlockReason = activeGroup
     ? (isRoomCommentsBlacklisted(activeGroup, session?.identifier)
@@ -3092,6 +3134,14 @@ function App() {
     threadCommentActionId === null
       ? null
       : activeThreadComments.find((comment) => comment.id === threadCommentActionId) ?? null
+  const activeThreadCommentPreviousComment = resolvePreviousVisibleItem(
+    activeThreadComments,
+    threadCommentActionId,
+  )
+  const shouldRenderActiveThreadCommentAuthorStrip = shouldRenderIncomingAuthorStrip(
+    activeThreadComment,
+    activeThreadCommentPreviousComment,
+  )
   const activeThreadCommentParticipant = resolveThreadCommentParticipant(activeThreadComment)
   const activeThreadCommentDialogAction = resolveParticipantDialogAction(activeThreadCommentParticipant)
   const activeThreadCommentAlreadyBlacklisted =
@@ -15728,6 +15778,7 @@ function App() {
                 onOpenExternalLink={requestOpenExternalLink}
                 onOpenPremiumUpsell={openPremiumUpsell}
                 participant={activeThreadCommentParticipant}
+                showAuthor={shouldRenderActiveThreadCommentAuthorStrip}
               />
             </Suspense>
           ) : null}
@@ -16527,6 +16578,7 @@ function App() {
             onOpenExternalLink={requestOpenExternalLink}
             onOpenPremiumUpsell={openPremiumUpsell}
             participant={activeGroupMessageParticipant}
+            showAuthor={shouldRenderActiveGroupMessageAuthorStrip}
             uploadProgress={activeGroupMessageUploadProgress ?? undefined}
           />
         </Suspense>
