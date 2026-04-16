@@ -370,7 +370,7 @@ test('attachment send paths reject unowned media urls and mark valid uploads lin
   )
 })
 
-test('legacy relative GIF library items still send after client-side media url normalization', async () => {
+test('legacy relative GIF library items still send across direct and group paths after client-side media url normalization', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
   const owner = createAccount('+79991110121')
@@ -396,24 +396,42 @@ test('legacy relative GIF library items still send after client-side media url n
   }))
 
   const opened = await store.openDirectDialog(ownerToken, { identifier: peer.identifier })
-  const result = await store.sendDirectMessage(ownerToken, opened.dialogId, {
-    attachment: {
-      fileName: 'party.gif',
-      height: 180,
-      mediaUrl: 'https://api.staging.tinychok.ru/uploads/user-gifs/party.gif',
-      mimeType: 'image/gif',
-      size: 4096,
-      width: 180,
-    },
+  const createdGroup = await store.createGroup(ownerToken, {
+    commentsEnabledForAll: true,
+    memberDialogIds: [opened.dialogId],
+    title: 'Legacy GIF Group',
+  })
+  const attachment = {
+    fileName: 'party.gif',
+    height: 180,
+    mediaUrl: 'https://api.staging.tinychok.ru/uploads/user-gifs/party.gif',
+    mimeType: 'image/gif' as const,
+    size: 4096,
+    width: 180,
+  }
+
+  const directResult = await store.sendDirectMessage(ownerToken, opened.dialogId, {
+    attachment,
+    text: '',
+  })
+  const groupResult = await store.sendGroupMessage(ownerToken, createdGroup.groupId, {
+    attachment,
     text: '',
   })
 
-  const sentMessage = result.snapshot.chats
+  const directMessage = directResult.snapshot.chats
     .find((chat) => chat.id === opened.dialogId)
     ?.messages.at(-1)
-  assert.ok(sentMessage?.attachment)
-  assert.equal(sentMessage.attachment?.mimeType, 'image/gif')
-  assert.equal(sentMessage.attachment?.mediaUrl, 'https://api.staging.tinychok.ru/uploads/user-gifs/party.gif')
+  const groupMessage = groupResult.snapshot.groups
+    .find((group) => group.id === createdGroup.groupId)
+    ?.messages.at(-1)
+
+  assert.ok(directMessage?.attachment)
+  assert.ok(groupMessage?.attachment)
+  assert.equal(directMessage.attachment?.mimeType, 'image/gif')
+  assert.equal(directMessage.attachment?.mediaUrl, attachment.mediaUrl)
+  assert.equal(groupMessage.attachment?.mimeType, 'image/gif')
+  assert.equal(groupMessage.attachment?.mediaUrl, attachment.mediaUrl)
 })
 
 test('attachment send paths keep long video filenames linkable after upload registration', async () => {

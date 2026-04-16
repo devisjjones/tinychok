@@ -6996,6 +6996,81 @@ test('free accounts can search and reuse existing GIFs but still cannot upload t
   )
 })
 
+test('premium gif uploads remain immediately reusable for direct and group messages after library registration', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const uploader = createAccount('+79990007221', {
+    premium: true,
+    premiumExpiresAt: '2099-05-01T00:00:00.000Z',
+  })
+  const peer = createAccount('+79990007222')
+  database.accounts.push(uploader, peer)
+
+  const uploaderToken = createSession(database, uploader.identifier, 'gif-upload-owner')
+  seedAcceptedContactLink(database, uploader.identifier, peer.identifier)
+  const dialogResponse = await store.openDirectDialog(uploaderToken, { identifier: peer.identifier })
+  const groupResponse = await store.createGroup(uploaderToken, {
+    commentsEnabledForAll: true,
+    memberDialogIds: [dialogResponse.dialogId],
+    title: 'GIF Upload Reuse',
+  })
+
+  const uploadUrl = 'https://api.staging.tinychok.ru/uploads/user-gifs/uploaded-party.gif'
+  await store.registerPendingMediaUpload(uploaderToken, {
+    fileName: 'uploaded-party.gif',
+    kind: 'user-gif',
+    mediaUrl: uploadUrl,
+    mimeType: 'image/gif',
+    size: 4096,
+    storageKey: 'user-gifs/uploaded-party.gif',
+  })
+
+  const registrationResult = await store.addUserGif(uploaderToken, {
+    createdAt: '2026-04-11T18:06:00.000Z',
+    fileName: 'uploaded-party.gif',
+    id: 'gif-uploaded-party',
+    mediaUrl: uploadUrl,
+    mimeType: 'image/gif',
+    size: 4096,
+    source: 'upload',
+    width: 240,
+    height: 240,
+  })
+
+  const uploadedGif = registrationResult.snapshot.session.gifLibrary?.[0]
+  assert.ok(uploadedGif)
+  assert.equal(uploadedGif.mediaUrl, uploadUrl)
+  assert.equal(getStoreDatabase(store).pendingMediaUploads.find((upload) => upload.mediaUrl === uploadUrl)?.linked, true)
+  assert.equal(getStoreDatabase(store).sharedGifs.find((gif) => gif.mediaUrl === uploadUrl)?.uploadedByIdentifier, uploader.identifier)
+
+  const directResult = await store.sendDirectMessage(uploaderToken, dialogResponse.dialogId, {
+    attachment: {
+      ...uploadedGif,
+    },
+    text: '',
+  })
+  const groupResult = await store.sendGroupMessage(uploaderToken, groupResponse.groupId, {
+    attachment: {
+      ...uploadedGif,
+    },
+    text: '',
+  })
+
+  const directMessage = directResult.snapshot.chats
+    .find((chat) => chat.id === dialogResponse.dialogId)
+    ?.messages.at(-1)
+  const groupMessage = groupResult.snapshot.groups
+    .find((group) => group.id === groupResponse.groupId)
+    ?.messages.at(-1)
+
+  assert.ok(directMessage?.attachment)
+  assert.ok(groupMessage?.attachment)
+  assert.equal(directMessage.attachment?.mimeType, 'image/gif')
+  assert.equal(directMessage.attachment?.mediaUrl, uploadUrl)
+  assert.equal(groupMessage.attachment?.mimeType, 'image/gif')
+  assert.equal(groupMessage.attachment?.mediaUrl, uploadUrl)
+})
+
 test('premium gif uploads stop at 100 items per month and keep the shared pool searchable', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
