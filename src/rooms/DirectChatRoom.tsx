@@ -13,6 +13,7 @@ import {
   formatMessageTimeLabel,
   formatMessagePreview,
   getConversationDayKey,
+  getOptimisticMessageRenderKey,
   isImageMimeType,
   isStandaloneEmojiMessageText,
   isVideoNoteAttachment,
@@ -721,11 +722,12 @@ export function DirectChatRoom({
           }
 
           const replyReference = message.replyTo
+          const messageRenderKey = getOptimisticMessageRenderKey(message)
           // Keep every room surface on the same createdAt-first time contract.
           const renderedMessageTime = formatMessageTimeLabel(message.createdAt, message.time)
 
           return (
-            <Fragment key={message.id}>
+            <Fragment key={messageRenderKey}>
               {index === 0 || previousMessageDayKey !== messageDayKey ? (
                 <ConversationDayDivider label={formatConversationDayLabel(message.createdAt)} />
               ) : null}

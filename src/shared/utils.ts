@@ -174,6 +174,11 @@ export function shouldShowDeliveryCaption(message: Pick<Message, 'text' | 'attac
   return formatMessagePreview(message).length >= 18
 }
 
+export function getOptimisticMessageRenderKey(message: Pick<Message, 'deliveryId' | 'id'>) {
+  const normalizedDeliveryId = message.deliveryId?.trim()
+  return normalizedDeliveryId ? `delivery:${normalizedDeliveryId}` : `message:${message.id}`
+}
+
 export function isMobileBrowserEnvironment() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return false

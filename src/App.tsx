@@ -321,6 +321,10 @@ import { ThreadedBubble } from './components/ThreadedBubble'
 import { useCookieConsent } from './app/useCookieConsent'
 import { useDocumentTheme } from './app/useDocumentTheme'
 import {
+  preserveMatchedOutgoingAttachmentPreview,
+  reconcileOutgoingItems,
+} from './app/outgoingMessageReconciliation'
+import {
   PENDING_ATTACHMENT_FINALIZING_PROGRESS,
   preservePendingAttachmentPreview,
   type PendingAttachmentDraft,
@@ -4653,13 +4657,14 @@ function App() {
       const queuedMessagesForChat = queuedMessagesByChatId.get(chat.id)
       if (!queuedMessagesForChat || queuedMessagesForChat.length === 0) return chat
 
-      const existingIds = new Set(chat.messages.map((message) => message.id))
-      const unconfirmedQueuedMessages = filterUnconfirmedOutgoingItems(
+      const reconciledMessages = reconcileOutgoingItems(
         queuedMessagesForChat,
         chat.messages,
         matchesOutgoingDirectMessage,
+        preserveMatchedOutgoingAttachmentPreview,
       )
-      const localMessages = unconfirmedQueuedMessages
+      const existingIds = new Set(reconciledMessages.confirmedItems.map((message) => message.id))
+      const localMessages = reconciledMessages.unconfirmedLocalItems
         .filter((message) => !existingIds.has(message.localId))
         .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
         .map((message) => ({
@@ -4676,7 +4681,7 @@ function App() {
 
       return {
         ...chat,
-        messages: [...chat.messages, ...localMessages],
+        messages: [...reconciledMessages.confirmedItems, ...localMessages],
       }
     })
   }, [pendingDirectMessagesRef])
@@ -4698,13 +4703,14 @@ function App() {
       const queuedMessagesForGroup = queuedMessagesByGroupId.get(group.id)
       if (!queuedMessagesForGroup || queuedMessagesForGroup.length === 0) return group
 
-      const existingIds = new Set(group.messages.map((message) => message.id))
-      const unconfirmedQueuedMessages = filterUnconfirmedOutgoingItems(
+      const reconciledMessages = reconcileOutgoingItems(
         queuedMessagesForGroup,
         group.messages,
         matchesOutgoingGroupMessage,
+        preserveMatchedOutgoingAttachmentPreview,
       )
-      const localMessages = unconfirmedQueuedMessages
+      const existingIds = new Set(reconciledMessages.confirmedItems.map((message) => message.id))
+      const localMessages = reconciledMessages.unconfirmedLocalItems
         .filter((message) => !existingIds.has(message.localId))
         .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
         .map((message) => ({
@@ -4720,7 +4726,7 @@ function App() {
 
       return {
         ...group,
-        messages: [...group.messages, ...localMessages],
+        messages: [...reconciledMessages.confirmedItems, ...localMessages],
       }
     })
   }, [pendingGroupMessagesRef])

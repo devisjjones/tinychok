@@ -30,6 +30,7 @@ export {
   formatSubscriptionChannelTime,
   formatUnreadBadgeCount,
   getEffectiveQuietModeSettings,
+  getOptimisticMessageRenderKey,
   getMessageAttachmentPresentation,
   getChannelVisibilityDescription,
   getChannelVisibilityLabel,

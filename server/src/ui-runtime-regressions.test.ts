@@ -2930,6 +2930,10 @@ test('pending attachment delivery keeps progress UI separate from failed-send ca
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
   const backendSource = readFileSync(join(repoRoot, 'src', 'app', 'backend.ts'), 'utf8')
+  const reconciliationSource = readFileSync(
+    join(repoRoot, 'src', 'app', 'outgoingMessageReconciliation.ts'),
+    'utf8',
+  )
   const outboxSource = readFileSync(join(repoRoot, 'src', 'app', 'usePendingMessageOutbox.ts'), 'utf8')
   const bubbleSource = readFileSync(join(repoRoot, 'src', 'components', 'BubbleMessageContent.tsx'), 'utf8')
   const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
@@ -2938,6 +2942,7 @@ test('pending attachment delivery keeps progress UI separate from failed-send ca
     join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'),
     'utf8',
   )
+  const sharedUtilsSource = readFileSync(join(repoRoot, 'src', 'shared', 'utils.ts'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
   assert.match(outboxSource, /uploadProgress\?: number/u)
@@ -2948,6 +2953,9 @@ test('pending attachment delivery keeps progress UI separate from failed-send ca
   assert.match(outboxSource, /export function preservePendingAttachmentPreview/u)
   assert.match(outboxSource, /isEphemeralAttachmentMediaUrl/u)
   assert.match(outboxSource, /buildPersistablePendingAttachment/u)
+  assert.match(reconciliationSource, /export function preserveMatchedOutgoingAttachmentPreview/u)
+  assert.match(reconciliationSource, /preservePendingAttachmentPreview\(localItem\.attachment,\s*confirmedItem\.attachment\)/u)
+  assert.match(reconciliationSource, /export function reconcileOutgoingItems/u)
   assert.match(outboxSource, /nextStatus === 'failed'[\s\S]*buildPersistablePendingAttachment\(message\.attachmentDraft\)/u)
   assert.match(outboxSource, /uploadProgress:\s*undefined/u)
   assert.match(backendSource, /type UploadMediaFileOptions = \{[\s\S]*onProgress\?: \(progress: number\) => void/u)
@@ -2963,9 +2971,16 @@ test('pending attachment delivery keeps progress UI separate from failed-send ca
   )
   assert.match(directRoomSource, /const messageUploadProgress =[\s\S]*getMessageUploadProgress\(message\.id\)/u)
   assert.match(groupRoomSource, /const messageUploadProgress =[\s\S]*getMessageUploadProgress\(message\.id\)/u)
+  assert.match(sharedUtilsSource, /export function getOptimisticMessageRenderKey/u)
+  assert.match(directRoomSource, /const messageRenderKey = getOptimisticMessageRenderKey\(message\)/u)
+  assert.match(groupRoomSource, /const messageRenderKey = getOptimisticMessageRenderKey\(message\)/u)
+  assert.match(directRoomSource, /<Fragment key=\{messageRenderKey\}>/u)
+  assert.match(groupRoomSource, /<Fragment key=\{messageRenderKey\}>/u)
   assert.match(appSource, /setPendingDirectMessageUploadProgress\(localId,\s*progress\)/u)
   assert.match(appSource, /setPendingGroupMessageUploadProgress\(localId,\s*progress\)/u)
   assert.match(appSource, /preservePendingAttachmentPreview\(message\.attachment,\s*resolvedAttachment\.attachment\)/u)
+  assert.match(appSource, /preserveMatchedOutgoingAttachmentPreview/u)
+  assert.match(appSource, /reconcileOutgoingItems\(/u)
   assert.match(appSource, /uploadProgress:\s*PENDING_ATTACHMENT_FINALIZING_PROGRESS/u)
   assert.match(bubbleSource, /uploadProgress\?: number/u)
   assert.match(bubbleSource, /const ATTACHMENT_UPLOAD_FINALIZING_PROGRESS = 0\.99/u)
