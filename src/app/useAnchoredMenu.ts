@@ -55,6 +55,27 @@ function getDesiredActionOverlayTop(anchor: ActionAnchor) {
   )
 }
 
+export function syncActionAnchorScroll(element: HTMLElement, anchor: ActionAnchor) {
+  const nextAnchor = getActionAnchor(element, anchor.align)
+  const desiredTop = getDesiredActionOverlayTop(anchor)
+  const scrollDelta = nextAnchor.top - desiredTop
+  const scrollContainer = element.closest<HTMLElement>('.message-feed')
+
+  if (!scrollContainer || Math.abs(scrollDelta) < 1) {
+    return false
+  }
+
+  const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight)
+  const nextScrollTop = Math.max(0, Math.min(maxScrollTop, scrollContainer.scrollTop + scrollDelta))
+
+  if (Math.abs(nextScrollTop - scrollContainer.scrollTop) < 1) {
+    return false
+  }
+
+  scrollContainer.scrollTop = nextScrollTop
+  return true
+}
+
 export function scheduleActionAnchor(
   element: HTMLElement,
   align: 'start' | 'end',
@@ -63,12 +84,8 @@ export function scheduleActionAnchor(
   window.requestAnimationFrame(() => {
     if (!element.isConnected) return
     const nextAnchor = getActionAnchor(element, align)
-    const desiredTop = getDesiredActionOverlayTop(nextAnchor)
-    const scrollDelta = nextAnchor.top - desiredTop
-    const scrollContainer = element.closest<HTMLElement>('.message-feed')
 
-    if (scrollContainer && Math.abs(scrollDelta) >= 1) {
-      scrollContainer.scrollTop += scrollDelta
+    if (syncActionAnchorScroll(element, nextAnchor)) {
       window.requestAnimationFrame(() => {
         if (!element.isConnected) return
         setAnchor(getActionAnchor(element, align))

@@ -2563,6 +2563,7 @@ test('standard group text bubbles render the author strip above the bubble inste
 
 test('selected message overlays anchor to the full author-strip layout and can nudge the feed instead of drifting', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
   const anchoredMenuSource = readFileSync(join(repoRoot, 'src', 'app', 'useAnchoredMenu.ts'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
 
@@ -2574,9 +2575,17 @@ test('selected message overlays anchor to the full author-strip layout and can n
   assert.match(anchoredMenuSource, /left: measureRect\.left,/u)
   assert.match(anchoredMenuSource, /width: measureRect\.width,/u)
   assert.match(anchoredMenuSource, /function getDesiredActionOverlayTop\(anchor: ActionAnchor\)/u)
+  assert.match(anchoredMenuSource, /export function syncActionAnchorScroll\(element: HTMLElement, anchor: ActionAnchor\)/u)
   assert.match(anchoredMenuSource, /const scrollContainer = element\.closest<HTMLElement>\('\.message-feed'\)/u)
-  assert.match(anchoredMenuSource, /scrollContainer\.scrollTop \+= scrollDelta/u)
+  assert.match(anchoredMenuSource, /const nextScrollTop = Math\.max\(0, Math\.min\(maxScrollTop, scrollContainer\.scrollTop \+ scrollDelta\)\)/u)
+  assert.match(anchoredMenuSource, /scrollContainer\.scrollTop = nextScrollTop/u)
+  assert.match(anchoredMenuSource, /if \(syncActionAnchorScroll\(element, nextAnchor\)\)/u)
   assert.match(anchoredMenuSource, /setAnchor\(getActionAnchor\(element, align\)\)/u)
+  assert.match(appSource, /syncActionAnchorScroll\(anchorElement,\s*anchor\)/u)
+  assert.match(appSource, /syncSelectedBubbleScroll\(`\[data-direct-message-id="\$\{activeMessage\.id\}"\]`, messageActionAnchor\)/u)
+  assert.match(appSource, /syncSelectedBubbleScroll\(`\[data-group-message-id="\$\{activeGroupMessage\.id\}"\]`, groupMessageActionAnchor\)/u)
+  assert.match(appSource, /syncSelectedBubbleScroll\(\s*`\[data-channel-post-id="\$\{activeSubscriptionPost\.id\}"\]`,\s*subscriptionPostActionAnchor,\s*\)/u)
+  assert.match(appSource, /syncSelectedBubbleScroll\(`\[data-thread-comment-id="\$\{activeThreadComment\.id\}"\]`, threadCommentActionAnchor\)/u)
   assert.match(appCss, /\.bubble-author-layout\.bubble-overlay-author-layout \{[\s\S]*gap:\s*3px;/u)
 })
 

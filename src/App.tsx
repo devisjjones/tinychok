@@ -244,7 +244,7 @@ import {
   type ActiveRoomReadTarget,
 } from './app/roomReadSync'
 import { useRoomFeedAutoScroll } from './app/useRoomFeedAutoScroll'
-import { scheduleActionAnchor, useAnchoredMenu } from './app/useAnchoredMenu'
+import { scheduleActionAnchor, syncActionAnchorScroll, useAnchoredMenu } from './app/useAnchoredMenu'
 import { useContactRequestsFlow } from './app/useContactRequestsFlow'
 import {
   formatMessagePreview,
@@ -3091,6 +3091,60 @@ function App() {
       ? isRoomCommentsBlacklisted(activeGroup, activeGroupMessageParticipant.identifier)
       : false
   const activeGroupMessageDialogAction = resolveParticipantDialogAction(activeGroupMessageParticipant)
+
+  useLayoutEffect(() => {
+    const messageFeed = messageFeedRef.current
+
+    if (!messageFeed) {
+      return
+    }
+
+    const syncSelectedBubbleScroll = (selector: string, anchor: typeof messageActionAnchor) => {
+      if (!anchor) {
+        return
+      }
+
+      const anchorElement = messageFeed.querySelector<HTMLElement>(selector)
+
+      if (!anchorElement) {
+        return
+      }
+
+      syncActionAnchorScroll(anchorElement, anchor)
+    }
+
+    if (messageActionAnchor && activeMessage) {
+      syncSelectedBubbleScroll(`[data-direct-message-id="${activeMessage.id}"]`, messageActionAnchor)
+    }
+
+    if (groupMessageActionAnchor && activeGroupMessage && !forwardingGroupMessageText) {
+      syncSelectedBubbleScroll(`[data-group-message-id="${activeGroupMessage.id}"]`, groupMessageActionAnchor)
+    }
+
+    if (subscriptionPostActionAnchor && activeSubscriptionPost && !forwardingSubscriptionPostText) {
+      syncSelectedBubbleScroll(
+        `[data-channel-post-id="${activeSubscriptionPost.id}"]`,
+        subscriptionPostActionAnchor,
+      )
+    }
+
+    if (threadCommentActionAnchor && activeThreadComment && !forwardingThreadCommentText) {
+      syncSelectedBubbleScroll(`[data-thread-comment-id="${activeThreadComment.id}"]`, threadCommentActionAnchor)
+    }
+  }, [
+    activeGroupMessage,
+    activeMessage,
+    activeSubscriptionPost,
+    activeThreadComment,
+    forwardingGroupMessageText,
+    forwardingSubscriptionPostText,
+    forwardingThreadCommentText,
+    groupMessageActionAnchor,
+    messageActionAnchor,
+    subscriptionPostActionAnchor,
+    threadCommentActionAnchor,
+  ])
+
   const activeThreadSourceLabel =
     threadTarget?.kind === 'group'
       ? activeGroup?.title ?? 'Группа'
