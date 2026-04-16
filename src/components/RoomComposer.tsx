@@ -11,7 +11,12 @@ import type {
 import React, { useLayoutEffect, useState } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
 import { insertComposerTextAtCursor, resizeComposerTextarea } from '../app/utils'
-import type { EditTarget, ReplyTarget, UserGifLibraryItem } from '../app/types'
+import type { EditTarget, GroupParticipant, ReplyTarget, UserGifLibraryItem } from '../app/types'
+import {
+  filterComposerMentionCandidates,
+  findComposerMentionMatch,
+  replaceComposerMentionMatch,
+} from '../shared/composerMentions'
 import { preserveComposerFocusOnPrimaryAction } from '../shared/utils'
 import { ComposerAttachmentPicker } from './ComposerAttachmentPicker'
 import { ComposerAttachmentPreview } from './ComposerAttachmentPreview'
@@ -48,6 +53,7 @@ type RoomComposerProps = {
   onSubmit: () => void | Promise<void>
   onToggleSendOriginal?: () => void
   onUploadGif?: (file: File) => Promise<void>
+  mentionCandidates?: GroupParticipant[]
   placeholder: string
   premiumUnlocked?: boolean
   editTarget?: EditTarget | null
@@ -93,6 +99,7 @@ export function RoomComposer({
   onSubmit,
   onToggleSendOriginal,
   onUploadGif,
+  mentionCandidates = [],
   placeholder,
   premiumUnlocked = false,
   editTarget = null,
@@ -109,6 +116,14 @@ export function RoomComposer({
   draftDisabled = false,
 }: RoomComposerProps) {
   const [composerExpanded, setComposerExpanded] = useState(false)
+  const [mentionCursorPosition, setMentionCursorPosition] = useState<number | null>(null)
+  const [mentionNavigationState, setMentionNavigationState] = useState<{
+    index: number
+    tokenKey: string | null
+  }>({
+    index: 0,
+    tokenKey: null,
+  })
   const hasComposerPayload = draft.trim().length > 0 || Boolean(attachmentDraft)
   const canOpenVideoNoteRecorder = Boolean(onOpenVideoNoteRecorder)
   const composerBanner = editTarget
@@ -128,6 +143,20 @@ export function RoomComposer({
           text: replyTarget.text,
         }
       : null
+  const activeMentionMatch =
+    mentionCursorPosition === null || mentionCandidates.length === 0 || draftDisabled
+      ? null
+      : findComposerMentionMatch(draft, mentionCursorPosition)
+  const mentionMenuCandidates = activeMentionMatch
+    ? filterComposerMentionCandidates(mentionCandidates, activeMentionMatch.query)
+    : []
+  const activeMentionTokenKey = activeMentionMatch
+    ? `${activeMentionMatch.rangeStart}:${activeMentionMatch.rangeEnd}:${activeMentionMatch.query}`
+    : null
+  const activeMentionIndex =
+    mentionNavigationState.tokenKey === activeMentionTokenKey && mentionMenuCandidates.length > 0
+      ? Math.min(mentionNavigationState.index, mentionMenuCandidates.length - 1)
+      : 0
 
   useLayoutEffect(() => {
     const textarea = draftInputRef.current
@@ -151,6 +180,61 @@ export function RoomComposer({
     event: ReactMouseEvent<HTMLButtonElement> | ReactPointerEvent<HTMLButtonElement>,
   ) {
     preserveComposerFocusOnPrimaryAction(draftInputRef.current, event)
+  }
+
+  function syncMentionCursorPosition(textarea: HTMLTextAreaElement) {
+    setMentionCursorPosition(textarea.selectionStart ?? draft.length)
+  }
+
+  function applyMentionCandidate(candidate: GroupParticipant) {
+    if (!activeMentionMatch) return
+
+    const { nextCursorPosition, nextValue } = replaceComposerMentionMatch(
+      draft,
+      activeMentionMatch,
+      candidate.nickname ?? '',
+    )
+    onDraftChange(nextValue)
+    setMentionCursorPosition(nextCursorPosition)
+
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      draftInputRef.current?.focus()
+      draftInputRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition)
+    })
+  }
+
+  function handleDraftKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionMenuCandidates.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setMentionNavigationState({
+          index: (activeMentionIndex + 1) % mentionMenuCandidates.length,
+          tokenKey: activeMentionTokenKey,
+        })
+        return
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setMentionNavigationState({
+          index: (activeMentionIndex - 1 + mentionMenuCandidates.length) % mentionMenuCandidates.length,
+          tokenKey: activeMentionTokenKey,
+        })
+        return
+      }
+
+      if ((event.key === 'Enter' || event.key === 'Tab') && mentionMenuCandidates[activeMentionIndex]) {
+        event.preventDefault()
+        applyMentionCandidate(mentionMenuCandidates[activeMentionIndex]!)
+        return
+      }
+    }
+
+    onKeyDown?.(event)
   }
 
   return (
@@ -208,11 +292,64 @@ export function RoomComposer({
               rows={1}
               value={draft}
               disabled={draftDisabled}
-              onChange={(event) => onDraftChange(event.target.value)}
-              onFocus={onDraftFocus}
+              onChange={(event) => {
+                onDraftChange(event.target.value)
+                syncMentionCursorPosition(event.currentTarget)
+              }}
+              onFocus={(event) => {
+                onDraftFocus?.()
+                syncMentionCursorPosition(event.currentTarget)
+              }}
+              onBlur={() => setMentionCursorPosition(null)}
               onPaste={onComposerPaste}
-              onKeyDown={onKeyDown}
+              onKeyDown={handleDraftKeyDown}
+              onClick={(event) => syncMentionCursorPosition(event.currentTarget)}
+              onSelect={(event) => syncMentionCursorPosition(event.currentTarget)}
             />
+            {mentionMenuCandidates.length > 0 ? (
+              <div className="composer-mention-popover" role="listbox" aria-label="Упоминания участников">
+                {mentionMenuCandidates.map((candidate, index) => {
+                  const isActive = index === activeMentionIndex
+                  const avatarFallback = candidate.title.trim().slice(0, 1).toUpperCase() || '@'
+
+                  return (
+                    <button
+                      key={candidate.identifier ?? candidate.nickname ?? candidate.title}
+                      type="button"
+                      className={`composer-mention-option${isActive ? ' active' : ''}`}
+                      role="option"
+                      aria-selected={isActive}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={() => applyMentionCandidate(candidate)}
+                    >
+                      <span
+                        className="avatar composer-mention-avatar"
+                        style={{ backgroundColor: candidate.accent }}
+                        aria-hidden="true"
+                      >
+                        {candidate.avatarImage ? (
+                          <img src={candidate.avatarImage} alt="" className="composer-mention-avatar-image" />
+                        ) : (
+                          avatarFallback
+                        )}
+                      </span>
+                      <span className="composer-mention-meta">
+                        <span className="composer-mention-title-row">
+                          <span className="composer-mention-title">{candidate.title}</span>
+                          {candidate.premium ? (
+                            <span className="premium-crown composer-mention-crown" aria-label="Премиум">
+                              <img src="/icons/crown64.png" alt="" />
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="composer-mention-nickname">@{candidate.nickname}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
             <div className="composer-tools">
               {showEmojiPicker ? (
                 <EmojiPicker

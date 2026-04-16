@@ -122,6 +122,7 @@ test('direct, group, channel and thread-support surfaces reuse the shared room c
 
   assert.match(groupSource, /import \{ RoomComposer \} from '\.\.\/components\/RoomComposer'/u)
   assert.match(groupSource, /<RoomComposer[\s\S]*onOpenVideoNoteRecorder=\{onOpenVideoNoteRecorder\}/u)
+  assert.match(groupSource, /<RoomComposer[\s\S]*mentionCandidates=\{mentionCandidates\}/u)
   assert.match(groupSource, /<RoomComposer[\s\S]*editTarget=\{editTarget\}/u)
   assert.match(groupSource, /<RoomComposer[\s\S]*onEditCancel=\{onEditCancel\}/u)
 
@@ -131,6 +132,7 @@ test('direct, group, channel and thread-support surfaces reuse the shared room c
   assert.match(channelSource, /<RoomComposer[\s\S]*onEditCancel=\{publisherOnEditCancel\}/u)
 
   assert.match(appSource, /<RoomComposer[\s\S]*onOpenVideoNoteRecorder=\{threadTarget\.kind !== 'support' \? openThreadVideoNoteRecorder : undefined\}/u)
+  assert.match(appSource, /<RoomComposer[\s\S]*mentionCandidates=\{activeThreadMentionCandidates\}/u)
   assert.match(appSource, /<RoomComposer[\s\S]*editTarget=\{threadEditTarget\}/u)
   assert.match(appSource, /<RoomComposer[\s\S]*onEditCancel=\{cancelThreadCommentEdit\}/u)
   assert.match(appSource, /<RoomComposer[\s\S]*className="settings-item settings-support-composer"/u)
@@ -146,6 +148,8 @@ test('room composer keeps mobile submit taps on the textarea instead of letting 
   assert.match(roomComposerSource, /function preserveDraftFocusOnPrimaryAction/u)
   assert.match(roomComposerSource, /onMouseDown=\{preserveDraftFocusOnPrimaryAction\}/u)
   assert.match(roomComposerSource, /onPointerDown=\{preserveDraftFocusOnPrimaryAction\}/u)
+  assert.match(roomComposerSource, /mentionCandidates\?: GroupParticipant\[\]/u)
+  assert.match(roomComposerSource, /composer-mention-popover/u)
   assert.match(
     directSource,
     /await Promise\.resolve\(onSubmit\(\)\)\s*if \(!shouldAutoFocusTextInputOnSceneOpen\(\)\) return/u,

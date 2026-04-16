@@ -121,6 +121,7 @@ type GroupRoomProps = {
   getMessageDeliveryIssue: (messageId: number) => 'pending' | 'failed' | null
   getMessageUploadProgress: (messageId: number) => number | null
   group: GroupPreview
+  mentionCandidates?: GroupParticipant[]
   messageFeedRef: RefObject<HTMLDivElement | null>
   visibleMessages: Message[]
   onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void | Promise<void>
@@ -173,6 +174,7 @@ export function GroupRoom({
   getMessageDeliveryIssue,
   getMessageUploadProgress,
   group,
+  mentionCandidates = [],
   messageFeedRef,
   visibleMessages,
   onAttachmentChange,
@@ -783,6 +785,7 @@ export function GroupRoom({
             draftInputRef={draftInputRef}
             gifLibrary={gifLibrary}
             gifSelectionBlockedReason={gifSelectionBlockedReason}
+            mentionCandidates={mentionCandidates}
             onAttachmentChange={onAttachmentChange}
             onAttachmentClear={onAttachmentClear}
             onAttachmentPreviewOpen={onAttachmentPreviewOpen}

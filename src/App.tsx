@@ -340,6 +340,7 @@ import type {
   UpdateSubscriptionChannelBody,
   UpdateSessionBody,
 } from './shared/backend'
+import { buildComposerMentionCandidates, buildThreadMentionCandidates } from './shared/composerMentions'
 import './App.css'
 
 const deliveryIndicatorIconPaths = [
@@ -2555,6 +2556,10 @@ function App() {
         .filter((identifier) => identifier.length > 0),
     )
   }, [activeGroup])
+  const groupMentionCandidates = useMemo(
+    () => buildComposerMentionCandidates(activeGroup?.participants ?? []),
+    [activeGroup],
+  )
   const filteredActiveGroupParticipants = (activeGroup?.participants ?? [])
     .filter((participant) => {
       const searchQuery = groupParticipantsSearchQuery.trim()
@@ -3038,6 +3043,19 @@ function App() {
       : threadTarget?.kind === 'channel'
         ? threadChannelPost?.threadComments ?? []
         : activeSupportTicket?.comments ?? []
+  const activeThreadMentionCandidates = useMemo(() => {
+    if (!threadTarget || threadTarget.kind === 'support') {
+      return []
+    }
+
+    return buildThreadMentionCandidates(
+      threadTarget.kind === 'group'
+        ? activeGroup?.participants ?? []
+        : currentSubscriptionChannel?.participants ?? [],
+      activeThreadComments,
+      resolveThreadCommentParticipant,
+    )
+  }, [activeGroup, activeThreadComments, currentSubscriptionChannel, resolveThreadCommentParticipant, threadTarget])
   const activeThreadCommentCount = activeThreadComments.length
   const activeThreadCommentLabel =
     activeThreadCommentCount % 10 === 1 && activeThreadCommentCount % 100 !== 11
@@ -15624,6 +15642,7 @@ function App() {
             draftInputRef={threadComposerInputRef}
             gifLibrary={session?.gifLibrary ?? []}
             gifSelectionBlockedReason={getGifSelectionBlockedReason(threadAttachmentDraft)}
+            mentionCandidates={activeThreadMentionCandidates}
             onAttachmentChange={handleThreadAttachmentChange}
             onAttachmentClear={clearThreadAttachmentDraft}
             onAttachmentPreviewOpen={
@@ -20614,6 +20633,7 @@ function App() {
             getMessageDeliveryIssue={getGroupMessageDeliveryIssue}
             getMessageUploadProgress={getGroupMessageUploadProgress}
             group={activeGroup}
+            mentionCandidates={groupMentionCandidates}
             messageFeedRef={messageFeedRef}
             onAttachmentChange={handleGroupAttachmentChange}
             onAttachmentClear={() => clearGroupAttachmentDraft(activeGroup.id)}

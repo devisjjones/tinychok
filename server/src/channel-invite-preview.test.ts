@@ -1998,6 +1998,141 @@ test('explicit channel thread subscription on an empty thread still gets unread 
   assert.equal(memberInboxItem?.unreadCount, 1)
 })
 
+test('group thread mention subscribes a tagged group member who was not yet following the thread', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79990006111')
+  const member = createAccount('+79990006112')
+  const third = createAccount('+79990006113')
+  member.nickname = 'mira'
+
+  database.accounts.push(owner, member, third)
+  const ownerToken = createSession(database, owner.identifier, 'group-thread-mention-owner')
+  const memberToken = createSession(database, member.identifier, 'group-thread-mention-member')
+  const thirdToken = createSession(database, third.identifier, 'group-thread-mention-third')
+
+  const memberDialog = await store.openDirectDialog(ownerToken, { identifier: member.identifier })
+  const thirdDialog = await store.openDirectDialog(ownerToken, { identifier: third.identifier })
+  const createdGroup = await store.createGroup(ownerToken, {
+    memberDialogIds: [memberDialog.dialogId, thirdDialog.dialogId],
+    title: 'Group thread mention subscribe',
+  })
+
+  const invitationMessages = database.dialogMessages.filter((message) => message.sourceGroup?.sharedId)
+  const memberSharedId = invitationMessages.find(
+    (message) => message.ownerIdentifier === member.identifier,
+  )?.sourceGroup?.sharedId
+  const thirdSharedId = invitationMessages.find(
+    (message) => message.ownerIdentifier === third.identifier,
+  )?.sourceGroup?.sharedId
+  assert.ok(memberSharedId)
+  assert.ok(thirdSharedId)
+
+  await store.joinGroupBySharedId(memberToken, memberSharedId!)
+  await store.joinGroupBySharedId(thirdToken, thirdSharedId!)
+
+  for (const groupCopy of database.groups.filter((group) => group.sharedId === memberSharedId)) {
+    groupCopy.commentsEnabledForAll = true
+  }
+
+  await store.sendGroupMessage(ownerToken, createdGroup.groupId, {
+    text: 'Root group thread mention target',
+  })
+
+  const memberGroup = store.getSnapshotByToken(memberToken)?.groups.find(
+    (group) => group.sharedId === memberSharedId,
+  )
+  const thirdGroup = store.getSnapshotByToken(thirdToken)?.groups.find(
+    (group) => group.sharedId === memberSharedId,
+  )
+  const memberRoot = memberGroup?.messages.find((message) => message.text === 'Root group thread mention target')
+  const thirdRoot = thirdGroup?.messages.find((message) => message.text === 'Root group thread mention target')
+  assert.ok(memberGroup)
+  assert.ok(thirdGroup)
+  assert.ok(memberRoot)
+  assert.ok(thirdRoot)
+
+  await store.sendGroupThreadComment(thirdToken, thirdGroup!.id, thirdRoot!.id, {
+    text: 'Подключаем @mira к обсуждению',
+  })
+
+  const memberInboxItem = store
+    .getSnapshotByToken(memberToken)
+    ?.threadInbox.find((item) => item.sourceText === 'Root group thread mention target')
+  const memberThreadState = database.threadStates.find(
+    (threadState) =>
+      threadState.ownerIdentifier === member.identifier &&
+      threadState.threadId === memberInboxItem?.threadId,
+  )
+
+  assert.ok(memberInboxItem)
+  assert.equal(memberInboxItem?.kind, 'group')
+  assert.equal(memberInboxItem?.unreadCount, 1)
+  assert.equal(memberThreadState?.subscription, 'subscribed')
+})
+
+test('channel thread mention subscribes a tagged channel subscriber who was not yet following the thread', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79990006121')
+  const member = createAccount('+79990006122')
+  const third = createAccount('+79990006123')
+  member.nickname = 'mira'
+
+  database.accounts.push(owner, member, third)
+  const ownerToken = createSession(database, owner.identifier, 'channel-thread-mention-owner')
+  const memberToken = createSession(database, member.identifier, 'channel-thread-mention-member')
+  const thirdToken = createSession(database, third.identifier, 'channel-thread-mention-third')
+
+  const createdChannel = await store.createManagedChannel(ownerToken, {
+    avatarTone: '#8c5738',
+    commentsEnabledForAll: true,
+    directLink: '@channel-thread-mention',
+    statusText: 'Тест пинга в треде',
+    title: 'Channel thread mention subscribe',
+    visibility: 'public',
+  })
+
+  await store.subscribeToChannelByHandle(memberToken, '@channel-thread-mention')
+  await store.subscribeToChannelByHandle(thirdToken, '@channel-thread-mention')
+  await store.sendManagedChannelPost(ownerToken, createdChannel.channelId, {
+    text: 'Root channel thread mention target',
+  })
+
+  const memberPreview = store.getSubscriptionChannelPreviewByHandle(memberToken, '@channel-thread-mention')
+  const thirdPreview = store.getSubscriptionChannelPreviewByHandle(thirdToken, '@channel-thread-mention')
+  const memberChannel = store.getSnapshotByToken(memberToken)?.subscriptionChannels.find(
+    (channel) => channel.handle === '@channel-thread-mention',
+  )
+  const thirdChannel = store.getSnapshotByToken(thirdToken)?.subscriptionChannels.find(
+    (channel) => channel.handle === '@channel-thread-mention',
+  )
+  const memberPost = memberPreview.channel.posts.find((post) => post.text === 'Root channel thread mention target')
+  const thirdPost = thirdPreview.channel.posts.find((post) => post.text === 'Root channel thread mention target')
+  assert.ok(memberChannel)
+  assert.ok(thirdChannel)
+  assert.ok(memberPost)
+  assert.ok(thirdPost)
+
+  await store.sendSubscriptionChannelThreadComment(thirdToken, thirdChannel!.id, thirdPost!.id, {
+    text: 'Подключаем @mira к channel-thread',
+  })
+
+  const memberInboxItem = store
+    .getSnapshotByToken(memberToken)
+    ?.threadInbox.find((item) => item.sourceText === 'Root channel thread mention target')
+  const memberThreadState = database.threadStates.find(
+    (threadState) =>
+      threadState.ownerIdentifier === member.identifier &&
+      threadState.threadId === memberInboxItem?.threadId,
+  )
+
+  assert.ok(memberInboxItem)
+  assert.equal(memberInboxItem?.kind, 'channel')
+  assert.equal(memberInboxItem?.unreadCount, 1)
+  assert.equal(memberThreadState?.subscription, 'subscribed')
+})
+
 test('marking a group thread read clears all unread replies, including the latest reply in the same millisecond', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)

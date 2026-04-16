@@ -6328,6 +6328,88 @@
   transform: none;
 }
 
+.composer-mention-popover {
+  position: absolute;
+  right: 0;
+  left: 0;
+  bottom: calc(100% + 10px);
+  display: grid;
+  gap: 6px;
+  max-height: min(40dvh, 320px);
+  padding: 8px;
+  overflow-y: auto;
+  border: 1px solid rgba(122, 98, 85, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 251, 245, 0.97);
+  box-shadow: 0 24px 60px rgba(64, 35, 18, 0.16);
+  z-index: 8;
+}
+
+.composer-mention-option {
+  width: 100%;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(77, 58, 46, 0.06);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.composer-mention-option:hover,
+.composer-mention-option.active {
+  background: rgba(77, 58, 46, 0.12);
+}
+
+.composer-mention-avatar {
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+}
+
+.composer-mention-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.composer-mention-meta {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.composer-mention-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.composer-mention-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-mention-crown {
+  flex: 0 0 auto;
+}
+
+.composer-mention-nickname {
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer-attachment-picker {
   position: relative;
   display: inline-flex;
@@ -10074,6 +10156,7 @@ html[data-theme='dark'] .channel-title-popover,
 html[data-theme='dark'] .settings-popover,
 html[data-theme='dark'] .room-menu,
 html[data-theme='dark'] .message-menu,
+html[data-theme='dark'] .composer-mention-popover,
 html[data-theme='dark'] .composer-attachment-popover,
 html[data-theme='dark'] .composer-attachment-rename-popover,
 html[data-theme='dark'] .emoji-picker-popover,
@@ -10110,6 +10193,7 @@ html[data-theme='dark'] .settings-storage-file-card,
 html[data-theme='dark'] .composer-attachment-preview-file-badge,
 html[data-theme='dark'] .composer-attachment-preview-file-badge.video,
 html[data-theme='dark'] .composer-attachment-preview-video-note-fallback,
+html[data-theme='dark'] .composer-mention-option,
 html[data-theme='dark'] .composer-attachment-rename-trigger,
 html[data-theme='dark'] .composer-attachment-checkbox,
 html[data-theme='dark'] .composer-attachment-option,
@@ -10192,6 +10276,8 @@ html[data-theme='dark'] .video-note-recorder-progress {
 
 html[data-theme='dark'] .composer-attachment-storage-warning-link:hover,
 html[data-theme='dark'] .composer-attachment-storage-warning-link:focus-visible,
+html[data-theme='dark'] .composer-mention-option:hover,
+html[data-theme='dark'] .composer-mention-option.active,
 html[data-theme='dark'] .composer-attachment-option:hover,
 html[data-theme='dark'] .emoji-picker-gif-upload-button:hover:not(:disabled),
 html[data-theme='dark'] .emoji-picker-expand-button:hover,

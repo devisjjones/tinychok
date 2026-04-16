@@ -81,6 +81,7 @@ import {
   sanitizePersonField,
   sanitizeStatusField,
 } from '../../src/shared/utils'
+import { extractMentionedNicknames } from '../../src/shared/composerMentions'
 import type {
   AdminSupportTicketStatus,
   AdminAuditLogEntry,
@@ -10770,6 +10771,17 @@ export class TinychokStore {
       )
     }
     const deliveryId = this.resolveDeliveryId(normalizedClientDeliveryId)
+    const previousComments = compactThreadComments(target.message.threadComments)
+    const previousLatestComment = findLatestThreadComment(previousComments)
+    const existingParticipantIdentifiers = new Set(
+      previousComments
+        .map((comment) => normalizeIdentifier(comment.authorIdentifier ?? ''))
+        .filter((identifier) => identifier.length > 0),
+    )
+    const mentionedParticipantIdentifiers = this.resolveMentionedParticipantIdentifiers(
+      text,
+      target.group.participants,
+    )
 
     const sharedId = this.getSharedGroupId(target.group)
     const threadId = getGroupMessageThreadId(target.group, target.message)
@@ -10782,6 +10794,15 @@ export class TinychokStore {
       replyTo,
       deliveryId,
     )
+    this.subscribeMentionedThreadParticipants({
+      actorIdentifier: account.identifier,
+      existingParticipantIdentifiers,
+      mentionedIdentifiers: mentionedParticipantIdentifiers,
+      previousLatestComment,
+      rootAuthorIdentifier: resolveGroupMessageAuthorIdentifier(target.group, target.message),
+      rootCreatedAt: target.message.createdAt,
+      threadId,
+    })
     const latestOwnComment = findLatestOwnThreadComment(
       compactThreadComments(target.message.threadComments),
       account.identifier,
@@ -12285,6 +12306,17 @@ export class TinychokStore {
       )
     }
     const deliveryId = this.resolveDeliveryId(normalizedClientDeliveryId)
+    const previousComments = compactThreadComments(target.post.threadComments)
+    const previousLatestComment = findLatestThreadComment(previousComments)
+    const existingParticipantIdentifiers = new Set(
+      previousComments
+        .map((comment) => normalizeIdentifier(comment.authorIdentifier ?? ''))
+        .filter((identifier) => identifier.length > 0),
+    )
+    const mentionedParticipantIdentifiers = this.resolveMentionedParticipantIdentifiers(
+      text,
+      target.channel.participants,
+    )
 
     const normalizedHandle = sanitizeChannelDirectLink(target.channel.handle) || target.channel.handle
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
@@ -12297,6 +12329,15 @@ export class TinychokStore {
       replyTo,
       deliveryId,
     )
+    this.subscribeMentionedThreadParticipants({
+      actorIdentifier: account.identifier,
+      existingParticipantIdentifiers,
+      mentionedIdentifiers: mentionedParticipantIdentifiers,
+      previousLatestComment,
+      rootAuthorIdentifier: resolveSubscriptionPostAuthorIdentifier(this.database, target.channel, target.post),
+      rootCreatedAt: target.post.createdAt,
+      threadId,
+    })
     const latestOwnComment = findLatestOwnThreadComment(
       compactThreadComments(target.post.threadComments),
       account.identifier,
@@ -17849,6 +17890,78 @@ export class TinychokStore {
     }
     this.database.threadStates.push(createdState)
     return createdState
+  }
+
+  private resolveMentionedParticipantIdentifiers(
+    text: string,
+    participants: ReadonlyArray<Pick<GroupParticipant, 'identifier' | 'nickname'>> | undefined,
+  ) {
+    const mentionedNicknames = extractMentionedNicknames(text)
+    if (mentionedNicknames.length === 0 || !participants?.length) {
+      return []
+    }
+
+    const identifierByNickname = new Map<string, string>()
+    for (const participant of participants) {
+      const normalizedNickname = normalizeNickname(participant.nickname ?? '').toLowerCase()
+      const normalizedIdentifier = normalizeIdentifier(participant.identifier ?? '')
+      if (!normalizedNickname || !normalizedIdentifier || identifierByNickname.has(normalizedNickname)) {
+        continue
+      }
+
+      identifierByNickname.set(normalizedNickname, normalizedIdentifier)
+    }
+
+    const resolvedIdentifiers: string[] = []
+    const seenIdentifiers = new Set<string>()
+    for (const nickname of mentionedNicknames) {
+      const identifier = identifierByNickname.get(nickname)
+      if (!identifier || seenIdentifiers.has(identifier)) {
+        continue
+      }
+
+      seenIdentifiers.add(identifier)
+      resolvedIdentifiers.push(identifier)
+    }
+
+    return resolvedIdentifiers
+  }
+
+  private subscribeMentionedThreadParticipants(options: {
+    actorIdentifier: string
+    existingParticipantIdentifiers: ReadonlySet<string>
+    mentionedIdentifiers: ReadonlyArray<string>
+    previousLatestComment?: Pick<ThreadComment, 'createdAt' | 'id'>
+    rootAuthorIdentifier: string
+    rootCreatedAt?: string
+    threadId: string
+  }) {
+    const normalizedActorIdentifier = normalizeIdentifier(options.actorIdentifier)
+    const normalizedRootAuthorIdentifier = normalizeIdentifier(options.rootAuthorIdentifier)
+
+    for (const mentionedIdentifier of options.mentionedIdentifiers) {
+      const normalizedMentionedIdentifier = normalizeIdentifier(mentionedIdentifier)
+      if (!normalizedMentionedIdentifier || normalizedMentionedIdentifier === normalizedActorIdentifier) {
+        continue
+      }
+
+      const existingState = this.getThreadState(normalizedMentionedIdentifier, options.threadId)
+      if (existingState?.subscription === 'subscribed') {
+        continue
+      }
+
+      const hasParticipation =
+        normalizedMentionedIdentifier === normalizedRootAuthorIdentifier ||
+        options.existingParticipantIdentifiers.has(normalizedMentionedIdentifier)
+      if (hasParticipation && existingState?.subscription !== 'unsubscribed') {
+        continue
+      }
+
+      this.upsertThreadState(normalizedMentionedIdentifier, options.threadId, {
+        ...buildThreadReadMarker(options.previousLatestComment, options.rootCreatedAt),
+        subscription: 'subscribed',
+      })
+    }
   }
 
   private buildThreadComment(
