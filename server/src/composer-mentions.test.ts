@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   buildComposerMentionCandidates,
+  buildMessageMentions,
   buildThreadMentionCandidates,
   extractMentionedNicknames,
   filterComposerMentionCandidates,
@@ -77,6 +78,43 @@ test('composer mention extraction deduplicates nicknames and skips malformed tok
   assert.deepEqual(
     extractMentionedNicknames('Привет, @Mira и ещё раз @mira, но не mira@example.com и не @@nope'),
     ['mira'],
+  )
+})
+
+test('message mentions resolve matched nicknames into full contact metadata', () => {
+  const mentions = buildMessageMentions('Привет, @mira и @roman', [
+    createParticipant(1, 'mira', {
+      identifier: '+799900000011',
+      title: 'Мира Тестова',
+    }),
+    createParticipant(2, 'roman', {
+      identifier: '+799900000022',
+      status: 'В сети',
+      title: 'Роман Петров',
+    }),
+  ])
+
+  assert.deepEqual(
+    mentions.map((mention) => ({
+      handle: mention.sourceContact.handle,
+      identifier: mention.sourceContact.identifier,
+      nickname: mention.nickname,
+      title: mention.sourceContact.title,
+    })),
+    [
+      {
+        handle: '@mira',
+        identifier: '+799900000011',
+        nickname: 'mira',
+        title: 'Мира Тестова',
+      },
+      {
+        handle: '@roman',
+        identifier: '+799900000022',
+        nickname: 'roman',
+        title: 'Роман Петров',
+      },
+    ],
   )
 })
 

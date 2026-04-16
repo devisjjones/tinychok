@@ -4566,6 +4566,45 @@
   color: #7b4e33;
 }
 
+.bubble-text-mention,
+.bubble-text-mention-label {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.14em;
+  text-decoration-color: rgba(95, 66, 46, 0.42);
+  word-break: break-word;
+}
+
+.bubble-text-mention {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  line-height: inherit;
+}
+
+.bubble:not(.mine) .bubble-text-mention,
+.bubble:not(.mine) .bubble-text-mention-label {
+  color: #8d5939;
+}
+
+.bubble.mine .bubble-text-mention,
+.bubble.mine .bubble-text-mention-label {
+  color: #7b4e33;
+}
+
+.bubble-text-mention:hover,
+.bubble-text-mention:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+.bubble-text-mention:focus-visible {
+  outline: none;
+}
+
 .bubble-meta {
   display: block;
   margin-bottom: 8px;
@@ -10687,6 +10726,18 @@ html[data-theme='dark'] .group-system-message-actor-link:focus-visible {
   text-decoration-color: rgba(255, 255, 255, 0.72);
 }
 
+html[data-theme='dark'] .bubble-text-mention,
+html[data-theme='dark'] .bubble-text-mention-label {
+  color: var(--ink);
+  text-decoration-color: rgba(239, 240, 243, 0.42);
+}
+
+html[data-theme='dark'] .bubble-text-mention:hover,
+html[data-theme='dark'] .bubble-text-mention:focus-visible {
+  color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.72);
+}
+
 html[data-theme='dark'] .filter {
   background: rgba(255, 255, 255, 0.08);
   color: var(--ink);
@@ -10881,6 +10932,8 @@ html[data-theme='dark'] .room-thread-source > .room-thread-source-bubble {
 }
 
 html[data-theme='dark'] .room-thread-source .room-thread-source-bubble .bubble-text-link,
+html[data-theme='dark'] .room-thread-source .room-thread-source-bubble .bubble-text-mention,
+html[data-theme='dark'] .room-thread-source .room-thread-source-bubble .bubble-text-mention-label,
 html[data-theme='dark'] .room-thread-source .room-thread-source-bubble .bubble-attachment-removed-note-link {
   color: #d9dce2;
   text-decoration-color: rgba(239, 240, 243, 0.38);

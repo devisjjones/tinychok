@@ -14,6 +14,7 @@ import type {
   GroupPreview,
   Message,
   MessageAttachment,
+  MessageMention,
   QuietModeSettings,
   Session,
   SupportTicketStatus,
@@ -155,10 +156,19 @@ export function resolveQuietModeInvisibilityState(options: {
 export function formatMessagePreview(
   message: Pick<
     Message,
-    'attachment' | 'attachmentRemovedNotice' | 'sourceChannel' | 'sourceContact' | 'sourceGroup' | 'text'
+    | 'attachment'
+    | 'attachmentRemovedNotice'
+    | 'mentions'
+    | 'sourceChannel'
+    | 'sourceContact'
+    | 'sourceGroup'
+    | 'text'
   >,
 ) {
-  const text = stripMessageFormattingMarkup(message.text).trim()
+  const text = parseMessageTextSegments(message.text, message.mentions)
+    .map((segment) => segment.value)
+    .join('')
+    .trim()
   if (text) return text
   if (message.sourceChannel?.leadText) return message.sourceChannel.leadText
   if (message.sourceGroup?.leadText) return message.sourceGroup.leadText
@@ -695,6 +705,12 @@ export type MessageTextSegment =
       style: MessageTextStyle
       value: string
     }
+  | {
+      kind: 'mention'
+      sourceContact: MessageMention['sourceContact']
+      style: MessageTextStyle
+      value: string
+    }
 
 export type MessageTextStyle = {
   bold: boolean
@@ -713,8 +729,9 @@ const defaultMessageTextStyle: MessageTextStyle = {
   underline: false,
 }
 
-const externalLinkPattern = /https?:\/\/[^\s<>"']+/giu
+const externalLinkStartPattern = /^https?:\/\/[^\s<>"']+/iu
 const formattingTagPattern = /^<(\/)?([bius])>/iu
+const messageMentionCharacterPattern = /[A-Za-zА-Яа-яЁё0-9_]/u
 const formattingMarkupTags: Record<ComposerTextMarkup, { close: string, open: string }> = {
   bold: { open: '<b>', close: '</b>' },
   italic: { open: '<i>', close: '</i>' },
@@ -1157,12 +1174,74 @@ function splitTrailingExternalLinkPunctuation(rawUrl: string) {
   }
 }
 
-export function parseMessageTextSegments(text: string): MessageTextSegment[] {
+function isMessageMentionCharacter(character: string) {
+  return messageMentionCharacterPattern.test(character)
+}
+
+function isMessageMentionBoundary(character?: string) {
+  return !character || (!isMessageMentionCharacter(character) && character !== '@')
+}
+
+function buildMessageMentionLookup(mentions?: ReadonlyArray<MessageMention>) {
+  const mentionsByNickname = new Map<string, MessageMention>()
+
+  for (const mention of mentions ?? []) {
+    const normalizedNickname = normalizeNickname(mention.nickname ?? '').toLowerCase()
+    if (!normalizedNickname || mentionsByNickname.has(normalizedNickname)) {
+      continue
+    }
+
+    mentionsByNickname.set(normalizedNickname, mention)
+  }
+
+  return mentionsByNickname
+}
+
+function resolveMessageMentionAt(
+  value: string,
+  startIndex: number,
+  mentionsByNickname: ReadonlyMap<string, MessageMention>,
+) {
+  if (value[startIndex] !== '@' || !isMessageMentionBoundary(value[startIndex - 1])) {
+    return null
+  }
+
+  let rangeEnd = startIndex + 1
+  while (rangeEnd < value.length && isMessageMentionCharacter(value[rangeEnd] ?? '')) {
+    rangeEnd += 1
+  }
+
+  if (rangeEnd === startIndex + 1) {
+    return null
+  }
+
+  const rawNickname = value.slice(startIndex + 1, rangeEnd)
+  const normalizedNickname = normalizeNickname(rawNickname)
+  if (!normalizedNickname || normalizedNickname.length !== rawNickname.length) {
+    return null
+  }
+
+  const mention = mentionsByNickname.get(normalizedNickname.toLowerCase())
+  if (!mention) {
+    return null
+  }
+
+  return {
+    mention,
+    rangeEnd,
+  }
+}
+
+export function parseMessageTextSegments(
+  text: string,
+  mentions?: ReadonlyArray<MessageMention>,
+): MessageTextSegment[] {
   if (!text) {
     return [{ kind: 'text', style: defaultMessageTextStyle, value: '' }]
   }
 
   const segments: MessageTextSegment[] = []
+  const mentionsByNickname = buildMessageMentionLookup(mentions)
   const formattingDepth: Record<'b' | 'i' | 's' | 'u', number> = {
     b: 0,
     i: 0,
@@ -1184,46 +1263,76 @@ export function parseMessageTextSegments(text: string): MessageTextSegment[] {
   function pushBufferedText(value: string, style: MessageTextStyle) {
     if (!value) return
 
-    let textCursor = 0
-    for (const match of value.matchAll(externalLinkPattern)) {
-      const rawUrl = match[0]
-      const matchIndex = match.index ?? -1
-      if (matchIndex < 0) continue
+    let cursor = 0
+    let plainTextStart = 0
 
-      if (matchIndex > textCursor) {
-        segments.push({
-          kind: 'text',
-          style,
-          value: value.slice(textCursor, matchIndex),
-        })
+    function flushPlainText(endIndex: number) {
+      if (endIndex <= plainTextStart) {
+        return
       }
 
-      const { punctuation, url } = splitTrailingExternalLinkPunctuation(rawUrl)
-      segments.push({
-        href: url,
-        kind: 'external-link',
-        style,
-        value: url,
-      })
-
-      if (punctuation) {
-        segments.push({
-          kind: 'text',
-          style,
-          value: punctuation,
-        })
-      }
-
-      textCursor = matchIndex + rawUrl.length
-    }
-
-    if (textCursor < value.length) {
       segments.push({
         kind: 'text',
         style,
-        value: value.slice(textCursor),
+        value: value.slice(plainTextStart, endIndex),
       })
     }
+
+    while (cursor < value.length) {
+      const externalLinkMatch = value.slice(cursor).match(externalLinkStartPattern)
+      if (externalLinkMatch) {
+        flushPlainText(cursor)
+
+        const rawUrl = externalLinkMatch[0]
+        const { punctuation, url } = splitTrailingExternalLinkPunctuation(rawUrl)
+        segments.push({
+          href: url,
+          kind: 'external-link',
+          style,
+          value: url,
+        })
+
+        if (punctuation) {
+          segments.push({
+            kind: 'text',
+            style,
+            value: punctuation,
+          })
+        }
+
+        cursor += rawUrl.length
+        plainTextStart = cursor
+        continue
+      }
+
+      const mentionMatch =
+        mentionsByNickname.size > 0
+          ? resolveMessageMentionAt(value, cursor, mentionsByNickname)
+          : null
+      if (mentionMatch) {
+        flushPlainText(cursor)
+
+        segments.push({
+          kind: 'mention',
+          sourceContact: mentionMatch.mention.sourceContact,
+          style: {
+            ...style,
+            bold: true,
+          },
+          value:
+            mentionMatch.mention.sourceContact.title.trim() ||
+            `@${mentionMatch.mention.nickname}`,
+        })
+
+        cursor = mentionMatch.rangeEnd
+        plainTextStart = cursor
+        continue
+      }
+
+      cursor += 1
+    }
+
+    flushPlainText(value.length)
   }
 
   function flushBuffer() {

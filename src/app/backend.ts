@@ -207,6 +207,17 @@ function normalizeSourceContact(
   }
 }
 
+function normalizeMessageMention(
+  mention: NonNullable<AppSnapshot['chats'][number]['messages'][number]['mentions']>[number],
+) {
+  if (!mention) return mention
+
+  return {
+    ...mention,
+    sourceContact: normalizeSourceContact(mention.sourceContact)!,
+  }
+}
+
 function normalizeAttachmentMedia<T extends { mediaUrl: string }>(attachment: T): T {
   return {
     ...attachment,
@@ -218,6 +229,7 @@ function normalizeThreadCommentMedia(comment: ThreadComment): ThreadComment {
   return {
     ...comment,
     attachment: comment.attachment ? normalizeAttachmentMedia(comment.attachment) : undefined,
+    mentions: comment.mentions?.map((mention) => normalizeMessageMention(mention)),
     sourceContact: normalizeSourceContact(comment.sourceContact),
   }
 }
@@ -226,6 +238,7 @@ function normalizeMessageMedia<T extends AppSnapshot['chats'][number]['messages'
   return {
     ...message,
     attachment: message.attachment ? normalizeAttachmentMedia(message.attachment) : undefined,
+    mentions: message.mentions?.map((mention) => normalizeMessageMention(mention)),
     sourceContact: normalizeSourceContact(message.sourceContact),
     sourceGroup: normalizeSourceGroup(message.sourceGroup),
     threadComments: message.threadComments?.map((comment) => normalizeThreadCommentMedia(comment)),
@@ -244,6 +257,7 @@ function normalizeChannelPosts(posts: SubscriptionChannelHistoryResponse['posts'
   return posts.map((post) => ({
     ...post,
     attachment: post.attachment ? normalizeAttachmentMedia(post.attachment) : undefined,
+    mentions: post.mentions?.map((mention) => normalizeMessageMention(mention)),
     sourceContact: normalizeSourceContact(post.sourceContact),
     threadComments: post.threadComments?.map((comment) => normalizeThreadCommentMedia(comment)),
   }))

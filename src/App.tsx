@@ -346,7 +346,11 @@ import type {
   UpdateSubscriptionChannelBody,
   UpdateSessionBody,
 } from './shared/backend'
-import { buildComposerMentionCandidates, buildThreadMentionCandidates } from './shared/composerMentions'
+import {
+  buildComposerMentionCandidates,
+  buildMessageMentions,
+  buildThreadMentionCandidates,
+} from './shared/composerMentions'
 import './App.css'
 
 const deliveryIndicatorIconPaths = [
@@ -6763,6 +6767,7 @@ function App() {
       forwarded?: boolean
       forwardedAuthorName?: string
       localId?: number
+      mentions?: Message['mentions']
       replyTo?: Message['replyTo']
       sourceChannel?: Message['sourceChannel']
       sourceContact?: Message['sourceContact']
@@ -6775,32 +6780,34 @@ function App() {
     setGroups((currentGroups) =>
       currentGroups.map((group) =>
         group.id === groupId
-          ? {
-              ...group,
-              latestActivityAt: createdAt,
-              preview: text || formatAttachmentPreviewText(options?.attachment) || group.preview,
-              time,
-              unread: 0,
-              messages: [
-                ...group.messages,
-                {
-                  attachment: options?.attachment,
-                  id: options?.localId ?? Date.now() + group.id,
-                  author: 'me',
-                  createdAt,
-                  deliveryId: options?.deliveryId,
-                  forwarded: options?.forwarded,
-                  forwardedAuthorName: options?.forwardedAuthorName,
-                  replyTo: options?.replyTo,
-                  sourceChannel: options?.sourceChannel,
-                  sourceContact: options?.sourceContact,
-                  text,
-                  threadComments: [],
-                  threadId: `local-group:${group.id}:${createdAt}:${options?.localId ?? Date.now()}`,
-                  time,
-                },
-              ],
-            }
+          ? (() => {
+              const nextMessage: Message = {
+                attachment: options?.attachment,
+                author: 'me',
+                createdAt,
+                deliveryId: options?.deliveryId,
+                forwarded: options?.forwarded,
+                forwardedAuthorName: options?.forwardedAuthorName,
+                id: options?.localId ?? Date.now() + group.id,
+                mentions: options?.mentions,
+                replyTo: options?.replyTo,
+                sourceChannel: options?.sourceChannel,
+                sourceContact: options?.sourceContact,
+                text,
+                threadComments: [],
+                threadId: `local-group:${group.id}:${createdAt}:${options?.localId ?? Date.now()}`,
+                time,
+              }
+
+              return {
+                ...group,
+                latestActivityAt: createdAt,
+                preview: formatMessagePreview(nextMessage) || group.preview,
+                time,
+                unread: 0,
+                messages: [...group.messages, nextMessage],
+              }
+            })()
           : group,
       ),
     )
@@ -6830,6 +6837,7 @@ function App() {
       deliveryId?: string
       displayAuthor?: string
       localId?: number
+      mentions?: Message['mentions']
       sourceContact?: Message['sourceContact']
       time?: string
     },
@@ -6858,6 +6866,7 @@ function App() {
                           deliveryId: options?.deliveryId,
                           displayAuthor: options?.displayAuthor ?? sessionName,
                           id: options?.localId ?? (message.threadComments ?? []).length + 1,
+                          mentions: options?.mentions,
                           replyTo,
                           sourceContact: options?.sourceContact,
                           text,
@@ -6883,6 +6892,7 @@ function App() {
       deliveryId?: string
       displayAuthor?: string
       localId?: number
+      mentions?: Message['mentions']
       sourceContact?: Message['sourceContact']
       time?: string
     },
@@ -6911,6 +6921,7 @@ function App() {
                           deliveryId: options?.deliveryId,
                           displayAuthor: options?.displayAuthor ?? sessionName,
                           id: options?.localId ?? (post.threadComments ?? []).length + 1,
+                          mentions: options?.mentions,
                           replyTo,
                           sourceContact: options?.sourceContact,
                           text,
@@ -7000,10 +7011,11 @@ function App() {
       text: string
       time: string
     },
-  >(record: T, nextText: string): T {
+  >(record: T, nextText: string, patch?: Partial<T>): T {
     const editedAt = new Date().toISOString()
     return {
       ...record,
+      ...patch,
       createdAt: editedAt,
       editedAt,
       text: nextText,
@@ -7033,9 +7045,20 @@ function App() {
           return group
         }
 
+        const mentions = buildMessageMentions(nextText, group.participants)
+        const nextMentions = mentions.length > 0 ? mentions : undefined
+        const sourceContact =
+          nextMentions && nextMentions.length > 0
+            ? undefined
+            : resolveEmbeddedContactFromText(nextText) ?? undefined
         const isLastMessage = group.messages.at(-1)?.id === messageId
         const nextMessages = group.messages.map((message) =>
-          message.id === messageId ? applyLocalEditedTextRecord(message, nextText) : message,
+          message.id === messageId
+            ? applyLocalEditedTextRecord(message, nextText, {
+                mentions: nextMentions,
+                sourceContact,
+              })
+            : message,
         )
         const editedMessage = nextMessages.find((message) => message.id === messageId)
 
@@ -7043,7 +7066,7 @@ function App() {
           ...group,
           latestActivityAt: isLastMessage ? editedMessage?.createdAt ?? group.latestActivityAt : group.latestActivityAt,
           messages: nextMessages,
-          preview: isLastMessage ? nextText || group.preview : group.preview,
+          preview: isLastMessage && editedMessage ? formatMessagePreview(editedMessage) : group.preview,
           time: isLastMessage ? editedMessage?.time ?? group.time : group.time,
         }
       }),
@@ -7105,10 +7128,25 @@ function App() {
                 message.id !== messageId
                   ? message
                   : {
-                      ...message,
-                      threadComments: (message.threadComments ?? []).map((comment) =>
-                        comment.id === commentId ? applyLocalEditedTextRecord(comment, nextText) : comment,
-                      ),
+                      ...(function buildUpdatedMessage() {
+                        const mentions = buildMessageMentions(nextText, group.participants)
+                        const nextMentions = mentions.length > 0 ? mentions : undefined
+                        const sourceContact =
+                          nextMentions && nextMentions.length > 0
+                            ? undefined
+                            : resolveEmbeddedContactFromText(nextText) ?? undefined
+                        return {
+                          ...message,
+                          threadComments: (message.threadComments ?? []).map((comment) =>
+                            comment.id === commentId
+                              ? applyLocalEditedTextRecord(comment, nextText, {
+                                  mentions: nextMentions,
+                                  sourceContact,
+                                })
+                              : comment,
+                          ),
+                        }
+                      })(),
                     },
               ),
             },
@@ -7132,10 +7170,25 @@ function App() {
                 post.id !== postId
                   ? post
                   : {
-                      ...post,
-                      threadComments: (post.threadComments ?? []).map((comment) =>
-                        comment.id === commentId ? applyLocalEditedTextRecord(comment, nextText) : comment,
-                      ),
+                      ...(function buildUpdatedPost() {
+                        const mentions = buildMessageMentions(nextText, channel.participants)
+                        const nextMentions = mentions.length > 0 ? mentions : undefined
+                        const sourceContact =
+                          nextMentions && nextMentions.length > 0
+                            ? undefined
+                            : resolveEmbeddedContactFromText(nextText) ?? undefined
+                        return {
+                          ...post,
+                          threadComments: (post.threadComments ?? []).map((comment) =>
+                            comment.id === commentId
+                              ? applyLocalEditedTextRecord(comment, nextText, {
+                                  mentions: nextMentions,
+                                  sourceContact,
+                                })
+                              : comment,
+                          ),
+                        }
+                      })(),
                     },
               ),
             },
@@ -7151,10 +7204,25 @@ function App() {
               post.id !== postId
                 ? post
                 : {
-                    ...post,
-                    threadComments: (post.threadComments ?? []).map((comment) =>
-                      comment.id === commentId ? applyLocalEditedTextRecord(comment, nextText) : comment,
-                    ),
+                    ...(function buildUpdatedPost() {
+                      const mentions = buildMessageMentions(nextText, currentChannel.participants)
+                      const nextMentions = mentions.length > 0 ? mentions : undefined
+                      const sourceContact =
+                        nextMentions && nextMentions.length > 0
+                          ? undefined
+                          : resolveEmbeddedContactFromText(nextText) ?? undefined
+                      return {
+                        ...post,
+                        threadComments: (post.threadComments ?? []).map((comment) =>
+                          comment.id === commentId
+                            ? applyLocalEditedTextRecord(comment, nextText, {
+                                mentions: nextMentions,
+                                sourceContact,
+                              })
+                            : comment,
+                        ),
+                      }
+                    })(),
                   },
             ),
           },
@@ -9178,7 +9246,9 @@ function App() {
     if (attachmentDraftOverride) {
       releaseComposerAttachmentDraft(attachmentDraftOverride)
     }
-    const sourceContact = resolveEmbeddedContactFromText(text)
+    const mentions = buildMessageMentions(text, activeGroup.participants)
+    const sourceContact =
+      mentions.length > 0 ? undefined : resolveEmbeddedContactFromText(text) ?? undefined
     if (!text && !attachment) return
 
     playSendSound()
@@ -9208,8 +9278,9 @@ function App() {
       createdAt,
       deliveryId,
       localId,
+      mentions: mentions.length > 0 ? mentions : undefined,
       replyTo,
-      sourceContact: sourceContact ?? undefined,
+      sourceContact,
       time,
     })
     queuePendingGroupMessage(pendingMessage)
@@ -10990,6 +11061,10 @@ function App() {
           } satisfies PendingChannelThreadComment)
         : null
 
+    const mentions = buildMessageMentions(text, activeThreadMentionCandidates)
+    const sourceContact =
+      mentions.length > 0 ? undefined : resolveEmbeddedContactFromText(text) ?? undefined
+
     if (threadTarget.kind === 'group') {
       applyLocalGroupThreadComment(threadTarget.groupId, threadTarget.messageId, text, replyTo, {
         attachment,
@@ -10998,7 +11073,8 @@ function App() {
         deliveryId,
         displayAuthor: sessionName,
         localId,
-        sourceContact: resolveEmbeddedContactFromText(text) ?? undefined,
+        mentions: mentions.length > 0 ? mentions : undefined,
+        sourceContact,
         time,
       })
       applyLocalThreadSubscription({
@@ -11017,7 +11093,8 @@ function App() {
         deliveryId,
         displayAuthor: sessionName,
         localId,
-        sourceContact: resolveEmbeddedContactFromText(text) ?? undefined,
+        mentions: mentions.length > 0 ? mentions : undefined,
+        sourceContact,
         time,
       })
       applyLocalThreadSubscription({

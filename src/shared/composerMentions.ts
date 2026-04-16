@@ -1,4 +1,4 @@
-import type { GroupParticipant, ThreadComment } from './types'
+import type { GroupParticipant, MessageMention, ThreadComment } from './types'
 import { normalizeIdentifier, normalizeNickname } from './utils'
 
 const composerMentionCharacterPattern = /[A-Za-zА-Яа-яЁё0-9_]/u
@@ -192,6 +192,52 @@ export function extractMentionedNicknames(text: string) {
   }
 
   return [...nicknames]
+}
+
+export function buildMessageMentions(
+  text: string,
+  participants:
+    | ReadonlyArray<
+        Pick<GroupParticipant, 'accent' | 'avatarImage' | 'identifier' | 'nickname' | 'status' | 'title'>
+      >
+    | undefined,
+): MessageMention[] {
+  const mentionedNicknames = extractMentionedNicknames(text)
+  if (mentionedNicknames.length === 0 || !participants?.length) {
+    return []
+  }
+
+  const mentionByNickname = new Map<string, MessageMention>()
+  for (const participant of participants) {
+    const nickname = normalizeNickname(participant.nickname ?? '')
+    if (!nickname) {
+      continue
+    }
+
+    const nicknameKey = nickname.toLowerCase()
+    if (mentionByNickname.has(nicknameKey)) {
+      continue
+    }
+
+    const normalizedIdentifier = normalizeIdentifier(participant.identifier ?? '')
+    const normalizedTitle = participant.title.trim()
+    mentionByNickname.set(nicknameKey, {
+      nickname,
+      sourceContact: {
+        accent: participant.accent,
+        avatarImage: participant.avatarImage,
+        handle: `@${nickname}`,
+        identifier: normalizedIdentifier || undefined,
+        status: participant.status?.trim() || undefined,
+        title: normalizedTitle || `@${nickname}`,
+      },
+    })
+  }
+
+  return mentionedNicknames.flatMap((nickname) => {
+    const mention = mentionByNickname.get(nickname)
+    return mention ? [mention] : []
+  })
 }
 
 export function buildThreadMentionCandidates(

@@ -254,6 +254,24 @@ test('attachment storage cleanup copy stays wired into preview and bubble render
   assert.ok((appSource.match(/onOpenPremiumUpsell=\{openPremiumUpsell\}/gu) ?? []).length >= 10)
 })
 
+test('message mentions stay wired through full-name parsing and clickable bubble rendering', () => {
+  const bubbleSource = readFileSync(join(process.cwd(), 'src/components/BubbleMessageContent.tsx'), 'utf8')
+  const sharedUtilsSource = readFileSync(join(process.cwd(), 'src/shared/utils.ts'), 'utf8')
+  const sharedTypesSource = readFileSync(join(process.cwd(), 'src/shared/types.ts'), 'utf8')
+
+  assert.match(sharedTypesSource, /export type MessageMention = \{/u)
+  assert.match(sharedTypesSource, /mentions\?: MessageMention\[\]/u)
+  assert.match(sharedUtilsSource, /kind: 'mention'/u)
+  assert.match(sharedUtilsSource, /sourceContact:\s*mentionMatch\.mention\.sourceContact/u)
+  assert.match(sharedUtilsSource, /mentionMatch\.mention\.sourceContact\.title/u)
+  assert.match(sharedUtilsSource, /bold:\s*true/u)
+  assert.match(bubbleSource, /parseMessageTextSegments\(line,\s*mentions\)/u)
+  assert.match(bubbleSource, /segment\.kind === 'mention'/u)
+  assert.match(bubbleSource, /className="bubble-text-mention"/u)
+  assert.match(bubbleSource, /onOpenSourceContact\(segment\.sourceContact\)/u)
+  assert.match(bubbleSource, /mentions=\{message\.mentions\}/u)
+})
+
 test('video attachments render through the visual media preview flow and still open in the in-app player', () => {
   const sharedConstantsSource = readFileSync(join(process.cwd(), 'src/shared/constants.ts'), 'utf8')
   const sharedUtilsSource = readFileSync(join(process.cwd(), 'src/shared/utils.ts'), 'utf8')

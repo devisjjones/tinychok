@@ -51,6 +51,44 @@ test('message formatting parser keeps bold links and inline styles as structured
   )
 })
 
+test('message formatting parser turns mentions into bold full-name segments', () => {
+  const segments = parseMessageTextSegments('Привет, @mira!', [
+    {
+      nickname: 'mira',
+      sourceContact: {
+        handle: '@mira',
+        identifier: '+799900000011',
+        title: 'Мира Тестова',
+      },
+    },
+  ])
+
+  assert.deepEqual(
+    segments.map((segment) => ({
+      kind: segment.kind,
+      style: segment.style,
+      value: segment.value,
+    })),
+    [
+      {
+        kind: 'text',
+        style: { bold: false, italic: false, strike: false, underline: false },
+        value: 'Привет, ',
+      },
+      {
+        kind: 'mention',
+        style: { bold: true, italic: false, strike: false, underline: false },
+        value: 'Мира Тестова',
+      },
+      {
+        kind: 'text',
+        style: { bold: false, italic: false, strike: false, underline: false },
+        value: '!',
+      },
+    ],
+  )
+})
+
 test('message formatting stripper removes inline markup from previews and reply snippets', () => {
   assert.equal(
     stripMessageFormattingMarkup('До <b>жирного</b> и <s>перечёркнутого</s> текста'),

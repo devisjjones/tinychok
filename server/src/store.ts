@@ -81,7 +81,11 @@ import {
   sanitizePersonField,
   sanitizeStatusField,
 } from '../../src/shared/utils'
-import { extractMentionedNicknames } from '../../src/shared/composerMentions'
+import {
+  buildMessageMentions,
+  buildThreadMentionCandidates,
+  extractMentionedNicknames,
+} from '../../src/shared/composerMentions'
 import type {
   AdminSupportTicketStatus,
   AdminAuditLogEntry,
@@ -1444,6 +1448,49 @@ function sanitizeSourceContact(
   }
 }
 
+function materializeMessageMentionForViewer(
+  database: Database,
+  mention: NonNullable<Message['mentions']>[number] | undefined,
+): NonNullable<Message['mentions']>[number] | null {
+  if (!mention) {
+    return null
+  }
+
+  const nickname = normalizeNickname(mention.nickname ?? '')
+  const sourceContact = sanitizeSourceContact(database, mention.sourceContact)
+  if (!nickname || !sourceContact) {
+    return null
+  }
+
+  return {
+    nickname,
+    sourceContact,
+  }
+}
+
+function materializeMessageMentionsForViewer(
+  database: Database,
+  mentions?: Message['mentions'],
+) {
+  const mentionsByNickname = new Map<string, NonNullable<Message['mentions']>[number]>()
+
+  for (const mention of mentions ?? []) {
+    const materializedMention = materializeMessageMentionForViewer(database, mention)
+    if (!materializedMention) {
+      continue
+    }
+
+    const mentionKey = materializedMention.nickname.toLowerCase()
+    if (mentionsByNickname.has(mentionKey)) {
+      continue
+    }
+
+    mentionsByNickname.set(mentionKey, materializedMention)
+  }
+
+  return [...mentionsByNickname.values()]
+}
+
 function sanitizeForwardedAuthorName(value?: string) {
   return sanitizePersonField(value ?? '', displayNameFieldMaxLength)
 }
@@ -2501,17 +2548,24 @@ function materializeThreadCommentsForViewer(
       return []
     }
 
+    const mentions = materializeMessageMentionsForViewer(database, comment.mentions)
+    const resolvedSourceContact =
+      sanitizeSourceContact(database, comment.sourceContact) ??
+      (mentions.length > 0
+        ? undefined
+        : resolveContactSourceReferenceFromText(database, materializedComment.text))
+    const resolvedSourceChannel =
+      sanitizeSourceChannel(comment.sourceChannel) ??
+      (resolvedSourceContact || mentions.length > 0
+        ? undefined
+        : resolveChannelSourceReferenceFromText(database, materializedComment.text))
+
     return [{
       ...materializedComment,
       attachment: materializeAttachmentForViewer(database, reporterIdentifier, comment.attachment),
-      sourceChannel:
-        materializedComment.sourceChannel ??
-        (materializedComment.sourceContact
-          ? undefined
-          : resolveChannelSourceReferenceFromText(database, materializedComment.text)),
-      sourceContact:
-        materializedComment.sourceContact ??
-        resolveContactSourceReferenceFromText(database, materializedComment.text),
+      mentions: mentions.length > 0 ? mentions : undefined,
+      sourceChannel: resolvedSourceChannel,
+      sourceContact: resolvedSourceContact,
       displayAuthor:
         authorAccount && isPublicDeletedAccount(authorAccount)
           ? 'Аккаунт удалён'
@@ -2630,7 +2684,20 @@ function materializeThreadComment(
     displayAuthor: comment.displayAuthor,
     editedAt: comment.editedAt,
     id: comment.id,
+    mentions: (comment.mentions ?? []).flatMap((mention) => {
+      const nickname = normalizeNickname(mention.nickname ?? '')
+      if (!nickname) {
+        return []
+      }
+
+      return [{
+        nickname,
+        sourceContact: { ...mention.sourceContact },
+      }]
+    }),
     replyTo: sanitizeReplyTarget(comment.replyTo),
+    sourceChannel: sanitizeSourceChannel(comment.sourceChannel),
+    sourceContact: comment.sourceContact ? { ...comment.sourceContact } : undefined,
     text: sanitizeThreadCommentText(comment.text),
     time: comment.time,
   } satisfies ThreadComment
@@ -2876,7 +2943,10 @@ function materializeDialogMessage(
   message: PersistedDialogMessage,
   replyTo: Message['replyTo'] = message.replyTo,
 ): Omit<PersistedDialogMessage, 'dialogId' | 'ownerIdentifier'> {
-  const resolvedSourceContact = message.sourceContact ?? resolveContactSourceReferenceFromText(database, message.text)
+  const mentions = materializeMessageMentionsForViewer(database, message.mentions)
+  const resolvedSourceContact =
+    sanitizeSourceContact(database, message.sourceContact) ??
+    (mentions.length > 0 ? undefined : resolveContactSourceReferenceFromText(database, message.text))
   return {
     attachment: materializeAttachmentForViewer(database, viewerIdentifier, message.attachment),
     attachmentRemovedNotice: materializeAttachmentRemovedNoticeForViewer(
@@ -2891,11 +2961,14 @@ function materializeDialogMessage(
     forwarded: message.forwarded,
     forwardedAuthorName: message.forwardedAuthorName,
     id: message.id,
+    mentions: mentions.length > 0 ? mentions : undefined,
     readAt: message.readAt,
     replyTo,
     sourceChannel:
-      message.sourceChannel ??
-      (resolvedSourceContact ? undefined : resolveChannelSourceReferenceFromText(database, message.text)),
+      sanitizeSourceChannel(message.sourceChannel) ??
+      (resolvedSourceContact || mentions.length > 0
+        ? undefined
+        : resolveChannelSourceReferenceFromText(database, message.text)),
     sourceContact: resolvedSourceContact,
     sourceGroup: materializeSourceGroupForViewer(database, message.sourceGroup),
     system: Boolean(message.system),
@@ -3112,7 +3185,10 @@ function materializeGroupMessage(
   viewerIdentifier: string,
   message: PersistedGroupMessage,
 ): Omit<PersistedGroupMessage, 'groupId' | 'ownerIdentifier'> {
-  const resolvedSourceContact = message.sourceContact ?? resolveContactSourceReferenceFromText(database, message.text)
+  const mentions = materializeMessageMentionsForViewer(database, message.mentions)
+  const resolvedSourceContact =
+    sanitizeSourceContact(database, message.sourceContact) ??
+    (mentions.length > 0 ? undefined : resolveContactSourceReferenceFromText(database, message.text))
   const hideThreadForViewer = isArchivedThread(message)
   return {
     attachment: materializeAttachmentForViewer(database, viewerIdentifier, message.attachment),
@@ -3130,11 +3206,14 @@ function materializeGroupMessage(
     groupParticipantId: message.groupParticipantId,
     groupSystemEvent: materializeGroupSystemEvent(database, message.groupSystemEvent),
     id: message.id,
+    mentions: mentions.length > 0 ? mentions : undefined,
     readAt: message.readAt,
     replyTo: message.replyTo,
     sourceChannel:
-      message.sourceChannel ??
-      (resolvedSourceContact ? undefined : resolveChannelSourceReferenceFromText(database, message.text)),
+      sanitizeSourceChannel(message.sourceChannel) ??
+      (resolvedSourceContact || mentions.length > 0
+        ? undefined
+        : resolveChannelSourceReferenceFromText(database, message.text)),
     sourceContact: resolvedSourceContact,
     sourceGroup: materializeSourceGroupForViewer(database, message.sourceGroup),
     system: Boolean(message.system),
@@ -10625,7 +10704,6 @@ export class TinychokStore {
     assertAttachmentPresentationAllowed(attachment, text, { allowVideoNote: true })
     const forwardedAuthorName = sanitizeForwardedAuthorName(payload.forwardedAuthorName)
     const sourceChannel = sanitizeSourceChannel(payload.sourceChannel)
-    const sourceContact = resolveContactSourceReferenceFromText(this.database, text)
     const replyTo = sanitizeReplyTarget(payload.replyTo)
     if (!text && !attachment) {
       throw new Error('Нельзя отправить пустое сообщение.')
@@ -10662,6 +10740,12 @@ export class TinychokStore {
     const groupCopies = this.listGroupCopies(sharedId)
 
     for (const groupCopy of groupCopies) {
+      const mentions = buildMessageMentions(text, groupCopy.participants)
+      const nextMentions = mentions.length > 0 ? mentions : undefined
+      const sourceContact =
+        nextMentions && nextMentions.length > 0
+          ? undefined
+          : resolveContactSourceReferenceFromText(this.database, text)
       this.database.groupMessages.push({
         attachment,
         author: groupCopy.ownerIdentifier === account.identifier ? 'me' : 'them',
@@ -10675,6 +10759,7 @@ export class TinychokStore {
         groupParticipantId:
           groupCopy.ownerIdentifier === account.identifier ? undefined : senderParticipant.id,
         id: this.getNextGroupMessageId(groupCopy.ownerIdentifier, groupCopy.id),
+        mentions: nextMentions,
         ownerIdentifier: groupCopy.ownerIdentifier,
         replyTo,
         sourceChannel,
@@ -10685,7 +10770,16 @@ export class TinychokStore {
         time,
       })
 
-      groupCopy.preview = text || formatAttachmentPreviewText(attachment) || groupCopy.preview
+      groupCopy.preview =
+        formatMessagePreview({
+          attachment,
+          attachmentRemovedNotice: undefined,
+          mentions: nextMentions,
+          sourceChannel,
+          sourceContact,
+          sourceGroup: undefined,
+          text,
+        }) || groupCopy.preview
       groupCopy.time = time
       groupCopy.unread =
         groupCopy.ownerIdentifier === account.identifier || groupCopy.muted
@@ -10751,7 +10845,10 @@ export class TinychokStore {
       if (!targetMessage) continue
 
       this.applyEditedTextRecord(targetMessage, nextText, editedAt)
-      targetMessage.sourceContact = resolveContactSourceReferenceFromText(this.database, nextText)
+      const mentions = buildMessageMentions(nextText, groupCopy.participants)
+      targetMessage.mentions = mentions.length > 0 ? mentions : undefined
+      targetMessage.sourceContact =
+        mentions.length > 0 ? undefined : resolveContactSourceReferenceFromText(this.database, nextText)
 
       const latestMessage = [...this.database.groupMessages]
         .reverse()
@@ -10760,7 +10857,7 @@ export class TinychokStore {
             candidate.ownerIdentifier === groupCopy.ownerIdentifier && candidate.groupId === groupCopy.id,
         )
       if (latestMessage === targetMessage) {
-        groupCopy.preview = nextText
+        groupCopy.preview = formatMessagePreview(targetMessage)
         groupCopy.time = targetMessage.time
       }
       broadcastIdentifiers.add(groupCopy.ownerIdentifier)
@@ -10830,10 +10927,17 @@ export class TinychokStore {
         .map((comment) => normalizeIdentifier(comment.authorIdentifier ?? ''))
         .filter((identifier) => identifier.length > 0),
     )
+    const threadMentionParticipants = this.buildThreadMentionParticipants(
+      target.group.participants,
+      target.message.threadComments,
+    )
     const mentionedParticipantIdentifiers = this.resolveMentionedParticipantIdentifiers(
       text,
-      target.group.participants,
+      threadMentionParticipants,
     )
+    const mentions = buildMessageMentions(text, threadMentionParticipants)
+    const sourceContact =
+      mentions.length > 0 ? undefined : resolveContactSourceReferenceFromText(this.database, text)
 
     const sharedId = this.getSharedGroupId(target.group)
     const threadId = getGroupMessageThreadId(target.group, target.message)
@@ -10845,6 +10949,8 @@ export class TinychokStore {
       attachment,
       replyTo,
       deliveryId,
+      mentions.length > 0 ? mentions : undefined,
+      sourceContact,
     )
     this.subscribeMentionedThreadParticipants({
       actorIdentifier: account.identifier,
@@ -10918,6 +11024,10 @@ export class TinychokStore {
     const broadcastIdentifiers = new Set<string>()
 
     for (const groupCopy of this.listGroupCopies(sharedId)) {
+      const threadMentionParticipants = this.buildThreadMentionParticipants(
+        groupCopy.participants,
+        target.message.threadComments,
+      )
       const targetMessages = this.database.groupMessages.filter(
         (candidate) =>
           candidate.ownerIdentifier === groupCopy.ownerIdentifier &&
@@ -10931,7 +11041,10 @@ export class TinychokStore {
         if (!storedComment) continue
 
         this.applyEditedTextRecord(storedComment, nextText, editedAt)
-        storedComment.sourceContact = resolveContactSourceReferenceFromText(this.database, nextText)
+        const mentions = buildMessageMentions(nextText, threadMentionParticipants)
+        storedComment.mentions = mentions.length > 0 ? mentions : undefined
+        storedComment.sourceContact =
+          mentions.length > 0 ? undefined : resolveContactSourceReferenceFromText(this.database, nextText)
         broadcastIdentifiers.add(groupCopy.ownerIdentifier)
       }
     }
@@ -12365,10 +12478,17 @@ export class TinychokStore {
         .map((comment) => normalizeIdentifier(comment.authorIdentifier ?? ''))
         .filter((identifier) => identifier.length > 0),
     )
+    const threadMentionParticipants = this.buildThreadMentionParticipants(
+      target.channel.participants,
+      target.post.threadComments,
+    )
     const mentionedParticipantIdentifiers = this.resolveMentionedParticipantIdentifiers(
       text,
-      target.channel.participants,
+      threadMentionParticipants,
     )
+    const mentions = buildMessageMentions(text, threadMentionParticipants)
+    const sourceContact =
+      mentions.length > 0 ? undefined : resolveContactSourceReferenceFromText(this.database, text)
 
     const normalizedHandle = sanitizeChannelDirectLink(target.channel.handle) || target.channel.handle
     const threadId = getSubscriptionPostThreadId(target.channel, target.post)
@@ -12380,6 +12500,8 @@ export class TinychokStore {
       attachment,
       replyTo,
       deliveryId,
+      mentions.length > 0 ? mentions : undefined,
+      sourceContact,
     )
     this.subscribeMentionedThreadParticipants({
       actorIdentifier: account.identifier,
@@ -12453,6 +12575,10 @@ export class TinychokStore {
     const broadcastIdentifiers = new Set<string>()
 
     for (const channelCopy of this.listSubscriptionChannelCopiesByHandle(normalizedHandle)) {
+      const threadMentionParticipants = this.buildThreadMentionParticipants(
+        channelCopy.participants,
+        target.post.threadComments,
+      )
       const targetPosts = this.database.subscriptionPosts.filter(
         (candidate) =>
           candidate.ownerIdentifier === channelCopy.ownerIdentifier &&
@@ -12466,7 +12592,10 @@ export class TinychokStore {
         if (!storedComment) continue
 
         this.applyEditedTextRecord(storedComment, nextText, editedAt)
-        storedComment.sourceContact = resolveContactSourceReferenceFromText(this.database, nextText)
+        const mentions = buildMessageMentions(nextText, threadMentionParticipants)
+        storedComment.mentions = mentions.length > 0 ? mentions : undefined
+        storedComment.sourceContact =
+          mentions.length > 0 ? undefined : resolveContactSourceReferenceFromText(this.database, nextText)
         broadcastIdentifiers.add(channelCopy.ownerIdentifier)
       }
     }
@@ -17980,6 +18109,29 @@ export class TinychokStore {
     return resolvedIdentifiers
   }
 
+  private buildThreadMentionParticipants(
+    participants: ReadonlyArray<GroupParticipant> | undefined,
+    comments: ReadonlyArray<ThreadComment> | undefined,
+  ) {
+    return buildThreadMentionCandidates(
+      [...(participants ?? [])],
+      compactThreadComments([...(comments ?? [])]),
+      (comment) => {
+        const normalizedIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '')
+        if (!normalizedIdentifier) {
+          return null
+        }
+
+        const account = this.findAccount(normalizedIdentifier)
+        if (!account || isPublicDeletedAccount(account)) {
+          return null
+        }
+
+        return this.buildGroupParticipant(account)
+      },
+    )
+  }
+
   private subscribeMentionedThreadParticipants(options: {
     actorIdentifier: string
     existingParticipantIdentifiers: ReadonlySet<string>
@@ -18023,6 +18175,8 @@ export class TinychokStore {
     text: string,
     attachment?: Message['attachment'],
     deliveryId?: string,
+    mentions?: Message['mentions'],
+    sourceContact?: Message['sourceContact'],
   ): ThreadComment {
     return {
       attachment,
@@ -18032,8 +18186,9 @@ export class TinychokStore {
       deliveryId: this.resolveDeliveryId(deliveryId),
       displayAuthor: formatAccountName(account) || account.identifier,
       id: 0,
+      mentions,
       replyTo: undefined,
-      sourceContact: resolveContactSourceReferenceFromText(this.database, text),
+      sourceContact,
       text,
       time: formatNowTime(),
     }
@@ -18168,6 +18323,8 @@ export class TinychokStore {
     attachment?: Message['attachment'],
     replyTo?: Message['replyTo'],
     deliveryId?: string,
+    mentions?: Message['mentions'],
+    sourceContact?: Message['sourceContact'],
   ) {
     const broadcastIdentifiers = new Set<string>()
     const groupCopies = this.listGroupCopies(sharedId)
@@ -18181,12 +18338,17 @@ export class TinychokStore {
       )
 
       for (const targetMessage of targetMessages) {
+        const nextMentions = mentions ?? undefined
         const nextComment = this.buildThreadComment(
           authorAccount,
           groupCopy.ownerIdentifier,
           text,
           attachment,
           deliveryId,
+          nextMentions,
+          nextMentions && nextMentions.length > 0
+            ? undefined
+            : sourceContact ?? resolveContactSourceReferenceFromText(this.database, text),
         )
         nextComment.replyTo = replyTo
         const nextComments = [...(targetMessage.threadComments ?? [])]
@@ -18209,6 +18371,8 @@ export class TinychokStore {
     attachment?: Message['attachment'],
     replyTo?: Message['replyTo'],
     deliveryId?: string,
+    mentions?: Message['mentions'],
+    sourceContact?: Message['sourceContact'],
   ) {
     const broadcastIdentifiers = new Set<string>()
     const channelCopies = this.listSubscriptionChannelCopiesByHandle(handle)
@@ -18222,12 +18386,17 @@ export class TinychokStore {
       )
 
       for (const targetPost of targetPosts) {
+        const nextMentions = mentions ?? undefined
         const nextComment = this.buildThreadComment(
           authorAccount,
           channelCopy.ownerIdentifier,
           text,
           attachment,
           deliveryId,
+          nextMentions,
+          nextMentions && nextMentions.length > 0
+            ? undefined
+            : sourceContact ?? resolveContactSourceReferenceFromText(this.database, text),
         )
         nextComment.replyTo = replyTo
         const nextComments = [...(targetPost.threadComments ?? [])]
@@ -19571,8 +19740,13 @@ function cloneThreadCommentRecord(comment: PersistedThreadComment): PersistedThr
       ? { ...comment.attachmentRemovedNotice }
       : undefined,
     editHistory: cloneEditHistory(comment.editHistory),
+    mentions: comment.mentions?.map((mention) => ({
+      ...mention,
+      sourceContact: { ...mention.sourceContact },
+    })),
     replyTo: comment.replyTo ? { ...comment.replyTo } : undefined,
     sourceChannel: comment.sourceChannel ? { ...comment.sourceChannel } : undefined,
+    sourceContact: comment.sourceContact ? { ...comment.sourceContact } : undefined,
   }
 }
 

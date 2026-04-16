@@ -26,7 +26,13 @@ type BubbleMessageContentProps = {
   inlineMeta?: ReactNode
   message: Pick<
     Message,
-    'attachment' | 'attachmentRemovedNotice' | 'replyTo' | 'sourceContact' | 'sourceGroup' | 'text'
+    | 'attachment'
+    | 'attachmentRemovedNotice'
+    | 'mentions'
+    | 'replyTo'
+    | 'sourceContact'
+    | 'sourceGroup'
+    | 'text'
   >
   imageOverlay?: ReactNode
   linkedChannel?: ChannelMessageSource | null
@@ -34,7 +40,7 @@ type BubbleMessageContentProps = {
   onOpenExternalLink?: (url: string) => void
   onOpenLinkedChannel?: () => void
   onOpenPremiumUpsell?: () => void
-  onOpenSourceContact?: () => void
+  onOpenSourceContact?: (sourceContact: NonNullable<Message['sourceContact']>) => void
   onOpenSourceGroup?: () => void
   replyChatTitle?: string
   showReplyInline?: boolean
@@ -714,14 +720,18 @@ export function EmojiOnlyMessageContent({
 
 type BubbleRichTextProps = {
   inlineMeta?: ReactNode
+  mentions?: Message['mentions']
   text: string
   onOpenExternalLink?: (url: string) => void
+  onOpenSourceContact?: (sourceContact: NonNullable<Message['sourceContact']>) => void
 }
 
 function BubbleRichText({
   inlineMeta,
+  mentions,
   text,
   onOpenExternalLink,
+  onOpenSourceContact,
 }: BubbleRichTextProps) {
   const lines = text.split('\n')
 
@@ -764,10 +774,41 @@ function BubbleRichText({
       {lines.map((line, lineIndex) => (
         <React.Fragment key={`line-${lineIndex}`}>
           {lineIndex > 0 ? <br /> : null}
-          {parseMessageTextSegments(line).map((segment, segmentIndex) => {
+          {parseMessageTextSegments(line, mentions).map((segment, segmentIndex) => {
             const segmentKey = `${segment.kind}-${lineIndex}-${segmentIndex}`
             if (segment.kind === 'text') {
               return applyFormatting(segment.value, segment.style, segmentKey)
+            }
+
+            if (segment.kind === 'mention') {
+              const mentionNode = onOpenSourceContact ? (
+                <button
+                  type="button"
+                  key={segmentKey}
+                  className="bubble-text-mention"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onOpenSourceContact(segment.sourceContact)
+                  }}
+                  onMouseDown={(event) => {
+                    event.stopPropagation()
+                  }}
+                  title={
+                    segment.sourceContact.identifier ??
+                    segment.sourceContact.handle ??
+                    segment.value
+                  }
+                >
+                  {segment.value}
+                </button>
+              ) : (
+                <span key={segmentKey} className="bubble-text-mention-label">
+                  {segment.value}
+                </span>
+              )
+
+              return applyFormatting(mentionNode, segment.style, segmentKey)
             }
 
             return applyFormatting(
@@ -1208,10 +1249,17 @@ export function BubbleMessageContent({
         <ForwardedGroupHeader sourceGroup={message.sourceGroup} onClick={onOpenSourceGroup} />
       ) : message.sourceContact ? (
         <>
-          <ForwardedContactHeader sourceContact={message.sourceContact} onClick={onOpenSourceContact} />
+          <ForwardedContactHeader
+            sourceContact={message.sourceContact}
+            onClick={
+              onOpenSourceContact ? () => onOpenSourceContact(message.sourceContact!) : undefined
+            }
+          />
           {shouldRenderContactBodyText ? (
             <BubbleRichText
               inlineMeta={inlineMeta}
+              mentions={message.mentions}
+              onOpenSourceContact={onOpenSourceContact}
               text={message.text}
               onOpenExternalLink={onOpenExternalLink}
             />
@@ -1220,6 +1268,8 @@ export function BubbleMessageContent({
       ) : trimmedText ? (
         <BubbleRichText
           inlineMeta={inlineMeta}
+          mentions={message.mentions}
+          onOpenSourceContact={onOpenSourceContact}
           text={message.text}
           onOpenExternalLink={onOpenExternalLink}
         />
