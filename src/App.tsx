@@ -11612,12 +11612,8 @@ function App() {
 
   const handleSupportSettingsBack = useCallback(() => {
     setSupportError('')
-    navigateBackWithinApp(() => {
-      closeThreadView()
-      setSettingsView('profile')
-      setConfirmingLogout(false)
-    })
-  }, [closeThreadView, navigateBackWithinApp])
+    leaveSettingsToMain()
+  }, [leaveSettingsToMain])
 
   const handlePremiumBack = useCallback(() => {
     navigateBackWithinApp(() => {
