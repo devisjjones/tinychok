@@ -216,6 +216,10 @@ export type AdminUserPremiumBody = {
   reason: string
 }
 
+export type AdminUserPremiumRefundBody = {
+  reason: string
+}
+
 export type AdminUserReportIntakeBody = {
   muted: boolean
 }

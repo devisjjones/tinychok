@@ -35,6 +35,7 @@ import {
   fetchClientRuntimeConfig,
   fetchFilteredAdminAuditLog,
   moderateAdminMedia,
+  refundAdminUserPremium,
   requestAuthCode,
   replyAdminSupportTicket,
   searchAdminUsers,
@@ -1240,6 +1241,28 @@ export default function AdminApp() {
         enabled,
         reason,
       })
+      setSelectedUser(response.user)
+      await refreshSelectedUser(response.user.identifier)
+      await refreshUsers()
+      await refreshDashboard()
+      await refreshAuditLog()
+    } catch (error) {
+      setAppError(getErrorMessage(error))
+    }
+  }
+
+  async function handleRefundPremium(user: AdminUserSummary) {
+    if (!sessionToken) return
+
+    try {
+      const reason = getActionReason('Причина возврата', 'Возврат средств')
+      if (!reason) return
+
+      if (!window.confirm(`Оформить возврат и снять premium для ${getAdminUserLookupIdentifier(user)}?`)) {
+        return
+      }
+
+      const response = await refundAdminUserPremium(sessionToken, user.identifier, { reason })
       setSelectedUser(response.user)
       await refreshSelectedUser(response.user.identifier)
       await refreshUsers()
@@ -2638,12 +2661,21 @@ export default function AdminApp() {
                           <span>{selectedUser.blocked ? 'Разблокировать' : 'Заблокировать'}</span>
                         </span>
                       </button>
-                      <button type="button" className="admin-primary-button" onClick={() => void handleTogglePremium(selectedUser)}>
-                        <span className="admin-button-with-icon">
-                          <img src="/icons/crown64.png" alt="" aria-hidden="true" />
-                          <span>{selectedUser.premium ? 'Снять premium' : 'Выдать premium'}</span>
-                        </span>
-                      </button>
+                      {bootstrap.actor.permissions.includes('users.premium.write') ? (
+                        <>
+                          <button type="button" className="admin-primary-button" onClick={() => void handleTogglePremium(selectedUser)}>
+                            <span className="admin-button-with-icon">
+                              <img src="/icons/crown64.png" alt="" aria-hidden="true" />
+                              <span>{selectedUser.premium ? 'Снять premium' : 'Выдать premium'}</span>
+                            </span>
+                          </button>
+                          {selectedUser.premium ? (
+                            <button type="button" className="admin-secondary-button" onClick={() => void handleRefundPremium(selectedUser)}>
+                              Возврат
+                            </button>
+                          ) : null}
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 </>

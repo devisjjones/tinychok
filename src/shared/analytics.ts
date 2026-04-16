@@ -98,6 +98,7 @@ export type AnalyticsEventName =
   | 'premium_purchase_failed'
   | 'premium_purchase_failed_month'
   | 'premium_purchase_failed_year'
+  | 'refund_processed'
   | 'group_created'
   | 'group_create_failed'
   | 'group_deleted'
@@ -114,7 +115,7 @@ export type AnalyticsEvent = {
   name: AnalyticsEventName
   occurredAt: string
   properties: AnalyticsEventProperties
-  source: 'web'
+  source: 'server' | 'web'
 }
 
 export type AnalyticsBatchBody = {
@@ -135,6 +136,7 @@ export const analyticsEventCatalog: Record<
       | 'notifications'
       | 'support'
       | 'premium'
+      | 'billing'
       | 'threads'
       | 'search'
       | 'storage'
@@ -529,6 +531,10 @@ export const analyticsEventCatalog: Record<
   premium_purchase_failed_year: {
     category: 'premium',
     description: 'Попытка покупки годового премиума завершилась ошибкой.',
+  },
+  refund_processed: {
+    category: 'billing',
+    description: 'Успешно оформлен возврат с server-side фиксацией refund-type.',
   },
   group_created: {
     category: 'messaging',

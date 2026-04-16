@@ -39,11 +39,13 @@ import type {
   AdminUserBlockBody,
   AdminUserReportIntakeBody,
   AdminUserPremiumBody,
+  AdminUserPremiumRefundBody,
   AdminUsersResponse,
   AdminThreadsResponse,
   AdminThreadArchiveToggleBody,
   AdminThreadCsvExportBody,
 } from '../../src/shared/backend'
+import { trackServerAnalyticsEvent } from './analytics'
 import { getAdminPermissionsForRole, hasAdminPermission } from './admin-permissions'
 import { runtimeConfig } from './config'
 import type { AppStore } from './store-contract'
@@ -442,8 +444,49 @@ export async function registerAdminRoutes(
 
       const body = parseJsonPayload<AdminUserPremiumBody>(request.body)
       const identifier = getRouteParam(request, 'identifier')
-      await store.adminSetUserPremium(auth.token, identifier, body)
-      return store.adminGetUser(identifier)
+      const updatedUser = await store.adminSetUserPremium(auth.token, identifier, body)
+      await broadcastSnapshotsForIdentifiers([updatedUser.identifier])
+      return store.adminGetUser(updatedUser.identifier)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+
+  app.post('/api/admin/users/:identifier/refund', async (request, reply) => {
+    try {
+      const auth = requireAdminActor(store, request, reply, 'users.premium.write')
+      if (!auth) return reply
+
+      const body = parseJsonPayload<AdminUserPremiumRefundBody>(request.body)
+      const identifier = getRouteParam(request, 'identifier')
+      const actor = store.getAdminActorByToken(auth.token)
+      const updatedUser = await store.adminRefundUserPremium(auth.token, identifier, body)
+      await broadcastSnapshotsForIdentifiers([updatedUser.identifier])
+
+      if (actor) {
+        try {
+          await trackServerAnalyticsEvent(
+            app.log,
+            {
+              name: 'refund_processed',
+              properties: {
+                actorRole: actor.role,
+                refundSource: 'admin',
+                refundTargetType: 'premium',
+              },
+            },
+            {
+              identifier: updatedUser.identifier,
+              ip: request.ip,
+              userAgent: request.headers['user-agent'],
+            },
+          )
+        } catch (analyticsError) {
+          app.log.error(analyticsError, 'analytics.admin_refund_processed_failed')
+        }
+      }
+
+      return store.adminGetUser(updatedUser.identifier)
     } catch (error) {
       return sendError(reply, error)
     }

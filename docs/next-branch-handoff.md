@@ -117,11 +117,16 @@
 - текущий DataLens workbook уже настроен поверх staging ClickHouse и считается отдельным operational surface:
   - `app_opened` с `deviceType` — source-of-truth для app opens / mobile-vs-desktop charts
   - funnel / retention / premium revenue сейчас живут как SQL-источники внутри DataLens workbook, а не как repo-managed SQL files
+  - admin refund action тоже заведён в ClickHouse как `refund_processed` и режется по `refundTargetType`
   - product dashboards не должны снова тянуть технические `realtime_*` events
 - staging premium reporting пока трактовать только как product smoke / estimated revenue:
   - в `src/App.tsx` real checkout всё ещё не подключён
   - success-события premium могут приходить из `debugAutoCheckout`
   - production revenue dashboard потом нужно будет переключать на `environment=production`
+- refund charts строятся тем же workbook-side SQL-подходом:
+  - базовый фильтр = `event_name = refund_processed`
+  - текущий admin flow пишет `refundTargetType = premium`
+  - будущие возвраты товаров лучше доклеивать тем же event name через новый `refundTargetType`, чтобы не плодить отдельный dataset
 - единый release-blocking список теперь собран в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
 ## Core Product Mechanics

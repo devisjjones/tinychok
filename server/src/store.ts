@@ -6301,6 +6301,42 @@ export class TinychokStore {
     return this.buildAdminUserSummary(target)
   }
 
+  async adminRefundUserPremium(
+    actorToken: string,
+    identifier: string,
+    options: {
+      reason?: string
+    },
+  ) {
+    const actor = this.getStaffAccountByTokenOrThrow(actorToken)
+    const target = this.findAccountForAdmin(identifier)
+    if (!target) {
+      throw new Error('Пользователь не найден.')
+    }
+
+    if (!hasActivePremium(target.premium, target.premiumExpiresAt)) {
+      throw new Error('У пользователя уже нет активного premium.')
+    }
+
+    const previousValue = this.buildAdminUserSummary(target)
+    const normalizedReason = sanitizeAdminText(options.reason, 280)
+    target.premium = false
+    target.premiumExpiresAt = ''
+    this.refreshDialogsForAccount(target)
+    await this.persist()
+    await this.appendAdminAuditLog(actor, {
+      action: 'admin.user.premium.refund',
+      nextValue: this.buildAdminUserSummary(target),
+      previousValue,
+      reason: normalizedReason || undefined,
+      summary: `Оформлен возврат и снят premium для ${buildAdminAuditAccountLabel(target)}${normalizedReason ? ` · ${normalizedReason}` : ''}`,
+      targetId: target.identifier,
+      targetType: 'user',
+    })
+
+    return this.buildAdminUserSummary(target)
+  }
+
   async adminSetUserReportsMutedInAdmin(
     actorToken: string,
     identifier: string,

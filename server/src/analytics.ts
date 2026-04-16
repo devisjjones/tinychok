@@ -6,7 +6,7 @@ import { runtimeConfig } from './config'
 
 type AnalyticsCategory = (typeof analyticsEventCatalog)[keyof typeof analyticsEventCatalog]['category']
 
-type AnalyticsRequestContext = {
+export type AnalyticsRequestContext = {
   identifier?: string | null
   ip?: string
   userAgent?: string
@@ -98,4 +98,25 @@ export async function ingestAnalyticsBatch(
       sanitizedEvents,
     )
   }
+}
+
+export async function trackServerAnalyticsEvent(
+  logger: FastifyBaseLogger,
+  event: {
+    name: AnalyticsEvent['name']
+    occurredAt?: string
+    properties?: AnalyticsEvent['properties']
+  },
+  context: AnalyticsRequestContext,
+) {
+  await ingestAnalyticsBatch(
+    logger,
+    [{
+      name: event.name,
+      occurredAt: event.occurredAt ?? new Date().toISOString(),
+      properties: event.properties ?? {},
+      source: 'server',
+    }],
+    context,
+  )
 }

@@ -74,6 +74,41 @@ test('clickhouse analytics rows keep stable timestamps, identifiers and serializ
   assert.equal(formatClickHouseDateTime('2026-04-14T00:00:00.000Z'), '2026-04-14 00:00:00.000')
 })
 
+test('clickhouse analytics rows preserve server-side refund metadata', () => {
+  const row = buildClickHouseAnalyticsRow(
+    {
+      category: 'billing',
+      identifier: '+79990000002',
+      ip: '203.0.113.11',
+      name: 'refund_processed',
+      occurredAt: '2026-04-16T09:10:11.123Z',
+      properties: {
+        actorRole: 'owner',
+        refundSource: 'admin',
+        refundTargetType: 'premium',
+      },
+      source: 'server',
+      userAgent: 'Mozilla/5.0 (Admin)',
+    },
+    'staging',
+    new Date('2026-04-16T09:12:13.456Z'),
+  )
+
+  assert.deepEqual(row, {
+    anonymous_id: null,
+    environment: 'staging',
+    event_category: 'billing',
+    event_name: 'refund_processed',
+    identifier: '+79990000002',
+    ingested_at: '2026-04-16 09:12:13.456',
+    ip: '203.0.113.11',
+    occurred_at: '2026-04-16 09:10:11.123',
+    properties_json: '{"actorRole":"owner","refundSource":"admin","refundTargetType":"premium"}',
+    source: 'server',
+    user_agent: 'Mozilla/5.0 (Admin)',
+  })
+})
+
 test('clickhouse analytics insert url validates table identifiers before building query string', () => {
   const url = buildClickHouseAnalyticsInsertUrl('https://example.com:8443', {
     database: 'tinychok_analytics',

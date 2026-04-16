@@ -58,6 +58,7 @@ export type AppStore = Pick<
   | 'adminSetUserBlocked'
   | 'adminSetUserReportsMutedInAdmin'
   | 'adminSetUserPremium'
+  | 'adminRefundUserPremium'
   | 'adminViewUserAvatar'
   | 'getAdminDashboard'
   | 'bootstrapStaffRole'

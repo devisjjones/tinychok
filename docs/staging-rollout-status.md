@@ -139,10 +139,14 @@
   - onboarding funnel
   - D1 / D7 retention
   - premium starts / succeeds и estimated revenue
+  - `refund_processed` по `day` / `week` / `month` с color split по `refundTargetType`
   - support tickets `created` / `resolved`
 - пустой `D1` / `D7` chart сам по себе не считается регрессией staging:
   - `D1` появляется только после next-day возврата
   - `D7` только после `7+` дней
+- staging smoke для admin refund теперь двойной:
+  - кнопка `Возврат` в admin должна снимать premium у выбранного пользователя
+  - после действия в ClickHouse / DataLens должен появляться `refund_processed` с `refundTargetType = premium`
 - для продуктового dashboarding staging не должен снова использовать технические realtime-события подключения, разрыва и ошибок websocket
 - staging dashboard нужен для smoke и настройки визуализаций; перед production launch charts нужно дублировать или перевести на `environment = production`
 - единый список release-blocking runtime-контрактов лежит в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)

@@ -196,6 +196,10 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - `premium_purchase_failed_month`
 - `premium_purchase_failed_year`
 
+### Billing / Refunds
+
+- `refund_processed`
+
 ### Entity Creation
 
 - `group_created`
@@ -495,6 +499,15 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `debugAutoCheckout`
   - `reason`
 
+### Billing Events
+
+- `refund_processed`
+  - `actorRole`
+  - `refundSource = admin`
+  - `refundTargetType = premium`
+
+`refund_processed` отправляется server-side из admin refund action прямо в ClickHouse batch sink. Текстовая причина возврата из админки в analytics не уходит: она остаётся только в admin audit log.
+
 ### Group / Channel Creation
 
 - `group_created`
@@ -632,6 +645,7 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - messaging / media / search / settings / support category charts
   - premium starts / succeeds по дням
   - premium estimated revenue по `day` / `week` / `month`
+  - refunds по `day` / `week` / `month` с split по `refundTargetType`
   - support tickets `created` / `resolved`
 - часть чартов живёт прямо на base table `tinychok_analytics.analytics_events`, а часть использует SQL-источники внутри самого workbook:
   - funnel
@@ -655,6 +669,59 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - дублировать dataset/chart
   - поменять фильтр `environment` на `production`
   - перепроверить реальные billing-события уже на production-трафике
+
+### Refund Dataset SQL
+
+Для DataLens refunds-дашборда достаточно SQL-источника поверх `tinychok_analytics.analytics_events`:
+
+```sql
+WITH refunds AS (
+  SELECT
+    toTimeZone(occurred_at, 'Europe/Moscow') AS occurred_at_msk,
+    coalesce(JSONExtractString(properties_json, 'refundTargetType'), 'unknown') AS refund_target_type
+  FROM tinychok_analytics.analytics_events
+  WHERE environment = 'staging'
+    AND event_name = 'refund_processed'
+)
+SELECT
+  'day' AS period_grain,
+  toDate(occurred_at_msk) AS period_start,
+  refund_target_type,
+  count() AS refund_events
+FROM refunds
+GROUP BY period_start, refund_target_type
+
+UNION ALL
+
+SELECT
+  'week' AS period_grain,
+  toStartOfWeek(occurred_at_msk, 1) AS period_start,
+  refund_target_type,
+  count() AS refund_events
+FROM refunds
+GROUP BY period_start, refund_target_type
+
+UNION ALL
+
+SELECT
+  'month' AS period_grain,
+  toStartOfMonth(occurred_at_msk) AS period_start,
+  refund_target_type,
+  count() AS refund_events
+FROM refunds
+GROUP BY period_start, refund_target_type
+
+ORDER BY period_grain, period_start, refund_target_type
+```
+
+Рекомендация по графикам в DataLens:
+
+- сделать один SQL dataset из запроса выше
+- `X` = `period_start`
+- `Y` = `refund_events`
+- `Color` = `refund_target_type`
+- либо повесить dataset filter `period_grain`, либо продублировать chart в три версии: `day`, `week`, `month`
+- возвраты товаров потом попадут в тот же график новым цветом через другой `refundTargetType`, без смены схемы dataset
 
 ## Yandex Metrica Goals
 
@@ -756,6 +823,8 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 
 На staging goals уже заведены вручную в интерфейсе Яндекс Метрики. Для production тот же список нужно создать отдельно в production counter: цели не копируются автоматически между счётчиками.
 
+`refund_processed` не нужно заводить как Metrica goal: это server-side admin/billing событие для ClickHouse / DataLens, а не публичная web-goal метрика.
+
 ## Privacy Rules
 
 В аналитику нельзя отправлять:
@@ -766,6 +835,7 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 - email пользователя
 - содержимое жалоб
 - internal notes из админки
+- текстовую причину возврата из админки
 - содержимое каналов, групп и тредов
 
 Допустимо отправлять:

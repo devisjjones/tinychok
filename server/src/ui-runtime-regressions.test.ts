@@ -1179,6 +1179,26 @@ test('owner-only admin storage exports stay wired to password-confirmed ZIP down
   assert.match(permissionsSource, /'users\.archive\.manage'/u)
 })
 
+test('admin refund action stays wired through the dedicated button, route and server-side analytics event', () => {
+  const adminAppSource = readFileSync(join(process.cwd(), 'src/AdminApp.tsx'), 'utf8')
+  const backendSource = readFileSync(join(process.cwd(), 'src/app/backend.ts'), 'utf8')
+  const routesSource = readFileSync(join(process.cwd(), 'server/src/admin-routes.ts'), 'utf8')
+  const storeSource = readFileSync(join(process.cwd(), 'server/src/store.ts'), 'utf8')
+
+  assert.match(adminAppSource, /handleRefundPremium/u)
+  assert.match(adminAppSource, /refundAdminUserPremium/u)
+  assert.match(adminAppSource, /Причина возврата/u)
+  assert.match(adminAppSource, /Оформить возврат и снять premium/u)
+  assert.match(adminAppSource, />\s*Возврат\s*</u)
+  assert.match(backendSource, /\/api\/admin\/users\/\$\{encodeURIComponent\(identifier\)\}\/refund/u)
+  assert.match(routesSource, /\/api\/admin\/users\/:identifier\/refund/u)
+  assert.match(routesSource, /trackServerAnalyticsEvent/u)
+  assert.match(routesSource, /name:\s*'refund_processed'/u)
+  assert.match(routesSource, /refundTargetType:\s*'premium'/u)
+  assert.match(routesSource, /identifier:\s*updatedUser\.identifier/u)
+  assert.match(storeSource, /admin\.user\.premium\.refund/u)
+})
+
 test('clipboard image paste stays wired into every composer surface', () => {
   const appSource = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
   const directRoomSource = readFileSync(join(process.cwd(), 'src/rooms/DirectChatRoom.tsx'), 'utf8')
@@ -2139,6 +2159,40 @@ test('premium repeat purchase extends current active term', async () => {
   })
   const extendedByAdmin = Date.parse(account.premiumExpiresAt!)
   assert.ok(extendedByAdmin >= beforeAdminGrant + 29 * 24 * 60 * 60 * 1000)
+})
+
+test('admin refund revokes active premium and records a dedicated refund audit action', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const account = createAccount('+79990007011', {
+    premium: true,
+    premiumExpiresAt: daysFromNow(30),
+  })
+  const staff = createAccount('+79990007012', { staffRole: 'owner' })
+
+  database.accounts.push(account, staff)
+  const staffToken = createSession(database, staff.identifier, 'premium-refund-staff')
+
+  const refundedUser = await store.adminRefundUserPremium(staffToken, account.identifier, {
+    reason: 'Возврат средств',
+  })
+  assert.equal(refundedUser.premium, false)
+  assert.equal(refundedUser.premiumExpiresAt, '')
+  assert.equal(account.premium, false)
+  assert.equal(account.premiumExpiresAt, '')
+  assert.equal(store.adminGetUser(account.identifier).user.premium, false)
+
+  const auditEntry = database.adminAuditLogs.at(-1)
+  assert.equal(auditEntry?.action, 'admin.user.premium.refund')
+  assert.equal(auditEntry?.targetId, account.identifier)
+  assert.equal(auditEntry?.reason, 'Возврат средств')
+
+  await assert.rejects(
+    store.adminRefundUserPremium(staffToken, account.identifier, {
+      reason: 'Повторный возврат',
+    }),
+    /У пользователя уже нет активного premium\./u,
+  )
 })
 
 test('exact contact handles materialize into contact cards across message surfaces', async () => {
@@ -7162,6 +7216,7 @@ test('gif monthly upload limit stays operational-only and out of clickhouse prod
 test('clickhouse-approved analytics catalog stays wired through source docs and runtime boundaries', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const analyticsSource = readFileSync(join(repoRoot, 'src', 'shared', 'analytics.ts'), 'utf8')
+  const adminRoutesSource = readFileSync(join(repoRoot, 'server', 'src', 'admin-routes.ts'), 'utf8')
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
   const analyticsDoc = readFileSync(join(repoRoot, 'docs', 'analytics-instrumentation.md'), 'utf8')
   const verifyReleaseScript = readFileSync(join(repoRoot, 'scripts', 'verify-release-runtime.mjs'), 'utf8')
@@ -7209,6 +7264,7 @@ test('clickhouse-approved analytics catalog stays wired through source docs and 
     'video_note_viewer_opened',
     'legal_page_opened',
     'legal_pdf_opened',
+    'refund_processed',
   ]) {
     assert.match(analyticsSource, new RegExp(`'${eventName}'`, 'u'))
     assert.match(analyticsDoc, new RegExp(`\`${eventName}\``, 'u'))
@@ -7219,6 +7275,7 @@ test('clickhouse-approved analytics catalog stays wired through source docs and 
   assert.match(analyticsSource, /\|\s*'storage'/u)
   assert.match(analyticsSource, /\|\s*'legal'/u)
   assert.match(analyticsSource, /\|\s*'navigation'/u)
+  assert.match(analyticsSource, /\|\s*'billing'/u)
   assert.doesNotMatch(analyticsSource, /direct_message_retry_started/u)
   assert.doesNotMatch(analyticsSource, /direct_message_retry_failed/u)
   assert.doesNotMatch(analyticsSource, /group_message_retry_started/u)
@@ -7237,6 +7294,8 @@ test('clickhouse-approved analytics catalog stays wired through source docs and 
   assert.doesNotMatch(appSource, /realtime_disconnected/u)
   assert.doesNotMatch(appSource, /realtime_error/u)
   assert.doesNotMatch(appSource, /gif_upload_monthly_limit_reached/u)
+  assert.match(adminRoutesSource, /name:\s*'refund_processed'/u)
+  assert.match(adminRoutesSource, /refundTargetType:\s*'premium'/u)
 
   assert.match(appSource, /trackAnalyticsEvent\('quiet_settings_locked_interaction'/u)
   assert.match(appSource, /trackAnalyticsEvent\('app_opened'/u)

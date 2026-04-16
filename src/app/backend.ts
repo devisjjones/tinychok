@@ -34,6 +34,7 @@ import type {
   AdminUserDetailResponse,
   AdminUserReportIntakeBody,
   AdminUserPremiumBody,
+  AdminUserPremiumRefundBody,
   AdminUsersResponse,
   AdminThreadsResponse,
   AdminThreadArchiveToggleBody,
@@ -841,6 +842,19 @@ export async function setAdminUserPremium(
 ) {
   const response = await fetch(
     makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/premium`),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+
+  return readJsonResponse<AdminUserDetailResponse>(response)
+}
+
+export async function refundAdminUserPremium(
+  sessionToken: string,
+  identifier: string,
+  body: AdminUserPremiumRefundBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/admin/users/${encodeURIComponent(identifier)}/refund`),
     makeJsonRequestInit('POST', body, sessionToken),
   )
 
