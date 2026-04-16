@@ -43,6 +43,7 @@ function createAccount(
     invisibilityAutoEnabled?: boolean
     invisibilityEnabled?: boolean
     passwordHash?: string
+    premiumBadgeHidden?: boolean
     premium?: boolean
     premiumExpiresAt?: string
     quietModeSettings?: {
@@ -82,6 +83,7 @@ function createAccount(
     nickname: '',
     passwordHash: options?.passwordHash,
     passwordSetAt: options?.passwordHash ? '2026-03-28T00:00:00.000Z' : undefined,
+    premiumBadgeHidden: options?.premiumBadgeHidden ?? false,
     premium: options?.premium ?? false,
     premiumExpiresAt: options?.premiumExpiresAt,
     publicDeleted: undefined,
@@ -1853,6 +1855,62 @@ test('session snapshot persists explicit invisibility preference updates', async
   })
   assert.equal(store.getSnapshotByToken(token)?.session.invisibilityEnabled, false)
   assert.equal(store.getSnapshotByToken(token)?.session.invisibilityAutoEnabled, false)
+})
+
+test('premium badge hiding persists through request and dialog projections', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const premiumAccount = createAccount('+79990005054', {
+    premium: true,
+    premiumExpiresAt: daysFromNow(10),
+  })
+  const viewerAccount = createAccount('+79990005055')
+
+  database.accounts.push(premiumAccount, viewerAccount)
+  const premiumToken = createSession(database, premiumAccount.identifier, 'premium-badge-owner')
+  const viewerToken = createSession(database, viewerAccount.identifier, 'premium-badge-viewer')
+
+  await store.sendContactRequest(premiumToken, {
+    identifier: viewerAccount.identifier,
+  })
+
+  let incomingRequest = store
+    .getSnapshotByToken(viewerToken)
+    ?.contactRequests.find((request) => request.identifier === premiumAccount.identifier)
+  assert.equal(incomingRequest?.premium, true)
+  assert.equal(incomingRequest?.premiumBadgeHidden, false)
+
+  const hideResponse = await store.updateSession(premiumToken, {
+    premiumBadgeHidden: true,
+  })
+  assert.ok(hideResponse.broadcastIdentifiers.includes(viewerAccount.identifier))
+  assert.equal(store.getSnapshotByToken(premiumToken)?.session.premiumBadgeHidden, true)
+
+  incomingRequest = store
+    .getSnapshotByToken(viewerToken)
+    ?.contactRequests.find((request) => request.identifier === premiumAccount.identifier)
+  assert.equal(incomingRequest?.premium, true)
+  assert.equal(incomingRequest?.premiumBadgeHidden, true)
+
+  await store.acceptContactRequest(viewerToken, premiumAccount.identifier)
+
+  let viewerChat = store
+    .getSnapshotByToken(viewerToken)
+    ?.chats.find((chat) => chat.phone === premiumAccount.identifier)
+  assert.equal(viewerChat?.premium, true)
+  assert.equal(viewerChat?.premiumBadgeHidden, true)
+
+  const showResponse = await store.updateSession(premiumToken, {
+    premiumBadgeHidden: false,
+  })
+  assert.ok(showResponse.broadcastIdentifiers.includes(viewerAccount.identifier))
+  assert.equal(store.getSnapshotByToken(premiumToken)?.session.premiumBadgeHidden, false)
+
+  viewerChat = store
+    .getSnapshotByToken(viewerToken)
+    ?.chats.find((chat) => chat.phone === premiumAccount.identifier)
+  assert.equal(viewerChat?.premium, true)
+  assert.equal(viewerChat?.premiumBadgeHidden, false)
 })
 
 test('browser notifications preference persists server-side and defaults to enabled', async () => {
@@ -4186,6 +4244,44 @@ test('self presence and invisibility contract stay wired through app, css and do
   assert.match(releaseDoc, /fresh `Тихо -> on` при `autoInvisibility=true`/u)
   assert.match(releaseDoc, /fresh `Тихо -> off`:/u)
   assert.match(releaseDoc, /не должен выключать вручную включённую `Невидимку`/u)
+})
+
+test('premium crown hiding stays wired through profile settings and identity surfaces', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const contactsPaneSource = readFileSync(join(repoRoot, 'src', 'components', 'ContactsPane.tsx'), 'utf8')
+  const contactRequestCardSource = readFileSync(join(repoRoot, 'src', 'components', 'ContactRequestCard.tsx'), 'utf8')
+  const roomComposerSource = readFileSync(join(repoRoot, 'src', 'components', 'RoomComposer.tsx'), 'utf8')
+  const selectedOverlaySource = readFileSync(join(repoRoot, 'src', 'components', 'SelectedBubbleOverlay.tsx'), 'utf8')
+  const appUtilsSource = readFileSync(join(repoRoot, 'src', 'app', 'utils.ts'), 'utf8')
+  const appStorageSource = readFileSync(join(repoRoot, 'src', 'app', 'storage.ts'), 'utf8')
+  const sharedTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'types.ts'), 'utf8')
+  const sharedBackendSource = readFileSync(join(repoRoot, 'src', 'shared', 'backend.ts'), 'utf8')
+  const storeSource = readFileSync(join(repoRoot, 'server', 'src', 'store.ts'), 'utf8')
+
+  assert.match(appSource, /Скрыть корону/u)
+  assert.match(appSource, /premiumBadgeHidden/u)
+  assert.match(appSource, /updateSessionProfile\(\{ premiumBadgeHidden: event\.target\.checked \}\)/u)
+  assert.match(appSource, /shouldShowPremiumCrown\(participant\)/u)
+  assert.match(appSource, /shouldShowPremiumCrown\(chat\)/u)
+  assert.match(appSource, /quiet-toggle-crown/u)
+  assert.match(directRoomSource, /shouldShowPremiumCrown\(activeChat\)/u)
+  assert.match(groupRoomSource, /shouldShowPremiumCrown\(actor\)/u)
+  assert.match(groupRoomSource, /shouldShowPremiumCrown\(participant\)/u)
+  assert.match(contactsPaneSource, /shouldShowPremiumCrown\(chat\)/u)
+  assert.match(contactRequestCardSource, /shouldShowPremiumCrown\(request\)/u)
+  assert.match(roomComposerSource, /shouldShowPremiumCrown\(candidate\)/u)
+  assert.match(selectedOverlaySource, /shouldShowPremiumCrown\(participant\)/u)
+  assert.match(appUtilsSource, /export function shouldShowPremiumCrown/u)
+  assert.match(appStorageSource, /premiumBadgeHidden: Boolean\(account\.premiumBadgeHidden\)/u)
+  assert.match(appStorageSource, /premiumBadgeHidden: Boolean\(session\.premiumBadgeHidden\)/u)
+  assert.match(sharedTypesSource, /premiumBadgeHidden\?: boolean/u)
+  assert.match(sharedBackendSource, /'premiumBadgeHidden'/u)
+  assert.match(storeSource, /collectAccountProjectionBroadcastIdentifiers/u)
+  assert.match(storeSource, /materializeGroupSystemEvent\(database, message\.groupSystemEvent\)/u)
+  assert.match(storeSource, /premiumBadgeHidden: Boolean\(account\.premiumBadgeHidden\)/u)
 })
 
 test('group creation limit follows active tariff groups only', async () => {

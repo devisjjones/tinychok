@@ -22,6 +22,7 @@ import {
   shouldAutoFocusTextInputOnSceneOpen,
   shouldSubmitComposerWithEnter,
   shouldShowDeliveryCaption,
+  shouldShowPremiumCrown,
   stripMessageFormattingMarkup,
 } from '../app/utils'
 import {
@@ -354,7 +355,14 @@ export function DirectChatRoom({
       }
       window.cancelAnimationFrame(animationFrameId)
     }
-  }, [activeChat.archivedAccount, activeChat.blockedByAdmin, activeChat.muted, activeChat.premium, activeChat.title])
+  }, [
+    activeChat.archivedAccount,
+    activeChat.blockedByAdmin,
+    activeChat.muted,
+    activeChat.premium,
+    activeChat.premiumBadgeHidden,
+    activeChat.title,
+  ])
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return
@@ -434,6 +442,7 @@ export function DirectChatRoom({
     activeChat.blockedByAdmin,
     activeChat.muted,
     activeChat.premium,
+    activeChat.premiumBadgeHidden,
     activeChat.title,
   ])
 
@@ -488,7 +497,7 @@ export function DirectChatRoom({
                     <img src="/icons/bell-100.png" alt="" />
                   </span>
                 ) : null}
-                {activeChat.premium ? (
+                {shouldShowPremiumCrown(activeChat) ? (
                   <span className="premium-crown room-crown" aria-label="Премиум">
                     <img src="/icons/crown64.png" alt="" />
                   </span>

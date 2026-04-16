@@ -155,3 +155,12 @@ export function resizeComposerTextarea(textarea: HTMLTextAreaElement | null) {
     overflowY,
   }
 }
+
+export function shouldShowPremiumCrown(
+  entity?: {
+    premium?: boolean | null
+    premiumBadgeHidden?: boolean | null
+  } | null,
+) {
+  return Boolean(entity?.premium && !entity?.premiumBadgeHidden)
+}

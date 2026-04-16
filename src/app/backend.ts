@@ -269,6 +269,7 @@ function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
       browserNotificationsEnabled: snapshot.session.browserNotificationsEnabled !== false,
       gifLibrary: snapshot.session.gifLibrary?.map((gif) => normalizeAttachmentMedia(gif)),
       invisibilityAutoEnabled: Boolean(snapshot.session.invisibilityAutoEnabled),
+      premiumBadgeHidden: Boolean(snapshot.session.premiumBadgeHidden),
       quietModeSettings: normalizeQuietModeSettings(snapshot.session.quietModeSettings),
     },
     channels: snapshot.channels.map((channel) => ({

@@ -1,5 +1,11 @@
 import type { ReactNode } from 'react'
-import { formatContactStatus, formatPreview, formatSidebarActivityLabel, normalizeIdentifier } from '../app/utils'
+import {
+  formatContactStatus,
+  formatPreview,
+  formatSidebarActivityLabel,
+  normalizeIdentifier,
+  shouldShowPremiumCrown,
+} from '../app/utils'
 import type { Chat, ContactRequestPreview } from '../app/types'
 import type { ContactsTabKey } from '../app/contactsContract'
 import { ContactRequestCard } from './ContactRequestCard'
@@ -151,7 +157,7 @@ export function ContactsPane({
                             <img src="/icons/bell-100.png" alt="" />
                           </span>
                         ) : null}
-                        {chat.premium ? (
+                        {shouldShowPremiumCrown(chat) ? (
                           <span className="premium-crown chat-crown" aria-label="Премиум">
                             <img src="/icons/crown64.png" alt="" />
                           </span>

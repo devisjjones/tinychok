@@ -27,6 +27,7 @@ import {
   normalizeIdentifier,
   scrollFeedChildIntoView,
   shouldAutoFocusTextInputOnSceneOpen,
+  shouldShowPremiumCrown,
   stripMessageFormattingMarkup,
   shouldShowDeliveryCaption,
   shouldSubmitComposerWithEnter,
@@ -54,7 +55,7 @@ function renderGroupSystemActor(
   const actorBody = (
     <>
       <span>{actor.title}</span>
-      {actor.premium ? (
+      {shouldShowPremiumCrown(actor) ? (
         <span className="premium-crown group-system-message-crown" aria-label="Премиум">
           <img src="/icons/crown64.png" alt="" />
         </span>
@@ -316,7 +317,7 @@ export function GroupRoom({
             ) : null}
           </span>
           <span className="bubble-sender-name">{participant.title}</span>
-          {participant.premium ? (
+          {shouldShowPremiumCrown(participant) ? (
             <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
               <img src="/icons/crown64.png" alt="" />
             </span>

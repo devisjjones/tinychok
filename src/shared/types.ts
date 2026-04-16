@@ -200,6 +200,7 @@ export type GroupMessageSource = {
 export type GroupSystemEventActor = {
   identifier?: string
   premium: boolean
+  premiumBadgeHidden?: boolean
   title: string
 }
 
@@ -236,6 +237,7 @@ export type GroupParticipant = {
   archivedAccount?: boolean
   online?: boolean
   premium?: boolean
+  premiumBadgeHidden?: boolean
   favorite?: boolean
   status: string
 }
@@ -303,6 +305,7 @@ export type Chat = {
   muted?: boolean
   pinned?: boolean
   premium?: boolean
+  premiumBadgeHidden?: boolean
   blockedByAdmin?: boolean
   blockedReason?: string
   pinnedMessageId?: number
@@ -326,6 +329,7 @@ export type ContactRequestPreview = {
   handle: string
   identifier: string
   premium?: boolean
+  premiumBadgeHidden?: boolean
   status: string
   title: string
 }
@@ -487,6 +491,7 @@ export type Account = {
   invisibilityEnabled?: boolean
   invisibilityAutoEnabled?: boolean
   soundsDisabled?: boolean
+  premiumBadgeHidden?: boolean
   isTestEntity?: boolean
   premium?: boolean
   premiumExpiresAt?: string
@@ -517,6 +522,7 @@ export type Session = {
   invisibilityEnabled?: boolean
   invisibilityAutoEnabled?: boolean
   soundsDisabled?: boolean
+  premiumBadgeHidden?: boolean
   premium?: boolean
   premiumExpiresAt?: string
   staffRole?: StaffRole

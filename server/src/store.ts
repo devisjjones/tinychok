@@ -687,6 +687,7 @@ function buildTestAccounts() {
     isTestEntity: true,
     lastActiveAt: TEST_FIXTURE_CREATED_AT,
     nickname: normalizeNickname(chat.handle.replace(/^@+/u, '')),
+    premiumBadgeHidden: false,
     premium: chat.premium ?? false,
     premiumExpiresAt: chat.premium ? TEST_FIXTURE_PREMIUM_EXPIRES_AT : undefined,
     staffRole: undefined,
@@ -1761,6 +1762,7 @@ function buildContactRequestPreview(account: Account): ContactRequestPreview {
     createdAt: account.createdAt,
     handle: buildAccountHandle(account),
     identifier: account.identifier,
+    premiumBadgeHidden: Boolean(account.premiumBadgeHidden),
     premium: hasActivePremium(account.premium, account.premiumExpiresAt),
     status: account.status?.trim() || 'На связи',
     title: formatAccountName(account) || account.identifier,
@@ -2426,6 +2428,7 @@ function syncPersistedDialogWithAccount(
     mood: archivedAccount ? 'Удалённый аккаунт' : account.status?.trim() || 'На связи',
     online: archivedAccount ? false : visibleOnline,
     phone: account.identifier,
+    premiumBadgeHidden: archivedAccount ? false : Boolean(account.premiumBadgeHidden),
     premium: archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt),
     status: getUserVisibleStatus(account, visibleOnline),
     title: getUserVisibleDisplayName(account),
@@ -2463,6 +2466,10 @@ function syncPersistedDialogWithAccount(
   }
   if (dialog.premium !== nextState.premium) {
     dialog.premium = nextState.premium
+    didMutate = true
+  }
+  if (dialog.premiumBadgeHidden !== nextState.premiumBadgeHidden) {
+    dialog.premiumBadgeHidden = nextState.premiumBadgeHidden
     didMutate = true
   }
   if (dialog.status !== nextState.status) {
@@ -2676,6 +2683,7 @@ function toPersistedDialog(ownerIdentifier: string, chat: Chat): PersistedDialog
     muted: chat.muted ?? false,
     pinned: chat.pinned,
     pinnedMessageId: chat.pinnedMessageId,
+    premiumBadgeHidden: chat.premiumBadgeHidden,
     premium: chat.premium,
     status: chat.status,
     title: chat.title,
@@ -2853,6 +2861,7 @@ function materializeDialog(
     phone: effectiveDialog.phone,
     pinned: effectiveDialog.pinned,
     pinnedMessageId: effectiveDialog.pinnedMessageId,
+    premiumBadgeHidden: archivedAccount ? false : Boolean(effectiveDialog.premiumBadgeHidden),
     premium: archivedAccount ? false : effectiveDialog.premium,
     status: archivedAccount ? 'Удалённый аккаунт' : effectiveDialog.status,
     title: archivedAccount ? 'Аккаунт удалён' : effectiveDialog.title,
@@ -3028,6 +3037,7 @@ function materializeGroup(
       identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
       nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
       online: visibleOnline,
+      premiumBadgeHidden: account ? Boolean(account.premiumBadgeHidden) : Boolean(participant.premiumBadgeHidden),
       premium: account ? hasActivePremium(account.premium, account.premiumExpiresAt) : participant.premium,
       status: account ? getUserVisibleStatus(account, visibleOnline) : participant.status,
       title: account ? formatAccountName(account) || account.identifier : participant.title,
@@ -3061,6 +3071,42 @@ function materializeGroup(
   }
 }
 
+function materializeGroupSystemEvent(
+  database: Database,
+  event: Message['groupSystemEvent'],
+): Message['groupSystemEvent'] {
+  if (!event) {
+    return event
+  }
+
+  const actorIdentifier = normalizeStoredIdentifierReference(event.actor.identifier ?? '')
+  if (!actorIdentifier) {
+    return event
+  }
+
+  const account = findAccountByStoredIdentifier(database, actorIdentifier)
+  if (!account) {
+    return {
+      ...event,
+      actor: {
+        ...event.actor,
+        identifier: actorIdentifier,
+      },
+    }
+  }
+
+  const archivedAccount = isPublicDeletedAccount(account)
+  return {
+    ...event,
+    actor: {
+      identifier: account.identifier,
+      premium: archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt),
+      premiumBadgeHidden: archivedAccount ? false : Boolean(account.premiumBadgeHidden),
+      title: getUserVisibleDisplayName(account),
+    },
+  }
+}
+
 function materializeGroupMessage(
   database: Database,
   viewerIdentifier: string,
@@ -3082,7 +3128,7 @@ function materializeGroupMessage(
     forwarded: message.forwarded,
     forwardedAuthorName: message.forwardedAuthorName,
     groupParticipantId: message.groupParticipantId,
-    groupSystemEvent: message.groupSystemEvent,
+    groupSystemEvent: materializeGroupSystemEvent(database, message.groupSystemEvent),
     id: message.id,
     readAt: message.readAt,
     replyTo: message.replyTo,
@@ -3793,6 +3839,7 @@ function buildDerivedSubscriptionParticipants(
         identifier: account.identifier,
         nickname: normalizeNickname(account.nickname ?? ''),
         online: hasLivePresenceInSet(livePresenceIdentifiers, account.identifier),
+        premiumBadgeHidden: Boolean(account.premiumBadgeHidden),
         premium: hasActivePremium(account.premium, account.premiumExpiresAt),
         status: account.status?.trim() || 'в сети',
         title: formatAccountName(account) || account.identifier,
@@ -3823,15 +3870,17 @@ function materializeSubscriptionParticipants(
       if (archivedAccount) {
         return [] as GroupParticipant[]
       }
-      return [{
-        ...participant,
-        archivedAccount: false,
-        avatarImage: account?.avatarImage ?? participant.avatarImage,
-        identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
-        nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
-        status: account?.status?.trim() || participant.status,
-        title: account ? formatAccountName(account) || account.identifier : participant.title,
-      }]
+        return [{
+          ...participant,
+          archivedAccount: false,
+          avatarImage: account?.avatarImage ?? participant.avatarImage,
+          identifier: participant.identifier ? normalizeStoredIdentifierReference(participant.identifier) : undefined,
+          nickname: normalizeNickname(account?.nickname ?? participant.nickname ?? ''),
+          premium: account ? hasActivePremium(account.premium, account.premiumExpiresAt) : participant.premium,
+          premiumBadgeHidden: account ? Boolean(account.premiumBadgeHidden) : Boolean(participant.premiumBadgeHidden),
+          status: account?.status?.trim() || participant.status,
+          title: account ? formatAccountName(account) || account.identifier : participant.title,
+        }]
     })
 
     if (derivedParticipants.length > materializedExplicitParticipants.length) {
@@ -9250,14 +9299,17 @@ export class TinychokStore {
       account.soundsDisabled = Boolean(payload.soundsDisabled)
     }
 
+    if (payload.premiumBadgeHidden !== undefined) {
+      account.premiumBadgeHidden = Boolean(payload.premiumBadgeHidden)
+    }
+
     if (payload.blockedContactIds !== undefined) {
       account.blockedContactIds = [...new Set(
         payload.blockedContactIds.filter((id) => Number.isInteger(id) && id > 0),
       )]
     }
 
-    const broadcastIdentifiers = this.refreshDialogsForAccount(account)
-    broadcastIdentifiers.push(account.identifier)
+    const broadcastIdentifiers = this.collectAccountProjectionBroadcastIdentifiers(account)
 
     await this.persist()
 
@@ -13702,6 +13754,7 @@ export class TinychokStore {
         invisibilityEnabled: getStoredInvisibilityPreference(account),
         lastActiveAt: account.lastActiveAt,
         nickname: account.nickname ?? '',
+        premiumBadgeHidden: Boolean(account.premiumBadgeHidden),
         premium: account.premium ?? true,
         premiumExpiresAt: account.premiumExpiresAt ?? '',
         quietModeEnabled: Boolean(account.quietModeEnabled),
@@ -18269,6 +18322,7 @@ export class TinychokStore {
       identifier: account.identifier,
       nickname: archivedAccount ? '' : normalizeNickname(account.nickname ?? ''),
       online: archivedAccount ? false : visibleOnline,
+      premiumBadgeHidden: archivedAccount ? false : Boolean(account.premiumBadgeHidden),
       premium: archivedAccount ? false : hasActivePremium(account.premium, account.premiumExpiresAt),
       status: getUserVisibleStatus(account, visibleOnline),
       title: getUserVisibleDisplayName(account),
@@ -18278,6 +18332,7 @@ export class TinychokStore {
   private buildGroupSystemEventActor(account: Account): GroupSystemEvent['actor'] {
     return {
       identifier: account.identifier,
+      premiumBadgeHidden: Boolean(account.premiumBadgeHidden),
       premium: hasActivePremium(account.premium, account.premiumExpiresAt),
       title: getUserVisibleDisplayName(account),
     }
@@ -19121,6 +19176,54 @@ export class TinychokStore {
     }
 
     return [...affectedOwners]
+  }
+
+  private collectAccountProjectionBroadcastIdentifiers(account: Account) {
+    const normalizedIdentifier = normalizeStoredIdentifierReference(account.identifier)
+    if (!normalizedIdentifier) {
+      return [] as string[]
+    }
+
+    const broadcastIdentifiers = new Set<string>([
+      normalizedIdentifier,
+      ...this.refreshDialogsForAccount(account),
+    ])
+
+    for (const link of this.database.contactLinks) {
+      if (link.leftIdentifier === normalizedIdentifier) {
+        broadcastIdentifiers.add(link.rightIdentifier)
+      }
+      if (link.rightIdentifier === normalizedIdentifier) {
+        broadcastIdentifiers.add(link.leftIdentifier)
+      }
+    }
+
+    for (const group of this.database.groups) {
+      const participantIdentifiers = new Set<string>([
+        normalizeStoredIdentifierReference(group.ownerIdentifier),
+        normalizeStoredIdentifierReference(group.groupOwnerIdentifier ?? ''),
+        normalizeStoredIdentifierReference(group.creatorIdentifier ?? ''),
+        ...(group.participants ?? []).map((participant) => normalizeStoredIdentifierReference(participant.identifier ?? '')),
+      ])
+
+      if (participantIdentifiers.has(normalizedIdentifier)) {
+        broadcastIdentifiers.add(group.ownerIdentifier)
+      }
+    }
+
+    for (const channel of this.database.subscriptionChannels) {
+      const participantIdentifiers = new Set<string>([
+        normalizeStoredIdentifierReference(channel.ownerIdentifier),
+        normalizeStoredIdentifierReference(channel.creatorIdentifier ?? ''),
+        ...(channel.participants ?? []).map((participant) => normalizeStoredIdentifierReference(participant.identifier ?? '')),
+      ])
+
+      if (participantIdentifiers.has(normalizedIdentifier)) {
+        broadcastIdentifiers.add(channel.ownerIdentifier)
+      }
+    }
+
+    return [...broadcastIdentifiers]
   }
 
   private collectStorageVisibilityBroadcastIdentifiersForUser(ownerIdentifier: string) {

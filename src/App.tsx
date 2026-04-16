@@ -297,6 +297,7 @@ import {
   sanitizeStatusField,
   scrollFeedChildIntoView,
   shouldAutoFocusTextInputOnSceneOpen,
+  shouldShowPremiumCrown,
   shouldSubmitComposerWithEnter,
   sortChatsByRecentActivity,
   sortGroupsByRecentActivity,
@@ -447,7 +448,14 @@ function isBrowserNotificationTarget(value: unknown): value is BrowserNotificati
 
 type ProfileSettingsDraft = Pick<
   Session,
-  'displayName' | 'surname' | 'nickname' | 'status' | 'avatarImage' | 'soundsDisabled' | 'darkThemeEnabled'
+  | 'displayName'
+  | 'surname'
+  | 'nickname'
+  | 'status'
+  | 'avatarImage'
+  | 'soundsDisabled'
+  | 'darkThemeEnabled'
+  | 'premiumBadgeHidden'
 >
 
 function resolveSupportCooldownUntilFromTickets(
@@ -493,6 +501,7 @@ function buildProfileSettingsDraft(session: Session): ProfileSettingsDraft {
     darkThemeEnabled: Boolean(session.darkThemeEnabled),
     displayName: session.displayName,
     nickname: session.nickname ?? '',
+    premiumBadgeHidden: Boolean(session.premiumBadgeHidden),
     soundsDisabled: Boolean(session.soundsDisabled),
     status: session.status ?? '',
     surname: session.surname ?? '',
@@ -2716,7 +2725,7 @@ function App() {
             ) : null}
           </span>
           <span className="bubble-sender-name">{participant.title}</span>
-          {participant.premium ? (
+          {shouldShowPremiumCrown(participant) ? (
             <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
               <img src="/icons/crown64.png" alt="" />
             </span>
@@ -12125,6 +12134,7 @@ function App() {
     const nextStatus = sanitizeStatusField(profileSettingsDraft.status ?? '')
     const nextAvatarImage = profileSettingsDraft.avatarImage?.trim() || undefined
     const nextDarkThemeEnabled = Boolean(profileSettingsDraft.darkThemeEnabled)
+    const nextPremiumBadgeHidden = Boolean(profileSettingsDraft.premiumBadgeHidden)
     const nextSoundsDisabled = Boolean(profileSettingsDraft.soundsDisabled)
 
     if (!nextDisplayName) {
@@ -12139,6 +12149,7 @@ function App() {
       nextStatus === (session.status ?? '') &&
       nextAvatarImage === session.avatarImage &&
       nextDarkThemeEnabled === Boolean(session.darkThemeEnabled) &&
+      nextPremiumBadgeHidden === Boolean(session.premiumBadgeHidden) &&
       nextSoundsDisabled === Boolean(session.soundsDisabled)
 
     if (sanitizedPatchMatchesSession) {
@@ -12151,6 +12162,7 @@ function App() {
       darkThemeEnabled: nextDarkThemeEnabled,
       displayName: nextDisplayName,
       nickname: nextNickname,
+      premiumBadgeHidden: nextPremiumBadgeHidden,
       soundsDisabled: nextSoundsDisabled,
       status: nextStatus,
       surname: nextSurname,
@@ -12162,6 +12174,7 @@ function App() {
       darkThemeEnabled: nextDarkThemeEnabled,
       displayName: nextDisplayName,
       nickname: nextNickname,
+      premiumBadgeHidden: nextPremiumBadgeHidden,
       soundsDisabled: nextSoundsDisabled,
       status: nextStatus,
       surname: nextSurname,
@@ -16282,7 +16295,7 @@ function App() {
                           {isOwner ? (
                             <span className="room-participant-role">Владелец</span>
                           ) : null}
-                          {participant.premium ? (
+                          {shouldShowPremiumCrown(participant) ? (
                             <span className="premium-crown chat-crown" aria-label="Премиум">
                               <img src="/icons/crown64.png" alt="" />
                             </span>
@@ -17097,7 +17110,7 @@ function App() {
                             Чёрный список
                           </span>
                         ) : null}
-                        {participant.premium ? (
+                        {shouldShowPremiumCrown(participant) ? (
                           <span className="premium-crown chat-crown" aria-label="Премиум">
                             <img src="/icons/crown64.png" alt="" />
                           </span>
@@ -17772,7 +17785,7 @@ function App() {
                             <img src="/icons/bell-100.png" alt="" />
                           </span>
                         ) : null}
-                        {chat.premium ? (
+                        {shouldShowPremiumCrown(chat) ? (
                           <span className="premium-crown chat-crown" aria-label="Премиум">
                             <img src="/icons/crown64.png" alt="" />
                           </span>
@@ -18259,7 +18272,7 @@ function App() {
                                 <img src="/icons/bell-100.png" alt="" />
                               </span>
                             ) : null}
-                            {chat.premium ? (
+                            {shouldShowPremiumCrown(chat) ? (
                               <span className="premium-crown chat-crown" aria-label="Премиум">
                                 <img src="/icons/crown64.png" alt="" />
                               </span>
@@ -18727,6 +18740,25 @@ function App() {
                       </label>
                     )}
                   </article>
+                  {sessionHasPremium ? (
+                    <article className="settings-item">
+                      <label className="settings-checkbox settings-checkbox-expanded">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(profileSettingsDraft?.premiumBadgeHidden)}
+                          onChange={(event) =>
+                            updateSessionProfile({ premiumBadgeHidden: event.target.checked })
+                          }
+                        />
+                        <span className="settings-quiet-copy">
+                          <span>Скрыть корону</span>
+                          <span className="settings-text">
+                            Не показывать значок премиума рядом с вашим именем в диалогах, группах и тредах.
+                          </span>
+                        </span>
+                      </label>
+                    </article>
+                  ) : null}
                   {storageUsage ? (
                     <button
                       type="button"
@@ -20013,7 +20045,7 @@ function App() {
                                 <span className="group-create-member-copy">
                                   <strong className="group-create-member-name-row">
                                     <span>{chat.title}</span>
-                                    {chat.premium ? (
+                                    {shouldShowPremiumCrown(chat) ? (
                                       <span className="premium-crown chat-crown" aria-label="Премиум">
                                         <img src="/icons/crown64.png" alt="" />
                                       </span>
@@ -21791,7 +21823,7 @@ function App() {
                           <span className="group-create-member-copy">
                             <strong className="group-create-member-name-row">
                               <span>{chat.title}</span>
-                              {chat.premium ? (
+                              {shouldShowPremiumCrown(chat) ? (
                                 <span className="premium-crown chat-crown" aria-label="Премиум">
                                   <img src="/icons/crown64.png" alt="" />
                                 </span>

@@ -12,6 +12,7 @@ export function buildGroupParticipantFromChat(chat: Chat, participantId?: number
     nickname: chat.handle.replace(/^@+/u, ''),
     online: chat.online,
     premium: chat.premium,
+    premiumBadgeHidden: chat.premiumBadgeHidden,
     status: formatContactStatus(chat),
     title: chat.title,
   }

@@ -854,6 +854,7 @@ export type UpdateSessionBody = Partial<
     | 'quietModeSettings'
     | 'invisibilityEnabled'
     | 'soundsDisabled'
+    | 'premiumBadgeHidden'
   >
 >
 

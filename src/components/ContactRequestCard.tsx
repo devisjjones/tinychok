@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { getContactRequestCardIconPath } from '../app/iconContracts'
 import type { ContactRequestPreview } from '../app/types'
+import { shouldShowPremiumCrown } from '../app/utils'
 
 type ContactRequestCardProps = {
   active?: boolean
@@ -46,7 +47,7 @@ export function ContactRequestCard({
           <span className="chat-topline">
             <span className="chat-name-row">
               <strong className="chat-name-text">{request.title}</strong>
-              {request.premium ? (
+              {shouldShowPremiumCrown(request) ? (
                 <span className="premium-crown chat-crown" aria-label="Премиум">
                   <img src="/icons/crown64.png" alt="" />
                 </span>

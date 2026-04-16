@@ -10,7 +10,7 @@ import type {
 } from 'react'
 import React, { useLayoutEffect, useState } from 'react'
 import type { ComposerAttachmentDraft } from '../app/composerAttachments'
-import { insertComposerTextAtCursor, resizeComposerTextarea } from '../app/utils'
+import { insertComposerTextAtCursor, resizeComposerTextarea, shouldShowPremiumCrown } from '../app/utils'
 import type { EditTarget, GroupParticipant, ReplyTarget, UserGifLibraryItem } from '../app/types'
 import {
   filterComposerMentionCandidates,
@@ -337,7 +337,7 @@ export function RoomComposer({
                       <span className="composer-mention-meta">
                         <span className="composer-mention-title-row">
                           <span className="composer-mention-title">{candidate.title}</span>
-                          {candidate.premium ? (
+                          {shouldShowPremiumCrown(candidate) ? (
                             <span className="premium-crown composer-mention-crown" aria-label="Премиум">
                               <img src="/icons/crown64.png" alt="" />
                             </span>

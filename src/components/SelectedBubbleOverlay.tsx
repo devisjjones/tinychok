@@ -5,6 +5,7 @@ import {
   isStandaloneEmojiMessageText,
   isVideoNoteAttachment,
   isVideoMimeType,
+  shouldShowPremiumCrown,
   shouldShowDeliveryCaption,
   stripMessageFormattingMarkup,
 } from '../app/utils'
@@ -132,7 +133,7 @@ function renderGroupOverlayAuthor(
           {participant.online ? <span className="bubble-sender-presence-dot" aria-label="В сети" /> : null}
         </span>
         <span className="bubble-sender-name">{participant.title}</span>
-        {participant.premium ? (
+        {shouldShowPremiumCrown(participant) ? (
           <span className="premium-crown bubble-sender-crown" aria-label="Премиум">
             <img src="/icons/crown64.png" alt="" />
           </span>
