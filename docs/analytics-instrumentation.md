@@ -1,6 +1,6 @@
 # Analytics Instrumentation
 
-Подробная схема текущей аналитики Tinychok по состоянию на `2026-04-15`.
+Подробная схема текущей аналитики Tinychok по состоянию на `2026-04-16`.
 
 ## Runtime Model
 
@@ -618,6 +618,44 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `TINYCHOK_ANALYTICS_CLICKHOUSE_PASSWORD`
   - `TINYCHOK_ANALYTICS_CLICKHOUSE_TIMEOUT_MS`
 
+## Current DataLens Reporting
+
+- текущий workbook в `DataLens` сейчас собран поверх staging ClickHouse sink и режется по `environment = staging`
+- canonical source для продуктовых открытий приложения и device split:
+  - `app_opened`
+  - `deviceType = mobile|desktop`
+- текущие staging-репорты, которые уже настроены поверх ClickHouse / DataLens:
+  - открытия приложения по дням с split `mobile` / `desktop`
+  - auth breakdown
+  - onboarding funnel `код -> регистрация -> пароль -> первое сообщение`
+  - D1 / D7 retention
+  - messaging / media / search / settings / support category charts
+  - premium starts / succeeds по дням
+  - premium estimated revenue по `day` / `week` / `month`
+  - support tickets `created` / `resolved`
+- часть чартов живёт прямо на base table `tinychok_analytics.analytics_events`, а часть использует SQL-источники внутри самого workbook:
+  - funnel
+  - retention
+  - premium revenue rollups
+- эти SQL-источники сейчас не versioned в репозитории и считаются workbook-side конфигом
+- для продуктовых дашбордов нельзя снова брать технические websocket-события подключения, разрыва и ошибок realtime
+- они intentionally исключены из текущего product catalog и не должны занимать top slots в DataLens
+- day-level business charts лучше строить по derived local date, а не по raw UTC timestamp:
+  - `occurred_at` в ClickHouse хранится в `UTC`
+  - для продуктового среза по дням важнее локальный московский день
+- если chart внезапно пустой:
+  - сначала проверить, что событие уже доехало в ClickHouse / WebSQL
+  - потом обновить preview / dataset fields в DataLens
+  - для retention пустой график в тот же день — нормален: `D1` появляется только после next-day возврата, `D7` только после `7+` дней
+- premium revenue charts на staging сейчас считаются оценочными, а не бухгалтерским source-of-truth:
+  - frontend premium checkout всё ещё не подключён к реальному payment provider
+  - success-события могут приходить из `debugAutoCheckout`
+  - текущие цены в коде: `199 ₽ / month` и `1390 ₽ / year`
+- production cutover для текущих charts ожидается без полной пересборки логики:
+  - дублировать dataset/chart
+  - поменять фильтр `environment` на `production`
+  - перепроверить реальные billing-события уже на production-трафике
+
 ## Yandex Metrica Goals
 
 В интерфейсе Метрики goals лучше заводить с теми же именами, что и event names:
@@ -743,6 +781,8 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
 
 - staging и production должны жить на разных counter id
 - staging нужен для smoke analytics и не должен загрязнять production dashboard
+- staging DataLens dashboard тоже считается smoke/reporting surface, а не production source-of-truth
+- переход на production reporting ожидается через отдельные production-filtered charts / datasets, а не через смешивание `staging` и `production` в одном графике
 - если на staging данные не приходят, сначала проверить:
   - выбран ли период `Сегодня`, а не `Вчера`
   - принят ли analytics consent

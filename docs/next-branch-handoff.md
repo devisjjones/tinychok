@@ -114,6 +114,14 @@
 - нельзя считать проблему закрытой только потому, что frontend собрался и `healthz` зелёный:
 - analytics regressions ловятся только через runtime config smoke-check
 - source-of-truth для текущего staging ClickHouse sink лежит в `server/sql/yandex-clickhouse-analytics.sql`, а live verify/deploy по умолчанию ждут `provider=clickhouse`
+- текущий DataLens workbook уже настроен поверх staging ClickHouse и считается отдельным operational surface:
+  - `app_opened` с `deviceType` — source-of-truth для app opens / mobile-vs-desktop charts
+  - funnel / retention / premium revenue сейчас живут как SQL-источники внутри DataLens workbook, а не как repo-managed SQL files
+  - product dashboards не должны снова тянуть технические `realtime_*` events
+- staging premium reporting пока трактовать только как product smoke / estimated revenue:
+  - в `src/App.tsx` real checkout всё ещё не подключён
+  - success-события premium могут приходить из `debugAutoCheckout`
+  - production revenue dashboard потом нужно будет переключать на `environment=production`
 - единый release-blocking список теперь собран в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
 ## Core Product Mechanics

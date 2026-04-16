@@ -134,6 +134,17 @@
   - `curl -s https://api.staging.tinychok.ru/api/client-config`
   - expected result = JSON with positive `analytics.metricaCounterId` и ожидаемым `analytics.provider`
   - открыть staging с `?analytics_debug=1` и убедиться, что в console есть `pageview` / `event`
+- поверх текущего staging ClickHouse уже собран отдельный DataLens smoke-dashboard
+  - app opens по дням с split `mobile` / `desktop`
+  - onboarding funnel
+  - D1 / D7 retention
+  - premium starts / succeeds и estimated revenue
+  - support tickets `created` / `resolved`
+- пустой `D1` / `D7` chart сам по себе не считается регрессией staging:
+  - `D1` появляется только после next-day возврата
+  - `D7` только после `7+` дней
+- для продуктового dashboarding staging не должен снова использовать технические realtime-события подключения, разрыва и ошибок websocket
+- staging dashboard нужен для smoke и настройки визуализаций; перед production launch charts нужно дублировать или перевести на `environment = production`
 - единый список release-blocking runtime-контрактов лежит в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
 ### Tariff Limit Smoke Checks

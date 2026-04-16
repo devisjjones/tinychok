@@ -766,6 +766,36 @@ function sanitizeMessageAttachment(attachment: Message['attachment']) {
   } satisfies NonNullable<Message['attachment']>
 }
 
+function normalizeMediaUrlForComparison(mediaUrl: string) {
+  const trimmed = mediaUrl.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  let normalizedPath = trimmed
+
+  if (/^https?:\/\//u.test(trimmed)) {
+    try {
+      normalizedPath = new URL(trimmed).pathname
+    } catch {
+      normalizedPath = trimmed
+    }
+  }
+
+  normalizedPath = normalizedPath.split('#', 1)[0]?.split('?', 1)[0] ?? normalizedPath
+
+  const uploadsPrefixIndex = normalizedPath.indexOf('uploads/')
+  if (uploadsPrefixIndex >= 0) {
+    normalizedPath = normalizedPath.slice(uploadsPrefixIndex)
+  }
+
+  return normalizedPath.replace(/^\/+/u, '')
+}
+
+function mediaUrlsMatch(leftMediaUrl: string, rightMediaUrl: string) {
+  return normalizeMediaUrlForComparison(leftMediaUrl) === normalizeMediaUrlForComparison(rightMediaUrl)
+}
+
 function normalizeAttachmentOwnershipMetadata(input: {
   fileName: string
   mimeType: string
@@ -9231,7 +9261,7 @@ export class TinychokStore {
       ...gif,
       uploadedByIdentifier,
     })
-    const existingItem = this.database.sharedGifs.find((item) => item.mediaUrl === nextItem.mediaUrl)
+    const existingItem = this.database.sharedGifs.find((item) => mediaUrlsMatch(item.mediaUrl, nextItem.mediaUrl))
     if (existingItem) {
       existingItem.uploadedByIdentifier = existingItem.uploadedByIdentifier ?? nextItem.uploadedByIdentifier
       existingItem.width = existingItem.width ?? nextItem.width
@@ -9253,7 +9283,7 @@ export class TinychokStore {
     const hasPendingUpload = this.database.pendingMediaUploads.some(
       (upload) =>
         upload.ownerIdentifier === account.identifier &&
-        upload.mediaUrl === nextGif.mediaUrl &&
+        mediaUrlsMatch(upload.mediaUrl, nextGif.mediaUrl) &&
         upload.kind === 'user-gif',
     )
     const uploadSource = payload.source === 'upload' || (payload.source == null && hasPendingUpload)
@@ -9273,10 +9303,10 @@ export class TinychokStore {
 
     if (!uploadSource) {
       const canReuseExistingGif =
-        this.database.sharedGifs.some((item) => item.mediaUrl === nextGif.mediaUrl) ||
+        this.database.sharedGifs.some((item) => mediaUrlsMatch(item.mediaUrl, nextGif.mediaUrl)) ||
         this.collectOwnedMediaReferences().some(
         (reference) =>
-          reference.mediaUrl === nextGif.mediaUrl &&
+          mediaUrlsMatch(reference.mediaUrl, nextGif.mediaUrl) &&
           reference.mimeType === 'image/gif',
       )
       if (!canReuseExistingGif) {
@@ -9290,7 +9320,7 @@ export class TinychokStore {
     if (
       currentLibrary.some(
         (item) =>
-          item.mediaUrl === nextGif.mediaUrl ||
+          mediaUrlsMatch(item.mediaUrl, nextGif.mediaUrl) ||
           item.id === nextGif.id ||
           buildUserGifDuplicateKey(item.fileName, item.size) === duplicateKey,
       )
@@ -15461,7 +15491,7 @@ export class TinychokStore {
     }
 
     const ownedGif = (this.findAccount(ownerIdentifier)?.gifLibrary ?? []).find(
-      (item) => item.mediaUrl === sanitizedAttachment.mediaUrl,
+      (item) => mediaUrlsMatch(item.mediaUrl, sanitizedAttachment.mediaUrl),
     )
     if (ownedGif) {
       const normalizedOwnedGif = normalizeAttachmentOwnershipMetadata(ownedGif)
@@ -15481,7 +15511,7 @@ export class TinychokStore {
     }
 
     const sharedGif = this.database.sharedGifs.find(
-      (item) => item.mediaUrl === sanitizedAttachment.mediaUrl,
+      (item) => mediaUrlsMatch(item.mediaUrl, sanitizedAttachment.mediaUrl),
     )
     if (sharedGif) {
       const normalizedSharedGif = normalizeAttachmentOwnershipMetadata(sharedGif)
@@ -15503,7 +15533,7 @@ export class TinychokStore {
     const pendingUpload = this.database.pendingMediaUploads.find(
       (upload) =>
         upload.ownerIdentifier === ownerIdentifier &&
-        upload.mediaUrl === sanitizedAttachment.mediaUrl &&
+        mediaUrlsMatch(upload.mediaUrl, sanitizedAttachment.mediaUrl) &&
         upload.kind === 'attachment',
     )
     if (!pendingUpload) {

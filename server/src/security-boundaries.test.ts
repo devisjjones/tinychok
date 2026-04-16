@@ -370,6 +370,52 @@ test('attachment send paths reject unowned media urls and mark valid uploads lin
   )
 })
 
+test('legacy relative GIF library items still send after client-side media url normalization', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79991110121')
+  const peer = createAccount('+79991110122')
+  database.accounts.push(owner, peer)
+  const ownerToken = createSession(database, owner.identifier, 'legacy-gif-owner')
+  createSession(database, peer.identifier, 'legacy-gif-peer')
+  seedAcceptedContactLink(database, owner.identifier, peer.identifier)
+
+  owner.gifLibrary = [{
+    createdAt: '2026-04-02T10:00:00.000Z',
+    fileName: 'party.gif',
+    height: 180,
+    id: 'legacy-party-gif',
+    mediaUrl: '/uploads/user-gifs/party.gif',
+    mimeType: 'image/gif',
+    size: 4096,
+    width: 180,
+  }]
+  database.sharedGifs = owner.gifLibrary.map((gif) => ({
+    ...gif,
+    uploadedByIdentifier: owner.identifier,
+  }))
+
+  const opened = await store.openDirectDialog(ownerToken, { identifier: peer.identifier })
+  const result = await store.sendDirectMessage(ownerToken, opened.dialogId, {
+    attachment: {
+      fileName: 'party.gif',
+      height: 180,
+      mediaUrl: 'https://api.staging.tinychok.ru/uploads/user-gifs/party.gif',
+      mimeType: 'image/gif',
+      size: 4096,
+      width: 180,
+    },
+    text: '',
+  })
+
+  const sentMessage = result.snapshot.chats
+    .find((chat) => chat.id === opened.dialogId)
+    ?.messages.at(-1)
+  assert.ok(sentMessage?.attachment)
+  assert.equal(sentMessage.attachment?.mimeType, 'image/gif')
+  assert.equal(sentMessage.attachment?.mediaUrl, 'https://api.staging.tinychok.ru/uploads/user-gifs/party.gif')
+})
+
 test('attachment send paths keep long video filenames linkable after upload registration', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
