@@ -6387,14 +6387,13 @@
   transform: translateY(-50%);
 }
 
-.composer-field.composer-field-expanded .composer-tools,
-.composer-field.composer-field-has-attachment .composer-tools {
+.composer-field.composer-field-expanded .composer-tools {
   top: auto;
   bottom: 8px;
   transform: none;
 }
 
-.composer-field.composer-field-has-attachment .composer-tools {
+.composer-field.composer-field-expanded .composer-tools {
   align-items: flex-end;
 }
 
@@ -7412,8 +7411,11 @@
   margin-bottom: 0;
 }
 
-.composer-field.composer-field-has-attachment .composer-send {
+.composer-field.composer-field-expanded .composer-send {
   align-self: flex-end;
+}
+
+.composer-field.composer-field-has-attachment .composer-send {
   margin-bottom: 0;
 }
 

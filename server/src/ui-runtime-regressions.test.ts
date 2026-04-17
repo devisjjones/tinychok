@@ -4651,8 +4651,8 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(appCss, /\.composer textarea\s*\{[\s\S]*padding:\s*11px 148px 11px 16px;/u)
   assert.match(appCss, /\.composer textarea\s*\{[\s\S]*overflow-y:\s*hidden;/u)
   assert.match(appCss, /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\)\s+\.composer-tools\s*\{[\s\S]*top:\s*50%;[\s\S]*transform:\s*translateY\(-50%\);/u)
-  assert.match(appCss, /\.composer-field\.composer-field-expanded\s+\.composer-tools,[\s\S]*\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*bottom:\s*8px;[\s\S]*transform:\s*none;/u)
-  assert.match(appCss, /\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*align-items:\s*flex-end;/u)
+  assert.match(appCss, /\.composer-field\.composer-field-expanded\s+\.composer-tools\s*\{[\s\S]*bottom:\s*8px;[\s\S]*transform:\s*none;/u)
+  assert.match(appCss, /\.composer-field\.composer-field-expanded\s+\.composer-tools\s*\{[\s\S]*align-items:\s*flex-end;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.composer textarea\s*\{[\s\S]*padding:\s*13px 126px 16px 14px;/u)
   assert.match(
     appCss,
@@ -4665,7 +4665,9 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.emoji-picker\s*\{[\s\S]*position:\s*static;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.emoji-picker-popover\s*\{[\s\S]*left:\s*auto;[\s\S]*right:\s*0;[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 24px\)\);[\s\S]*max-width:\s*calc\(100vw - 24px\);/u)
   assert.match(appCss, /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\)\s+\.composer-send\s*\{[\s\S]*margin-bottom:\s*0;/u)
-  assert.match(appCss, /\.composer-field\.composer-field-has-attachment\s+\.composer-send\s*\{[\s\S]*align-self:\s*flex-end;[\s\S]*margin-bottom:\s*0;/u)
+  assert.match(appCss, /\.composer-field\.composer-field-expanded\s+\.composer-send\s*\{[\s\S]*align-self:\s*flex-end;/u)
+  assert.match(appCss, /\.composer-field\.composer-field-has-attachment\s+\.composer-send\s*\{[\s\S]*margin-bottom:\s*0;/u)
+  assert.doesNotMatch(appCss, /\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*align-items:\s*flex-end;/u)
   assert.doesNotMatch(appCss, /\.composer-format-toolbar/u)
   assert.doesNotMatch(appCss, /\.composer-rich-input/u)
   assert.doesNotMatch(appCss, /\.composer-editor-surface/u)
