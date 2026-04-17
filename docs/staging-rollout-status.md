@@ -245,6 +245,7 @@
   - на экране покупки premium есть ссылки на `Условия Premium` и `Политику возвратов`
   - под CTA есть короткий текст согласия `Нажимая «Купить»...` с обеими ссылками
   - live env на backend содержит `TINYCHOK_PAYMENT_PROVIDER=yookassa` и обязательные `TINYCHOK_YOOKASSA_*` ключи
+  - в кабинете ЮKassa для staging включены webhook-события `payment.succeeded` и `payment.canceled` на `https://api.staging.tinychok.ru/api/payments/webhooks/yookassa`
   - `POST /api/premium/checkout` возвращает redirect `checkoutUrl`, а не placeholder-ошибку
   - `TINYCHOK_YOOKASSA_RETURN_URL` на staging указывает на `https://staging.tinychok.ru/premium`
   - после возврата из ЮKassa страница дотягивает статус через `GET /api/premium/purchases/:purchaseId`

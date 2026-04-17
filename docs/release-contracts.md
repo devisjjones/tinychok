@@ -94,6 +94,10 @@
   - `POST /api/premium/checkout`
   - `GET /api/premium/purchases/:purchaseId`
   - `POST /api/payments/webhooks/yookassa`
+- для Basic Auth интеграции webhook нужно руками настроить в кабинете ЮKassa:
+  - staging url = `https://api.staging.tinychok.ru/api/payments/webhooks/yookassa`
+  - production url = `https://api.tinychok.ru/api/payments/webhooks/yookassa`
+  - обязательные события = `payment.succeeded` и `payment.canceled`
 - premium нельзя включать по самому факту создания checkout:
   - entitlement появляется только после provider status = `succeeded`
   - клиентский `premium_purchase_succeeded*` должен отправляться только после backend status confirm, а не сразу после redirect-start

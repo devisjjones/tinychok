@@ -135,6 +135,9 @@
     - `TINYCHOK_YOOKASSA_SECRET_KEY`
     - `TINYCHOK_YOOKASSA_RETURN_URL`
   - staging return url должен указывать на публичный premium-entry (`https://staging.tinychok.ru/premium`), чтобы возврат из кассы сразу попадал в SPA-checkout sync
+  - webhook для Basic Auth настраивается не кодом, а в кабинете ЮKassa:
+    - staging = `https://api.staging.tinychok.ru/api/payments/webhooks/yookassa`
+    - события = `payment.succeeded`, `payment.canceled`
   - если нужны чеки через YooKassa, отдельно включаются `TINYCHOK_YOOKASSA_RECEIPTS_ENABLED`, `TINYCHOK_YOOKASSA_RECEIPT_VAT_CODE`, `TINYCHOK_YOOKASSA_RECEIPT_TIMEZONE`
 - единый release-blocking список теперь собран в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
