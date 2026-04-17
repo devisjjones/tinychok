@@ -6412,7 +6412,6 @@
   border-radius: 20px;
   background: rgba(255, 251, 245, 0.97);
   box-shadow: 0 24px 60px rgba(64, 35, 18, 0.16);
-  z-index: 8;
 }
 
 .composer-mention-option {
@@ -6498,7 +6497,11 @@
   box-shadow: 0 24px 60px rgba(64, 35, 18, 0.16);
   display: grid;
   gap: 8px;
-  z-index: 8;
+}
+
+.composer-mention-popover,
+.composer-attachment-popover {
+  z-index: 45;
 }
 
 .composer-attachment-option {
