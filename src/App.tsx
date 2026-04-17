@@ -19677,6 +19677,18 @@ function App() {
               {settingsView === 'profile' ? (
                 <button
                   type="button"
+                  className="settings-action-card"
+                  onClick={() => {
+                    setSettingsView('documents')
+                    setConfirmingLogout(false)
+                  }}
+                >
+                  Документы Тайничка
+                </button>
+              ) : null}
+              {settingsView === 'profile' ? (
+                <button
+                  type="button"
                   className="settings-action-card settings-action-card-with-icon settings-action-card-subtle settings-support-chat-button"
                   onClick={() => {
                     // Support room lives only inside settings and must not leak into the regular dialog list.
@@ -19688,26 +19700,14 @@ function App() {
                   <span className="settings-action-card-icon" aria-hidden="true">
                     <img src="/icons/man-raising-hand.png" alt="" />
                   </span>
-                    <span className="settings-support-chat-button-copy">
-                      <span>Написать в поддержку</span>
-                      {supportUnreadCount > 0 ? (
-                        <span className="badge settings-support-chat-badge">
-                          {formatUnreadBadgeCount(supportUnreadCount)}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-              ) : null}
-              {settingsView === 'profile' ? (
-                <button
-                  type="button"
-                  className="settings-action-card"
-                  onClick={() => {
-                    setSettingsView('documents')
-                    setConfirmingLogout(false)
-                  }}
-                >
-                  Документы Тайничка
+                  <span className="settings-support-chat-button-copy">
+                    <span>Написать в поддержку</span>
+                    {supportUnreadCount > 0 ? (
+                      <span className="badge settings-support-chat-badge">
+                        {formatUnreadBadgeCount(supportUnreadCount)}
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
               ) : null}
               {settingsView === 'profile' ? (

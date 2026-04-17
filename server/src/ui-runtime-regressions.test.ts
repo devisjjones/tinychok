@@ -5186,7 +5186,6 @@ test('settings documents scene groups legal and premium policies outside managem
 
   assert.match(sharedTypesSource, /export type SettingsView = 'profile' \| 'management' \| 'blocked' \| 'documents' \| 'quiet' \| 'support' \| 'storage'/u)
   assert.match(appSource, /setSettingsView\('documents'\)/u)
-  assert.match(appSource, /Документы Тайничка/u)
   assert.ok(documentsViewStart >= 0)
   assert.ok(managementViewStart > documentsViewStart)
 
@@ -5205,6 +5204,18 @@ test('settings documents scene groups legal and premium policies outside managem
     managementViewSource,
     /className="settings-action-card settings-action-link"[\s\S]{0,80}href="\/privacy-policy\.html"/u,
   )
+})
+
+test('profile settings keep documents button above support entry', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const documentsButtonIndex = appSource.indexOf('Документы Тайничка')
+  const supportButtonIndex = appSource.indexOf('Написать в поддержку')
+
+  assert.match(appSource, /Документы Тайничка/u)
+  assert.match(appSource, /Написать в поддержку/u)
+  assert.ok(documentsButtonIndex >= 0)
+  assert.ok(supportButtonIndex > documentsButtonIndex)
 })
 
 test('narrow mobile view keeps settings, room headers and admin panels from overflowing', () => {
