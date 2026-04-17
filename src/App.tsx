@@ -3806,6 +3806,7 @@ function App() {
       sanitizeStatusField(profileSettingsDraft.status ?? '') !== (session.status ?? '') ||
       (profileSettingsDraft.avatarImage?.trim() || undefined) !== session.avatarImage ||
       Boolean(profileSettingsDraft.darkThemeEnabled) !== Boolean(session.darkThemeEnabled) ||
+      Boolean(profileSettingsDraft.premiumBadgeHidden) !== Boolean(session.premiumBadgeHidden) ||
       Boolean(profileSettingsDraft.soundsDisabled) !== Boolean(session.soundsDisabled)
     )
   const changePasswordDirty =
@@ -12309,6 +12310,7 @@ function App() {
         changedAvatar: nextAvatarImage !== (session.avatarImage ?? undefined),
         changedDarkTheme: nextDarkThemeEnabled !== Boolean(session.darkThemeEnabled),
         changedNickname: nextNickname !== (session.nickname ?? ''),
+        changedPremiumBadgeHidden: nextPremiumBadgeHidden !== Boolean(session.premiumBadgeHidden),
         changedStatus: nextStatus !== (session.status ?? ''),
       })
       if (nextDarkThemeEnabled !== Boolean(session.darkThemeEnabled)) {

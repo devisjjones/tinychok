@@ -4289,6 +4289,11 @@ test('premium crown hiding stays wired through profile settings and identity sur
   assert.match(appSource, /Скрыть корону/u)
   assert.match(appSource, /premiumBadgeHidden/u)
   assert.match(appSource, /updateSessionProfile\(\{ premiumBadgeHidden: event\.target\.checked \}\)/u)
+  assert.match(
+    appSource,
+    /Boolean\(profileSettingsDraft\.premiumBadgeHidden\) !== Boolean\(session\.premiumBadgeHidden\)/u,
+  )
+  assert.match(appSource, /changedPremiumBadgeHidden:\s*nextPremiumBadgeHidden !== Boolean\(session\.premiumBadgeHidden\)/u)
   assert.match(appSource, /shouldShowPremiumCrown\(participant\)/u)
   assert.match(appSource, /shouldShowPremiumCrown\(chat\)/u)
   assert.match(appSource, /quiet-toggle-crown/u)
