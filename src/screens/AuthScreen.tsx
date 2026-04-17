@@ -1,5 +1,8 @@
 import type { Account, AuthStep } from '../app/types'
-import { resolveMobileViewportKeyboardInset } from '../app/authKeyboardViewport'
+import {
+  resolveMobileViewportKeyboardInset,
+  resolveMobileViewportRevealDelta,
+} from '../app/authKeyboardViewport'
 import { formatAccountName } from '../app/utils'
 import { isMobileBrowserEnvironment } from '../shared/utils'
 import { useEffect, useRef, useState, type RefObject } from 'react'
@@ -70,6 +73,7 @@ export function AuthScreen({
   const showInlineBlockedNotice = isPhoneStep && authPhoneBlockedNotice
   const shellRef = useRef<HTMLElement | null>(null)
   const submitButtonRef = useRef<HTMLButtonElement | null>(null)
+  const viewportBaselineHeightRef = useRef(0)
 
   useEffect(() => {
     if (
@@ -86,12 +90,31 @@ export function AuthScreen({
     }
 
     let animationFrame = 0
+    let settleTimeout = 0
 
     const syncKeyboardViewport = () => {
+      const activeElement = document.activeElement
+      const activeTextInputFocused =
+        activeElement instanceof HTMLElement &&
+        shell.contains(activeElement) &&
+        (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')
+      const currentViewportHeight = window.visualViewport?.height ?? window.innerHeight
+      const currentViewportOffsetTop = window.visualViewport?.offsetTop ?? 0
+      const currentLayoutHeight = Math.max(window.innerHeight, currentViewportHeight)
+
+      if (!activeTextInputFocused) {
+        viewportBaselineHeightRef.current = currentLayoutHeight
+      } else {
+        viewportBaselineHeightRef.current = Math.max(
+          viewportBaselineHeightRef.current,
+          currentLayoutHeight,
+        )
+      }
+
       const keyboardInset = resolveMobileViewportKeyboardInset({
-        layoutViewportHeight: window.innerHeight,
-        visualViewportHeight: window.visualViewport?.height ?? window.innerHeight,
-        visualViewportOffsetTop: window.visualViewport?.offsetTop ?? 0,
+        layoutViewportHeight: viewportBaselineHeightRef.current,
+        visualViewportHeight: currentViewportHeight,
+        visualViewportOffsetTop: currentViewportOffsetTop,
       })
 
       shell.style.setProperty('--auth-keyboard-inset', `${keyboardInset}px`)
@@ -101,12 +124,10 @@ export function AuthScreen({
         delete shell.dataset.keyboardOpen
       }
 
-      const activeElement = document.activeElement
       if (
         keyboardInset <= 0 ||
         !(activeElement instanceof HTMLElement) ||
-        !shell.contains(activeElement) ||
-        (activeElement.tagName !== 'INPUT' && activeElement.tagName !== 'TEXTAREA')
+        !activeTextInputFocused
       ) {
         return
       }
@@ -115,23 +136,41 @@ export function AuthScreen({
         block: 'nearest',
         inline: 'nearest',
       })
-      submitButtonRef.current?.scrollIntoView({
-        block: 'nearest',
-        inline: 'nearest',
+
+      const submitButton = submitButtonRef.current
+      if (!submitButton) {
+        return
+      }
+
+      const revealDelta = resolveMobileViewportRevealDelta({
+        elementBottom: submitButton.getBoundingClientRect().bottom,
+        visualViewportHeight: currentViewportHeight,
+        visualViewportOffsetTop: currentViewportOffsetTop,
       })
+      if (revealDelta > 0) {
+        shell.scrollTop += revealDelta
+      }
     }
 
     const scheduleKeyboardViewportSync = () => {
       if (animationFrame) {
         window.cancelAnimationFrame(animationFrame)
       }
+      if (settleTimeout) {
+        window.clearTimeout(settleTimeout)
+      }
 
       animationFrame = window.requestAnimationFrame(() => {
         animationFrame = 0
         syncKeyboardViewport()
+        settleTimeout = window.setTimeout(() => {
+          settleTimeout = 0
+          syncKeyboardViewport()
+        }, 160)
       })
     }
 
+    viewportBaselineHeightRef.current = Math.max(window.innerHeight, window.visualViewport?.height ?? 0)
     scheduleKeyboardViewportSync()
 
     const visualViewport = window.visualViewport
@@ -144,6 +183,9 @@ export function AuthScreen({
     return () => {
       if (animationFrame) {
         window.cancelAnimationFrame(animationFrame)
+      }
+      if (settleTimeout) {
+        window.clearTimeout(settleTimeout)
       }
       visualViewport?.removeEventListener('resize', scheduleKeyboardViewportSync)
       visualViewport?.removeEventListener('scroll', scheduleKeyboardViewportSync)
