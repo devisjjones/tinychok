@@ -3197,6 +3197,7 @@ function materializeGroupSystemEvent(
 function materializeGroupMessage(
   database: Database,
   viewerIdentifier: string,
+  group: Pick<PersistedGroup, 'id' | 'ownerIdentifier' | 'sharedId'>,
   message: PersistedGroupMessage,
 ): Omit<PersistedGroupMessage, 'groupId' | 'ownerIdentifier'> {
   const mentions = materializeMessageMentionsForViewer(database, message.mentions)
@@ -3237,7 +3238,7 @@ function materializeGroupMessage(
     threadComments: hideThreadForViewer
       ? []
       : materializeThreadCommentsForViewer(database, viewerIdentifier, message.threadComments, 'author'),
-    threadId: hideThreadForViewer ? undefined : message.threadId?.trim() || undefined,
+    threadId: hideThreadForViewer ? undefined : getGroupMessageThreadId(group, message),
     time: message.time,
   }
 }
@@ -3432,6 +3433,7 @@ function materializeSubscriptionChannel(
 function materializeSubscriptionPost(
   database: Database,
   viewerIdentifier: string,
+  channel: Pick<PersistedSubscriptionChannel, 'handle' | 'id' | 'ownerIdentifier'>,
   post: PersistedSubscriptionPost,
 ): Omit<PersistedSubscriptionPost, 'channelId' | 'ownerIdentifier'> {
   const resolvedSourceContact = post.sourceContact ?? resolveContactSourceReferenceFromText(database, post.text)
@@ -3457,7 +3459,7 @@ function materializeSubscriptionPost(
     threadComments: hideThreadForViewer
       ? []
       : materializeThreadCommentsForViewer(database, viewerIdentifier, post.threadComments, 'author'),
-    threadId: hideThreadForViewer ? undefined : post.threadId?.trim() || undefined,
+    threadId: hideThreadForViewer ? undefined : getSubscriptionPostThreadId(channel, post),
     time: post.time,
   }
 }
@@ -3851,7 +3853,7 @@ function materializeFullGroups(
           if (shouldHideDeletedAccountContentForUsers(authorAccount)) {
             return []
           }
-          const materializedMessage = materializeGroupMessage(database, ownerIdentifier, message)
+          const materializedMessage = materializeGroupMessage(database, ownerIdentifier, group, message)
           return [{
             ...materializedMessage,
             displayAuthor:
@@ -4030,7 +4032,7 @@ function materializeFullSubscriptionChannels(
             !isArchivedRoomRoot(post),
         )
         .flatMap((post) => {
-          const materializedPost = materializeSubscriptionPost(database, ownerIdentifier, post)
+          const materializedPost = materializeSubscriptionPost(database, ownerIdentifier, channel, post)
           return [{
             ...materializedPost,
             threadComments: materializedPost.threadComments ?? [],
@@ -4137,7 +4139,7 @@ function materializeSubscriptionChannelPreview(
       return left.id - right.id
     })
     .map((post) => {
-      const materializedPost = materializeSubscriptionPost(database, viewerIdentifier, post)
+      const materializedPost = materializeSubscriptionPost(database, viewerIdentifier, ownerCopy, post)
       return {
         ...materializedPost,
         threadComments: materializedPost.threadComments ?? [],

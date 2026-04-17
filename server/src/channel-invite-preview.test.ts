@@ -1657,6 +1657,91 @@ test('root group message without comments does not create an implicit thread inb
   assert.equal(ownerInboxItem, undefined)
 })
 
+test('legacy group messages become commentable for all members after comments are enabled', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79990006117')
+  const member = createAccount('+79990006118')
+
+  database.accounts.push(owner, member)
+  const ownerToken = createSession(database, owner.identifier, 'legacy-group-comments-owner')
+  const memberToken = createSession(database, member.identifier, 'legacy-group-comments-member')
+
+  const dialogResponse = await store.openDirectDialog(ownerToken, { identifier: member.identifier })
+  const createdGroup = await store.createGroup(ownerToken, {
+    memberDialogIds: [dialogResponse.dialogId],
+    title: 'Старые group-сообщения под комментарии',
+  })
+
+  const invitationMessage = database.dialogMessages.find(
+    (message) =>
+      message.ownerIdentifier === member.identifier &&
+      message.sourceGroup?.sharedId,
+  )
+  assert.ok(invitationMessage?.sourceGroup?.sharedId)
+
+  await store.joinGroupBySharedId(memberToken, invitationMessage!.sourceGroup!.sharedId!)
+
+  const ownerGroupBefore = store.getSnapshotByToken(ownerToken)?.groups.find(
+    (group) => group.id === createdGroup.groupId,
+  )
+  const memberGroupBefore = store.getSnapshotByToken(memberToken)?.groups.find(
+    (group) => group.sharedId === invitationMessage!.sourceGroup!.sharedId,
+  )
+  assert.ok(ownerGroupBefore)
+  assert.ok(memberGroupBefore)
+
+  await store.sendGroupMessage(ownerToken, ownerGroupBefore!.id, {
+    text: 'Старый root до включения комментариев',
+  })
+
+  for (const message of database.groupMessages.filter(
+    (candidate) => candidate.text === 'Старый root до включения комментариев',
+  )) {
+    message.createdAt = undefined
+    message.deliveryId = undefined
+    message.threadId = undefined
+  }
+
+  await store.updateGroup(ownerToken, ownerGroupBefore!.id, {
+    commentsEnabledForAll: true,
+    commentsEnabledForPremium: false,
+  })
+
+  const ownerGroupAfterEnable = store.getSnapshotByToken(ownerToken)?.groups.find(
+    (group) => group.id === ownerGroupBefore!.id,
+  )
+  const memberGroupAfterEnable = store.getSnapshotByToken(memberToken)?.groups.find(
+    (group) => group.id === memberGroupBefore!.id,
+  )
+  const ownerLegacyRoot = ownerGroupAfterEnable?.messages.find(
+    (message) => message.text === 'Старый root до включения комментариев',
+  )
+  const memberLegacyRoot = memberGroupAfterEnable?.messages.find(
+    (message) => message.text === 'Старый root до включения комментариев',
+  )
+  assert.ok(ownerLegacyRoot?.threadId)
+  assert.ok(memberLegacyRoot?.threadId)
+  assert.equal(ownerLegacyRoot?.threadId, memberLegacyRoot?.threadId)
+
+  await store.sendGroupThreadComment(memberToken, memberGroupAfterEnable!.id, memberLegacyRoot!.id, {
+    text: 'Комментарий к старому group-root',
+  })
+
+  const ownerLegacyRootAfterComment = store.getSnapshotByToken(ownerToken)?.groups
+    .find((group) => group.id === ownerGroupAfterEnable!.id)
+    ?.messages.find((message) => message.id === ownerLegacyRoot!.id)
+  const memberLegacyRootAfterComment = store.getSnapshotByToken(memberToken)?.groups
+    .find((group) => group.id === memberGroupAfterEnable!.id)
+    ?.messages.find((message) => message.id === memberLegacyRoot!.id)
+  assert.equal(ownerLegacyRootAfterComment?.threadComments?.length, 1)
+  assert.equal(memberLegacyRootAfterComment?.threadComments?.length, 1)
+  assert.equal(
+    ownerLegacyRootAfterComment?.threadComments?.[0]?.text,
+    'Комментарий к старому group-root',
+  )
+})
+
 test('channel post owner gets unread thread inbox notifications for subscriber replies without manual subscription', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
@@ -1740,6 +1825,81 @@ test('root channel post without comments does not create an implicit thread inbo
     ?.threadInbox.find((item) => item.sourceText === 'Root канала без комментариев')
 
   assert.equal(ownerInboxItem, undefined)
+})
+
+test('legacy channel posts become commentable for all subscribers after comments are enabled', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79990006119')
+  const member = createAccount('+79990006120')
+  const legacyChannelHandle = '@legacy-channel-comments-enable'
+
+  database.accounts.push(owner, member)
+  const ownerToken = createSession(database, owner.identifier, 'legacy-channel-comments-owner')
+  const memberToken = createSession(database, member.identifier, 'legacy-channel-comments-member')
+
+  const createdChannel = await store.createManagedChannel(ownerToken, {
+    avatarTone: '#8c5738',
+    directLink: legacyChannelHandle,
+    title: 'Старые channel-посты под комментарии',
+    visibility: 'public',
+  })
+
+  await store.sendManagedChannelPost(ownerToken, createdChannel.channelId, {
+    text: 'Старый post до включения комментариев',
+  })
+
+  for (const post of database.subscriptionPosts.filter(
+    (candidate) => candidate.text === 'Старый post до включения комментариев',
+  )) {
+    post.createdAt = undefined
+    post.threadId = undefined
+  }
+
+  await store.updateManagedChannel(ownerToken, createdChannel.channelId, {
+    commentsEnabledForAll: true,
+    commentsEnabledForPremium: false,
+  })
+
+  await store.subscribeToChannelByHandle(memberToken, legacyChannelHandle)
+
+  const ownerChannelAfterEnable = store.getSnapshotByToken(ownerToken)?.subscriptionChannels.find(
+    (channel) => channel.handle === legacyChannelHandle,
+  )
+  const memberChannelAfterEnable = store.getSnapshotByToken(memberToken)?.subscriptionChannels.find(
+    (channel) => channel.handle === legacyChannelHandle,
+  )
+  const ownerLegacyPost = ownerChannelAfterEnable?.posts.find(
+    (post) => post.text === 'Старый post до включения комментариев',
+  )
+  const memberLegacyPost = memberChannelAfterEnable?.posts.find(
+    (post) => post.text === 'Старый post до включения комментариев',
+  )
+  assert.ok(ownerLegacyPost?.threadId)
+  assert.ok(memberLegacyPost?.threadId)
+  assert.equal(ownerLegacyPost?.threadId, memberLegacyPost?.threadId)
+
+  await store.sendSubscriptionChannelThreadComment(
+    memberToken,
+    memberChannelAfterEnable!.id,
+    memberLegacyPost!.id,
+    {
+      text: 'Комментарий к старому channel-post',
+    },
+  )
+
+  const ownerLegacyPostAfterComment = store.getSnapshotByToken(ownerToken)?.subscriptionChannels
+    .find((channel) => channel.id === ownerChannelAfterEnable!.id)
+    ?.posts.find((post) => post.id === ownerLegacyPost!.id)
+  const memberLegacyPostAfterComment = store.getSnapshotByToken(memberToken)?.subscriptionChannels
+    .find((channel) => channel.id === memberChannelAfterEnable!.id)
+    ?.posts.find((post) => post.id === memberLegacyPost!.id)
+  assert.equal(ownerLegacyPostAfterComment?.threadComments?.length, 1)
+  assert.equal(memberLegacyPostAfterComment?.threadComments?.length, 1)
+  assert.equal(
+    ownerLegacyPostAfterComment?.threadComments?.[0]?.text,
+    'Комментарий к старому channel-post',
+  )
 })
 
 test('group thread participants keep unread notifications when a peer reply lands in the same millisecond', async () => {
