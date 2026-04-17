@@ -3525,6 +3525,20 @@ test('auth screen keeps blocked phone login inline without sms submit button', (
   assert.match(authScreenSource, /!\s*showInlineBlockedNotice \? \(\s*<button type="submit"/su)
 })
 
+test('auth success resets the app back to the default main list surface', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const helperSource = readFileSync(join(repoRoot, 'src', 'app', 'postAuthMainSurface.ts'), 'utf8')
+
+  assert.match(appSource, /const resetMainSurfaceAfterAuthSuccess = useCallback\(\(\) => \{/u)
+  assert.match(helperSource, /activeFilter:\s*'Все'/u)
+  assert.match(helperSource, /bottomSection:\s*'chats'/u)
+  assert.match(helperSource, /searchOpen:\s*false/u)
+  assert.match(helperSource, /topListView:\s*'none'/u)
+  assert.match(helperSource, /previewSubscriptionChannel:\s*null/u)
+  assert.ok((appSource.match(/resetMainSurfaceAfterAuthSuccess\(\)/gu) ?? []).length >= 5)
+})
+
 test('auth screen keeps contacts link separate from legal consent copy', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const authScreenSource = readFileSync(join(repoRoot, 'src', 'screens', 'AuthScreen.tsx'), 'utf8')
@@ -4804,15 +4818,19 @@ test('room history window drops prepended older items after destructive empty re
 test('group owner delete action stays available and thread view closes when the root disappears', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const threadRootsSource = readFileSync(join(repoRoot, 'src', 'app', 'threadRoots.ts'), 'utf8')
 
   assert.match(appSource, /\{activeGroupMessage\.author === 'me' \|\| isActiveGroupCreator \? \(/u)
+  assert.match(threadRootsSource, /export function hasUsableThreadRoot/u)
+  assert.match(threadRootsSource, /if \(!root\) \{\s+return false\s+\}/u)
+  assert.match(threadRootsSource, /return !root\.threadArchivedAt/u)
   assert.match(
     appSource,
-    /threadTarget\.kind === 'group' && \(!threadGroupMessage \|\| !threadGroupMessage\.threadId\)/u,
+    /threadTarget\.kind === 'group' && !hasUsableThreadRoot\(threadGroupMessage\)/u,
   )
   assert.match(
     appSource,
-    /threadTarget\.kind === 'channel' && \(!threadChannelPost \|\| !threadChannelPost\.threadId\)/u,
+    /threadTarget\.kind === 'channel' && !hasUsableThreadRoot\(threadChannelPost\)/u,
   )
 })
 
@@ -5121,7 +5139,9 @@ test('narrow mobile view keeps settings, room headers and admin panels from over
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;[\s\S]*overscroll-behavior:\s*none;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-room\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;[\s\S]*overscroll-behavior:\s*none;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-settings\s*\{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*min-height:\s*100vh;[\s\S]*min-height:\s*100dvh;[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;[\s\S]*overscroll-behavior-y:\s*contain;/u)
-  assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.rail\s*\{[\s\S]*overflow:\s*hidden;/u)
+  assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.rail\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;[\s\S]*align-items:\s*stretch;[\s\S]*overflow:\s*hidden;/u)
+  assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.chat-list\s*\{[\s\S]*flex:\s*1 1 0;[\s\S]*min-height:\s*0;/u)
+  assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.bottom-nav\s*\{[\s\S]*flex:\s*0 0 auto;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-settings,\s*[\s\S]*\.message-feed,\s*[\s\S]*\.emoji-picker-gif-grid\s*\{[\s\S]*-webkit-overflow-scrolling:\s*touch;/u)
   assert.doesNotMatch(appCss, /\.shell-settings,\s*[\s\S]*\.message-feed,\s*[\s\S]*\.emoji-picker-gif-grid\s*\{[\s\S]*touch-action:\s*pan-y;/u)
   assert.match(appCss, /\.room-confirm\s*\{[\s\S]*max-height:\s*calc\(100dvh - 32px\);[\s\S]*overflow-y:\s*auto;[\s\S]*overscroll-behavior:\s*contain;/u)
@@ -6354,8 +6374,8 @@ test('thread admin archive flow is wired through admin ui, route and store contr
   assert.match(adminAppSource, /Разархивировать комментарии/u)
   assert.match(adminAppSource, /admin-button-with-icon-archive/u)
   assert.match(adminAppSource, /threads\.archive\.manage/u)
-  assert.match(appSource, /threadTarget\.kind === 'group' && \(!threadGroupMessage \|\| !threadGroupMessage\.threadId\)/u)
-  assert.match(appSource, /threadTarget\.kind === 'channel' && \(!threadChannelPost \|\| !threadChannelPost\.threadId\)/u)
+  assert.match(appSource, /threadTarget\.kind === 'group' && !hasUsableThreadRoot\(threadGroupMessage\)/u)
+  assert.match(appSource, /threadTarget\.kind === 'channel' && !hasUsableThreadRoot\(threadChannelPost\)/u)
   assert.match(adminCssSource, /\.admin-icon-with-text-archive/u)
   assert.match(backendSource, /\/api\/admin\/threads\/archive-toggle/u)
   assert.match(backendSource, /\/api\/admin\/threads\/export/u)

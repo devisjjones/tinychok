@@ -2390,6 +2390,82 @@ test('group owner delete archives a root message with comments and hides the who
   )
 })
 
+test('deleting a threaded group root does not block comments on later messages in the same group', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79990006115')
+  const member = createAccount('+79990006116')
+
+  database.accounts.push(owner, member)
+  const ownerToken = createSession(database, owner.identifier, 'group-delete-thread-followup-owner')
+  const memberToken = createSession(database, member.identifier, 'group-delete-thread-followup-member')
+
+  const memberDialog = await store.openDirectDialog(ownerToken, { identifier: member.identifier })
+  await store.createGroup(ownerToken, {
+    commentsEnabledForAll: true,
+    memberDialogIds: [memberDialog.dialogId],
+    title: 'Удаление старого треда не ломает новые комментарии',
+  })
+
+  const invitationMessage = database.dialogMessages.find(
+    (message) =>
+      message.ownerIdentifier === member.identifier &&
+      message.sourceGroup?.sharedId,
+  )
+  assert.ok(invitationMessage?.sourceGroup?.sharedId)
+
+  await store.joinGroupBySharedId(memberToken, invitationMessage!.sourceGroup!.sharedId!)
+
+  const ownerGroup = store.getSnapshotByToken(ownerToken)?.groups.find(
+    (group) => group.sharedId === invitationMessage!.sourceGroup!.sharedId,
+  )
+  const memberGroup = store.getSnapshotByToken(memberToken)?.groups.find(
+    (group) => group.sharedId === invitationMessage!.sourceGroup!.sharedId,
+  )
+  assert.ok(ownerGroup)
+  assert.ok(memberGroup)
+
+  await store.sendGroupMessage(memberToken, memberGroup!.id, {
+    text: 'Первый root-сообщение для удаления',
+  })
+
+  const ownerFirstRoot = store.getSnapshotByToken(ownerToken)?.groups
+    .find((group) => group.id === ownerGroup!.id)
+    ?.messages.find((message) => message.text === 'Первый root-сообщение для удаления')
+  assert.ok(ownerFirstRoot)
+
+  await store.sendGroupThreadComment(ownerToken, ownerGroup!.id, ownerFirstRoot!.id, {
+    text: 'Комментарий до удаления старого root',
+  })
+
+  await store.deleteGroupMessage(ownerToken, ownerGroup!.id, ownerFirstRoot!.id)
+
+  await store.sendGroupMessage(memberToken, memberGroup!.id, {
+    text: 'Второй root после удаления старого треда',
+  })
+
+  const ownerGroupAfterFollowup = store.getSnapshotByToken(ownerToken)?.groups.find(
+    (group) => group.id === ownerGroup!.id,
+  )
+  const ownerSecondRoot = ownerGroupAfterFollowup?.messages.find(
+    (message) => message.text === 'Второй root после удаления старого треда',
+  )
+  assert.ok(ownerSecondRoot?.threadId)
+
+  await store.sendGroupThreadComment(ownerToken, ownerGroup!.id, ownerSecondRoot!.id, {
+    text: 'Комментарий в новом треде после удаления старого root',
+  })
+
+  const ownerSecondRootAfterComment = store.getSnapshotByToken(ownerToken)?.groups
+    .find((group) => group.id === ownerGroup!.id)
+    ?.messages.find((message) => message.id === ownerSecondRoot!.id)
+  assert.equal(ownerSecondRootAfterComment?.threadComments?.length, 1)
+  assert.equal(
+    ownerSecondRootAfterComment?.threadComments?.[0]?.text,
+    'Комментарий в новом треде после удаления старого root',
+  )
+})
+
 test('channel owner delete archives a root post with comments and hides the whole thread from user snapshots', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)

@@ -78,8 +78,10 @@ import {
 } from './app/messageAuthorChains'
 import { useBlacklistFlow } from './app/useBlacklistFlow'
 import { useGroupSettingsFlow } from './app/useGroupSettingsFlow'
+import { createPostAuthMainSurfaceState } from './app/postAuthMainSurface'
 import { useRoomHistoryWindow } from './app/useRoomHistoryWindow'
 import { useRoomMessageActions } from './app/useRoomMessageActions'
+import { hasUsableThreadRoot } from './app/threadRoots'
 import { useThreadFlow, type ThreadTarget } from './app/useThreadFlow'
 import { getConversationDayKey } from './shared/utils'
 import {
@@ -2093,6 +2095,44 @@ function App() {
     stripRuntimeReloadQueryParam()
   }, [])
 
+  const resetMainSurfaceAfterAuthSuccess = useCallback(() => {
+    const nextState = createPostAuthMainSurfaceState()
+
+    setStageView(nextState.stageView)
+    setSettingsView(nextState.settingsView)
+    setChannelsView(nextState.channelsView)
+    setChannelDetailView(nextState.channelDetailView)
+    setActiveChannelId(nextState.activeChannelId)
+    setBottomSection(nextState.bottomSection)
+    setContactsTab(nextState.contactsTab)
+    setQuery(nextState.query)
+    setActiveFilter(nextState.activeFilter)
+    setSearchOpen(nextState.searchOpen)
+    setSearchTopFilter(nextState.searchTopFilter)
+    setTopListView(nextState.topListView)
+    setActiveChatId(nextState.activeChatId)
+    setActiveGroupId(nextState.activeGroupId)
+    setActiveSubscriptionChannelId(nextState.activeSubscriptionChannelId)
+    setPreviewSubscriptionChannel(nextState.previewSubscriptionChannel)
+    setPremiumGiftChatId(nextState.premiumGiftChatId)
+    setConfirmingLogout(false)
+    setMessageActionAnchor(null)
+    setThreadCommentHintTarget(null)
+    clearThreadEditTarget()
+    clearThreadAttachmentDraft()
+    resetBlacklistFlow()
+    resetRoomMessageActions()
+    resetGroupMessageActions()
+    resetThreadState()
+  }, [
+    clearThreadAttachmentDraft,
+    clearThreadEditTarget,
+    resetBlacklistFlow,
+    resetGroupMessageActions,
+    resetRoomMessageActions,
+    resetThreadState,
+  ])
+
   useEffect(() => {
     let cancelled = false
 
@@ -3275,12 +3315,12 @@ function App() {
   useEffect(() => {
     if (!threadTarget) return
 
-    if (threadTarget.kind === 'group' && (!threadGroupMessage || !threadGroupMessage.threadId)) {
+    if (threadTarget.kind === 'group' && !hasUsableThreadRoot(threadGroupMessage)) {
       resetThreadState()
       return
     }
 
-    if (threadTarget.kind === 'channel' && (!threadChannelPost || !threadChannelPost.threadId)) {
+    if (threadTarget.kind === 'channel' && !hasUsableThreadRoot(threadChannelPost)) {
       resetThreadState()
     }
   }, [
@@ -6035,6 +6075,7 @@ function App() {
       })
 
       if (response.status === 'authenticated') {
+        resetMainSurfaceAfterAuthSuccess()
         applySnapshot(response.snapshot)
         setBackendReady(true)
         setAuthError('')
@@ -6129,6 +6170,7 @@ function App() {
         identifier: normalized,
         password: authPassword,
       })
+      resetMainSurfaceAfterAuthSuccess()
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthPassword('')
@@ -6183,6 +6225,7 @@ function App() {
         identifier: normalized,
         password: authPassword,
       })
+      resetMainSurfaceAfterAuthSuccess()
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthError('')
@@ -6209,6 +6252,7 @@ function App() {
         identifier: normalized,
         password: authPassword,
       })
+      resetMainSurfaceAfterAuthSuccess()
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthError('')
@@ -6237,6 +6281,7 @@ function App() {
         identifier: normalized,
         password: authPassword,
       })
+      resetMainSurfaceAfterAuthSuccess()
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthError('')
