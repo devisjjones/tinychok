@@ -27,15 +27,19 @@
 }
 
 .auth-shell {
+  --auth-shell-block-padding: 24px;
+  --auth-keyboard-inset: 0px;
   height: 100vh;
   height: 100dvh;
   display: grid;
   grid-template-columns: minmax(280px, 1.05fr) minmax(280px, 0.95fr);
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 24px;
-  padding: 24px;
+  padding: var(--auth-shell-block-padding);
   box-sizing: border-box;
   overflow: hidden;
+  scroll-padding-block-start: calc(var(--auth-shell-block-padding) + 20px);
+  scroll-padding-block-end: calc(var(--auth-shell-block-padding) + var(--auth-keyboard-inset) + 20px);
 }
 
 .policy-shell {
@@ -381,6 +385,8 @@
   padding: 14px 16px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.6);
+  scroll-margin-block-start: 20px;
+  scroll-margin-block-end: calc(var(--auth-keyboard-inset) + 20px);
 }
 
 .auth-code-note strong {
@@ -415,6 +421,8 @@
 .auth-field {
   display: grid;
   gap: 8px;
+  scroll-margin-block-start: 20px;
+  scroll-margin-block-end: calc(var(--auth-keyboard-inset) + 20px);
 }
 
 .auth-field span {
@@ -484,6 +492,8 @@
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(141, 89, 57, 0.08);
+  scroll-margin-block-start: 20px;
+  scroll-margin-block-end: calc(var(--auth-keyboard-inset) + 20px);
 }
 
 .auth-captcha-widget {
@@ -503,6 +513,8 @@
 .auth-submit {
   width: 100%;
   justify-content: center;
+  scroll-margin-block-start: 20px;
+  scroll-margin-block-end: calc(var(--auth-keyboard-inset) + 20px);
 }
 
 .auth-secondary-action {
@@ -8809,8 +8821,9 @@
   }
 
   .auth-shell {
+    --auth-shell-block-padding: 16px;
     gap: 16px;
-    padding: 16px;
+    padding: var(--auth-shell-block-padding);
   }
 
   .hero-panel {
@@ -8832,6 +8845,10 @@
     grid-template-rows: auto auto;
     place-items: center;
     overflow: auto;
+  }
+
+  .auth-shell[data-keyboard-open='true'] {
+    padding-bottom: calc(var(--auth-shell-block-padding) + var(--auth-keyboard-inset));
   }
 
   .auth-promo {
@@ -9363,6 +9380,8 @@
   }
 
   .auth-shell {
+    --auth-shell-block-padding: 8px;
+    padding: var(--auth-shell-block-padding);
     gap: 12px;
     place-items: stretch;
     overflow-x: hidden;
@@ -9979,6 +9998,11 @@
 
   .rail {
     padding: 0 2px 0;
+  }
+
+  .auth-shell {
+    --auth-shell-block-padding: 6px;
+    padding: var(--auth-shell-block-padding);
   }
 
   .chat-room,

@@ -1,6 +1,8 @@
 import type { Account, AuthStep } from '../app/types'
+import { resolveMobileViewportKeyboardInset } from '../app/authKeyboardViewport'
 import { formatAccountName } from '../app/utils'
-import { useState, type RefObject } from 'react'
+import { isMobileBrowserEnvironment } from '../shared/utils'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import eyeOffIcon from '../../public/icons/eyeoff.png'
 import eyeOnIcon from '../../public/icons/eyeon.png'
 
@@ -66,6 +68,92 @@ export function AuthScreen({
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [passwordConfirmVisible, setPasswordConfirmVisible] = useState(false)
   const showInlineBlockedNotice = isPhoneStep && authPhoneBlockedNotice
+  const shellRef = useRef<HTMLElement | null>(null)
+  const submitButtonRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      typeof document === 'undefined' ||
+      !isMobileBrowserEnvironment()
+    ) {
+      return
+    }
+
+    const shell = shellRef.current
+    if (!shell) {
+      return
+    }
+
+    let animationFrame = 0
+
+    const syncKeyboardViewport = () => {
+      const keyboardInset = resolveMobileViewportKeyboardInset({
+        layoutViewportHeight: window.innerHeight,
+        visualViewportHeight: window.visualViewport?.height ?? window.innerHeight,
+        visualViewportOffsetTop: window.visualViewport?.offsetTop ?? 0,
+      })
+
+      shell.style.setProperty('--auth-keyboard-inset', `${keyboardInset}px`)
+      if (keyboardInset > 0) {
+        shell.dataset.keyboardOpen = 'true'
+      } else {
+        delete shell.dataset.keyboardOpen
+      }
+
+      const activeElement = document.activeElement
+      if (
+        keyboardInset <= 0 ||
+        !(activeElement instanceof HTMLElement) ||
+        !shell.contains(activeElement) ||
+        (activeElement.tagName !== 'INPUT' && activeElement.tagName !== 'TEXTAREA')
+      ) {
+        return
+      }
+
+      activeElement.scrollIntoView({
+        block: 'nearest',
+        inline: 'nearest',
+      })
+      submitButtonRef.current?.scrollIntoView({
+        block: 'nearest',
+        inline: 'nearest',
+      })
+    }
+
+    const scheduleKeyboardViewportSync = () => {
+      if (animationFrame) {
+        window.cancelAnimationFrame(animationFrame)
+      }
+
+      animationFrame = window.requestAnimationFrame(() => {
+        animationFrame = 0
+        syncKeyboardViewport()
+      })
+    }
+
+    scheduleKeyboardViewportSync()
+
+    const visualViewport = window.visualViewport
+    visualViewport?.addEventListener('resize', scheduleKeyboardViewportSync)
+    visualViewport?.addEventListener('scroll', scheduleKeyboardViewportSync)
+    window.addEventListener('orientationchange', scheduleKeyboardViewportSync)
+    shell.addEventListener('focusin', scheduleKeyboardViewportSync)
+    shell.addEventListener('focusout', scheduleKeyboardViewportSync)
+
+    return () => {
+      if (animationFrame) {
+        window.cancelAnimationFrame(animationFrame)
+      }
+      visualViewport?.removeEventListener('resize', scheduleKeyboardViewportSync)
+      visualViewport?.removeEventListener('scroll', scheduleKeyboardViewportSync)
+      window.removeEventListener('orientationchange', scheduleKeyboardViewportSync)
+      shell.removeEventListener('focusin', scheduleKeyboardViewportSync)
+      shell.removeEventListener('focusout', scheduleKeyboardViewportSync)
+      shell.style.removeProperty('--auth-keyboard-inset')
+      delete shell.dataset.keyboardOpen
+    }
+  }, [])
 
   function renderPasswordField({
     autoComplete,
@@ -128,7 +216,7 @@ export function AuthScreen({
               : 'Задать новый пароль'
 
   return (
-    <main className="auth-shell">
+    <main ref={shellRef} className="auth-shell">
       <section className="auth-panel auth-promo">
         <p className="eyebrow">Тайничок</p>
         <h1>Тихое общение без лишнего шума</h1>
@@ -302,7 +390,12 @@ export function AuthScreen({
           ) : null}
 
           {!showInlineBlockedNotice ? (
-            <button type="submit" className="send-button auth-submit" disabled={captchaBusy}>
+            <button
+              ref={submitButtonRef}
+              type="submit"
+              className="send-button auth-submit"
+              disabled={captchaBusy}
+            >
               {submitLabel}
             </button>
           ) : null}

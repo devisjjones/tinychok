@@ -3549,7 +3549,7 @@ test('auth screen keeps blocked phone login inline without sms submit button', (
     authScreenSource,
     /!\s*showInlineBlockedNotice && captchaPlacement && captchaProvider === 'smartcaptcha'/u,
   )
-  assert.match(authScreenSource, /!\s*showInlineBlockedNotice \? \(\s*<button type="submit"/su)
+  assert.match(authScreenSource, /!\s*showInlineBlockedNotice \? \(\s*<button[\s\S]*type="submit"/su)
 })
 
 test('auth success resets the app back to the default main list surface', () => {
@@ -3581,6 +3581,33 @@ test('auth screen keeps contacts link separate from legal consent copy', () => {
   assert.match(authScreenSource, /className="auth-support-meta-link" href="\/contacts\.html"/u)
   assert.match(appCss, /\.auth-support-row\s*\{/u)
   assert.match(appCss, /\.auth-support-meta-link\s*\{/u)
+})
+
+test('mobile auth keyboard flow keeps the submit action visible above the on-screen keyboard', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const authScreenSource = readFileSync(join(repoRoot, 'src', 'screens', 'AuthScreen.tsx'), 'utf8')
+  const authViewportSource = readFileSync(
+    join(repoRoot, 'src', 'app', 'authKeyboardViewport.ts'),
+    'utf8',
+  )
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(authViewportSource, /const mobileKeyboardInsetActivationThresholdPx = 120/u)
+  assert.match(authScreenSource, /resolveMobileViewportKeyboardInset/u)
+  assert.match(authScreenSource, /window\.visualViewport\?\.height \?\? window\.innerHeight/u)
+  assert.match(authScreenSource, /window\.visualViewport\?\.offsetTop \?\? 0/u)
+  assert.match(authScreenSource, /shell\.dataset\.keyboardOpen = 'true'/u)
+  assert.match(authScreenSource, /submitButtonRef\.current\?\.scrollIntoView\(/u)
+  assert.match(authScreenSource, /ref=\{submitButtonRef\}/u)
+  assert.match(appCss, /\.auth-shell\s*\{[\s\S]*--auth-keyboard-inset:\s*0px;/u)
+  assert.match(
+    appCss,
+    /@media \(max-width: 920px\) \{[\s\S]*\.auth-shell\[data-keyboard-open='true'\]\s*\{[\s\S]*padding-bottom:\s*calc\(var\(--auth-shell-block-padding\) \+ var\(--auth-keyboard-inset\)\);/u,
+  )
+  assert.match(
+    appCss,
+    /\.auth-submit\s*\{[\s\S]*scroll-margin-block-end:\s*calc\(var\(--auth-keyboard-inset\) \+ 20px\);/u,
+  )
 })
 
 test('admin auth code step exposes explicit resend path', () => {
