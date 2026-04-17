@@ -59,6 +59,7 @@ import {
   loadAccounts,
   loadPersistedAuthState,
   saveAccounts,
+  savePersistedRoomCollections,
   saveSession,
   type PersistedAuthState,
 } from './app/storage'
@@ -1525,6 +1526,11 @@ function App() {
   }
   const initialPersistedAuthState = initialPersistedAuthStateRef.current
   const initialPersistedSession = initialPersistedAuthState.session
+  const initialPersistedRoomCollections =
+    initialPersistedSession &&
+    initialPersistedAuthState.roomCollections?.identifier === initialPersistedSession.identifier
+      ? initialPersistedAuthState.roomCollections
+      : null
 
   function clearPendingVideoNoteAnalytics() {
     pendingVideoNoteAnalyticsRef.current = null
@@ -1579,21 +1585,22 @@ function App() {
     subscriptionChannels: typeof initialSubscribedChannels
     threadInbox: ThreadInboxItem[]
   }>({
-    channels: initialChannels,
-    chats: initialChats,
-    contactRequests: [],
-    outgoingContactRequests: [],
-    groups: initialGroups,
+    channels: initialPersistedRoomCollections?.channels ?? initialChannels,
+    chats: initialPersistedRoomCollections?.chats ?? initialChats,
+    contactRequests: initialPersistedRoomCollections?.contactRequests ?? [],
+    outgoingContactRequests: initialPersistedRoomCollections?.outgoingContactRequests ?? [],
+    groups: initialPersistedRoomCollections?.groups ?? initialGroups,
     session: initialPersistedSession,
-    supportTicketCooldownUntil: undefined,
-    supportTickets: [],
-    supportUnreadCount: 0,
-    subscriptionChannels: initialSubscribedChannels,
-    threadInbox: [],
+    supportTicketCooldownUntil: initialPersistedRoomCollections?.supportTicketCooldownUntil,
+    supportTickets: initialPersistedRoomCollections?.supportTickets ?? [],
+    supportUnreadCount: initialPersistedRoomCollections?.supportUnreadCount ?? 0,
+    subscriptionChannels:
+      initialPersistedRoomCollections?.subscriptionChannels ?? initialSubscribedChannels,
+    threadInbox: initialPersistedRoomCollections?.threadInbox ?? [],
   })
   const pendingChannelPatchesRef = useRef(new Map<number, UpdateManagedChannelBody>())
   const suppressChannelSnapshotSyncRef = useRef(false)
-  const previousChatsRef = useRef(initialChats)
+  const previousChatsRef = useRef(initialPersistedRoomCollections?.chats ?? initialChats)
   const browserNotificationDigestRef = useRef<BrowserNotificationDigest | null>(null)
   const browserNotificationOpenTargetRef = useRef<(target: BrowserNotificationTarget) => void>(() => {})
   const suppressNextBrowserNotificationDiffRef = useRef(false)
@@ -1602,10 +1609,14 @@ function App() {
     getBrowserNotificationStatus(),
   )
   const previousStageViewRef = useRef<StageView>('main')
-  const [chats, setChats] = useState(initialChats)
-  const [contactRequests, setContactRequests] = useState<ContactRequestPreview[]>([])
-  const [outgoingContactRequests, setOutgoingContactRequests] = useState<ContactRequestPreview[]>([])
-  const [channels, setChannels] = useState(initialChannels)
+  const [chats, setChats] = useState(initialPersistedRoomCollections?.chats ?? initialChats)
+  const [contactRequests, setContactRequests] = useState<ContactRequestPreview[]>(
+    initialPersistedRoomCollections?.contactRequests ?? [],
+  )
+  const [outgoingContactRequests, setOutgoingContactRequests] = useState<ContactRequestPreview[]>(
+    initialPersistedRoomCollections?.outgoingContactRequests ?? [],
+  )
+  const [channels, setChannels] = useState(initialPersistedRoomCollections?.channels ?? initialChannels)
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
   const [retainedAllChatId, setRetainedAllChatId] = useState<number | null>(null)
@@ -1614,7 +1625,9 @@ function App() {
     null,
   )
   const [retainedGroupId, setRetainedGroupId] = useState<number | null>(null)
-  const [activeChannelId, setActiveChannelId] = useState<number | null>(initialChannels[0]?.id ?? null)
+  const [activeChannelId, setActiveChannelId] = useState<number | null>(
+    initialPersistedRoomCollections?.channels[0]?.id ?? initialChannels[0]?.id ?? null,
+  )
   const [stageView, setStageView] = useState<StageView>('main')
   const [channelsView, setChannelsView] = useState<ChannelsView>('list')
   const [settingsView, setSettingsView] = useState<SettingsView>('profile')
@@ -1818,10 +1831,18 @@ function App() {
   const [topListView, setTopListView] = useState<TopListView>('none')
   const [copyHintText, setCopyHintText] = useState('')
   const [pendingExternalLinkUrl, setPendingExternalLinkUrl] = useState<string | null>(null)
-  const [discoveryResults, setDiscoveryResults] = useState(initialDiscoveryResults)
-  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([])
-  const [supportUnreadCount, setSupportUnreadCount] = useState(0)
-  const [supportTicketCooldownUntil, setSupportTicketCooldownUntil] = useState<string | undefined>(undefined)
+  const [discoveryResults, setDiscoveryResults] = useState(
+    initialPersistedRoomCollections?.discoveryResults ?? initialDiscoveryResults,
+  )
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>(
+    initialPersistedRoomCollections?.supportTickets ?? [],
+  )
+  const [supportUnreadCount, setSupportUnreadCount] = useState(
+    initialPersistedRoomCollections?.supportUnreadCount ?? 0,
+  )
+  const [supportTicketCooldownUntil, setSupportTicketCooldownUntil] = useState<string | undefined>(
+    initialPersistedRoomCollections?.supportTicketCooldownUntil,
+  )
   const [supportComposerCooldownUntil, setSupportComposerCooldownUntil] = useState<string | undefined>(undefined)
   const [supportDraft, setSupportDraft] = useState('')
   const [supportAttachmentDraft, setSupportAttachmentDraft] = useState<ComposerAttachmentDraft | undefined>(undefined)
@@ -1836,7 +1857,9 @@ function App() {
   const [channelStorageItemsBusy, setChannelStorageItemsBusy] = useState(false)
   const [channelStorageItemsError, setChannelStorageItemsError] = useState('')
   const [deletingChannelStorageItemId, setDeletingChannelStorageItemId] = useState<string | null>(null)
-  const [threadInbox, setThreadInbox] = useState<ThreadInboxItem[]>([])
+  const [threadInbox, setThreadInbox] = useState<ThreadInboxItem[]>(
+    initialPersistedRoomCollections?.threadInbox ?? [],
+  )
   const [liveSearchState, setLiveSearchState] = useState<{
     query: string
     results: SearchResult[]
@@ -1845,8 +1868,10 @@ function App() {
     query: string
     results: ChannelSearchResult[]
   } | null>(null)
-  const [subscriptionChannels, setSubscriptionChannels] = useState(initialSubscribedChannels)
-  const [groups, setGroups] = useState(initialGroups)
+  const [subscriptionChannels, setSubscriptionChannels] = useState(
+    initialPersistedRoomCollections?.subscriptionChannels ?? initialSubscribedChannels,
+  )
+  const [groups, setGroups] = useState(initialPersistedRoomCollections?.groups ?? initialGroups)
   const [activeSubscriptionChannelId, setActiveSubscriptionChannelId] = useState<number | null>(null)
   const [previewSubscriptionChannel, setPreviewSubscriptionChannel] = useState<SubscriptionChannel | null>(null)
   const [channelActionsAnchor, setChannelActionsAnchor] = useState<ActionAnchor | null>(null)
@@ -3494,6 +3519,15 @@ function App() {
   const orderedSubscriptionChannels = sortByUnreadEnabled
     ? moveUnreadItemsFirst(listedSubscriptionChannels, visibleRetainedSubscriptionChannelId)
     : listedSubscriptionChannels
+  const roomCollectionsRecoveryVisible =
+    Boolean(session) &&
+    !backendReady &&
+    chats.length === 0 &&
+    groups.length === 0 &&
+    subscriptionChannels.length === 0 &&
+    threadInbox.length === 0 &&
+    contactRequests.length === 0 &&
+    outgoingContactRequests.length === 0
   const fallbackChannelSearchResults = orderedSubscriptionChannels
     .filter((channel) => {
       if (trimmedSearchQuery === '') return false
@@ -4469,8 +4503,10 @@ function App() {
 
   const persistSession = useCallback((nextSession: Session | null) => {
     setSession(nextSession)
-
     saveSession(nextSession)
+    if (!nextSession) {
+      savePersistedRoomCollections(null)
+    }
   }, [])
 
   const clearQueuedSessionRecovery = useCallback(() => {
@@ -4494,6 +4530,35 @@ function App() {
       setSessionRecoveryVersion((current) => current + 1)
     }, 2500)
   }, [])
+
+  const expireVisibleSession = useCallback((message = 'Сессия устарела. Войдите снова.') => {
+    clearQueuedSessionRecovery()
+    persistSession(null)
+    setBackendReady(false)
+    setAuthError(message)
+    setAuthStep('phone')
+    setAuthCodeFlow('registration')
+    setAuthExistingAccount(null)
+    setAuthBlockedNoticeOpen(false)
+    setAuthPhoneBlockedNotice(false)
+    setPasswordLoginCaptchaRequired(false)
+    setAuthPassword('')
+    setAuthPasswordConfirm('')
+    setSmsCode('')
+    setChannels(initialChannels)
+    setChats(initialChats)
+    setContactRequests([])
+    setOutgoingContactRequests([])
+    setDiscoveryResults(initialDiscoveryResults)
+    setGroups(initialGroups)
+    setSubscriptionChannels(initialSubscribedChannels)
+    setSupportTicketCooldownUntil(undefined)
+    setSupportComposerCooldownUntil(undefined)
+    setSupportTickets([])
+    setSupportUnreadCount(0)
+    setThreadInbox([])
+    resetMainSurfaceAfterAuthSuccess()
+  }, [clearQueuedSessionRecovery, persistSession, resetMainSurfaceAfterAuthSuccess])
 
   const syncSession = useCallback((nextSession: Session) => {
     persistSession(nextSession)
@@ -4957,6 +5022,7 @@ function App() {
   }, [pendingChannelThreadCommentsRef])
 
   const applySnapshot = useCallback((snapshot: AppSnapshot) => {
+    savePersistedRoomCollections(snapshot)
     const mergedChats = mergeDirectOutboxMessagesIntoChats(snapshot.chats)
     const mergedGroups = mergePendingGroupThreadCommentsIntoGroups(
       mergeGroupOutboxMessagesIntoGroups(snapshot.groups),
@@ -5056,7 +5122,7 @@ function App() {
       } catch (error) {
         console.error(`Failed to refresh Tinychok snapshot after ${reason}`, error)
         if (isExpiredSessionError(error)) {
-          queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
+          expireVisibleSession()
           return
         }
         queueSessionRecovery()
@@ -5069,7 +5135,7 @@ function App() {
         staleRuntimeResyncInFlightRef.current = null
       }
     })
-  }, [applySnapshot, clearQueuedSessionRecovery, queueSessionRecovery, session?.sessionToken])
+  }, [applySnapshot, clearQueuedSessionRecovery, expireVisibleSession, queueSessionRecovery, session?.sessionToken])
 
   const persistBrowserNotificationsEnabled = useCallback(async (enabled: boolean) => {
     setBrowserNotificationsEnabled(enabled)
@@ -5483,7 +5549,7 @@ function App() {
         if (cancelled) return
         console.error('Failed to bootstrap Tinychok backend', error)
         if (isExpiredSessionError(error)) {
-          queueSessionRecovery('Подключение к сессии временно прервано. Пытаемся восстановить доступ.')
+          expireVisibleSession()
           return
         }
         queueSessionRecovery()
@@ -5493,7 +5559,14 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [applySnapshot, clearQueuedSessionRecovery, queueSessionRecovery, session?.sessionToken, sessionRecoveryVersion])
+  }, [
+    applySnapshot,
+    clearQueuedSessionRecovery,
+    expireVisibleSession,
+    queueSessionRecovery,
+    session?.sessionToken,
+    sessionRecoveryVersion,
+  ])
 
   useRuntimeSessionRecovery({
     backendReady,
@@ -18081,6 +18154,17 @@ function App() {
                 </article>
               </section>
             ) : null}
+          </div>
+        ) : roomCollectionsRecoveryVisible ? (
+          <div className="chat-list">
+            <article className="chat-card search-card">
+              <span className="chat-copy">
+                <strong>Восстанавливаем список комнат</strong>
+                <span className="chat-handle">
+                  {authError || 'Обновляем диалоги, группы, каналы и комментарии после входа во вкладку.'}
+                </span>
+              </span>
+            </article>
           </div>
         ) : isChannelsTopListOpen ? (
           <div className="chat-list">

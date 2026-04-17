@@ -1465,6 +1465,33 @@ test('stale persisted dialogs inherit contact avatar on snapshot load', () => {
   assert.equal(viewerChat?.avatarImage, 'uploads/avatars/stale-contact-avatar.png')
 })
 
+test('mobile stale tabs hydrate persisted room lists and never linger on an empty authenticated shell', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const storageSource = readFileSync(join(repoRoot, 'src', 'app', 'storage.ts'), 'utf8')
+  const releaseDoc = readFileSync(join(repoRoot, 'docs', 'release-contracts.md'), 'utf8')
+  const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
+  const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
+
+  assert.match(storageSource, /const persistedRoomCollectionsStorageKey = `\$\{sessionStorageKey\}:room-collections`/u)
+  assert.match(storageSource, /export type PersistedRoomCollections = Pick</u)
+  assert.match(storageSource, /function buildPersistedRoomCollections\(snapshot: AppSnapshot\): PersistedRoomCollections/u)
+  assert.match(storageSource, /messages:\s*chat\.messages\.length > 0 \? \[trimPersistedRoomMessage\(chat\.messages\.at\(-1\)!\)\] : \[\]/u)
+  assert.match(storageSource, /posts:\s*channel\.posts\.length > 0 \? \[trimPersistedChannelPost\(channel\.posts\.at\(-1\)!\)\] : \[\]/u)
+  assert.match(storageSource, /export function savePersistedRoomCollections\(snapshot: AppSnapshot \| null\)/u)
+  assert.match(appSource, /const initialPersistedRoomCollections =/u)
+  assert.match(appSource, /const \[chats, setChats\] = useState\(initialPersistedRoomCollections\?\.chats \?\? initialChats\)/u)
+  assert.match(appSource, /const \[groups, setGroups\] = useState\(initialPersistedRoomCollections\?\.groups \?\? initialGroups\)/u)
+  assert.match(appSource, /const \[subscriptionChannels, setSubscriptionChannels\] = useState\(\s*initialPersistedRoomCollections\?\.subscriptionChannels \?\? initialSubscribedChannels,/u)
+  assert.match(appSource, /savePersistedRoomCollections\(snapshot\)/u)
+  assert.match(appSource, /const expireVisibleSession = useCallback/u)
+  assert.match(appSource, /roomCollectionsRecoveryVisible/u)
+  assert.match(appSource, /Восстанавливаем список комнат/u)
+  assert.match(releaseDoc, /mobile stale-tab room-list recovery/u)
+  assert.match(rolloutDoc, /mobile stale-tab room-list recovery/u)
+  assert.match(handoffDoc, /mobile stale-tab room-list recovery/u)
+})
+
 test('premium invisibility hides live presence from other users in direct chats', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)

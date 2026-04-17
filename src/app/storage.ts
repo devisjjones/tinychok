@@ -1,12 +1,33 @@
 import { accountsStorageKey, cookieConsentStorageKey, sessionStorageKey } from './constants'
+import type { AppSnapshot } from '../shared/backend'
 import type { Account, CookieConsentChoice, Session } from './types'
 import { normalizePremiumExpiry, normalizeQuietModeSettings } from './utils'
 
 const persistedAuthSchemaVersion = 2
 const persistedAuthSchemaStorageKey = `${sessionStorageKey}:schema-version`
+const persistedRoomCollectionsStorageKey = `${sessionStorageKey}:room-collections`
+
+export type PersistedRoomCollections = Pick<
+  AppSnapshot,
+  | 'channels'
+  | 'chats'
+  | 'contactRequests'
+  | 'discoveryResults'
+  | 'groups'
+  | 'outgoingContactRequests'
+  | 'subscriptionChannels'
+  | 'supportTicketCooldownUntil'
+  | 'supportTickets'
+  | 'supportUnreadCount'
+  | 'threadInbox'
+> & {
+  identifier: string
+  savedAt: string
+}
 
 export type PersistedAuthState = {
   accounts: Account[]
+  roomCollections: PersistedRoomCollections | null
   session: Session | null
 }
 
@@ -48,10 +69,61 @@ function normalizeStoredSession(session: Session): Session {
   }
 }
 
+function trimPersistedRoomMessage<
+  T extends AppSnapshot['chats'][number]['messages'][number] | AppSnapshot['groups'][number]['messages'][number],
+>(message: T): T {
+  return {
+    ...message,
+    threadComments: undefined,
+  }
+}
+
+function trimPersistedChannelPost<T extends AppSnapshot['subscriptionChannels'][number]['posts'][number]>(
+  post: T,
+): T {
+  return {
+    ...post,
+    threadComments: undefined,
+  }
+}
+
+function buildPersistedRoomCollections(snapshot: AppSnapshot): PersistedRoomCollections {
+  return {
+    channels: snapshot.channels,
+    chats: snapshot.chats.map((chat) => ({
+      ...chat,
+      historyHasMore: false,
+      messages: chat.messages.length > 0 ? [trimPersistedRoomMessage(chat.messages.at(-1)!)] : [],
+      pinnedMessage: undefined,
+    })),
+    contactRequests: snapshot.contactRequests,
+    discoveryResults: snapshot.discoveryResults,
+    groups: snapshot.groups.map((group) => ({
+      ...group,
+      messages: group.messages.length > 0 ? [trimPersistedRoomMessage(group.messages.at(-1)!)] : [],
+    })),
+    identifier: snapshot.session.identifier,
+    outgoingContactRequests: snapshot.outgoingContactRequests,
+    savedAt: new Date().toISOString(),
+    subscriptionChannels: snapshot.subscriptionChannels.map((channel) => ({
+      ...channel,
+      posts: channel.posts.length > 0 ? [trimPersistedChannelPost(channel.posts.at(-1)!)] : [],
+    })),
+    supportTicketCooldownUntil: snapshot.supportTicketCooldownUntil,
+    supportTickets: snapshot.supportTickets.map((ticket) => ({
+      ...ticket,
+      comments: [],
+    })),
+    supportUnreadCount: Math.max(0, Math.floor(snapshot.supportUnreadCount ?? 0)),
+    threadInbox: snapshot.threadInbox ?? [],
+  }
+}
+
 function clearPersistedAuthStorage() {
   if (!canUseLocalStorage()) return
 
   window.localStorage.removeItem(accountsStorageKey)
+  window.localStorage.removeItem(persistedRoomCollectionsStorageKey)
   window.localStorage.removeItem(sessionStorageKey)
 }
 
@@ -106,10 +178,27 @@ export function loadSession() {
   }
 }
 
+export function loadPersistedRoomCollections() {
+  if (!canUseLocalStorage()) return null as PersistedRoomCollections | null
+  ensurePersistedAuthStorageSchema()
+
+  const raw = window.localStorage.getItem(persistedRoomCollectionsStorageKey)
+  if (!raw) return null
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedRoomCollections
+    return typeof parsed?.identifier === 'string' && parsed.identifier.length > 0 ? parsed : null
+  } catch {
+    window.localStorage.removeItem(persistedRoomCollectionsStorageKey)
+    return null
+  }
+}
+
 export function loadPersistedAuthState(): PersistedAuthState {
   ensurePersistedAuthStorageSchema()
   return {
     accounts: loadAccounts(),
+    roomCollections: loadPersistedRoomCollections(),
     session: loadSession(),
   }
 }
@@ -131,6 +220,21 @@ export function saveSession(session: Session | null) {
   }
 
   window.localStorage.removeItem(sessionStorageKey)
+}
+
+export function savePersistedRoomCollections(snapshot: AppSnapshot | null) {
+  if (!canUseLocalStorage()) return
+
+  ensurePersistedAuthStorageSchema()
+  if (snapshot) {
+    window.localStorage.setItem(
+      persistedRoomCollectionsStorageKey,
+      JSON.stringify(buildPersistedRoomCollections(snapshot)),
+    )
+    return
+  }
+
+  window.localStorage.removeItem(persistedRoomCollectionsStorageKey)
 }
 
 export function loadCookieConsent() {

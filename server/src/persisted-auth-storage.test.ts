@@ -7,6 +7,7 @@ import { accountsStorageKey, sessionStorageKey } from '../../src/app/constants'
 import {
   loadPersistedAuthState,
   saveAccounts,
+  savePersistedRoomCollections,
   saveSession,
 } from '../../src/app/storage'
 
@@ -90,12 +91,79 @@ test('persisted auth state round-trips session and accounts through a versioned 
       status: '',
       surname: '',
     })
+    savePersistedRoomCollections({
+      channels: [],
+      chats: [
+        {
+          accent: '#fca5a5',
+          archivedAccount: false,
+          blockedByAdmin: false,
+          contactState: 'accepted',
+          handle: '@alexey',
+          hidden: false,
+          historyHasMore: false,
+          id: 7,
+          lastSeen: 'был(а) недавно в сети',
+          messages: [
+            {
+              author: 'them',
+              createdAt: '2026-04-13T12:00:00.000Z',
+              id: 10,
+              text: 'Привет!',
+              time: '12:00',
+            },
+          ],
+          mood: 'На связи',
+          muted: false,
+          online: false,
+          phone: '+79991111111',
+          pinned: false,
+          premium: false,
+          premiumBadgeHidden: false,
+          status: 'На связи',
+          title: 'Алексей',
+          typing: false,
+          unread: 0,
+        },
+      ],
+      contactRequests: [],
+      discoveryResults: [],
+      groups: [],
+      outgoingContactRequests: [],
+      session: {
+        avatarImage: undefined,
+        blockedContactIds: [],
+        browserNotificationsEnabled: true,
+        darkThemeEnabled: true,
+        displayName: 'Алексей',
+        identifier: '+79990000000',
+        invisibilityAutoEnabled: false,
+        invisibilityEnabled: false,
+        nickname: '',
+        premium: false,
+        premiumExpiresAt: undefined,
+        quietModeEnabled: false,
+        quietModeSettings: undefined,
+        sessionToken: 'session-token',
+        soundsDisabled: false,
+        status: '',
+        surname: '',
+      },
+      subscriptionChannels: [],
+      supportTicketCooldownUntil: undefined,
+      supportTickets: [],
+      supportUnreadCount: 0,
+      threadInbox: [],
+    })
 
     const nextState = loadPersistedAuthState()
 
     assert.equal(window.localStorage.getItem(persistedAuthSchemaStorageKey), '2')
     assert.equal(nextState.accounts.length, 1)
     assert.equal(nextState.accounts[0]?.identifier, '+79990000000')
+    assert.equal(nextState.roomCollections?.identifier, '+79990000000')
+    assert.equal(nextState.roomCollections?.chats[0]?.messages.length, 1)
+    assert.equal(nextState.roomCollections?.chats[0]?.messages[0]?.text, 'Привет!')
     assert.equal(nextState.session?.sessionToken, 'session-token')
     assert.equal(nextState.session?.darkThemeEnabled, true)
   })
