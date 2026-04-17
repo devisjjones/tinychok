@@ -4108,16 +4108,18 @@ function App() {
         receiptEmail,
       })
 
+    const requiresReceiptEmail = (errorMessage: string) => /(email|receipt|чек)/iu.test(errorMessage)
+
     let response
     try {
       response = await createCheckout()
     } catch (error) {
       const errorMessage = getErrorMessage(error, 'Не удалось запустить оплату premium.')
-      if (!/email/u.test(errorMessage)) {
+      if (!requiresReceiptEmail(errorMessage)) {
         throw error
       }
 
-      const receiptEmail = window.prompt('Укажите email для чека', '')?.trim()
+      const receiptEmail = window.prompt('Укажите email для чека ЮKassa', '')?.trim()
       if (!receiptEmail) {
         throw new Error('Покупка отменена.')
       }

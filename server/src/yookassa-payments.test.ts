@@ -6,7 +6,7 @@ import {
   TinychokStore,
   type Database,
 } from './store'
-import type { YooKassaPayment } from './yookassa'
+import { createPremiumYooKassaPayment, type YooKassaPayment } from './yookassa'
 
 function createStore() {
   const { database } = coerceDatabasePayload(undefined)
@@ -206,4 +206,81 @@ test('YooKassa webhook sync can recover a gifted premium purchase from provider 
   assert.equal(database.premiumPurchases.length, 1)
   assert.equal(database.premiumPurchases[0]?.ownerIdentifier, owner.identifier)
   assert.equal(database.premiumPurchases[0]?.targetIdentifier, recipient.identifier)
+})
+
+test('createPremiumYooKassaPayment sends receipt when receiptEmail is provided even if receiptsEnabled is false', async () => {
+  const originalFetch = globalThis.fetch
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        amount: {
+          currency: 'RUB',
+          value: '199.00',
+        },
+        confirmation: {
+          confirmation_url: 'https://yookassa.ru/checkout/test',
+          type: 'redirect',
+        },
+        created_at: '2026-04-17T18:00:00.000Z',
+        id: 'payment-test-1',
+        paid: false,
+        status: 'pending',
+      }),
+      {
+        headers: {
+          'content-type': 'application/json',
+        },
+        status: 200,
+      },
+    )
+  }) as typeof fetch
+
+  try {
+    await createPremiumYooKassaPayment(
+      {
+        publicReturnUrl: 'https://staging.tinychok.ru/premium',
+        receiptTimezone: 3,
+        receiptVatCode: 1,
+        receiptsEnabled: false,
+        secretKey: 'test-secret',
+        shopId: 'test-shop',
+      },
+      {
+        amountValue: '199.00',
+        description: 'Premium month',
+        ownerIdentifier: '+79990000004',
+        plan: 'month',
+        purchaseId: 'purchase-receipt-1',
+        receiptEmail: 'user@example.com',
+        targetIdentifier: '+79990000004',
+      },
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.ok(requestBody)
+  assert.deepEqual(requestBody.receipt, {
+    customer: {
+      email: 'user@example.com',
+    },
+    internet: 'true',
+    items: [
+      {
+        amount: {
+          currency: 'RUB',
+          value: '199.00',
+        },
+        description: 'Premium month',
+        payment_mode: 'full_prepayment',
+        payment_subject: 'service',
+        quantity: 1,
+        vat_code: 1,
+      },
+    ],
+    timezone: 3,
+  })
 })

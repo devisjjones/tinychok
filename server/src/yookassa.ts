@@ -134,6 +134,7 @@ export async function createPremiumYooKassaPayment(
 ) {
   const returnUrl = new URL(config.publicReturnUrl)
   returnUrl.searchParams.set('premiumCheckout', input.purchaseId)
+  const normalizedReceiptEmail = input.receiptEmail?.trim()
 
   const body: Record<string, unknown> = {
     amount: {
@@ -154,8 +155,7 @@ export async function createPremiumYooKassaPayment(
     },
   }
 
-  if (config.receiptsEnabled) {
-    const normalizedReceiptEmail = input.receiptEmail?.trim()
+  if (config.receiptsEnabled || normalizedReceiptEmail) {
     if (!normalizedReceiptEmail) {
       throw new Error('Укажите email для чека ЮKassa.')
     }
