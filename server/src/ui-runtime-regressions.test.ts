@@ -988,7 +988,7 @@ test('settings storage scene stays wired to user-manageable media only', () => {
   assert.match(sharedTypesSource, /reason: 'storage-quota' \| 'storage-manual'/u)
   assert.match(sharedTypesSource, /export type UserStorageItem = \{/u)
   assert.match(sharedTypesSource, /kind: 'attachment'/u)
-  assert.match(sharedTypesSource, /export type SettingsView = 'profile' \| 'management' \| 'blocked' \| 'quiet' \| 'support' \| 'storage'/u)
+  assert.match(sharedTypesSource, /export type SettingsView = 'profile' \| 'management' \| 'blocked' \| 'documents' \| 'quiet' \| 'support' \| 'storage'/u)
   assert.match(sharedBackendSource, /export type UserStorageItemsResponse = StoragePrimaryItemsResponse/u)
   assert.match(appBackendSource, /fetchUserStorageItems/u)
   assert.match(appBackendSource, /deleteUserStorageItem/u)
@@ -3851,7 +3851,7 @@ test('quiet settings scene keeps category-specific notification contract wired t
   const handoffDoc = readFileSync(join(repoRoot, 'docs', 'next-branch-handoff.md'), 'utf8')
   const rolloutDoc = readFileSync(join(repoRoot, 'docs', 'staging-rollout-status.md'), 'utf8')
 
-  assert.match(sharedTypesSource, /export type SettingsView = 'profile' \| 'management' \| 'blocked' \| 'quiet' \| 'support' \| 'storage'/u)
+  assert.match(sharedTypesSource, /export type SettingsView = 'profile' \| 'management' \| 'blocked' \| 'documents' \| 'quiet' \| 'support' \| 'storage'/u)
   assert.match(sharedTypesSource, /export type QuietModeSettings = \{/u)
   assert.match(sharedTypesSource, /dialogs: boolean/u)
   assert.match(sharedTypesSource, /channels: boolean/u)
@@ -4047,7 +4047,7 @@ test('support chat contract stays wired through app, store, admin surface and do
   assert.match(sharedUtilsSource, /formatSupportTicketCreatedAt/u)
   assert.match(sharedUtilsSource, /formatSupportTicketStatus/u)
   assert.match(sharedUtilsSource, /getSupportTicketStatusSortOrder/u)
-  assert.match(sharedTypesSource, /export type SettingsView = 'profile' \| 'management' \| 'blocked' \| 'quiet' \| 'support' \| 'storage'/u)
+  assert.match(sharedTypesSource, /export type SettingsView = 'profile' \| 'management' \| 'blocked' \| 'documents' \| 'quiet' \| 'support' \| 'storage'/u)
   assert.match(threadFlowSource, /kind: 'support'/u)
   assert.match(threadFlowSource, /ticketId: number/u)
   assert.match(appSource, /Написать в поддержку/u)
@@ -5148,6 +5148,36 @@ test('premium footer keeps legal links on the right and cards align their CTA ro
   assert.match(appCss, /html\[data-theme='dark'\] \.premium-card-annual\s*\{[\s\S]*linear-gradient\([\s\S]*rgba\(255,\s*255,\s*255,\s*0\.13\)[\s\S]*rgba\(255,\s*255,\s*255,\s*0\.1\)[\s\S]*border-color:\s*rgba\(255,\s*255,\s*255,\s*0\.16\);/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.premium-annual-badge,[\s\S]*background:\s*rgba\(164,\s*91,\s*78,\s*0\.18\);/u)
   assert.match(appCss, /\.premium-stack\s*\{[\s\S]*align-items:\s*stretch;/u)
+})
+
+test('settings documents scene groups legal and premium policies outside management', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const sharedTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'types.ts'), 'utf8')
+  const documentsViewStart = appSource.indexOf(") : settingsView === 'documents' ? (")
+  const managementViewStart = appSource.indexOf(") : settingsView === 'management' ? (")
+
+  assert.match(sharedTypesSource, /export type SettingsView = 'profile' \| 'management' \| 'blocked' \| 'documents' \| 'quiet' \| 'support' \| 'storage'/u)
+  assert.match(appSource, /setSettingsView\('documents'\)/u)
+  assert.match(appSource, /Документы Тайничка/u)
+  assert.ok(documentsViewStart >= 0)
+  assert.ok(managementViewStart > documentsViewStart)
+
+  const documentsViewSource = appSource.slice(documentsViewStart, managementViewStart)
+  const managementViewSource = appSource.slice(managementViewStart)
+
+  assert.match(documentsViewSource, /href="\/user-agreement\.html"/u)
+  assert.match(documentsViewSource, /href="\/privacy-policy\.html"/u)
+  assert.match(documentsViewSource, /href="\/premium-terms\.html"/u)
+  assert.match(documentsViewSource, /href="\/refund-policy\.html"/u)
+  assert.doesNotMatch(
+    managementViewSource,
+    /className="settings-action-card settings-action-link"[\s\S]{0,80}href="\/user-agreement\.html"/u,
+  )
+  assert.doesNotMatch(
+    managementViewSource,
+    /className="settings-action-card settings-action-link"[\s\S]{0,80}href="\/privacy-policy\.html"/u,
+  )
 })
 
 test('narrow mobile view keeps settings, room headers and admin panels from overflowing', () => {

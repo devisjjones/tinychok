@@ -18795,11 +18795,16 @@ function App() {
                         ? 'Настройки режима "Тихо"'
                         : settingsView === 'support'
                           ? 'Чат с поддержкой'
+                          : settingsView === 'documents'
+                            ? 'Документы Тайничка'
                           : settingsView === 'storage'
                             ? 'Хранилище'
                           : formatSessionName(session)}
                     </h2>
-                    {settingsView === 'quiet' || settingsView === 'support' || settingsView === 'storage' ? null : (
+                    {settingsView === 'quiet' ||
+                    settingsView === 'support' ||
+                    settingsView === 'documents' ||
+                    settingsView === 'storage' ? null : (
                       <p className="settings-identity">{session.identifier}</p>
                     )}
                   </>
@@ -18818,6 +18823,10 @@ function App() {
               ) : settingsView === 'storage' ? (
                 <p className="settings-copy settings-storage-scene-copy">
                   Здесь собраны только ваши удаляемые файлы и вложения. Аватарки и общая GIF-библиотека живут отдельно во внешнем хранилище Тайничка и сюда не попадают.
+                </p>
+              ) : settingsView === 'documents' ? (
+                <p className="settings-copy">
+                  Здесь собраны основные документы Тайничка: правила использования сервиса, политика обработки данных, условия Premium и политика возвратов.
                 </p>
               ) : null}
 
@@ -19354,6 +19363,21 @@ function App() {
                     </div>
                   </div>
                 </div>
+              ) : settingsView === 'documents' ? (
+                <div className="settings-stack">
+                  <a className="settings-action-card settings-action-link" href="/user-agreement.html">
+                    Пользовательское соглашение
+                  </a>
+                  <a className="settings-action-card settings-action-link" href="/privacy-policy.html">
+                    Политика в отношении обработки персональных данных
+                  </a>
+                  <a className="settings-action-card settings-action-link" href="/premium-terms.html">
+                    Условия Premium
+                  </a>
+                  <a className="settings-action-card settings-action-link" href="/refund-policy.html">
+                    Политика возвратов
+                  </a>
+                </div>
               ) : settingsView === 'management' ? (
                 <div className="settings-stack">
                   <button
@@ -19488,18 +19512,6 @@ function App() {
                       </div>
                     </article>
                   ) : null}
-                  <a
-                    className="settings-action-card settings-action-link"
-                    href="/user-agreement.html"
-                  >
-                    Пользовательское соглашение
-                  </a>
-                  <a
-                    className="settings-action-card settings-action-link"
-                    href="/privacy-policy.html"
-                  >
-                    Политика в отношении обработки персональных данных
-                  </a>
                   <article className="settings-item settings-consent-card">
                     <span className="settings-label">Cookie и аналитика</span>
                     <strong className="settings-consent-status">{cookieConsentStatus}</strong>
@@ -19685,6 +19697,18 @@ function App() {
                       ) : null}
                     </span>
                   </button>
+              ) : null}
+              {settingsView === 'profile' ? (
+                <button
+                  type="button"
+                  className="settings-action-card"
+                  onClick={() => {
+                    setSettingsView('documents')
+                    setConfirmingLogout(false)
+                  }}
+                >
+                  Документы Тайничка
+                </button>
               ) : null}
               {settingsView === 'profile' ? (
                 <button

@@ -467,7 +467,7 @@ export type AuthStep =
   | 'password-setup'
   | 'password-reset'
 export type StageView = 'main' | 'settings' | 'premium' | 'channels'
-export type SettingsView = 'profile' | 'management' | 'blocked' | 'quiet' | 'support' | 'storage'
+export type SettingsView = 'profile' | 'management' | 'blocked' | 'documents' | 'quiet' | 'support' | 'storage'
 export type CookieConsentChoice = 'necessary' | 'analytics'
 
 export type QuietModeSettings = {
