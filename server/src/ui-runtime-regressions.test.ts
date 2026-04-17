@@ -4787,6 +4787,21 @@ test('room history window drops prepended older items after destructive empty re
   assert.match(historyWindowSource, /olderItems: mergeTimelineItems\(currentState\.olderItems, refreshedOlderItems\)/u)
 })
 
+test('group owner delete action stays available and thread view closes when the root disappears', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+
+  assert.match(appSource, /\{activeGroupMessage\.author === 'me' \|\| isActiveGroupCreator \? \(/u)
+  assert.match(
+    appSource,
+    /threadTarget\.kind === 'group' && \(!threadGroupMessage \|\| !threadGroupMessage\.threadId\)/u,
+  )
+  assert.match(
+    appSource,
+    /threadTarget\.kind === 'channel' && \(!threadChannelPost \|\| !threadChannelPost\.threadId\)/u,
+  )
+})
+
 test('all referenced icon assets exist in public/icons and stay world-readable for staging nginx', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const sourceFiles = listSourceFiles(join(repoRoot, 'src'))
@@ -6325,8 +6340,8 @@ test('thread admin archive flow is wired through admin ui, route and store contr
   assert.match(adminAppSource, /Разархивировать комментарии/u)
   assert.match(adminAppSource, /admin-button-with-icon-archive/u)
   assert.match(adminAppSource, /threads\.archive\.manage/u)
-  assert.match(appSource, /threadGroupMessage && !threadGroupMessage\.threadId/u)
-  assert.match(appSource, /threadChannelPost && !threadChannelPost\.threadId/u)
+  assert.match(appSource, /threadTarget\.kind === 'group' && \(!threadGroupMessage \|\| !threadGroupMessage\.threadId\)/u)
+  assert.match(appSource, /threadTarget\.kind === 'channel' && \(!threadChannelPost \|\| !threadChannelPost\.threadId\)/u)
   assert.match(adminCssSource, /\.admin-icon-with-text-archive/u)
   assert.match(backendSource, /\/api\/admin\/threads\/archive-toggle/u)
   assert.match(backendSource, /\/api\/admin\/threads\/export/u)

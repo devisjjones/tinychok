@@ -238,6 +238,8 @@ type PersistedDialogMessage = Message & {
   ownerIdentifier: string
 }
 
+type PersistedRoomRootArchiveReason = 'delete-channel-post' | 'delete-group-message'
+
 type ContactLink = {
   blockedByIdentifier?: string
   createdAt: string
@@ -254,6 +256,8 @@ type PersistedGroup = Omit<GroupPreview, 'messages'> & {
 }
 
 type PersistedGroupMessage = Omit<Message, 'threadComments'> & {
+  archivedAt?: string
+  archivedReason?: PersistedRoomRootArchiveReason
   groupId: number
   ownerIdentifier: string
   editHistory?: PersistedMessageEditRecord[]
@@ -273,6 +277,8 @@ type PersistedSubscriptionChannel = Omit<SubscriptionChannel, 'posts'> & {
 type SubscriptionPost = SubscriptionChannel['posts'][number]
 
 type PersistedSubscriptionPost = Omit<SubscriptionPost, 'threadComments'> & {
+  archivedAt?: string
+  archivedReason?: PersistedRoomRootArchiveReason
   channelId: number
   editHistory?: PersistedMessageEditRecord[]
   ownerIdentifier: string
@@ -1175,7 +1181,7 @@ function inferStoredMediaKind(mediaUrl: string): PersistedPendingMediaUpload['ki
 }
 
 type OwnedStoredMediaReference = {
-  archiveReason?: PersistedDialogMessage['archivedReason']
+  archiveReason?: PersistedDialogMessage['archivedReason'] | PersistedRoomRootArchiveReason
   archivedAt?: string
   createdAt?: string
   kind: PersistedPendingMediaUpload['kind']
@@ -2016,6 +2022,14 @@ function isArchivedThread(
     | Pick<ChannelPost, 'threadArchivedAt'>,
 ) {
   return Boolean(threadRoot.threadArchivedAt)
+}
+
+function isArchivedRoomRoot(
+  root:
+    | Pick<PersistedGroupMessage, 'archivedAt'>
+    | Pick<PersistedSubscriptionPost, 'archivedAt'>,
+) {
+  return Boolean(root.archivedAt)
 }
 
 function buildAdminAuditAccountLabel(
@@ -3824,7 +3838,10 @@ function materializeFullGroups(
       const materializedGroup = materializeGroup(database, livePresenceIdentifiers, ownerIdentifier, group)
       const messages = database.groupMessages
         .filter(
-          (message) => message.ownerIdentifier === ownerIdentifier && message.groupId === group.id,
+          (message) =>
+            message.ownerIdentifier === ownerIdentifier &&
+            message.groupId === group.id &&
+            !isArchivedRoomRoot(message),
         )
         .flatMap((message) => {
           const authorAccount = findAccountByStoredIdentifier(
@@ -4007,7 +4024,10 @@ function materializeFullSubscriptionChannels(
         ? []
         : database.subscriptionPosts
         .filter(
-          (post) => post.ownerIdentifier === ownerIdentifier && post.channelId === channel.id,
+          (post) =>
+            post.ownerIdentifier === ownerIdentifier &&
+            post.channelId === channel.id &&
+            !isArchivedRoomRoot(post),
         )
         .flatMap((post) => {
           const materializedPost = materializeSubscriptionPost(database, ownerIdentifier, post)
@@ -4102,7 +4122,8 @@ function materializeSubscriptionChannelPreview(
     .filter(
       (post) =>
         post.ownerIdentifier === ownerCopy.ownerIdentifier &&
-        post.channelId === ownerCopy.id,
+        post.channelId === ownerCopy.id &&
+        !isArchivedRoomRoot(post),
     )
     .sort((left, right) => {
       const leftCreatedAt = parseIsoDate(left.createdAt)
@@ -4265,7 +4286,7 @@ function buildThreadInbox(
     for (const message of database.groupMessages.filter(
       (candidate) => candidate.ownerIdentifier === ownerIdentifier && candidate.groupId === group.id,
     )) {
-      if (isArchivedThread(message)) {
+      if (isArchivedRoomRoot(message) || isArchivedThread(message)) {
         continue
       }
       const authorAccount = findAccountByStoredIdentifier(
@@ -4359,7 +4380,7 @@ function buildThreadInbox(
     for (const post of database.subscriptionPosts.filter(
       (candidate) => candidate.ownerIdentifier === ownerIdentifier && candidate.channelId === channel.id,
     )) {
-      if (isArchivedThread(post)) {
+      if (isArchivedRoomRoot(post) || isArchivedThread(post)) {
         continue
       }
       const threadId = getSubscriptionPostThreadId(channel, post)
@@ -10840,7 +10861,8 @@ export class TinychokStore {
         (candidate) =>
           candidate.ownerIdentifier === groupCopy.ownerIdentifier &&
           candidate.groupId === groupCopy.id &&
-          getGroupMessageThreadId(groupCopy, candidate) === targetThreadId,
+          getGroupMessageThreadId(groupCopy, candidate) === targetThreadId &&
+          !candidate.archivedAt,
       )
       if (!targetMessage) continue
 
@@ -10854,7 +10876,9 @@ export class TinychokStore {
         .reverse()
         .find(
           (candidate) =>
-            candidate.ownerIdentifier === groupCopy.ownerIdentifier && candidate.groupId === groupCopy.id,
+            candidate.ownerIdentifier === groupCopy.ownerIdentifier &&
+            candidate.groupId === groupCopy.id &&
+            !candidate.archivedAt,
         )
       if (latestMessage === targetMessage) {
         groupCopy.preview = formatMessagePreview(targetMessage)
@@ -11430,7 +11454,8 @@ export class TinychokStore {
         (candidate) =>
           candidate.ownerIdentifier === channelCopy.ownerIdentifier &&
           candidate.channelId === channelCopy.id &&
-          getSubscriptionPostThreadId(channelCopy, candidate) === threadId,
+          getSubscriptionPostThreadId(channelCopy, candidate) === threadId &&
+          !candidate.archivedAt,
       )
       if (!targetPost) continue
 
@@ -11441,7 +11466,9 @@ export class TinychokStore {
         .reverse()
         .find(
           (candidate) =>
-            candidate.ownerIdentifier === channelCopy.ownerIdentifier && candidate.channelId === channelCopy.id,
+            candidate.ownerIdentifier === channelCopy.ownerIdentifier &&
+            candidate.channelId === channelCopy.id &&
+            !candidate.archivedAt,
         )
       if (latestPost === targetPost) {
         channelCopy.preview = nextText || fallbackPreview
@@ -11492,6 +11519,7 @@ export class TinychokStore {
     }
 
     const targetThreadId = getSubscriptionPostThreadId(ownerCopy, ownerPost)
+    const archivedAt = new Date().toISOString()
     const removedMediaUrls = [
       ...collectMediaUrlsFromAttachment(ownerPost.attachment),
       ...collectMediaUrlsFromThreadComments(ownerPost.threadComments),
@@ -11504,32 +11532,32 @@ export class TinychokStore {
         (post) =>
           post.ownerIdentifier === channelCopy.ownerIdentifier &&
           post.channelId === channelCopy.id &&
-          getSubscriptionPostThreadId(channelCopy, post) === targetThreadId,
+          getSubscriptionPostThreadId(channelCopy, post) === targetThreadId &&
+          !post.archivedAt,
       )
 
       if (targetPosts.length === 0) {
         continue
       }
 
-      this.database.subscriptionPosts = this.database.subscriptionPosts.filter(
-        (post) =>
-          !(
-            post.ownerIdentifier === channelCopy.ownerIdentifier &&
-            post.channelId === channelCopy.id &&
-            getSubscriptionPostThreadId(channelCopy, post) === targetThreadId
-          ),
-      )
+      for (const targetPost of targetPosts) {
+        targetPost.archivedAt = archivedAt
+        targetPost.archivedReason = 'delete-channel-post'
+      }
 
       const remainingChannelPosts = this.database.subscriptionPosts
         .filter(
-          (post) => post.ownerIdentifier === channelCopy.ownerIdentifier && post.channelId === channelCopy.id,
+          (post) =>
+            post.ownerIdentifier === channelCopy.ownerIdentifier &&
+            post.channelId === channelCopy.id &&
+            !post.archivedAt,
         )
         .sort(
           (left, right) => Date.parse(left.createdAt ?? '') - Date.parse(right.createdAt ?? ''),
         )
       const latestPost = remainingChannelPosts.at(-1)
 
-      channelCopy.preview = latestPost?.text.trim() || managedChannel.description
+      channelCopy.preview = latestPost ? formatMessagePreview(latestPost) || managedChannel.description : managedChannel.description
       channelCopy.time = latestPost?.time ?? ''
       if (channelCopy.ownerIdentifier !== account.identifier && channelCopy.unread > 0) {
         channelCopy.unread = Math.max(0, channelCopy.unread - targetPosts.length)
@@ -11575,30 +11603,63 @@ export class TinychokStore {
       throw new Error('Сообщение не найдено.')
     }
 
-    if (message.author !== 'me') {
+    const canDeleteGroupMessage =
+      message.author === 'me' || getCurrentGroupOwnerIdentifier(group) === account.identifier
+    if (!canDeleteGroupMessage) {
       throw new Error('Можно удалять только свои сообщения.')
     }
 
     const sharedId = this.getSharedGroupId(group)
+    const archivedAt = new Date().toISOString()
     const removedMediaUrls = [
       ...collectMediaUrlsFromAttachment(message.attachment),
       ...collectMediaUrlsFromThreadComments(message.threadComments),
     ]
     const groupCopies = this.listGroupCopies(sharedId)
-    const groupCopyIds = new Set(groupCopies.map((groupCopy) => `${groupCopy.ownerIdentifier}:${groupCopy.id}`))
     const messageReceiptKey = getMessageReadReceiptKey(message)
 
-    this.database.groupMessages = this.database.groupMessages.filter((candidate) => {
-      if (!groupCopyIds.has(`${candidate.ownerIdentifier}:${candidate.groupId}`)) {
-        return true
+    for (const groupCopy of groupCopies) {
+      const targetMessages = this.database.groupMessages.filter((candidate) => {
+        if (
+          candidate.ownerIdentifier !== groupCopy.ownerIdentifier ||
+          candidate.groupId !== groupCopy.id ||
+          candidate.archivedAt
+        ) {
+          return false
+        }
+
+        if (message.deliveryId?.trim()) {
+          return candidate.deliveryId === message.deliveryId
+        }
+
+        return getMessageReadReceiptKey(candidate) === messageReceiptKey
+      })
+
+      if (targetMessages.length === 0) {
+        continue
       }
 
-      if (message.deliveryId?.trim()) {
-        return candidate.deliveryId !== message.deliveryId
+      for (const targetMessage of targetMessages) {
+        targetMessage.archivedAt = archivedAt
+        targetMessage.archivedReason = 'delete-group-message'
       }
 
-      return getMessageReadReceiptKey(candidate) !== messageReceiptKey
-    })
+      const latestMessage = [...this.database.groupMessages]
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.ownerIdentifier === groupCopy.ownerIdentifier &&
+            candidate.groupId === groupCopy.id &&
+            !candidate.archivedAt,
+        )
+      groupCopy.preview = latestMessage
+        ? formatMessagePreview(latestMessage) || 'Группа создана. Можно начинать обсуждение.'
+        : 'Группа создана. Можно начинать обсуждение.'
+      groupCopy.time = latestMessage?.time ?? ''
+      if (groupCopy.ownerIdentifier !== account.identifier && groupCopy.unread > 0) {
+        groupCopy.unread = Math.max(0, groupCopy.unread - targetMessages.length)
+      }
+    }
 
     await this.persist()
     for (const mediaUrl of removedMediaUrls) {
@@ -15910,7 +15971,8 @@ export class TinychokStore {
         (message) =>
           message.ownerIdentifier === ownerIdentifier &&
           message.groupId === groupId &&
-          message.deliveryId === deliveryId,
+          message.deliveryId === deliveryId &&
+          !message.archivedAt,
       ) ?? null
     )
   }
@@ -15964,7 +16026,8 @@ export class TinychokStore {
         (post) =>
           post.ownerIdentifier === ownerIdentifier &&
           post.channelId === channelId &&
-          post.deliveryId === deliveryId,
+          post.deliveryId === deliveryId &&
+          !post.archivedAt,
       ) ?? null
     )
   }
@@ -16236,6 +16299,7 @@ export class TinychokStore {
     }
 
     for (const message of this.database.groupMessages) {
+      if (message.archivedAt) continue
       upsertCandidate(
         message.createdAt,
         sanitizeMessageAttachment(message.attachment)?.mediaUrl,
@@ -16252,6 +16316,7 @@ export class TinychokStore {
     }
 
     for (const post of this.database.subscriptionPosts) {
+      if (post.archivedAt) continue
       upsertCandidate(
         post.createdAt,
         sanitizeMessageAttachment(post.attachment)?.mediaUrl,
@@ -17252,6 +17317,8 @@ export class TinychokStore {
       if (attachment) {
         const authorSubject = this.getUserStorageSubject(this.getGroupMessageAttachmentOwnerIdentifier(message))
         references.push({
+          archiveReason: message.archivedReason,
+          archivedAt: message.archivedAt,
           createdAt: message.createdAt,
           fileName: attachment.fileName,
           height: attachment.height,
@@ -17273,6 +17340,8 @@ export class TinychokStore {
         const commentOwnerIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || message.ownerIdentifier
         const commentSubject = this.getUserStorageSubject(commentOwnerIdentifier)
         references.push({
+          archiveReason: message.archivedReason,
+          archivedAt: message.archivedAt,
           createdAt: comment.createdAt,
           fileName: commentAttachment.fileName,
           height: commentAttachment.height,
@@ -17294,6 +17363,8 @@ export class TinychokStore {
       if (attachment) {
         const postSubject = this.getSubscriptionPostStorageSubject(post)
         references.push({
+          archiveReason: post.archivedReason,
+          archivedAt: post.archivedAt,
           createdAt: post.createdAt,
           fileName: attachment.fileName,
           height: attachment.height,
@@ -17315,6 +17386,8 @@ export class TinychokStore {
         const commentOwnerIdentifier = normalizeIdentifier(comment.authorIdentifier ?? '') || post.ownerIdentifier
         const commentSubject = this.getUserStorageSubject(commentOwnerIdentifier)
         references.push({
+          archiveReason: post.archivedReason,
+          archivedAt: post.archivedAt,
           createdAt: comment.createdAt,
           fileName: commentAttachment.fileName,
           height: commentAttachment.height,
@@ -18017,7 +18090,8 @@ export class TinychokStore {
         (candidate) =>
           candidate.ownerIdentifier === ownerIdentifier &&
           candidate.groupId === groupId &&
-          candidate.id === messageId,
+          candidate.id === messageId &&
+          !candidate.archivedAt,
       ) ?? null
 
     return message ? { group, message } : null
@@ -18034,7 +18108,8 @@ export class TinychokStore {
         (candidate) =>
           candidate.ownerIdentifier === ownerIdentifier &&
           candidate.channelId === channelId &&
-          candidate.id === postId,
+          candidate.id === postId &&
+          !candidate.archivedAt,
       ) ?? null
 
     return post ? { channel, post } : null

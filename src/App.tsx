@@ -3275,12 +3275,12 @@ function App() {
   useEffect(() => {
     if (!threadTarget) return
 
-    if (threadTarget.kind === 'group' && threadGroupMessage && !threadGroupMessage.threadId) {
+    if (threadTarget.kind === 'group' && (!threadGroupMessage || !threadGroupMessage.threadId)) {
       resetThreadState()
       return
     }
 
-    if (threadTarget.kind === 'channel' && threadChannelPost && !threadChannelPost.threadId) {
+    if (threadTarget.kind === 'channel' && (!threadChannelPost || !threadChannelPost.threadId)) {
       resetThreadState()
     }
   }, [
@@ -7366,6 +7366,22 @@ function App() {
     const managedChannelHandle = sanitizeChannelDirectLink(managedChannel?.directLink ?? '')
     const managedChannelDescription =
       managedChannel?.statusText ?? managedChannel?.description ?? previewSubscriptionChannel?.preview ?? 'Пока пусто'
+    const matchingSubscriptionChannelIds = new Set(
+      subscriptionChannels
+        .filter((channel) =>
+          channel.id === channelId ||
+          (managedChannelHandle !== '' && sanitizeChannelDirectLink(channel.handle) === managedChannelHandle),
+        )
+        .map((channel) => channel.id),
+    )
+    if (
+      previewSubscriptionChannel &&
+      (previewSubscriptionChannel.id === channelId ||
+        (managedChannelHandle !== '' &&
+          sanitizeChannelDirectLink(previewSubscriptionChannel.handle) === managedChannelHandle))
+    ) {
+      matchingSubscriptionChannelIds.add(previewSubscriptionChannel.id)
+    }
 
     setSubscriptionChannels((currentChannels) =>
       currentChannels.map((channel) => {
@@ -7418,6 +7434,15 @@ function App() {
         time: latestPost?.time ?? '',
       }
     })
+
+    setThreadInbox((currentThreadInbox) =>
+      currentThreadInbox.filter(
+        (item) =>
+          item.kind !== 'channel' ||
+          !matchingSubscriptionChannelIds.has(item.channelId) ||
+          item.postId !== postId,
+      ),
+    )
   }
 
   function applyLocalDeleteChatHistory(chatId: number) {
@@ -7575,11 +7600,23 @@ function App() {
       currentGroups.map((group) => {
         if (group.id !== groupId) return group
 
+        const nextMessages = group.messages.filter((message) => message.id !== messageId)
+        const latestMessage = nextMessages.at(-1)
+
         return {
           ...group,
-          messages: group.messages.filter((message) => message.id !== messageId),
+          latestActivityAt: latestMessage?.createdAt,
+          messages: nextMessages,
+          preview: latestMessage ? formatMessagePreview(latestMessage) || group.preview : 'Группа создана. Можно начинать обсуждение.',
+          time: latestMessage?.time ?? '',
         }
       }),
+    )
+
+    setThreadInbox((currentThreadInbox) =>
+      currentThreadInbox.filter(
+        (item) => item.kind !== 'group' || item.groupId !== groupId || item.messageId !== messageId,
+      ),
     )
   }
 
@@ -16859,7 +16896,7 @@ function App() {
                   ) : null}
                 </>
               ) : null}
-              {activeGroupMessage.author === 'me' ? (
+              {activeGroupMessage.author === 'me' || isActiveGroupCreator ? (
                 <button
                   type="button"
                   className="message-menu-item danger"

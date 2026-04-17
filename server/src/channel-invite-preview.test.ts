@@ -2290,6 +2290,200 @@ test('marking a channel thread read clears all unread replies, including the lat
   assert.equal(unreadAfterRead?.unreadCount, 0)
 })
 
+test('group owner delete archives a root message with comments and hides the whole thread from user snapshots', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79990006111')
+  const member = createAccount('+79990006112')
+
+  database.accounts.push(owner, member)
+  const ownerToken = createSession(database, owner.identifier, 'group-delete-thread-owner')
+  const memberToken = createSession(database, member.identifier, 'group-delete-thread-member')
+
+  const memberDialog = await store.openDirectDialog(ownerToken, { identifier: member.identifier })
+  await store.createGroup(ownerToken, {
+    commentsEnabledForAll: true,
+    memberDialogIds: [memberDialog.dialogId],
+    title: 'Удаление root-сообщения группы вместе с тредом',
+  })
+
+  const invitationMessage = database.dialogMessages.find(
+    (message) =>
+      message.ownerIdentifier === member.identifier &&
+      message.sourceGroup?.sharedId,
+  )
+  assert.ok(invitationMessage?.sourceGroup?.sharedId)
+
+  await store.joinGroupBySharedId(memberToken, invitationMessage!.sourceGroup!.sharedId!)
+
+  const ownerGroup = store.getSnapshotByToken(ownerToken)?.groups.find(
+    (group) => group.sharedId === invitationMessage!.sourceGroup!.sharedId,
+  )
+  const memberGroup = store.getSnapshotByToken(memberToken)?.groups.find(
+    (group) => group.sharedId === invitationMessage!.sourceGroup!.sharedId,
+  )
+  assert.ok(ownerGroup)
+  assert.ok(memberGroup)
+
+  await store.sendGroupMessage(memberToken, memberGroup!.id, {
+    text: 'Сообщение участника с тредом на удаление',
+  })
+
+  const ownerRoot = store.getSnapshotByToken(ownerToken)?.groups
+    .find((group) => group.id === ownerGroup!.id)
+    ?.messages.find((message) => message.text === 'Сообщение участника с тредом на удаление')
+  const memberRoot = store.getSnapshotByToken(memberToken)?.groups
+    .find((group) => group.id === memberGroup!.id)
+    ?.messages.find((message) => message.text === 'Сообщение участника с тредом на удаление')
+  assert.ok(ownerRoot)
+  assert.ok(memberRoot)
+
+  await store.sendGroupThreadComment(ownerToken, ownerGroup!.id, ownerRoot!.id, {
+    text: 'Комментарий владельца перед удалением',
+  })
+
+  assert.equal(
+    store.getSnapshotByToken(ownerToken)?.threadInbox.some(
+      (item) => item.sourceText === 'Сообщение участника с тредом на удаление',
+    ),
+    true,
+  )
+
+  await store.deleteGroupMessage(ownerToken, ownerGroup!.id, ownerRoot!.id)
+
+  const ownerGroupAfter = store.getSnapshotByToken(ownerToken)?.groups.find((group) => group.id === ownerGroup!.id)
+  const memberGroupAfter = store.getSnapshotByToken(memberToken)?.groups.find((group) => group.id === memberGroup!.id)
+  assert.equal(
+    ownerGroupAfter?.messages.some((message) => message.text === 'Сообщение участника с тредом на удаление'),
+    false,
+  )
+  assert.equal(
+    memberGroupAfter?.messages.some((message) => message.text === 'Сообщение участника с тредом на удаление'),
+    false,
+  )
+  assert.equal(
+    store.getSnapshotByToken(ownerToken)?.threadInbox.some(
+      (item) => item.sourceText === 'Сообщение участника с тредом на удаление',
+    ),
+    false,
+  )
+  assert.equal(
+    store.getSnapshotByToken(memberToken)?.threadInbox.some(
+      (item) => item.sourceText === 'Сообщение участника с тредом на удаление',
+    ),
+    false,
+  )
+
+  const archivedCopies = database.groupMessages.filter(
+    (message) => message.text === 'Сообщение участника с тредом на удаление',
+  )
+  assert.equal(archivedCopies.length, 2)
+  assert.equal(archivedCopies.every((message) => Boolean(message.archivedAt)), true)
+  assert.equal(archivedCopies.every((message) => message.archivedReason === 'delete-group-message'), true)
+  assert.equal(archivedCopies.every((message) => (message.threadComments?.length ?? 0) === 1), true)
+
+  await assert.rejects(
+    store.sendGroupThreadComment(memberToken, memberGroup!.id, memberRoot!.id, {
+      text: 'Комментарий после удаления root-сообщения',
+    }),
+    /Сообщение группы не найдено/u,
+  )
+})
+
+test('channel owner delete archives a root post with comments and hides the whole thread from user snapshots', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const owner = createAccount('+79990006113')
+  const member = createAccount('+79990006114')
+
+  database.accounts.push(owner, member)
+  const ownerToken = createSession(database, owner.identifier, 'channel-delete-thread-owner')
+  const memberToken = createSession(database, member.identifier, 'channel-delete-thread-member')
+
+  const createdChannel = await store.createManagedChannel(ownerToken, {
+    avatarTone: '#8c5738',
+    commentsEnabledForAll: true,
+    directLink: '@delete-thread-root-channel',
+    statusText: 'Тест удаления root-поста',
+    title: 'Удаление root-поста канала вместе с тредом',
+    visibility: 'public',
+  })
+
+  await store.subscribeToChannelByHandle(memberToken, '@delete-thread-root-channel')
+  await store.sendManagedChannelPost(ownerToken, createdChannel.channelId, {
+    text: 'Пост канала с тредом на удаление',
+  })
+
+  const ownerPreview = store.getSubscriptionChannelPreviewByHandle(ownerToken, '@delete-thread-root-channel')
+  const memberPreview = store.getSubscriptionChannelPreviewByHandle(memberToken, '@delete-thread-root-channel')
+  const memberChannel = store.getSnapshotByToken(memberToken)?.subscriptionChannels.find(
+    (channel) => channel.handle === '@delete-thread-root-channel',
+  )
+  assert.ok(memberChannel)
+
+  const ownerPost = ownerPreview.channel.posts.find((post) => post.text === 'Пост канала с тредом на удаление')
+  const memberPost = memberPreview.channel.posts.find((post) => post.text === 'Пост канала с тредом на удаление')
+  assert.ok(ownerPost)
+  assert.ok(memberPost)
+
+  await store.sendSubscriptionChannelThreadComment(memberToken, memberChannel!.id, memberPost!.id, {
+    text: 'Комментарий подписчика перед удалением',
+  })
+
+  assert.equal(
+    store.getSnapshotByToken(ownerToken)?.threadInbox.some(
+      (item) => item.sourceText === 'Пост канала с тредом на удаление',
+    ),
+    true,
+  )
+  assert.equal(
+    store.getSnapshotByToken(memberToken)?.threadInbox.some(
+      (item) => item.sourceText === 'Пост канала с тредом на удаление',
+    ),
+    true,
+  )
+
+  await store.deleteManagedChannelPost(ownerToken, createdChannel.channelId, ownerPost!.id)
+
+  const ownerChannelAfter = store.getSubscriptionChannelPreviewByHandle(ownerToken, '@delete-thread-root-channel')
+  const memberChannelAfter = store.getSubscriptionChannelPreviewByHandle(memberToken, '@delete-thread-root-channel')
+  assert.equal(
+    ownerChannelAfter.channel.posts.some((post) => post.text === 'Пост канала с тредом на удаление'),
+    false,
+  )
+  assert.equal(
+    memberChannelAfter.channel.posts.some((post) => post.text === 'Пост канала с тредом на удаление'),
+    false,
+  )
+  assert.equal(
+    store.getSnapshotByToken(ownerToken)?.threadInbox.some(
+      (item) => item.sourceText === 'Пост канала с тредом на удаление',
+    ),
+    false,
+  )
+  assert.equal(
+    store.getSnapshotByToken(memberToken)?.threadInbox.some(
+      (item) => item.sourceText === 'Пост канала с тредом на удаление',
+    ),
+    false,
+  )
+
+  const archivedCopies = database.subscriptionPosts.filter(
+    (post) => post.text === 'Пост канала с тредом на удаление',
+  )
+  assert.equal(archivedCopies.length, 2)
+  assert.equal(archivedCopies.every((post) => Boolean(post.archivedAt)), true)
+  assert.equal(archivedCopies.every((post) => post.archivedReason === 'delete-channel-post'), true)
+  assert.equal(archivedCopies.every((post) => (post.threadComments?.length ?? 0) === 1), true)
+
+  await assert.rejects(
+    store.sendSubscriptionChannelThreadComment(memberToken, memberChannel!.id, memberPost!.id, {
+      text: 'Комментарий после удаления root-поста',
+    }),
+    /Пост канала не найден/u,
+  )
+})
+
 test('owner can still discover legacy channel records when stored owner identifier is not normalized', async () => {
   const store = createStore()
   const database = getStoreDatabase(store)
