@@ -72,6 +72,29 @@ export function mergeVisibleTimelineItems<T extends TimelineItem>(olderItems: T[
   return [...visibleOlderItems, ...recentItems]
 }
 
+export function pruneTimelineItemsById<T extends TimelineItem>(items: T[], itemId: number) {
+  const nextItems = items.filter((item) => item.id !== itemId)
+  return nextItems.length === items.length ? items : nextItems
+}
+
+export function reconcileOlderTimelineItems<T extends TimelineItem>(
+  currentOlderItems: T[],
+  refreshedOlderItems: T[],
+) {
+  if (
+    currentOlderItems.length === refreshedOlderItems.length &&
+    currentOlderItems.every(
+      (item, index) =>
+        item.id === refreshedOlderItems[index]?.id &&
+        item.createdAt === refreshedOlderItems[index]?.createdAt,
+    )
+  ) {
+    return currentOlderItems
+  }
+
+  return mergeTimelineItems([], refreshedOlderItems)
+}
+
 export function useRoomHistoryWindow<T extends TimelineItem>(options: {
   feedRef: RefObject<HTMLDivElement | null>
   hasOlderHistory: boolean
@@ -205,45 +228,64 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
     let cancelled = false
 
     void (async () => {
-      let beforeItemId = oldestRecentItem.id
-      let remainingOlderItems = historyState.olderItems.length
-      let refreshedOlderItems: T[] = []
+      try {
+        let beforeItemId = oldestRecentItem.id
+        let remainingOlderItems = historyState.olderItems.length
+        let refreshedHasMore = historyState.hasMore
+        let refreshedOlderItems: T[] = []
 
-      while (!cancelled && remainingOlderItems > 0) {
-        const page = await loadOlderPage(beforeItemId)
-        if (cancelled || page.items.length === 0) {
-          break
+        while (!cancelled && remainingOlderItems > 0) {
+          const page = await loadOlderPage(beforeItemId)
+          refreshedHasMore = page.hasMore
+          if (cancelled || page.items.length === 0) {
+            break
+          }
+
+          // When a live snapshot updates already-visible history (for example storage cleanup
+          // replacing an old attachment with a removal note), refresh the loaded older window too.
+          // This is important for the reader side: without it, the owner sees the quota notice
+          // but the other participant can stay stuck with an empty stale bubble until full reload.
+          refreshedOlderItems = mergeTimelineItems(refreshedOlderItems, page.items)
+          remainingOlderItems = historyState.olderItems.length - refreshedOlderItems.length
+
+          const nextBeforeItem = page.items[0]
+          if (!page.hasMore || !nextBeforeItem) {
+            break
+          }
+
+          beforeItemId = nextBeforeItem.id
         }
 
-        // When a live snapshot updates already-visible history (for example storage cleanup
-        // replacing an old attachment with a removal note), refresh the loaded older window too.
-        // This is important for the reader side: without it, the owner sees the quota notice
-        // but the other participant can stay stuck with an empty stale bubble until full reload.
-        refreshedOlderItems = mergeTimelineItems(refreshedOlderItems, page.items)
-        remainingOlderItems = historyState.olderItems.length - refreshedOlderItems.length
-
-        const nextBeforeItem = page.items[0]
-        if (!page.hasMore || !nextBeforeItem) {
-          break
+        if (cancelled) {
+          return
         }
 
-        beforeItemId = nextBeforeItem.id
+        setHistoryState((currentState) => {
+          if (currentState.roomKey !== roomKey) {
+            return currentState
+          }
+
+          const nextOlderItems = reconcileOlderTimelineItems(
+            currentState.olderItems,
+            refreshedOlderItems,
+          )
+          if (
+            nextOlderItems === currentState.olderItems &&
+            currentState.hasMore === refreshedHasMore
+          ) {
+            return currentState
+          }
+
+          return {
+            ...currentState,
+            hasMore: refreshedHasMore,
+            olderItems: nextOlderItems,
+          }
+        })
+      } catch (error) {
+        olderItemsRefreshSignatureRef.current = null
+        console.error('Failed to refresh loaded older room history', error)
       }
-
-      if (cancelled || refreshedOlderItems.length === 0) {
-        return
-      }
-
-      setHistoryState((currentState) => {
-        if (currentState.roomKey !== roomKey) {
-          return currentState
-        }
-
-        return {
-          ...currentState,
-          olderItems: mergeTimelineItems(currentState.olderItems, refreshedOlderItems),
-        }
-      })
     })()
 
     return () => {
@@ -353,6 +395,27 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
     [loadOlderItems, loadOlderPage, roomKey],
   )
 
+  const removeVisibleItemById = useCallback(
+    (itemId: number) => {
+      setHistoryState((currentState) => {
+        if (currentState.roomKey !== roomKey) {
+          return currentState
+        }
+
+        const nextOlderItems = pruneTimelineItemsById(currentState.olderItems, itemId)
+        if (nextOlderItems === currentState.olderItems) {
+          return currentState
+        }
+
+        return {
+          ...currentState,
+          olderItems: nextOlderItems,
+        }
+      })
+    },
+    [roomKey],
+  )
+
   useLayoutEffect(() => {
     const pendingScrollState = prependScrollStateRef.current
     const feed = feedRef.current
@@ -394,6 +457,7 @@ export function useRoomHistoryWindow<T extends TimelineItem>(options: {
   return {
     canLoadOlder: Boolean(roomKey && loadOlderPage && hasMoreRef.current),
     historyMutation,
+    removeVisibleItemById,
     revealItemById,
     visibleItems,
   }

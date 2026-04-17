@@ -3007,6 +3007,7 @@ function App() {
   })
   const {
     historyMutation: groupHistoryMutation,
+    removeVisibleItemById: removeVisibleGroupMessageById,
     revealItemById: revealGroupMessageById,
     visibleItems: visibleGroupMessages,
   } = useRoomHistoryWindow({
@@ -3018,6 +3019,7 @@ function App() {
   })
   const {
     historyMutation: channelHistoryMutation,
+    removeVisibleItemById: removeVisibleChannelPostById,
     revealItemById: revealChannelPostById,
     visibleItems: visibleSubscriptionPosts,
   } = useRoomHistoryWindow({
@@ -13160,6 +13162,7 @@ function App() {
     const targetMessage =
       groups.find((group) => group.id === groupId)?.messages.find((message) => message.id === messageId) ??
       null
+    removeVisibleGroupMessageById(messageId)
 
     if (backendReady && session?.sessionToken) {
       try {
@@ -13193,6 +13196,7 @@ function App() {
       subscriptionChannels
         .find((channel) => channel.id === channelId)
         ?.posts.find((post) => post.id === postId) ?? null
+    removeVisibleChannelPostById(postId)
 
     if (backendReady && session?.sessionToken) {
       try {

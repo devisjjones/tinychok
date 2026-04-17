@@ -5,6 +5,8 @@ import {
   compareTimelineItems,
   mergeTimelineItems,
   mergeVisibleTimelineItems,
+  pruneTimelineItemsById,
+  reconcileOlderTimelineItems,
 } from '../../src/app/useRoomHistoryWindow'
 
 test('compareTimelineItems keeps optimistic room messages after confirmed tail items when timestamps match', () => {
@@ -80,4 +82,38 @@ test('mergeVisibleTimelineItems keeps older history before the current room slic
     [301, 302, 401, 402, -3],
   )
   assert.equal(mergedItems[2]?.createdAt, '2026-04-09T10:00:00.500Z')
+})
+
+test('pruneTimelineItemsById removes a deleted loaded room root without touching neighboring history', () => {
+  const items = [
+    { createdAt: '2026-04-09T09:59:58.000Z', id: 301 },
+    { createdAt: '2026-04-09T09:59:59.000Z', id: 302 },
+    { createdAt: '2026-04-09T10:00:00.000Z', id: 401 },
+  ]
+
+  const prunedItems = pruneTimelineItemsById(items, 401)
+
+  assert.deepEqual(
+    prunedItems.map((item) => item.id),
+    [301, 302],
+  )
+})
+
+test('reconcileOlderTimelineItems trusts the refreshed server window and drops removed room roots', () => {
+  const nextOlderItems = reconcileOlderTimelineItems(
+    [
+      { createdAt: '2026-04-09T09:59:58.000Z', id: 301 },
+      { createdAt: '2026-04-09T09:59:59.000Z', id: 302 },
+      { createdAt: '2026-04-09T10:00:00.000Z', id: 401 },
+    ],
+    [
+      { createdAt: '2026-04-09T09:59:58.000Z', id: 301 },
+      { createdAt: '2026-04-09T09:59:59.000Z', id: 302 },
+    ],
+  )
+
+  assert.deepEqual(
+    nextOlderItems.map((item) => item.id),
+    [301, 302],
+  )
 })

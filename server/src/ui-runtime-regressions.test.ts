@@ -4812,7 +4812,11 @@ test('room history window drops prepended older items after destructive empty re
   assert.match(historyWindowSource, /olderItems: \[\]/u)
   assert.match(historyWindowSource, /storage cleanup[\s\S]*removal note/u)
   assert.match(historyWindowSource, /owner sees the quota notice[\s\S]*other participant/u)
-  assert.match(historyWindowSource, /olderItems: mergeTimelineItems\(currentState\.olderItems, refreshedOlderItems\)/u)
+  assert.match(historyWindowSource, /export function pruneTimelineItemsById/u)
+  assert.match(historyWindowSource, /export function reconcileOlderTimelineItems/u)
+  assert.match(historyWindowSource, /olderItems: nextOlderItems/u)
+  assert.match(historyWindowSource, /Failed to refresh loaded older room history/u)
+  assert.match(historyWindowSource, /const removeVisibleItemById = useCallback/u)
 })
 
 test('group owner delete action stays available and thread view closes when the root disappears', () => {
@@ -4832,6 +4836,8 @@ test('group owner delete action stays available and thread view closes when the 
     appSource,
     /threadTarget\.kind === 'channel' && !hasUsableThreadRoot\(threadChannelPost\)/u,
   )
+  assert.match(appSource, /removeVisibleGroupMessageById\(messageId\)/u)
+  assert.match(appSource, /removeVisibleChannelPostById\(postId\)/u)
 })
 
 test('all referenced icon assets exist in public/icons and stay world-readable for staging nginx', () => {
