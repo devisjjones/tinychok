@@ -136,7 +136,7 @@ export function MediaViewerOverlay({
             <span>{formatAttachmentSize(attachment.size)}</span>
           </div>
         )}
-        <figcaption className="media-viewer-caption">{attachment.fileName}</figcaption>
+        {isVideo ? null : <figcaption className="media-viewer-caption">{attachment.fileName}</figcaption>}
       </figure>
       {reportToast ? <div className="media-viewer-toast">{reportToast}</div> : null}
     </div>

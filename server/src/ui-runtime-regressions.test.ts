@@ -358,6 +358,10 @@ test('video attachments render through the visual media preview flow and still o
     /<video[\s\S]*className="media-viewer-video"[\s\S]*controls[\s\S]*playsInline/u,
   )
   assert.match(
+    mediaViewerSource,
+    /\{isVideo \? null : <figcaption className="media-viewer-caption">\{attachment\.fileName\}<\/figcaption>\}/u,
+  )
+  assert.match(
     directRoomSource,
     /isImageMimeType\(message\.attachment\.mimeType\)[\s\S]*isVideoMimeType\(message\.attachment\.mimeType\)/u,
   )
@@ -4077,7 +4081,10 @@ test('support chat contract stays wired through app, store, admin surface and do
   assert.match(appCss, /\.composer\.settings-item\.settings-support-composer\s*\{[\s\S]*padding:\s*0;[\s\S]*background:\s*transparent;/u)
   assert.match(appCss, /\.settings-support-composer textarea\s*\{[\s\S]*min-height:\s*124px;[\s\S]*padding:\s*16px 76px 16px 18px;/u)
   assert.match(appCss, /\.settings-support-composer \.composer-tools\s*\{[\s\S]*right:\s*14px;/u)
-  assert.match(appCss, /\.settings-support-composer \.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\) \.composer-tools\s*\{[\s\S]*top:\s*50%;[\s\S]*transform:\s*translateY\(-50%\);/u)
+  assert.match(
+    appCss,
+    /\.settings-support-composer \.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\) \.composer-tools\s*\{[\s\S]*top:\s*auto;[\s\S]*bottom:\s*14px;[\s\S]*transform:\s*none;/u,
+  )
   assert.match(appCss, /\.settings-support-composer \.composer-field\.composer-field-expanded \.composer-tools,\s*\n\.settings-support-composer \.composer-field\.composer-field-has-attachment \.composer-tools\s*\{[\s\S]*bottom:\s*14px;[\s\S]*transform:\s*none;/u)
   assert.match(appCss, /@media[\s\S]*\.settings-support-composer textarea\s*\{[\s\S]*min-height:\s*124px;[\s\S]*padding:\s*16px 76px 16px 18px;/u)
   assert.match(appCss, /@media[\s\S]*\.settings-support-composer \.composer-tools\s*\{[\s\S]*right:\s*14px;/u)
@@ -4630,6 +4637,7 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(appCss, /\.composer textarea\s*\{[\s\S]*overflow-y:\s*hidden;/u)
   assert.match(appCss, /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\)\s+\.composer-tools\s*\{[\s\S]*top:\s*50%;[\s\S]*transform:\s*translateY\(-50%\);/u)
   assert.match(appCss, /\.composer-field\.composer-field-expanded\s+\.composer-tools,[\s\S]*\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*bottom:\s*8px;[\s\S]*transform:\s*none;/u)
+  assert.match(appCss, /\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*align-items:\s*flex-end;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.composer textarea\s*\{[\s\S]*padding:\s*13px 126px 16px 14px;/u)
   assert.match(
     appCss,
@@ -4642,6 +4650,7 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.emoji-picker\s*\{[\s\S]*position:\s*static;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.emoji-picker-popover\s*\{[\s\S]*left:\s*auto;[\s\S]*right:\s*0;[\s\S]*width:\s*min\(320px,\s*calc\(100vw - 24px\)\);[\s\S]*max-width:\s*calc\(100vw - 24px\);/u)
   assert.match(appCss, /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\)\s+\.composer-send\s*\{[\s\S]*margin-bottom:\s*0;/u)
+  assert.match(appCss, /\.composer-field\.composer-field-has-attachment\s+\.composer-send\s*\{[\s\S]*align-self:\s*flex-end;[\s\S]*margin-bottom:\s*0;/u)
   assert.doesNotMatch(appCss, /\.composer-format-toolbar/u)
   assert.doesNotMatch(appCss, /\.composer-rich-input/u)
   assert.doesNotMatch(appCss, /\.composer-editor-surface/u)

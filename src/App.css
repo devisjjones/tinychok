@@ -6394,6 +6394,10 @@
   transform: none;
 }
 
+.composer-field.composer-field-has-attachment .composer-tools {
+  align-items: flex-end;
+}
+
 .composer-mention-popover {
   position: absolute;
   right: 0;
@@ -7405,6 +7409,11 @@
   margin-bottom: 0;
 }
 
+.composer-field.composer-field-has-attachment .composer-send {
+  align-self: flex-end;
+  margin-bottom: 0;
+}
+
 .channel-subscribe-button {
   width: 100%;
   display: inline-flex;
@@ -7832,9 +7841,9 @@
 }
 
 .settings-support-composer .composer-field:not(.composer-field-expanded):not(.composer-field-has-attachment) .composer-tools {
-  top: 50%;
-  bottom: auto;
-  transform: translateY(-50%);
+  top: auto;
+  bottom: 14px;
+  transform: none;
 }
 
 .settings-support-composer .composer-field.composer-field-expanded .composer-tools,
