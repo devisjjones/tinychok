@@ -635,6 +635,7 @@
   - mobile headline справа от avatar должен ужиматься, чтобы имя помещалось в header-block
   - mobile rail не должен съедать лишнюю ширину двойными outer gutters: `shell` + `rail` + `chat-list` должны держать уменьшенные боковые отступы, чтобы header, filters, bottom-nav и contact cards тянулись ближе к краям viewport
   - mobile main-list shell не должен растягиваться по контенту: нижний nav закреплён у нижней границы viewport, а вертикально скроллится только `chat-list`
+  - mobile room lists не должны схлопываться после relogin/bootstrap: `rail-list-region` остаётся отдельным flex-контейнером, а `shell-main-list .rail-list-region > .chat-list` держит `height: 0` + `flex: 1 1 0` как Safari-safe контракт
   - mobile main-list/main-room shell не должен поддаваться document scroll/overscroll: shell pinned к viewport, scroll chaining наружу запрещён
   - mobile `html/body/#root` тоже locked к viewport: браузер не должен уметь утянуть вверх или вниз весь document поверх pinned shell
   - stack полей `Имя / Фамилия / Статус / Никнейм` должен держать compact vertical spacing без лишних пустот между input-блоками

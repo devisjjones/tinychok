@@ -613,6 +613,7 @@
   - outer mobile gutters у account header, filters, bottom-nav и contact cards должны быть уменьшены; эти surface должны тянуться ближе к краям viewport
   - mobile room headers должны держать узкие tall-pill buttons: back слева уже menu/star, а action-buttons справа не должны возвращаться к круглым `32x32`
   - bottom-nav на mobile main-list должен оставаться pinned к низу viewport; вниз скроллится только лента карточек
+  - после relogin/bootstrap mobile main-list не должен терять списки комнат: `rail-list-region` держит отдельный flex-scroll region, а `chat-list` внутри него не схлопывается на Safari/iOS
   - mobile browser не должен уметь тянуть весь main-list/main-room document вверх или вниз поверх viewport; overscroll остаётся внутри ленты
   - mobile browser не должен уметь утащить весь `html/body/#root` поверх pinned shell; viewport lock должен держаться и на уровне document root
   - gap между `Имя / Фамилия / Статус / Никнейм` должен оставаться compact

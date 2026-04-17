@@ -17902,37 +17902,38 @@ function App() {
           )}
         </div>
 
-        {searchOpen && topListView === 'none' ? (
-          <label className="search">
-            <span className="search-label">Поиск</span>
-            <input
-              type="search"
-              placeholder="Имя, канал или @handle"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
-        ) : null}
+        <div className="rail-list-region">
+          {searchOpen && topListView === 'none' ? (
+            <label className="search">
+              <span className="search-label">Поиск</span>
+              <input
+                type="search"
+                placeholder="Имя, канал или @handle"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+          ) : null}
 
-        {searchOpen && topListView === 'none' ? (
-          <div className="chat-list search-results">
-            {searchShowsContacts && myContactsResults.length > 0 ? (
-              <section className="search-group">
-                <p className="search-group-title">Мои контакты</p>
-                {myContactsResults.map((chat) => (
-                  <button
-                    key={chat.id}
-                    type="button"
-                    className={chat.id === activeChat?.id ? 'chat-card dialog-list-card active' : 'chat-card dialog-list-card'}
-                    onClick={() => {
-                      trackAnalyticsEvent('contact_search_result_opened', {
-                        resultSource: 'myContacts',
-                        source: 'search-screen',
-                        topFilter: searchTopFilter,
-                      })
-                      openChat(chat.id)
-                    }}
-                  >
+          {searchOpen && topListView === 'none' ? (
+            <div className="chat-list search-results">
+              {searchShowsContacts && myContactsResults.length > 0 ? (
+                <section className="search-group">
+                  <p className="search-group-title">Мои контакты</p>
+                  {myContactsResults.map((chat) => (
+                    <button
+                      key={chat.id}
+                      type="button"
+                      className={chat.id === activeChat?.id ? 'chat-card dialog-list-card active' : 'chat-card dialog-list-card'}
+                      onClick={() => {
+                        trackAnalyticsEvent('contact_search_result_opened', {
+                          resultSource: 'myContacts',
+                          source: 'search-screen',
+                          topFilter: searchTopFilter,
+                        })
+                        openChat(chat.id)
+                      }}
+                    >
                     <span className="chat-avatar-stack">
                       <span className="avatar" style={{ backgroundColor: chat.accent }}>
                         {renderAccountAvatarContent(chat.title, chat.archivedAccount, chat.avatarImage)}
@@ -18478,6 +18479,7 @@ function App() {
             </div>
           </>
         )}
+        </div>
 
         <div className="bottom-nav" aria-label="Основная навигация">
           <button

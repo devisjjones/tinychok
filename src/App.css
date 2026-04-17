@@ -793,6 +793,24 @@
   min-height: 0;
 }
 
+.rail-list-region {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rail-list-region > .search,
+.rail-list-region > .browser-notification-banner {
+  flex: 0 0 auto;
+}
+
+.rail-list-region > .chat-list {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .search-results {
   align-content: start;
   padding-top: 2px;
@@ -8915,6 +8933,18 @@
   .shell-main-list .chat-list {
     flex: 1 1 0;
     min-height: 0;
+  }
+
+  .shell-main-list .rail-list-region {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .shell-main-list .rail-list-region > .chat-list {
+    flex: 1 1 0;
+    min-height: 0;
+    height: 0;
   }
 
   .shell-main-list .bottom-nav {

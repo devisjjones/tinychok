@@ -5125,6 +5125,7 @@ test('premium footer keeps legal links on the right and cards align their CTA ro
 
 test('narrow mobile view keeps settings, room headers and admin panels from overflowing', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
   const adminCss = readFileSync(join(repoRoot, 'src', 'admin.css'), 'utf8')
   const indexCss = readFileSync(join(repoRoot, 'src', 'index.css'), 'utf8')
@@ -5149,7 +5150,11 @@ test('narrow mobile view keeps settings, room headers and admin panels from over
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-room\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;[\s\S]*overscroll-behavior:\s*none;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-settings\s*\{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*min-height:\s*100vh;[\s\S]*min-height:\s*100dvh;[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;[\s\S]*overscroll-behavior-y:\s*contain;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.rail\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;[\s\S]*align-items:\s*stretch;[\s\S]*overflow:\s*hidden;/u)
+  assert.match(appSource, /<div className="rail-list-region">/u)
+  assert.match(appCss, /\.rail-list-region\s*\{[\s\S]*display:\s*flex;[\s\S]*flex:\s*1 1 auto;[\s\S]*flex-direction:\s*column;[\s\S]*min-height:\s*0;[\s\S]*overflow:\s*hidden;/u)
+  assert.match(appCss, /\.rail-list-region > \.chat-list\s*\{[\s\S]*flex:\s*1 1 auto;[\s\S]*min-height:\s*0;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.chat-list\s*\{[\s\S]*flex:\s*1 1 0;[\s\S]*min-height:\s*0;/u)
+  assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.rail-list-region > \.chat-list\s*\{[\s\S]*flex:\s*1 1 0;[\s\S]*min-height:\s*0;[\s\S]*height:\s*0;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-main-list \.bottom-nav\s*\{[\s\S]*flex:\s*0 0 auto;/u)
   assert.match(appCss, /@media \(max-width: 960px\) \{[\s\S]*\.shell-settings,\s*[\s\S]*\.message-feed,\s*[\s\S]*\.emoji-picker-gif-grid\s*\{[\s\S]*-webkit-overflow-scrolling:\s*touch;/u)
   assert.doesNotMatch(appCss, /\.shell-settings,\s*[\s\S]*\.message-feed,\s*[\s\S]*\.emoji-picker-gif-grid\s*\{[\s\S]*touch-action:\s*pan-y;/u)
