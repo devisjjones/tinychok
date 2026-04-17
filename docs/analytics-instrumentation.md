@@ -1,6 +1,6 @@
 # Analytics Instrumentation
 
-Подробная схема текущей аналитики Tinychok по состоянию на `2026-04-16`.
+Подробная схема текущей аналитики Tinychok по состоянию на `2026-04-17`.
 
 ## Runtime Model
 
@@ -499,6 +499,13 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - `debugAutoCheckout`
   - `reason`
 
+Premium billing semantics:
+
+- `premium_purchase_started*` отправляются в момент запуска checkout-flow
+- `premium_purchase_succeeded*` больше не считаются по самому нажатию на CTA
+- success/fail отправляются только после возврата из ЮKassa и подтверждения финального статуса через backend `GET /api/premium/purchases/:purchaseId`
+- `debugAutoCheckout=true` остаётся только для debug-path на staging; реальный YooKassa-flow идёт с `debugAutoCheckout=false`
+
 ### Billing Events
 
 - `refund_processed`
@@ -662,8 +669,9 @@ TINYCHOK_YANDEX_METRICA_COUNTER_ID=
   - потом обновить preview / dataset fields в DataLens
   - для retention пустой график в тот же день — нормален: `D1` появляется только после next-day возврата, `D7` только после `7+` дней
 - premium revenue charts на staging сейчас считаются оценочными, а не бухгалтерским source-of-truth:
-  - frontend premium checkout всё ещё не подключён к реальному payment provider
-  - success-события могут приходить из `debugAutoCheckout`
+  - checkout уже подключён к реальному YooKassa redirect/status flow
+  - success-события считаются по подтверждённому provider status, а не по нажатию на CTA
+  - staging по-прежнему может давать debug-успехи через `debugAutoCheckout`, если toggle включён вручную
   - текущие цены в коде: `199 ₽ / month` и `1390 ₽ / year`
 - production cutover для текущих charts ожидается без полной пересборки логики:
   - дублировать dataset/chart

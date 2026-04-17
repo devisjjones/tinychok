@@ -244,6 +244,11 @@
 - premium checkout smoke:
   - на экране покупки premium есть ссылки на `Условия Premium` и `Политику возвратов`
   - под CTA есть короткий текст согласия `Нажимая «Купить»...` с обеими ссылками
+  - live env на backend содержит `TINYCHOK_PAYMENT_PROVIDER=yookassa` и обязательные `TINYCHOK_YOOKASSA_*` ключи
+  - `POST /api/premium/checkout` возвращает redirect `checkoutUrl`, а не placeholder-ошибку
+  - `TINYCHOK_YOOKASSA_RETURN_URL` на staging указывает на `https://staging.tinychok.ru/premium`
+  - после возврата из ЮKassa страница дотягивает статус через `GET /api/premium/purchases/:purchaseId`
+  - premium выдаётся только после provider status = `succeeded`, без success по одному нажатию на кнопку
   - `Условия Premium` и `premium-terms.pdf` отражают текущие тарифы `199 ₽ / 30 дней` и `1390 ₽ / 365 дней`
   - `Политика возвратов` открывается как отдельная HTML-only страница и содержит кнопки `Вернуться в Тайничок` и `Наверх`
   - `Условия Premium` явно говорят, что premium — это цифровой доступ без физической доставки

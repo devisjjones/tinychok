@@ -52,6 +52,8 @@ import type {
   CreateGroupResponse,
   CreateManagedChannelBody,
   CreateManagedChannelResponse,
+  CreatePremiumCheckoutBody,
+  CreatePremiumCheckoutResponse,
   DeleteDialogMessageBody,
   DeleteAccountBody,
   DeleteAccountResponse,
@@ -76,6 +78,7 @@ import type {
   MutationResponse,
   OpenDirectDialogBody,
   OpenDirectDialogResponse,
+  PremiumCheckoutStatusResponse,
   ResetPasswordBody,
   ResetPasswordResponse,
   RegisterUserGifBody,
@@ -1657,6 +1660,41 @@ export async function setDebugPremiumState(
   )
   const payload = await readJsonResponse<MutationResponse>(response)
   return normalizeMutationResponse(payload)
+}
+
+export async function createPremiumCheckout(
+  sessionToken: string,
+  body: CreatePremiumCheckoutBody,
+) {
+  const response = await fetch(
+    makeHttpUrl('/api/premium/checkout'),
+    makeJsonRequestInit('POST', body, sessionToken),
+  )
+  const payload = await readJsonResponse<CreatePremiumCheckoutResponse>(response)
+
+  return {
+    ...payload,
+    snapshot: payload.snapshot ? normalizeSnapshot(payload.snapshot) : undefined,
+  }
+}
+
+export async function fetchPremiumCheckoutStatus(
+  sessionToken: string,
+  purchaseId: string,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/premium/purchases/${encodeURIComponent(purchaseId)}`),
+    {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    },
+  )
+  const payload = await readJsonResponse<PremiumCheckoutStatusResponse>(response)
+  return {
+    ...payload,
+    snapshot: normalizeSnapshot(payload.snapshot),
+  }
 }
 
 export async function sendDirectMessage(

@@ -839,6 +839,46 @@ export type DebugPremiumBody = {
   durationDays?: number
 }
 
+export type PremiumCheckoutPlan = 'month' | 'year'
+
+export type PremiumPurchaseStatus =
+  | 'pending'
+  | 'succeeded'
+  | 'canceled'
+  | 'refunded'
+
+export type PremiumPurchaseRecord = {
+  amountValue: string
+  createdAt: string
+  currency: 'RUB'
+  gift: boolean
+  id: string
+  plan: PremiumCheckoutPlan
+  provider: 'yookassa'
+  refundedAt?: string
+  status: PremiumPurchaseStatus
+  statusReason?: string
+  succeededAt?: string
+  updatedAt: string
+}
+
+export type CreatePremiumCheckoutBody = {
+  giftRecipientIdentifier?: string
+  plan: PremiumCheckoutPlan
+  receiptEmail?: string
+}
+
+export type CreatePremiumCheckoutResponse = {
+  checkoutUrl?: string
+  purchase: PremiumPurchaseRecord
+  snapshot?: AppSnapshot
+}
+
+export type PremiumCheckoutStatusResponse = {
+  purchase: PremiumPurchaseRecord
+  snapshot: AppSnapshot
+}
+
 export type UpdateSessionBody = Partial<
   Pick<
     Session,

@@ -6,6 +6,7 @@ type StoreMode = 'file' | 'postgres'
 type MediaBackend = 'local' | 'object-storage'
 type CaptchaProvider = 'disabled' | 'turnstile' | 'smartcaptcha'
 type AnalyticsProvider = 'disabled' | 'log' | 'clickhouse'
+type PaymentProvider = 'disabled' | 'yookassa'
 type RuntimeEnv = NodeJS.ProcessEnv | Record<string, string | undefined>
 
 function normalizeBaseUrl(value: string | undefined) {
@@ -67,6 +68,10 @@ function readAnalyticsProvider(value: string | undefined): AnalyticsProvider {
   }
 
   return 'disabled'
+}
+
+function readPaymentProvider(value: string | undefined): PaymentProvider {
+  return value === 'yookassa' ? 'yookassa' : 'disabled'
 }
 
 function readOptionalString(value: string | undefined) {
@@ -182,6 +187,33 @@ function assertAnalyticsConfiguration(analytics: {
   }
 }
 
+function assertPaymentsConfiguration(config: {
+  payments: {
+    provider: PaymentProvider
+    yookassa: {
+      publicReturnUrl: string | null
+      secretKey: string | null
+      shopId: string | null
+    }
+  }
+}) {
+  if (config.payments.provider !== 'yookassa') {
+    return
+  }
+
+  if (!config.payments.yookassa.shopId) {
+    throw new Error('YooKassa shop id обязателен, когда provider=yookassa.')
+  }
+
+  if (!config.payments.yookassa.secretKey) {
+    throw new Error('YooKassa secret key обязателен, когда provider=yookassa.')
+  }
+
+  if (!config.payments.yookassa.publicReturnUrl) {
+    throw new Error('YooKassa return url обязателен, когда provider=yookassa.')
+  }
+}
+
 export function createRuntimeConfig(env: RuntimeEnv = process.env) {
   const runtimeEnvironment = readEnvironment(env.TINYCHOK_APP_ENV ?? env.NODE_ENV)
   const captchaProvider = readCaptchaProvider(env.TINYCHOK_CAPTCHA_PROVIDER)
@@ -232,6 +264,21 @@ export function createRuntimeConfig(env: RuntimeEnv = process.env) {
 
   assertAnalyticsConfiguration(analytics)
 
+  const payments = {
+    provider: readPaymentProvider(env.TINYCHOK_PAYMENT_PROVIDER),
+    yookassa: {
+      publicReturnUrl:
+        normalizeBaseUrl(env.TINYCHOK_YOOKASSA_RETURN_URL) ?? publicAppBaseUrl,
+      receiptTimezone: Number.parseInt(env.TINYCHOK_YOOKASSA_RECEIPT_TIMEZONE?.trim() ?? '3', 10) || 3,
+      receiptsEnabled: readBoolean(env.TINYCHOK_YOOKASSA_RECEIPTS_ENABLED, false),
+      receiptVatCode: readPositiveInteger(env.TINYCHOK_YOOKASSA_RECEIPT_VAT_CODE, 1),
+      secretKey: readOptionalString(env.TINYCHOK_YOOKASSA_SECRET_KEY),
+      shopId: readOptionalString(env.TINYCHOK_YOOKASSA_SHOP_ID),
+    },
+  }
+
+  assertPaymentsConfiguration({ payments })
+
   return {
     environment: runtimeEnvironment,
     publicUrls: {
@@ -274,6 +321,7 @@ export function createRuntimeConfig(env: RuntimeEnv = process.env) {
       },
     },
     analytics,
+    payments,
     server: {
       host: env.HOST ?? '127.0.0.1',
       port: readPort(env.PORT, 8787),

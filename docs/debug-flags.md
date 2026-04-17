@@ -6,7 +6,7 @@
 
 - в premium-экране есть debug-тоггл автопокупки
 - при включённом тоггле кнопки покупки не запускают реальный платёжный flow, а автоматически включают premium текущему аккаунту
-- при выключённом тоггле purchase-кнопки идут в placeholder реального checkout-flow
+- при выключённом тоггле purchase-кнопки идут в реальный checkout-flow через ЮKassa
 - debug-включение и debug-выключение premium сохраняются server-side для текущего аккаунта
 
 ## Technical Placement
@@ -20,13 +20,12 @@
 - быстрый переход между premium / non-premium состояниями
 - проверка locked premium features
 - проверка unlocked premium features
-- проверка UX premium purchase buttons до подключения реального checkout module
+- проверка UX premium purchase buttons без прохождения реального платежа
 
 ## What Must Be Removed Or Replaced Before Production
 
 - debug-тоггл автопокупки
 - любые debug-only affordance вокруг premium purchase
-- placeholder checkout flow
 - storage key `tinychok.debug.premium-auto-checkout`
 
 Вместо этого должен появиться реальный платёжный контур с:

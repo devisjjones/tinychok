@@ -11,6 +11,8 @@ import type {
   ClientRuntimeConfigResponse,
   CreateGroupBody,
   CreateManagedChannelBody,
+  CreatePremiumCheckoutBody,
+  CreatePremiumCheckoutResponse,
   ChangePasswordBody,
   ChannelDiscoverySearchResponse,
   DeleteAccountBody,
@@ -35,6 +37,7 @@ import type {
   OpenDirectDialogBody,
   ContactRequestActionResponse,
   OpenDirectDialogResponse,
+  PremiumCheckoutStatusResponse,
   ResetPasswordBody,
   RegisterUserGifBody,
   ReportContactBody,
@@ -68,7 +71,9 @@ import type { RealtimeEvent } from '../../src/shared/backend'
 import type { AnalyticsBatchBody } from '../../src/shared/analytics'
 import {
   messageFileUploadMaxSizeBytes,
+  premiumAnnualPriceRub,
   premiumMessageFileUploadMaxSizeBytes,
+  premiumMonthlyPriceRub,
 } from '../../src/shared/constants'
 import { ingestAnalyticsBatch, parseAnalyticsBatch } from './analytics'
 import { registerAdminRoutes } from './admin-routes'
@@ -86,6 +91,7 @@ import {
   storeMediaBuffer,
 } from './media'
 import { createStore } from './store-factory'
+import { createPremiumYooKassaPayment, getYooKassaPayment } from './yookassa'
 
 function getBearerToken(request: FastifyRequest) {
   const headerValue = request.headers.authorization
@@ -159,6 +165,40 @@ function getUploadKind(request: FastifyRequest): UploadMediaKind {
 
 function getSearchQuery(request: FastifyRequest) {
   return ((request.query as Record<string, string | undefined> | undefined)?.q ?? '').trim()
+}
+
+function getRequiredYooKassaConfig() {
+  if (runtimeConfig.payments.provider !== 'yookassa') {
+    throw new Error('Реальная оплата сейчас недоступна.')
+  }
+
+  const { publicReturnUrl, receiptTimezone, receiptVatCode, receiptsEnabled, secretKey, shopId } =
+    runtimeConfig.payments.yookassa
+
+  if (!publicReturnUrl || !secretKey || !shopId) {
+    throw new Error('ЮKassa ещё не настроена на сервере.')
+  }
+
+  return {
+    publicReturnUrl,
+    receiptTimezone,
+    receiptVatCode,
+    receiptsEnabled,
+    secretKey,
+    shopId,
+  }
+}
+
+function buildPremiumPlanAmountValue(plan: CreatePremiumCheckoutBody['plan']) {
+  return (plan === 'year' ? premiumAnnualPriceRub : premiumMonthlyPriceRub).toFixed(2)
+}
+
+function buildPremiumCheckoutDescription(plan: CreatePremiumCheckoutBody['plan'], gift: boolean) {
+  if (gift) {
+    return plan === 'year' ? 'Подарочный Premium на 1 год' : 'Подарочный Premium на 1 месяц'
+  }
+
+  return plan === 'year' ? 'Подписка Premium на 1 год' : 'Подписка Premium на 1 месяц'
 }
 
 function normalizeUploadMimeType(mimeType: string | undefined) {
@@ -1386,6 +1426,137 @@ app.post('/api/session/debug-premium', async (request, reply) => {
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/premium/checkout', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  let purchaseId: string | null = null
+  let paymentCreated = false
+  try {
+    const body = parseJsonPayload<CreatePremiumCheckoutBody>(request.body)
+    if (body.plan !== 'month' && body.plan !== 'year') {
+      throw new Error('Некорректный тариф premium.')
+    }
+
+    const ownerIdentifier = store.getIdentifierByToken(token)
+    if (!ownerIdentifier) {
+      return reply.code(401).send({ message: 'Сессия устарела. Войдите снова.' })
+    }
+
+    purchaseId = randomUUID()
+    const amountValue = buildPremiumPlanAmountValue(body.plan)
+    const draftPurchase = await store.createPremiumPurchaseDraft(token, {
+      amountValue,
+      plan: body.plan,
+      provider: 'yookassa',
+      purchaseId,
+      receiptEmail: body.receiptEmail,
+      targetIdentifier: body.giftRecipientIdentifier,
+    })
+
+    const yooKassaPayment = await createPremiumYooKassaPayment(getRequiredYooKassaConfig(), {
+      amountValue,
+      description: buildPremiumCheckoutDescription(body.plan, draftPurchase.gift),
+      ownerIdentifier,
+      plan: body.plan,
+      purchaseId,
+      receiptEmail: body.receiptEmail,
+      targetIdentifier: body.giftRecipientIdentifier ?? ownerIdentifier,
+    })
+    paymentCreated = true
+    if (!yooKassaPayment.confirmation?.confirmation_url) {
+      throw new Error('ЮKassa не вернула ссылку на оплату.')
+    }
+
+    const purchase = await store.attachPremiumPurchasePayment(purchaseId, yooKassaPayment)
+    const syncResult =
+      purchase.status !== 'pending'
+        ? await store.syncPremiumPurchaseFromYooKassaPayment(yooKassaPayment)
+        : null
+    if (syncResult?.broadcastIdentifiers.length) {
+      await broadcastSnapshotsForIdentifiers(syncResult.broadcastIdentifiers)
+    }
+
+    return {
+      checkoutUrl: yooKassaPayment.confirmation.confirmation_url,
+      purchase: syncResult?.purchase ?? purchase,
+    } satisfies CreatePremiumCheckoutResponse
+  } catch (error) {
+    if (purchaseId && !paymentCreated) {
+      await store.markPremiumPurchaseCheckoutFailed(purchaseId, error instanceof Error ? error.message : undefined)
+    }
+
+    return sendError(reply, error)
+  }
+})
+
+app.get('/api/premium/purchases/:purchaseId', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const purchaseId = getRouteParam(request, 'purchaseId')
+    const { internal } = store.getPremiumPurchaseByToken(token, purchaseId)
+    let { purchase } = store.getPremiumPurchaseByToken(token, purchaseId)
+
+    if (runtimeConfig.payments.provider === 'yookassa' && purchase.status === 'pending' && internal.paymentId) {
+      const providerPayment = await getYooKassaPayment(getRequiredYooKassaConfig(), internal.paymentId)
+      const syncResult = await store.syncPremiumPurchaseFromYooKassaPayment(providerPayment)
+      if (syncResult?.broadcastIdentifiers.length) {
+        await broadcastSnapshotsForIdentifiers(syncResult.broadcastIdentifiers)
+      }
+      ;({ purchase } = store.getPremiumPurchaseByToken(token, purchaseId))
+    }
+
+    const snapshot = store.getSnapshotByToken(token)
+    if (!snapshot) {
+      return reply.code(401).send({ message: 'Сессия устарела. Войдите снова.' })
+    }
+
+    return {
+      purchase,
+      snapshot,
+    } satisfies PremiumCheckoutStatusResponse
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/payments/webhooks/yookassa', async (request, reply) => {
+  if (runtimeConfig.payments.provider !== 'yookassa') {
+    return reply.code(202).send({ ok: true as const })
+  }
+
+  try {
+    const payload = (request.body ?? {}) as {
+      event?: string
+      object?: {
+        id?: string
+      }
+    }
+
+    const paymentId = payload.object?.id?.trim()
+    if (!paymentId) {
+      throw new Error('Некорректное webhook уведомление.')
+    }
+
+    const payment = await getYooKassaPayment(getRequiredYooKassaConfig(), paymentId)
+    const syncResult = await store.syncPremiumPurchaseFromYooKassaPayment(payment)
+    if (syncResult?.broadcastIdentifiers.length) {
+      await broadcastSnapshotsForIdentifiers(syncResult.broadcastIdentifiers)
+    }
+
+    return reply.code(202).send({ ok: true as const })
+  } catch (error) {
+    request.log.error(error, 'payments.yookassa.webhook_failed')
     return sendError(reply, error)
   }
 })

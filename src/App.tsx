@@ -40,6 +40,8 @@ import {
   nicknameFieldMaxLength,
   premiumGroupMemberLimit,
   premiumGroupsPerUserLimit,
+  premiumMonthlyPriceRub,
+  premiumAnnualPriceRub,
   premiumMessageFileUploadMaxSizeBytes,
   premiumDebugAutoCheckoutStorageKey,
   quickFilters,
@@ -96,6 +98,7 @@ import {
   fetchChannelStorageItems as fetchChannelStorageItemsRequest,
   createGroup as createGroupRequest,
   createManagedChannel as createManagedChannelRequest,
+  createPremiumCheckout as createPremiumCheckoutRequest,
   deleteUserGif as deleteUserGifRequest,
   deleteUserStorageItem as deleteUserStorageItemRequest,
   deleteChannelStorageItem as deleteChannelStorageItemRequest,
@@ -119,6 +122,7 @@ import {
   markGroupThreadRead as markGroupThreadReadRequest,
   markSubscriptionChannelThreadRead as markSubscriptionChannelThreadReadRequest,
   fetchBootstrap,
+  fetchPremiumCheckoutStatus as fetchPremiumCheckoutStatusRequest,
   inviteGroupMember as inviteGroupMemberRequest,
   joinGroupFromInvite as joinGroupFromInviteRequest,
   inviteManagedChannelMembers as inviteManagedChannelMembersRequest,
@@ -1444,6 +1448,22 @@ function getErrorMessage(error: unknown, fallbackMessage: string) {
   return fallbackMessage
 }
 
+function removeSearchParamFromCurrentUrl(name: string) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const nextUrl = new URL(window.location.href)
+  nextUrl.searchParams.delete(name)
+  window.history.replaceState(window.history.state, '', nextUrl.toString())
+}
+
+function waitForDelay(delayMs: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs)
+  })
+}
+
 function dedupeChatsByNormalizedPhone(chats: Chat[]) {
   const seenKeys = new Set<string>()
 
@@ -1724,6 +1744,7 @@ function App() {
     return window.sessionStorage.getItem(messagePhotoSendOriginalPreferenceStorageKey) === 'true'
   })
   const [premiumPurchaseBusy, setPremiumPurchaseBusy] = useState(false)
+  const premiumCheckoutSyncRef = useRef<string | null>(null)
   const [messageActionMessageId, setMessageActionMessageId] = useState<number | null>(null)
   const [forwardingMessageId, setForwardingMessageId] = useState<number | null>(null)
   const [directMessageEditTarget, setDirectMessageEditTarget] = useState<EditTarget | null>(null)
@@ -4024,13 +4045,91 @@ function App() {
     )
   })
   const premiumDaysLeft = getPremiumDaysLeft(session?.premium, session?.premiumExpiresAt)
-  const premiumMonthlyPrice = 199
-  const premiumAnnualPrice = 1390
+  const premiumMonthlyPrice = premiumMonthlyPriceRub
+  const premiumAnnualPrice = premiumAnnualPriceRub
   const premiumAnnualSavingsPercent = Math.round((1 - premiumAnnualPrice / (premiumMonthlyPrice * 12)) * 100)
 
+  const trackPremiumPurchaseSucceeded = useCallback((
+    plan: 'month' | 'year',
+    options: { debugAutoCheckout: boolean; gift: boolean },
+  ) => {
+    trackAnalyticsEvent('premium_purchase_succeeded', {
+      debugAutoCheckout: options.debugAutoCheckout,
+      gift: options.gift,
+      plan,
+    })
+    trackAnalyticsEvent(
+      plan === 'year' ? 'premium_purchase_succeeded_year' : 'premium_purchase_succeeded_month',
+      {
+        debugAutoCheckout: options.debugAutoCheckout,
+        gift: options.gift,
+        plan,
+      },
+    )
+  }, [trackAnalyticsEvent])
+
+  const trackPremiumPurchaseFailed = useCallback((
+    plan: 'month' | 'year',
+    options: { debugAutoCheckout: boolean; gift: boolean; reason: string },
+  ) => {
+    trackAnalyticsEvent('premium_purchase_failed', {
+      debugAutoCheckout: options.debugAutoCheckout,
+      gift: options.gift,
+      plan,
+      reason: options.reason,
+    })
+    trackAnalyticsEvent(
+      plan === 'year' ? 'premium_purchase_failed_year' : 'premium_purchase_failed_month',
+      {
+        debugAutoCheckout: options.debugAutoCheckout,
+        gift: options.gift,
+        plan,
+        reason: options.reason,
+      },
+    )
+  }, [trackAnalyticsEvent])
+
   async function startRealPremiumCheckout(plan: 'month' | 'year') {
-    const planLabel = plan === 'year' ? 'годовая' : 'месячная'
-    throw new Error(`Реальная ${planLabel} покупка пока не подключена. Для тестов включите дебаг-тоггл автопокупки.`)
+    if (!session) {
+      throw new Error('Не найдена активная сессия.')
+    }
+
+    const sessionToken = session.sessionToken
+    if (!sessionToken) {
+      throw new Error('Сессия устарела. Войдите снова.')
+    }
+    const giftRecipientIdentifier =
+      premiumGiftChat ? normalizeIdentifier(premiumGiftChat.phone) || undefined : undefined
+
+    const createCheckout = async (receiptEmail?: string) =>
+      createPremiumCheckoutRequest(sessionToken, {
+        giftRecipientIdentifier,
+        plan,
+        receiptEmail,
+      })
+
+    let response
+    try {
+      response = await createCheckout()
+    } catch (error) {
+      const errorMessage = getErrorMessage(error, 'Не удалось запустить оплату premium.')
+      if (!/email/u.test(errorMessage)) {
+        throw error
+      }
+
+      const receiptEmail = window.prompt('Укажите email для чека', '')?.trim()
+      if (!receiptEmail) {
+        throw new Error('Покупка отменена.')
+      }
+
+      response = await createCheckout(receiptEmail)
+    }
+
+    if (!response.checkoutUrl) {
+      throw new Error('Не удалось получить ссылку на оплату.')
+    }
+
+    window.location.assign(response.checkoutUrl)
   }
 
   async function startPremiumCheckout(plan: 'month' | 'year') {
@@ -4054,52 +4153,20 @@ function App() {
     try {
       if (premiumDebugAutoCheckout) {
         await applyPremiumDebugState(true, plan === 'year' ? 365 : 30)
-        trackAnalyticsEvent('premium_purchase_succeeded', {
+        trackPremiumPurchaseSucceeded(plan, {
           debugAutoCheckout: true,
           gift: Boolean(premiumGiftChatId),
-          plan,
         })
-        trackAnalyticsEvent(
-          plan === 'year' ? 'premium_purchase_succeeded_year' : 'premium_purchase_succeeded_month',
-          {
-            debugAutoCheckout: true,
-            gift: Boolean(premiumGiftChatId),
-            plan,
-          },
-        )
         return
       }
 
       await startRealPremiumCheckout(plan)
-      trackAnalyticsEvent('premium_purchase_succeeded', {
-        debugAutoCheckout: false,
-        gift: Boolean(premiumGiftChatId),
-        plan,
-      })
-      trackAnalyticsEvent(
-        plan === 'year' ? 'premium_purchase_succeeded_year' : 'premium_purchase_succeeded_month',
-        {
-          debugAutoCheckout: false,
-          gift: Boolean(premiumGiftChatId),
-          plan,
-        },
-      )
     } catch (error) {
-      trackAnalyticsEvent('premium_purchase_failed', {
+      trackPremiumPurchaseFailed(plan, {
         debugAutoCheckout: premiumDebugAutoCheckout,
         gift: Boolean(premiumGiftChatId),
-        plan,
         reason: getErrorMessage(error, 'premium-purchase-failed'),
       })
-      trackAnalyticsEvent(
-        plan === 'year' ? 'premium_purchase_failed_year' : 'premium_purchase_failed_month',
-        {
-          debugAutoCheckout: premiumDebugAutoCheckout,
-          gift: Boolean(premiumGiftChatId),
-          plan,
-          reason: getErrorMessage(error, 'premium-purchase-failed'),
-        },
-      )
       window.alert(
         error instanceof Error ? error.message : 'Не удалось запустить покупку премиума.',
       )
@@ -5136,6 +5203,99 @@ function App() {
       }
     })
   }, [applySnapshot, clearQueuedSessionRecovery, expireVisibleSession, queueSessionRecovery, session?.sessionToken])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const sessionToken = session?.sessionToken
+    if (!sessionToken) {
+      premiumCheckoutSyncRef.current = null
+      return
+    }
+
+    const purchaseId = new URLSearchParams(window.location.search).get('premiumCheckout')?.trim() ?? ''
+    if (!purchaseId) {
+      premiumCheckoutSyncRef.current = null
+      return
+    }
+
+    if (premiumCheckoutSyncRef.current === purchaseId) {
+      return
+    }
+
+    premiumCheckoutSyncRef.current = purchaseId
+    let cancelled = false
+    setPremiumPurchaseBusy(true)
+
+    void (async () => {
+      let latestResponse: Awaited<ReturnType<typeof fetchPremiumCheckoutStatusRequest>> | null = null
+
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        latestResponse = await fetchPremiumCheckoutStatusRequest(sessionToken, purchaseId)
+        if (cancelled) {
+          return
+        }
+
+        if (latestResponse.purchase.status !== 'pending') {
+          break
+        }
+
+        await waitForDelay(1500)
+      }
+
+      if (cancelled || !latestResponse) {
+        return
+      }
+
+      if (latestResponse.purchase.status === 'pending') {
+        premiumCheckoutSyncRef.current = null
+        window.alert('Платеж еще обрабатывается. Обновите страницу через несколько секунд.')
+        return
+      }
+
+      removeSearchParamFromCurrentUrl('premiumCheckout')
+
+      if (latestResponse.purchase.status === 'succeeded') {
+        applySnapshot(latestResponse.snapshot)
+        trackPremiumPurchaseSucceeded(latestResponse.purchase.plan, {
+          debugAutoCheckout: false,
+          gift: latestResponse.purchase.gift,
+        })
+        window.alert(
+          latestResponse.purchase.gift
+            ? 'Подарочный premium успешно оплачен.'
+            : 'Premium успешно активирован.',
+        )
+        return
+      }
+
+      trackPremiumPurchaseFailed(latestResponse.purchase.plan, {
+        debugAutoCheckout: false,
+        gift: latestResponse.purchase.gift,
+        reason: latestResponse.purchase.statusReason ?? latestResponse.purchase.status,
+      })
+      window.alert(
+        latestResponse.purchase.status === 'refunded'
+          ? 'Платеж помечен как возвращенный.'
+          : latestResponse.purchase.statusReason || 'Оплата premium не завершилась.',
+      )
+    })().catch((error) => {
+      premiumCheckoutSyncRef.current = null
+      window.alert(
+        error instanceof Error ? error.message : 'Не удалось проверить статус оплаты premium.',
+      )
+    }).finally(() => {
+      if (!cancelled) {
+        setPremiumPurchaseBusy(false)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [applySnapshot, session?.sessionToken, trackPremiumPurchaseSucceeded, trackPremiumPurchaseFailed])
 
   const persistBrowserNotificationsEnabled = useCallback(async (enabled: boolean) => {
     setBrowserNotificationsEnabled(enabled)

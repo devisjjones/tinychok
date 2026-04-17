@@ -136,6 +136,9 @@ import type {
   OpenDirectDialogBody,
   AuthEntrypoint,
   AuthRequestCodeFlow,
+  PremiumCheckoutPlan,
+  PremiumPurchaseRecord,
+  PremiumPurchaseStatus,
   ReportContactBody,
   ReportSubscriptionChannelBody,
   RegisterBody,
@@ -182,6 +185,7 @@ import {
   persistJsonFileValue,
 } from './jsonFilePersistence'
 import { deleteStoredMediaByUrl, readStoredMediaByUrl } from './media'
+import type { YooKassaPayment } from './yookassa'
 
 type StoredAccount = SharedAccount & StoredAccountPasswordFields
 type AccountDeletionMode = 'account-and-user-data-hidden' | 'account-only'
@@ -239,6 +243,25 @@ type PersistedDialogMessage = Message & {
 }
 
 type PersistedRoomRootArchiveReason = 'delete-channel-post' | 'delete-group-message'
+
+type PersistedPremiumPurchase = {
+  amountValue: string
+  createdAt: string
+  currency: 'RUB'
+  gift: boolean
+  id: string
+  ownerIdentifier: string
+  paymentId?: string
+  plan: PremiumCheckoutPlan
+  provider: 'yookassa'
+  receiptEmail?: string
+  refundedAt?: string
+  status: PremiumPurchaseStatus
+  statusReason?: string
+  succeededAt?: string
+  targetIdentifier: string
+  updatedAt: string
+}
 
 type ContactLink = {
   blockedByIdentifier?: string
@@ -523,6 +546,7 @@ export type Database = {
   pendingGroupInvitations: PendingGroupInvitation[]
   pendingMediaUploads: PersistedPendingMediaUpload[]
   passwordAuthAttempts: PersistedPasswordAuthAttempt[]
+  premiumPurchases: PersistedPremiumPurchase[]
   sessions: SessionRecord[]
   sharedGifs: SharedGifCatalogItem[]
   subscriptionChannelReports: SubscriptionChannelReportRecord[]
@@ -654,6 +678,7 @@ function createDefaultDatabase(): Database {
     pendingGroupInvitations: [],
     pendingMediaUploads: [],
     passwordAuthAttempts: [],
+    premiumPurchases: [],
     sessions: [],
     sharedGifs: [],
     subscriptionChannelReports: [],
@@ -746,6 +771,24 @@ function buildExistingAccountPreview(account: Pick<Account, 'displayName' | 'sur
 
 function sanitizeThreadCommentText(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, 2000)
+}
+
+function getPremiumDurationDays(plan: PremiumCheckoutPlan) {
+  return plan === 'year' ? 365 : 30
+}
+
+function mapYooKassaPaymentStatusToPremiumPurchaseStatus(
+  payment: Pick<YooKassaPayment, 'status'>,
+): PremiumPurchaseStatus {
+  if (payment.status === 'succeeded') {
+    return 'succeeded'
+  }
+
+  if (payment.status === 'canceled') {
+    return 'canceled'
+  }
+
+  return 'pending'
 }
 
 function sanitizeMessageAttachmentPresentation(attachment: Message['attachment']) {
@@ -9720,6 +9763,179 @@ export class TinychokStore {
     return {
       broadcastIdentifiers: [...new Set(affectedIdentifiers)],
       snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async createPremiumPurchaseDraft(
+    token: string,
+    input: {
+      amountValue: string
+      purchaseId: string
+      plan: PremiumCheckoutPlan
+      provider: 'yookassa'
+      receiptEmail?: string
+      targetIdentifier?: string
+    },
+  ): Promise<PremiumPurchaseRecord> {
+    const owner = this.findAccountByToken(token)
+    if (!owner) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const purchaseId = input.purchaseId.trim()
+    if (!purchaseId) {
+      throw new Error('Не удалось подготовить платеж.')
+    }
+
+    if (this.findPremiumPurchaseById(purchaseId)) {
+      throw new Error('Покупка уже существует.')
+    }
+
+    const normalizedTargetIdentifier =
+      normalizeIdentifier(input.targetIdentifier ?? '') || owner.identifier
+    const target = this.findAccount(normalizedTargetIdentifier)
+    if (!target || isPublicDeletedAccount(target)) {
+      throw new Error('Получатель premium не найден.')
+    }
+
+    if (
+      normalizedTargetIdentifier !== owner.identifier &&
+      this.getContactState(owner.identifier, normalizedTargetIdentifier) !== 'accepted'
+    ) {
+      throw new Error('Подарить premium можно только контакту из диалогов.')
+    }
+
+    const createdAt = new Date().toISOString()
+    const purchase: PersistedPremiumPurchase = {
+      amountValue: input.amountValue,
+      createdAt,
+      currency: 'RUB',
+      gift: normalizedTargetIdentifier !== owner.identifier,
+      id: purchaseId,
+      ownerIdentifier: owner.identifier,
+      plan: input.plan,
+      provider: input.provider,
+      receiptEmail: input.receiptEmail?.trim() || undefined,
+      status: 'pending',
+      targetIdentifier: normalizedTargetIdentifier,
+      updatedAt: createdAt,
+    }
+
+    this.database.premiumPurchases.push(purchase)
+    await this.persist()
+    return this.buildPremiumPurchaseRecord(purchase)
+  }
+
+  async markPremiumPurchaseCheckoutFailed(purchaseId: string, reason?: string) {
+    const purchase = this.findPremiumPurchaseById(purchaseId)
+    if (!purchase) {
+      return null
+    }
+
+    purchase.status = 'canceled'
+    purchase.statusReason = sanitizeAdminText(reason, 280) || 'Не удалось создать платеж.'
+    purchase.updatedAt = new Date().toISOString()
+    await this.persist()
+
+    return this.buildPremiumPurchaseRecord(purchase)
+  }
+
+  async attachPremiumPurchasePayment(
+    purchaseId: string,
+    payment: Pick<YooKassaPayment, 'amount' | 'cancellation_details' | 'id' | 'status'>,
+  ) {
+    const purchase = this.findPremiumPurchaseById(purchaseId)
+    if (!purchase) {
+      throw new Error('Покупка не найдена.')
+    }
+
+    purchase.paymentId = payment.id
+    purchase.amountValue = payment.amount.value
+    purchase.status = mapYooKassaPaymentStatusToPremiumPurchaseStatus(payment)
+    purchase.statusReason =
+      purchase.status === 'canceled'
+        ? sanitizeAdminText(payment.cancellation_details?.reason, 280) || 'Платеж отменён.'
+        : undefined
+    purchase.updatedAt = new Date().toISOString()
+    await this.persist()
+
+    return this.buildPremiumPurchaseRecord(purchase)
+  }
+
+  getPremiumPurchaseByToken(token: string, purchaseId: string) {
+    const owner = this.findAccountByToken(token)
+    if (!owner) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const purchase = this.findPremiumPurchaseById(purchaseId)
+    if (!purchase || purchase.ownerIdentifier !== owner.identifier) {
+      throw new Error('Покупка не найдена.')
+    }
+
+    return {
+      internal: purchase,
+      purchase: this.buildPremiumPurchaseRecord(purchase),
+    }
+  }
+
+  async syncPremiumPurchaseFromYooKassaPayment(payment: YooKassaPayment) {
+    const purchase = this.ensurePremiumPurchaseForYooKassaPayment(payment)
+    if (!purchase) {
+      return null
+    }
+
+    const nextStatus = mapYooKassaPaymentStatusToPremiumPurchaseStatus(payment)
+    const nextStatusReason =
+      nextStatus === 'canceled'
+        ? sanitizeAdminText(payment.cancellation_details?.reason, 280) || 'Платеж отменён.'
+        : undefined
+
+    const broadcastIdentifiers = new Set<string>()
+    const nextUpdatedAt = new Date().toISOString()
+
+    purchase.paymentId = payment.id
+    purchase.amountValue = payment.amount.value
+    purchase.status = nextStatus
+    purchase.statusReason = nextStatusReason
+    purchase.updatedAt = nextUpdatedAt
+
+    if (nextStatus === 'succeeded' && !purchase.succeededAt) {
+      const target = this.findAccount(purchase.targetIdentifier)
+      if (!target || isPublicDeletedAccount(target)) {
+        throw new Error('Получатель premium не найден.')
+      }
+
+      const previousStorageQuotaBytes = getEffectiveUserStorageQuotaBytes(target)
+      target.premium = true
+      target.premiumExpiresAt = extendPremiumExpiry(
+        getPremiumDurationDays(purchase.plan),
+        target.premiumExpiresAt,
+      )
+      purchase.succeededAt = nextUpdatedAt
+
+      for (const identifier of this.collectAccountProjectionBroadcastIdentifiers(target)) {
+        broadcastIdentifiers.add(identifier)
+      }
+
+      if (getEffectiveUserStorageQuotaBytes(target) > previousStorageQuotaBytes) {
+        for (const identifier of this.collectStorageVisibilityBroadcastIdentifiersForUser(target.identifier)) {
+          broadcastIdentifiers.add(identifier)
+        }
+        for (const identifier of this.restoreArchivedMediaIntoPrimaryStorageIfQuotaAllows(
+          this.getUserStorageSubject(target.identifier),
+        )) {
+          broadcastIdentifiers.add(identifier)
+        }
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      ownerIdentifier: purchase.ownerIdentifier,
+      purchase: this.buildPremiumPurchaseRecord(purchase),
     }
   }
 
@@ -19410,6 +19626,90 @@ export class TinychokStore {
     this.syncDialogContactProfile(recipientDialog, sender)
   }
 
+  private findPremiumPurchaseById(purchaseId: string) {
+    const normalizedPurchaseId = purchaseId.trim()
+    if (!normalizedPurchaseId) {
+      return null
+    }
+
+    return this.database.premiumPurchases.find((purchase) => purchase.id === normalizedPurchaseId) ?? null
+  }
+
+  private findPremiumPurchaseByPaymentId(paymentId: string) {
+    const normalizedPaymentId = paymentId.trim()
+    if (!normalizedPaymentId) {
+      return null
+    }
+
+    return this.database.premiumPurchases.find((purchase) => purchase.paymentId === normalizedPaymentId) ?? null
+  }
+
+  private buildPremiumPurchaseRecord(purchase: PersistedPremiumPurchase): PremiumPurchaseRecord {
+    return {
+      amountValue: purchase.amountValue,
+      createdAt: purchase.createdAt,
+      currency: purchase.currency,
+      gift: purchase.gift,
+      id: purchase.id,
+      plan: purchase.plan,
+      provider: purchase.provider,
+      refundedAt: purchase.refundedAt,
+      status: purchase.status,
+      statusReason: purchase.statusReason,
+      succeededAt: purchase.succeededAt,
+      updatedAt: purchase.updatedAt,
+    }
+  }
+
+  private ensurePremiumPurchaseForYooKassaPayment(payment: YooKassaPayment) {
+    const existingByPaymentId = this.findPremiumPurchaseByPaymentId(payment.id)
+    if (existingByPaymentId) {
+      return existingByPaymentId
+    }
+
+    const purchaseId = payment.metadata?.purchaseId?.trim()
+    if (!purchaseId) {
+      return null
+    }
+
+    const existingByPurchaseId = this.findPremiumPurchaseById(purchaseId)
+    if (existingByPurchaseId) {
+      return existingByPurchaseId
+    }
+
+    const ownerIdentifier = normalizeIdentifier(payment.metadata?.ownerIdentifier ?? '')
+    const targetIdentifier =
+      normalizeIdentifier(payment.metadata?.targetIdentifier ?? '') || ownerIdentifier
+    const plan = payment.metadata?.plan === 'year' ? 'year' : 'month'
+
+    if (!ownerIdentifier || !targetIdentifier) {
+      return null
+    }
+
+    const createdAt = payment.created_at || new Date().toISOString()
+    const purchase: PersistedPremiumPurchase = {
+      amountValue: payment.amount.value,
+      createdAt,
+      currency: 'RUB',
+      gift: ownerIdentifier !== targetIdentifier,
+      id: purchaseId,
+      ownerIdentifier,
+      paymentId: payment.id,
+      plan,
+      provider: 'yookassa',
+      status: mapYooKassaPaymentStatusToPremiumPurchaseStatus(payment),
+      statusReason:
+        payment.status === 'canceled'
+          ? sanitizeAdminText(payment.cancellation_details?.reason, 280) || 'Платеж отменён.'
+          : undefined,
+      targetIdentifier,
+      updatedAt: createdAt,
+    }
+
+    this.database.premiumPurchases.push(purchase)
+    return purchase
+  }
+
   private refreshDialogsForAccount(account: Account) {
     const affectedOwners = new Set<string>()
 
@@ -21642,6 +21942,39 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>): {
         ip: sanitizeIpAddress(attempt.ip) ?? '',
         lastFailedAt: attempt.lastFailedAt,
       })).filter((attempt) => Boolean(attempt.identifier && attempt.ip && attempt.lastFailedAt)),
+      premiumPurchases: (normalized.premiumPurchases ?? [])
+        .map((purchase): PersistedPremiumPurchase => ({
+          amountValue: purchase.amountValue?.trim() || '0.00',
+          createdAt: purchase.createdAt || new Date().toISOString(),
+          currency: 'RUB',
+          gift: Boolean(purchase.gift),
+          id: purchase.id?.trim() || randomUUID(),
+          ownerIdentifier: normalizeIdentifier(purchase.ownerIdentifier ?? ''),
+          paymentId: purchase.paymentId?.trim() || undefined,
+          plan: purchase.plan === 'year' ? 'year' : 'month',
+          provider: 'yookassa',
+          receiptEmail: purchase.receiptEmail?.trim() || undefined,
+          refundedAt: purchase.refundedAt || undefined,
+          status:
+            purchase.status === 'succeeded' ||
+            purchase.status === 'canceled' ||
+            purchase.status === 'refunded'
+              ? purchase.status
+              : 'pending',
+          statusReason: purchase.statusReason?.trim() || undefined,
+          succeededAt: purchase.succeededAt || undefined,
+          targetIdentifier: normalizeIdentifier(purchase.targetIdentifier ?? ''),
+          updatedAt: purchase.updatedAt || purchase.createdAt || new Date().toISOString(),
+        }))
+        .filter((purchase) =>
+          Boolean(
+            purchase.id &&
+            purchase.ownerIdentifier &&
+            purchase.targetIdentifier &&
+            parseIsoDate(purchase.createdAt) !== null &&
+            parseIsoDate(purchase.updatedAt) !== null,
+          ),
+        ),
       sessions: (normalized.sessions ?? [])
         .map((session): SessionRecord => {
           const createdAt = session.createdAt

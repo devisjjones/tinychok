@@ -48,6 +48,8 @@ export {
   orphanUploadTtlMs,
   premiumGroupMemberLimit,
   premiumGroupsPerUserLimit,
+  premiumMonthlyPriceRub,
+  premiumAnnualPriceRub,
   premiumDebugAutoCheckoutStorageKey,
   premiumStorageQuotaBytes,
   premiumArchiveStorageQuotaBytes,

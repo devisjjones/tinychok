@@ -80,6 +80,29 @@
 - `npm run verify:staging-runtime` теперь по умолчанию ждёт `provider=clickhouse` для staging
 - если staging временно откатывается обратно на `log`, verify/deploy нужно запускать с `TINYCHOK_EXPECTED_ANALYTICS_PROVIDER=log`
 
+### 3.1. Billing / YooKassa Contract
+
+- если live env включает `TINYCHOK_PAYMENT_PROVIDER=yookassa`, обязательны:
+  - `TINYCHOK_YOOKASSA_SHOP_ID`
+  - `TINYCHOK_YOOKASSA_SECRET_KEY`
+  - `TINYCHOK_YOOKASSA_RETURN_URL`
+- optional, но зафиксированные env для чеков:
+  - `TINYCHOK_YOOKASSA_RECEIPTS_ENABLED`
+  - `TINYCHOK_YOOKASSA_RECEIPT_VAT_CODE`
+  - `TINYCHOK_YOOKASSA_RECEIPT_TIMEZONE`
+- runtime contract для premium checkout:
+  - `POST /api/premium/checkout`
+  - `GET /api/premium/purchases/:purchaseId`
+  - `POST /api/payments/webhooks/yookassa`
+- premium нельзя включать по самому факту создания checkout:
+  - entitlement появляется только после provider status = `succeeded`
+  - клиентский `premium_purchase_succeeded*` должен отправляться только после backend status confirm, а не сразу после redirect-start
+- staging smoke-check для billing считается незавершённым, пока не проверены:
+  - создание redirect checkout url
+  - возврат на `TINYCHOK_YOOKASSA_RETURN_URL` с `?premiumCheckout=<id>`
+  - автоматическое дотягивание статуса через `/api/premium/purchases/:purchaseId`
+  - фактическая выдача premium после `succeeded`
+
 ### 4. Staging Access Contract
 
 - базовый контракт: `staging.tinychok.ru` и `admin.staging.tinychok.ru` закрыты через `nginx basic auth`

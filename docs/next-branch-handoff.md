@@ -120,13 +120,22 @@
   - admin refund action тоже заведён в ClickHouse как `refund_processed` и режется по `refundTargetType`
   - product dashboards не должны снова тянуть технические `realtime_*` events
 - staging premium reporting пока трактовать только как product smoke / estimated revenue:
-  - в `src/App.tsx` real checkout всё ещё не подключён
-  - success-события premium могут приходить из `debugAutoCheckout`
+  - real checkout уже идёт через ЮKassa redirect + return-status flow
+  - `premium_purchase_succeeded*` теперь должны появляться только после backend confirm из `/api/premium/purchases/:purchaseId`
+  - `debugAutoCheckout` всё ещё может добавлять debug-успехи на staging, если toggle включён вручную
   - production revenue dashboard потом нужно будет переключать на `environment=production`
 - refund charts строятся тем же workbook-side SQL-подходом:
   - базовый фильтр = `event_name = refund_processed`
   - текущий admin flow пишет `refundTargetType = premium`
   - будущие возвраты товаров лучше доклеивать тем же event name через новый `refundTargetType`, чтобы не плодить отдельный dataset
+- YooKassa runtime/env handoff:
+  - backend routes: `POST /api/premium/checkout`, `GET /api/premium/purchases/:purchaseId`, `POST /api/payments/webhooks/yookassa`
+  - обязательные env при `TINYCHOK_PAYMENT_PROVIDER=yookassa`:
+    - `TINYCHOK_YOOKASSA_SHOP_ID`
+    - `TINYCHOK_YOOKASSA_SECRET_KEY`
+    - `TINYCHOK_YOOKASSA_RETURN_URL`
+  - staging return url должен указывать на публичный premium-entry (`https://staging.tinychok.ru/premium`), чтобы возврат из кассы сразу попадал в SPA-checkout sync
+  - если нужны чеки через YooKassa, отдельно включаются `TINYCHOK_YOOKASSA_RECEIPTS_ENABLED`, `TINYCHOK_YOOKASSA_RECEIPT_VAT_CODE`, `TINYCHOK_YOOKASSA_RECEIPT_TIMEZONE`
 - единый release-blocking список теперь собран в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
 ## Core Product Mechanics
