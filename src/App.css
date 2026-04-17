@@ -6415,6 +6415,10 @@
   align-items: flex-end;
 }
 
+.composer-field.composer-field-has-attachment .composer-tools {
+  align-items: flex-end;
+}
+
 .composer-mention-popover {
   position: absolute;
   right: 0;

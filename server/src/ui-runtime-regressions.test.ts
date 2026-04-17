@@ -4694,7 +4694,7 @@ test('composers stay on plain textarea inputs without formatting toolbar', () =>
   assert.match(appCss, /\.composer-field:not\(\.composer-field-expanded\):not\(\.composer-field-has-attachment\)\s+\.composer-send\s*\{[\s\S]*margin-bottom:\s*0;/u)
   assert.match(appCss, /\.composer-field\.composer-field-expanded\s+\.composer-send\s*\{[\s\S]*align-self:\s*flex-end;/u)
   assert.match(appCss, /\.composer-field\.composer-field-has-attachment\s+\.composer-send\s*\{[\s\S]*margin-bottom:\s*0;/u)
-  assert.doesNotMatch(appCss, /\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*align-items:\s*flex-end;/u)
+  assert.match(appCss, /\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*align-items:\s*flex-end;/u)
   assert.doesNotMatch(appCss, /\.composer-format-toolbar/u)
   assert.doesNotMatch(appCss, /\.composer-rich-input/u)
   assert.doesNotMatch(appCss, /\.composer-editor-surface/u)
@@ -7685,4 +7685,17 @@ test('public legal pages bootstrap analytics runtime and keep pdf tracking expli
 
   assert.match(contactsPageSource, /usePublicLegalAnalytics/u)
   assert.match(contactsPageSource, /document:\s*'contacts'/u)
+})
+
+test('attachment composers keep the action row pinned to the lower edge of the field', () => {
+  const appCss = readFileSync(join(process.cwd(), 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    appCss,
+    /\.composer-field\.composer-field-has-attachment\s+\.composer-tools\s*\{[\s\S]*align-items:\s*flex-end;/u,
+  )
+  assert.match(
+    appCss,
+    /\.settings-support-composer \.composer-field\.composer-field-expanded \.composer-tools,\s*\n\.settings-support-composer \.composer-field\.composer-field-has-attachment \.composer-tools\s*\{[\s\S]*bottom:\s*14px;[\s\S]*transform:\s*none;/u,
+  )
 })
