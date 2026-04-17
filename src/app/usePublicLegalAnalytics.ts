@@ -3,7 +3,13 @@ import type { ClientRuntimeConfigResponse } from '../shared/backend'
 import { configureAnalyticsRuntime, trackAnalyticsEvent } from './analytics'
 import { fetchClientRuntimeConfig } from './backend'
 
-type PublicLegalDocument = 'contacts' | 'premium-terms' | 'privacy-policy' | 'refund-policy' | 'user-agreement'
+type PublicLegalDocument =
+  | 'contacts'
+  | 'moderation-rules'
+  | 'premium-terms'
+  | 'privacy-policy'
+  | 'refund-policy'
+  | 'user-agreement'
 
 function getPublicLegalSource() {
   if (typeof document === 'undefined') {

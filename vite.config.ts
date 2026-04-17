@@ -53,6 +53,7 @@ export default defineConfig({
         avatarUploadRules: resolve(viteConfigDir, 'avatar-upload-rules.html'),
         contacts: resolve(viteConfigDir, 'contacts.html'),
         main: resolve(viteConfigDir, 'index.html'),
+        moderationRules: resolve(viteConfigDir, 'moderation-rules.html'),
         premiumTerms: resolve(viteConfigDir, 'premium-terms.html'),
         privacyPolicy: resolve(viteConfigDir, 'privacy-policy.html'),
         refundPolicy: resolve(viteConfigDir, 'refund-policy.html'),

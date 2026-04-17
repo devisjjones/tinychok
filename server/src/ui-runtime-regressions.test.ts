@@ -5200,6 +5200,7 @@ test('settings documents scene groups legal and premium policies outside managem
 
   assert.match(documentsViewSource, /href="\/user-agreement\.html"/u)
   assert.match(documentsViewSource, /href="\/privacy-policy\.html"/u)
+  assert.match(documentsViewSource, /href="\/moderation-rules\.html"/u)
   assert.match(documentsViewSource, /href="\/premium-terms\.html"/u)
   assert.match(documentsViewSource, /href="\/refund-policy\.html"/u)
   assert.doesNotMatch(
@@ -5552,6 +5553,8 @@ test('contacts and requisites page stays aligned with public legal documents', (
 test('all public legal pages keep static routes, public pdf assets and stable source comments', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const viteConfigSource = readFileSync(join(repoRoot, 'vite.config.ts'), 'utf8')
+  const moderationSource = readFileSync(join(repoRoot, 'src', 'moderationRulesContent.ts'), 'utf8')
+  const moderationPageSource = readFileSync(join(repoRoot, 'src', 'ModerationRulesPage.tsx'), 'utf8')
   const privacySource = readFileSync(join(repoRoot, 'src', 'privacyPolicyContent.ts'), 'utf8')
   const agreementSource = readFileSync(join(repoRoot, 'src', 'userAgreementContent.ts'), 'utf8')
   const premiumSource = readFileSync(join(repoRoot, 'src', 'premiumTermsContent.ts'), 'utf8')
@@ -5563,12 +5566,14 @@ test('all public legal pages keep static routes, public pdf assets and stable so
   const agreementPageSource = readFileSync(join(repoRoot, 'src', 'UserAgreementPage.tsx'), 'utf8')
 
   assert.match(viteConfigSource, /contacts: resolve\(viteConfigDir, 'contacts\.html'\)/u)
+  assert.match(viteConfigSource, /moderationRules: resolve\(viteConfigDir, 'moderation-rules\.html'\)/u)
   assert.match(viteConfigSource, /privacyPolicy: resolve\(viteConfigDir, 'privacy-policy\.html'\)/u)
   assert.match(viteConfigSource, /refundPolicy: resolve\(viteConfigDir, 'refund-policy\.html'\)/u)
   assert.match(viteConfigSource, /userAgreement: resolve\(viteConfigDir, 'user-agreement\.html'\)/u)
   assert.match(viteConfigSource, /premiumTerms: resolve\(viteConfigDir, 'premium-terms\.html'\)/u)
 
   assert.ok(existsSync(join(repoRoot, 'contacts.html')))
+  assert.ok(existsSync(join(repoRoot, 'moderation-rules.html')))
   assert.ok(existsSync(join(repoRoot, 'privacy-policy.html')))
   assert.ok(existsSync(join(repoRoot, 'refund-policy.html')))
   assert.ok(existsSync(join(repoRoot, 'user-agreement.html')))
@@ -5578,12 +5583,14 @@ test('all public legal pages keep static routes, public pdf assets and stable so
   assert.ok(existsSync(join(repoRoot, 'public', 'user-agreement.pdf')))
   assert.ok(existsSync(join(repoRoot, 'public', 'premium-terms.pdf')))
 
+  assert.match(moderationSource, /Public moderation rules source for `\/moderation-rules\.html`\./u)
   assert.match(privacySource, /Release-blocking legal source for `\/privacy-policy\.html` and `\/privacy-policy\.pdf`\./u)
   assert.match(agreementSource, /Release-blocking legal source for `\/user-agreement\.html` and `\/user-agreement\.pdf`\./u)
   assert.match(premiumSource, /Release-blocking legal source for `\/premium-terms\.html` and `\/premium-terms\.pdf`\./u)
   assert.match(refundPolicySource, /Release-blocking legal source for `\/refund-policy\.html`\./u)
   assert.match(contactsSource, /Public requisites page for users, payment providers and legal references\./u)
 
+  assert.match(moderationPageSource, /Public compliance page for moderation handling\./u)
   assert.match(privacyPageSource, /Legal pages are public compliance surfaces\./u)
   assert.match(agreementPageSource, /Legal pages are public compliance surfaces\./u)
   assert.match(premiumPageSource, /Premium checkout relies on this public page and PDF\./u)
@@ -5597,6 +5604,7 @@ test('favicon and home-screen icon contract stays wired to the new logo assets',
   const htmlEntries = [
     'index.html',
     'contacts.html',
+    'moderation-rules.html',
     'privacy-policy.html',
     'refund-policy.html',
     'user-agreement.html',
@@ -7728,6 +7736,7 @@ test('clickhouse-approved analytics catalog stays wired through source docs and 
 test('public legal pages bootstrap analytics runtime and keep pdf tracking explicit', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const legalHookSource = readFileSync(join(repoRoot, 'src', 'app', 'usePublicLegalAnalytics.ts'), 'utf8')
+  const moderationPageSource = readFileSync(join(repoRoot, 'src', 'ModerationRulesPage.tsx'), 'utf8')
   const privacyPageSource = readFileSync(join(repoRoot, 'src', 'PrivacyPolicyPage.tsx'), 'utf8')
   const agreementPageSource = readFileSync(join(repoRoot, 'src', 'UserAgreementPage.tsx'), 'utf8')
   const premiumTermsPageSource = readFileSync(join(repoRoot, 'src', 'PremiumTermsPage.tsx'), 'utf8')
@@ -7738,6 +7747,10 @@ test('public legal pages bootstrap analytics runtime and keep pdf tracking expli
   assert.match(legalHookSource, /configureAnalyticsRuntime\(\{/u)
   assert.match(legalHookSource, /trackAnalyticsEvent\('legal_page_opened'/u)
   assert.match(legalHookSource, /trackAnalyticsEvent\('legal_pdf_opened'/u)
+  assert.match(legalHookSource, /'moderation-rules'/u)
+
+  assert.match(moderationPageSource, /usePublicLegalAnalytics/u)
+  assert.match(moderationPageSource, /document:\s*'moderation-rules'/u)
 
   assert.match(privacyPageSource, /usePublicLegalAnalytics/u)
   assert.match(privacyPageSource, /document:\s*'privacy-policy'/u)
@@ -7759,6 +7772,31 @@ test('public legal pages bootstrap analytics runtime and keep pdf tracking expli
 
   assert.match(contactsPageSource, /usePublicLegalAnalytics/u)
   assert.match(contactsPageSource, /document:\s*'contacts'/u)
+})
+
+test('moderation rules page stays exposed as a public document from settings', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const moderationEntrySource = readFileSync(join(repoRoot, 'moderation-rules.html'), 'utf8')
+  const moderationPageSource = readFileSync(join(repoRoot, 'src', 'ModerationRulesPage.tsx'), 'utf8')
+  const moderationContentSource = readFileSync(join(repoRoot, 'src', 'moderationRulesContent.ts'), 'utf8')
+
+  assert.match(appSource, /href="\/moderation-rules\.html"[\s\S]*Правила модерации и реагирования на незаконный контент/u)
+  assert.match(
+    moderationEntrySource,
+    /<title>Правила модерации и реагирования на незаконный контент \| Тайничок<\/title>/u,
+  )
+  assert.match(
+    moderationContentSource,
+    /export const moderationRulesUpdatedAt = '17 апреля 2026 г\.'/u,
+  )
+  assert.match(
+    moderationContentSource,
+    /https:\/\/tinychok\.ru\/moderation-rules\.html/u,
+  )
+  assert.match(moderationPageSource, /href="mailto:tinychok\.help@yandex\.com"/u)
+  assert.match(moderationPageSource, /href="\/contacts\.html"/u)
+  assert.match(moderationPageSource, /Публичная ссылка для страницы с правилами модерации:/u)
 })
 
 test('attachment composers keep the action row pinned to the lower edge of the field', () => {

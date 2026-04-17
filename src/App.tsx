@@ -19371,6 +19371,9 @@ function App() {
                   <a className="settings-action-card settings-action-link" href="/privacy-policy.html">
                     Политика в отношении обработки персональных данных
                   </a>
+                  <a className="settings-action-card settings-action-link" href="/moderation-rules.html">
+                    Правила модерации и реагирования на незаконный контент
+                  </a>
                   <a className="settings-action-card settings-action-link" href="/premium-terms.html">
                     Условия Premium
                   </a>
