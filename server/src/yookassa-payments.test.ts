@@ -266,6 +266,83 @@ test('createPremiumYooKassaPayment sends receipt when receiptEmail is provided e
   assert.deepEqual(requestBody.receipt, {
     customer: {
       email: 'user@example.com',
+      phone: '79990000004',
+    },
+    internet: 'true',
+    items: [
+      {
+        amount: {
+          currency: 'RUB',
+          value: '199.00',
+        },
+        description: 'Premium month',
+        payment_mode: 'full_prepayment',
+        payment_subject: 'service',
+        quantity: 1,
+        vat_code: 1,
+      },
+    ],
+    timezone: 3,
+  })
+})
+
+test('createPremiumYooKassaPayment uses owner phone for the receipt when receipts are enabled', async () => {
+  const originalFetch = globalThis.fetch
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        amount: {
+          currency: 'RUB',
+          value: '199.00',
+        },
+        confirmation: {
+          confirmation_url: 'https://yookassa.ru/checkout/test',
+          type: 'redirect',
+        },
+        created_at: '2026-04-17T18:05:00.000Z',
+        id: 'payment-test-2',
+        paid: false,
+        status: 'pending',
+      }),
+      {
+        headers: {
+          'content-type': 'application/json',
+        },
+        status: 200,
+      },
+    )
+  }) as typeof fetch
+
+  try {
+    await createPremiumYooKassaPayment(
+      {
+        publicReturnUrl: 'https://staging.tinychok.ru/premium',
+        receiptTimezone: 3,
+        receiptVatCode: 1,
+        receiptsEnabled: true,
+        secretKey: 'test-secret',
+        shopId: 'test-shop',
+      },
+      {
+        amountValue: '199.00',
+        description: 'Premium month',
+        ownerIdentifier: '+7 (999) 000-00-05',
+        plan: 'month',
+        purchaseId: 'purchase-receipt-2',
+        targetIdentifier: '+79990000005',
+      },
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.ok(requestBody)
+  assert.deepEqual(requestBody.receipt, {
+    customer: {
+      phone: '79990000005',
     },
     internet: 'true',
     items: [

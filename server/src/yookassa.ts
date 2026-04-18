@@ -70,6 +70,11 @@ class YooKassaApiError extends Error {
   }
 }
 
+function normalizeReceiptPhone(value: string) {
+  const digits = value.replace(/[^\d]/g, '')
+  return digits || undefined
+}
+
 function getYooKassaAuthorizationHeader(config: YooKassaConfig) {
   return `Basic ${Buffer.from(`${config.shopId}:${config.secretKey}`).toString('base64')}`
 }
@@ -135,6 +140,7 @@ export async function createPremiumYooKassaPayment(
   const returnUrl = new URL(config.publicReturnUrl)
   returnUrl.searchParams.set('premiumCheckout', input.purchaseId)
   const normalizedReceiptEmail = input.receiptEmail?.trim()
+  const normalizedReceiptPhone = normalizeReceiptPhone(input.ownerIdentifier)
 
   const body: Record<string, unknown> = {
     amount: {
@@ -155,15 +161,21 @@ export async function createPremiumYooKassaPayment(
     },
   }
 
-  if (config.receiptsEnabled || normalizedReceiptEmail) {
-    if (!normalizedReceiptEmail) {
-      throw new Error('Укажите email для чека ЮKassa.')
+  if (config.receiptsEnabled || normalizedReceiptEmail || normalizedReceiptPhone) {
+    if (!normalizedReceiptEmail && !normalizedReceiptPhone) {
+      throw new Error('Не найден контакт для чека ЮKassa.')
+    }
+
+    const customer: Record<string, string> = {}
+    if (normalizedReceiptEmail) {
+      customer.email = normalizedReceiptEmail
+    }
+    if (normalizedReceiptPhone) {
+      customer.phone = normalizedReceiptPhone
     }
 
     body.receipt = {
-      customer: {
-        email: normalizedReceiptEmail,
-      },
+      customer,
       internet: 'true',
       items: [
         {

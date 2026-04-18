@@ -4108,14 +4108,14 @@ function App() {
         receiptEmail,
       })
 
-    const requiresReceiptEmail = (errorMessage: string) => /(email|receipt|чек)/iu.test(errorMessage)
+    const requiresReceiptContact = (errorMessage: string) => /(email|receipt|чек|контакт)/iu.test(errorMessage)
 
     let response
     try {
       response = await createCheckout()
     } catch (error) {
       const errorMessage = getErrorMessage(error, 'Не удалось запустить оплату premium.')
-      if (!requiresReceiptEmail(errorMessage)) {
+      if (!requiresReceiptContact(errorMessage)) {
         throw error
       }
 
