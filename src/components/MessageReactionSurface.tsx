@@ -19,6 +19,7 @@ export function MessageReactionSurface({
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
   const [anchorWidth, setAnchorWidth] = useState<number | null>(null)
+  const [anchorLeft, setAnchorLeft] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const mainRef = useRef<HTMLDivElement | null>(null)
 
@@ -41,8 +42,13 @@ export function MessageReactionSurface({
     }
 
     const updateAnchorWidth = () => {
-      const nextWidth = Math.ceil(measuredNode.getBoundingClientRect().width)
+      const measuredRect = measuredNode.getBoundingClientRect()
+      const mainRect = mainNode.getBoundingClientRect()
+      const nextWidth = Math.ceil(measuredRect.width)
+      const nextLeft = Math.max(0, Math.round(measuredRect.left - mainRect.left))
+
       setAnchorWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
+      setAnchorLeft((currentLeft) => (currentLeft === nextLeft ? currentLeft : nextLeft))
     }
 
     updateAnchorWidth()
@@ -52,6 +58,7 @@ export function MessageReactionSurface({
     })
 
     observer.observe(rootNode)
+    observer.observe(mainNode)
     observer.observe(measuredNode)
 
     return () => {
@@ -122,7 +129,10 @@ export function MessageReactionSurface({
 
   const style =
     anchorWidth !== null
-      ? ({ '--message-reaction-anchor-width': `${anchorWidth}px` } as CSSProperties)
+      ? ({
+          '--message-reaction-anchor-width': `${anchorWidth}px`,
+          ...(anchorLeft !== null ? { '--message-reaction-anchor-left': `${anchorLeft}px` } : {}),
+        } as CSSProperties)
       : undefined
 
   return (

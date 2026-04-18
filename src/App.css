@@ -4307,14 +4307,13 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  right: calc(100% - var(--message-reaction-anchor-width, 100%) - 52px);
+  left: calc(var(--message-reaction-anchor-left, 0px) + var(--message-reaction-anchor-width, 100%));
   width: 52px;
   z-index: 1;
 }
 
 .message-reaction-surface.mine.can-react::after {
-  right: auto;
-  left: calc(100% - var(--message-reaction-anchor-width, 100%) - 52px);
+  left: calc(var(--message-reaction-anchor-left, 0px) - 52px);
 }
 
 .message-reaction-surface-main {
@@ -4332,7 +4331,9 @@
 .message-reaction-trigger {
   position: absolute;
   top: 50%;
-  right: calc(100% - var(--message-reaction-anchor-width, 100%) - 38px);
+  left: calc(
+    var(--message-reaction-anchor-left, 0px) + var(--message-reaction-anchor-width, 100%) + 10px
+  );
   z-index: 2;
   display: inline-flex;
   align-items: center;
@@ -4357,8 +4358,7 @@
 }
 
 .message-reaction-surface.mine > .message-reaction-trigger {
-  right: auto;
-  left: calc(100% - var(--message-reaction-anchor-width, 100%) - 38px);
+  left: calc(var(--message-reaction-anchor-left, 0px) - 38px);
 }
 
 .message-reaction-surface:hover > .message-reaction-trigger,
@@ -4392,9 +4392,10 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
-  width: 100%;
-  max-width: 100%;
+  width: var(--message-reaction-anchor-width, 100%);
+  max-width: var(--message-reaction-anchor-width, 100%);
   box-sizing: border-box;
+  margin-left: var(--message-reaction-anchor-left, 0px);
   margin-top: -2px;
   position: relative;
   z-index: 1;

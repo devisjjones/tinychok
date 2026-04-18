@@ -7947,9 +7947,11 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
   assert.match(reactionSurfaceSource, /className=\{`message-reaction-trigger/u)
   assert.match(reactionSurfaceSource, /message-reaction-surface\$\{mine \? ' mine' : ''\}\$\{canReact \? ' can-react' : ''\}/u)
   assert.match(reactionSurfaceSource, /const \[anchorWidth, setAnchorWidth\] = useState<number \| null>\(null\)/u)
+  assert.match(reactionSurfaceSource, /const \[anchorLeft, setAnchorLeft\] = useState<number \| null>\(null\)/u)
   assert.match(reactionSurfaceSource, /querySelector\('\[data-bubble-measure="true"\]'\)/u)
   assert.match(reactionSurfaceSource, /querySelector\('\.bubble, \.channel-post, \.room-thread-source-bubble'\)/u)
   assert.match(reactionSurfaceSource, /'--message-reaction-anchor-width': `\$\{anchorWidth\}px`/u)
+  assert.match(reactionSurfaceSource, /'--message-reaction-anchor-left': `\$\{anchorLeft\}px`/u)
   assert.match(reactionSurfaceSource, /<MessageReactionPicker/u)
   assert.match(reactionPickerSource, /message-reaction-picker-item/u)
   assert.match(reactionPickerSource, /fullEmojiCategories\.map/u)
@@ -8002,15 +8004,28 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
 
   assert.match(appCss, /\.message-reaction-trigger/u)
   assert.match(appCss, /\.message-reaction-surface\.can-react::after/u)
-  assert.match(appCss, /right:\s*calc\(100% - var\(--message-reaction-anchor-width, 100%\) - 52px\);/u)
-  assert.match(appCss, /right:\s*calc\(100% - var\(--message-reaction-anchor-width, 100%\) - 38px\);/u)
-  assert.match(appCss, /left:\s*calc\(100% - var\(--message-reaction-anchor-width, 100%\) - 38px\);/u)
+  assert.match(
+    appCss,
+    /left:\s*calc\(var\(--message-reaction-anchor-left,\s*0px\)\s*\+\s*var\(--message-reaction-anchor-width,\s*100%\)\);/u,
+  )
+  assert.match(
+    appCss,
+    /left:\s*calc\(\s*var\(--message-reaction-anchor-left,\s*0px\)\s*\+\s*var\(--message-reaction-anchor-width,\s*100%\)\s*\+\s*10px\s*\);/u,
+  )
+  assert.match(appCss, /left:\s*calc\(var\(--message-reaction-anchor-left,\s*0px\)\s*-\s*38px\);/u)
   assert.match(appCss, /\.message-reaction-chip/u)
   assert.match(appCss, /\.message-reaction-picker/u)
   assert.match(appCss, /\.message-reaction-picker-embedded/u)
   assert.match(appCss, /\.message-menu-reaction-picker/u)
   assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*justify-content:\s*flex-end;/u)
-  assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*width:\s*100%;/u)
+  assert.match(
+    appCss,
+    /\.message-reaction-list\s*\{[\s\S]*width:\s*var\(--message-reaction-anchor-width,\s*100%\);/u,
+  )
+  assert.match(
+    appCss,
+    /\.message-reaction-list\s*\{[\s\S]*margin-left:\s*var\(--message-reaction-anchor-left,\s*0px\);/u,
+  )
   assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*margin-top:\s*-2px;/u)
   assert.match(appCss, /\.message-reaction-list\.mine\s*\{[\s\S]*justify-content:\s*flex-start;/u)
   assert.match(
@@ -8018,6 +8033,25 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
     /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-surface:hover > \.message-reaction-trigger,[\s\S]*opacity:\s*0;[\s\S]*pointer-events:\s*none;[\s\S]*\.message-reaction-surface\.reaction-picker-open > \.message-reaction-trigger[\s\S]*opacity:\s*1;/u,
   )
   assert.match(appCss, /html\[data-theme='dark'\] \.message-reaction-trigger/u)
+})
+
+test('media reactions stay anchored to the measured media bubble instead of the whole media row width', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const reactionSurfaceSource = readFileSync(
+    join(repoRoot, 'src', 'components', 'MessageReactionSurface.tsx'),
+    'utf8',
+  )
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    reactionSurfaceSource,
+    /const nextLeft = Math\.max\(0,\s*Math\.round\(measuredRect\.left - mainRect\.left\)\)/u,
+  )
+  assert.match(reactionSurfaceSource, /observer\.observe\(mainNode\)/u)
+  assert.match(
+    appCss,
+    /\.message-reaction-list\s*\{[\s\S]*width:\s*var\(--message-reaction-anchor-width,\s*100%\);[\s\S]*margin-left:\s*var\(--message-reaction-anchor-left,\s*0px\);/u,
+  )
 })
 
 test('mobile room bubbles keep the floating reaction trigger hidden outside the message action menu', () => {
