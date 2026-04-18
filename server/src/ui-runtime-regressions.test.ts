@@ -5554,6 +5554,16 @@ test('light theme keeps outgoing thread pills on the same pale surface as incomi
   assert.doesNotMatch(appCss, /\.thread-pill\.mine\s*\{[\s\S]*background:\s*#a86d44;/u)
 })
 
+test('dark theme keeps the thread pill visually fused with the threaded message bubble', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    appCss,
+    /html\[data-theme='dark'\] \.threaded-bubble\.has-thread > \.thread-pill\s*\{[\s\S]*margin-top:\s*-1px;[\s\S]*border-top-color:\s*transparent;/u,
+  )
+})
+
 test('search pane keeps the main search heading aligned with search results heading rhythm', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')

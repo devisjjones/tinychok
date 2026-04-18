@@ -11007,6 +11007,11 @@ html[data-theme='dark'] .bubble-attachment-video-fallback {
   color: var(--ink);
 }
 
+html[data-theme='dark'] .threaded-bubble.has-thread > .thread-pill {
+  margin-top: -1px;
+  border-top-color: transparent;
+}
+
 html[data-theme='dark'] .composer-attachment-option-icon {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.1);
