@@ -7843,10 +7843,11 @@ test('room feeds expose a jump-to-latest control above the composer across direc
   assert.match(channelRoomSource, /showJumpToLatestButton && onJumpToLatest/u)
   assert.match(appSource, /<RoomJumpToLatestButton onClick=\{jumpRoomFeedToBottom\} \/>/u)
   assert.match(appCss, /\.room-jump-to-latest-wrap/u)
+  assert.match(appCss, /\.room-jump-to-latest-wrap\s*\{[\s\S]*height:\s*0;/u)
   assert.match(appCss, /\.room-jump-to-latest\s*\{[\s\S]*width:\s*42px;/u)
-  assert.match(appCss, /\.room-jump-to-latest\s*\{[\s\S]*background:\s*transparent;/u)
+  assert.match(appCss, /\.room-jump-to-latest\s*\{[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.92\);/u)
   assert.match(appCss, /\.room-jump-to-latest-icon/u)
-  assert.doesNotMatch(appCss, /html\[data-theme='dark'\] \.room-jump-to-latest/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.room-jump-to-latest/u)
 })
 
 test('message reactions stay wired through room bubbles, emoji-only picker plumbing and mirrored server mutations', () => {
