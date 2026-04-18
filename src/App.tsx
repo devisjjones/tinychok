@@ -1744,6 +1744,7 @@ function App() {
     return window.sessionStorage.getItem(messagePhotoSendOriginalPreferenceStorageKey) === 'true'
   })
   const [premiumPurchaseBusy, setPremiumPurchaseBusy] = useState(false)
+  const [premiumCheckoutSyncRetryKey, setPremiumCheckoutSyncRetryKey] = useState(0)
   const premiumCheckoutSyncRef = useRef<string | null>(null)
   const [messageActionMessageId, setMessageActionMessageId] = useState<number | null>(null)
   const [forwardingMessageId, setForwardingMessageId] = useState<number | null>(null)
@@ -5214,12 +5215,14 @@ function App() {
     const sessionToken = session?.sessionToken
     if (!sessionToken) {
       premiumCheckoutSyncRef.current = null
+      setPremiumPurchaseBusy(false)
       return
     }
 
     const purchaseId = new URLSearchParams(window.location.search).get('premiumCheckout')?.trim() ?? ''
     if (!purchaseId) {
       premiumCheckoutSyncRef.current = null
+      setPremiumPurchaseBusy(false)
       return
     }
 
@@ -5229,6 +5232,8 @@ function App() {
 
     premiumCheckoutSyncRef.current = purchaseId
     let cancelled = false
+    let keepBusyUntilNextRetry = false
+    let retryTimeoutId: number | null = null
     setPremiumPurchaseBusy(true)
 
     void (async () => {
@@ -5253,7 +5258,12 @@ function App() {
 
       if (latestResponse.purchase.status === 'pending') {
         premiumCheckoutSyncRef.current = null
-        window.alert('Платеж еще обрабатывается. Обновите страницу через несколько секунд.')
+        keepBusyUntilNextRetry = true
+        retryTimeoutId = window.setTimeout(() => {
+          if (!cancelled) {
+            setPremiumCheckoutSyncRetryKey((key) => key + 1)
+          }
+        }, 3000)
         return
       }
 
@@ -5289,15 +5299,24 @@ function App() {
         error instanceof Error ? error.message : 'Не удалось проверить статус оплаты premium.',
       )
     }).finally(() => {
-      if (!cancelled) {
+      if (!cancelled && !keepBusyUntilNextRetry) {
         setPremiumPurchaseBusy(false)
       }
     })
 
     return () => {
       cancelled = true
+      if (retryTimeoutId !== null) {
+        window.clearTimeout(retryTimeoutId)
+      }
     }
-  }, [applySnapshot, session?.sessionToken, trackPremiumPurchaseSucceeded, trackPremiumPurchaseFailed])
+  }, [
+    applySnapshot,
+    premiumCheckoutSyncRetryKey,
+    session?.sessionToken,
+    trackPremiumPurchaseSucceeded,
+    trackPremiumPurchaseFailed,
+  ])
 
   const persistBrowserNotificationsEnabled = useCallback(async (enabled: boolean) => {
     setBrowserNotificationsEnabled(enabled)

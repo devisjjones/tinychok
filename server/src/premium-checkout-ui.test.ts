@@ -14,6 +14,8 @@ test('premium checkout UI stays wired to the real YooKassa redirect and return-s
   assert.match(appSource, /window\.location\.assign\(response\.checkoutUrl\)/u)
   assert.match(appSource, /new URLSearchParams\(window\.location\.search\)\.get\('premiumCheckout'\)/u)
   assert.match(appSource, /trackPremiumPurchaseSucceeded\(latestResponse\.purchase\.plan/u)
+  assert.match(appSource, /setPremiumCheckoutSyncRetryKey\(\(key\) => key \+ 1\)/u)
+  assert.doesNotMatch(appSource, /Платеж еще обрабатывается\. Обновите страницу через несколько секунд\./u)
   assert.match(appSource, /const requiresReceiptContact = \(errorMessage: string\) => \/\(email\|receipt\|чек\|контакт\)\/iu\.test\(errorMessage\)/u)
   assert.match(appSource, /window\.prompt\('Укажите email для чека ЮKassa'/u)
   assert.doesNotMatch(appSource, /Реальная .* покупка пока не подключена/u)
