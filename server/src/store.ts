@@ -187,6 +187,20 @@ import {
   persistJsonFileValue,
 } from './jsonFilePersistence'
 import { deleteStoredMediaByUrl, readStoredMediaByUrl } from './media'
+import {
+  buildOpaqueTokenHash,
+  buildSmsOtpHash,
+  createSmsRuOtpSender,
+  generateSmsOtpCode,
+  generateSmsOtpContinuationToken,
+  maskPhoneE164,
+  normalizeSmsPhoneE164,
+  type SmsOtpChallengeRecord,
+  type SmsOtpChallengeStatus,
+  type SmsOtpSender,
+  verifyOpaqueTokenHash,
+  verifySmsOtpHash,
+} from './sms-otp'
 import type { YooKassaPayment } from './yookassa'
 
 type StoredAccount = SharedAccount & StoredAccountPasswordFields
@@ -378,14 +392,8 @@ type PendingGroupInvitation = {
   sharedId: string
 }
 
-type AuthChallenge = {
-  code: string
-  expiresAt: string
-  identifier: string
-  purpose: 'admin' | 'password-reset' | 'password-setup' | 'registration'
-}
-
-type AuthChallengePurpose = AuthChallenge['purpose']
+type OtpChallenge = SmsOtpChallengeRecord
+type OtpChallengePurpose = OtpChallenge['purpose']
 
 type SessionRevocationResult = {
   broadcastIdentifiers: string[]
@@ -545,7 +553,6 @@ export type Database = {
   adminAuditLogs: AdminAuditLogRecord[]
   adminReports: AdminReportRecord[]
   authCodeSendAttempts: AuthCodeSendAttempt[]
-  authChallenges: AuthChallenge[]
   contactLinks: ContactLink[]
   contactReports: ContactReportRecord[]
   dialogs: PersistedDialog[]
@@ -566,12 +573,19 @@ export type Database = {
   subscriptionPosts: PersistedSubscriptionPost[]
   supportTickets: PersistedSupportTicket[]
   threadStates: PersistedThreadState[]
+  otpChallenges: OtpChallenge[]
   nextSupportTicketNumber: number
 }
 
 type LegacyDatabase = {
   accounts?: LegacyPersistedAccount[]
-  authChallenges?: AuthChallenge[]
+  authChallenges?: Array<{
+    code?: string
+    expiresAt: string
+    identifier: string
+    purpose: 'admin' | 'password-reset' | 'password-setup' | 'registration'
+  }>
+  otpChallenges?: OtpChallenge[]
   sessions?: SessionRecord[]
 }
 
@@ -600,12 +614,10 @@ type SessionAccessContext = {
   userAgent?: string
 }
 
-const AUTH_CODE_TTL_MS = 5 * 60 * 1000
-const AUTH_CODE_HOURLY_WINDOW_MS = 60 * 60 * 1000
-const AUTH_CODE_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const SESSION_LAST_ACTIVE_TOUCH_THROTTLE_MS = 60 * 1000
-const DEMO_AUTH_CODE = '1111'
+const SMS_OTP_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000
+const SMS_OTP_CONTINUATION_TTL_MS = 15 * 60 * 1000
 const SUPPORT_TICKET_COOLDOWN_MS = 10 * 60 * 1000
 export const DEFAULT_DATA_FILE = resolve(process.cwd(), 'server/data/dev-db.json')
 const FALLBACK_CHAT_ACCENT = '#8c5738'
@@ -626,6 +638,9 @@ const AUTH_CODE_COOLDOWN_MESSAGE =
   'Код уже был недавно отправлен. Подождите немного перед новым запросом.'
 const AUTH_CODE_RATE_LIMITED_MESSAGE =
   'Слишком много запросов SMS-кода. Повторите позже.'
+const AUTH_CODE_PROVIDER_NOT_CONFIGURED_MESSAGE = 'SMS-авторизация ещё не настроена на сервере.'
+const AUTH_CODE_INVALID_MESSAGE = 'Неверный код из SMS.'
+const AUTH_CODE_BLOCKED_MESSAGE = 'Слишком много неверных попыток. Запросите новый код.'
 type AttachmentRemovedNoticePerspective = 'author' | 'peer' | 'self'
 
 function buildStorageQuotaAttachmentRemovedNoticeText(
@@ -653,8 +668,9 @@ function buildStorageManualAttachmentRemovedNoticeText(
 }
 const TEST_FIXTURE_CREATED_AT = '2026-03-21T00:00:00.000Z'
 const TEST_FIXTURE_PREMIUM_EXPIRES_AT = '2099-01-01T00:00:00.000Z'
-const authRequestCodeLimits = runtimeConfig.auth.requestCodeLimits
-const authCodeIdentifierCooldownMs = authRequestCodeLimits.identifierCooldownSeconds * 1000
+const smsOtpConfig = runtimeConfig.auth.smsOtp
+const smsOtpTtlMs = smsOtpConfig.ttlSeconds * 1000
+const authCodeIdentifierCooldownMs = smsOtpConfig.resendCooldownSeconds * 1000
 
 function buildSyntheticNumericId(seed: string) {
   let hash = 0
@@ -677,7 +693,6 @@ function createDefaultDatabase(): Database {
     adminAuditLogs: [],
     adminReports: [],
     authCodeSendAttempts: [],
-    authChallenges: [],
     contactLinks: [],
     contactReports: [],
     dialogs: [],
@@ -691,6 +706,7 @@ function createDefaultDatabase(): Database {
     pendingMediaUploads: [],
     passwordAuthAttempts: [],
     premiumPurchases: [],
+    otpChallenges: [],
     sessions: [],
     sharedGifs: [],
     subscriptionChannelReports: [],
@@ -700,6 +716,64 @@ function createDefaultDatabase(): Database {
     threadStates: [],
     nextSupportTicketNumber: 0,
   }
+}
+
+function createDefaultSmsOtpSender() {
+  if (smsOtpConfig.provider !== 'sms_ru') {
+    return async () => {
+      throw new HttpError(503, AUTH_CODE_PROVIDER_NOT_CONFIGURED_MESSAGE)
+    }
+  }
+
+  return createSmsRuOtpSender(smsOtpConfig)
+}
+
+function mapLegacyAuthPurposeToOtpPurpose(
+  purpose: 'admin' | 'password-reset' | 'password-setup' | 'registration',
+): OtpChallengePurpose {
+  if (purpose === 'admin') {
+    return 'admin'
+  }
+  if (purpose === 'password-reset') {
+    return 'reset_password'
+  }
+  if (purpose === 'password-setup') {
+    return 'password_setup'
+  }
+
+  return 'register'
+}
+
+function buildAuthChallengePurpose(
+  existingAccount: AccountRecord | null,
+  entryPoint: AuthEntrypoint,
+  flow: AuthRequestCodeFlow,
+): OtpChallengePurpose {
+  if (entryPoint === 'admin') {
+    return 'admin'
+  }
+  if (flow === 'password-reset') {
+    return 'reset_password'
+  }
+  if (existingAccount) {
+    return 'password_setup'
+  }
+
+  return 'register'
+}
+
+function buildRequestCodeStatus(
+  existingAccount: AccountRecord | null,
+  entryPoint: AuthEntrypoint,
+  flow: AuthRequestCodeFlow,
+): Extract<RequestCodeResponse, { delivery: 'sms' }>['status'] {
+  if (entryPoint === 'admin') {
+    return 'code-sent'
+  }
+  if (flow === 'password-reset') {
+    return 'needs-sms-reset'
+  }
+  return existingAccount ? 'needs-sms-password-setup' : 'needs-sms-registration'
 }
 
 type PersistDatabaseFn = (database: Database) => Promise<void>
@@ -3885,9 +3959,50 @@ function isLegacyDatabase(
   return Array.isArray(value.accounts) && value.accounts.some((account) => 'state' in account)
 }
 
+function migrateLegacyAuthChallenge(
+  legacyChallenge: NonNullable<LegacyDatabase['authChallenges']>[number],
+): OtpChallenge {
+  const phoneE164 = normalizeSmsPhoneE164(legacyChallenge.identifier) || normalizeIdentifier(legacyChallenge.identifier)
+  const purpose = mapLegacyAuthPurposeToOtpPurpose(legacyChallenge.purpose)
+  const expiresAtTimestamp = Date.parse(legacyChallenge.expiresAt)
+  const createdAtTimestamp = Number.isFinite(expiresAtTimestamp)
+    ? Math.max(0, expiresAtTimestamp - smsOtpTtlMs)
+    : Date.now()
+  const createdAt = new Date(createdAtTimestamp).toISOString()
+  const hasHashSecret = Boolean(smsOtpConfig.hashSecret?.trim())
+  const code = legacyChallenge.code?.trim() ?? ''
+  const status: SmsOtpChallengeStatus =
+    !hasHashSecret || !code
+      ? 'expired'
+      : Number.isFinite(expiresAtTimestamp) && expiresAtTimestamp > Date.now()
+        ? 'pending'
+        : 'expired'
+
+  return {
+    attemptsCount: 0,
+    clientIp: '',
+    codeHash:
+      hasHashSecret && code
+        ? buildSmsOtpHash(code, phoneE164, purpose, smsOtpConfig.hashSecret!)
+        : '',
+    codeLength: code.length === 4 ? 4 : 6,
+    createdAt,
+    expiresAt: legacyChallenge.expiresAt,
+    id: randomUUID(),
+    lastSentAt: createdAt,
+    phoneE164,
+    provider: 'sms_ru',
+    purpose,
+    resendCount: 0,
+    status,
+    updatedAt: createdAt,
+  }
+}
+
 function migrateLegacyDatabase(value: LegacyDatabase): Database {
   const nextDatabase = createDefaultDatabase()
-  nextDatabase.authChallenges = value.authChallenges ?? []
+  nextDatabase.otpChallenges =
+    value.otpChallenges ?? (value.authChallenges ?? []).map(migrateLegacyAuthChallenge)
   nextDatabase.contactReports = []
   nextDatabase.sessions = value.sessions ?? []
   nextDatabase.subscriptionChannelReports = []
@@ -4777,13 +4892,15 @@ function getSupportTicketCooldownUntil(
 
 export class TinychokStore {
   private readonly persistDatabase: PersistDatabaseFn
+  private readonly smsOtpSender: SmsOtpSender
   private database: Database
   private readonly livePresenceConnectionsByToken = new Map<string, number>()
   private readonly livePresenceCountsByIdentifier = new Map<string, number>()
 
-  private constructor(database: Database, persistDatabase: PersistDatabaseFn) {
+  private constructor(database: Database, persistDatabase: PersistDatabaseFn, smsOtpSender?: SmsOtpSender) {
     this.database = database
     this.persistDatabase = persistDatabase
+    this.smsOtpSender = smsOtpSender ?? createDefaultSmsOtpSender()
   }
 
   private hasLivePresence(identifier: string) {
@@ -4947,16 +5064,16 @@ export class TinychokStore {
     }
   }
 
-  static create(database: Database, persistDatabase: PersistDatabaseFn) {
-    const store = new TinychokStore(database, persistDatabase)
+  static create(database: Database, persistDatabase: PersistDatabaseFn, options?: { smsOtpSender?: SmsOtpSender }) {
+    const store = new TinychokStore(database, persistDatabase, options?.smsOtpSender)
     store.dropLegacyGroupStorageState()
     return store
   }
 
-  static async load(dataFilePath = DEFAULT_DATA_FILE) {
+  static async load(dataFilePath = DEFAULT_DATA_FILE, options?: { smsOtpSender?: SmsOtpSender }) {
     const { database, needsPersistenceRewrite } = await loadDatabaseFromFile(dataFilePath)
     const persistDatabase = createCoalescedJsonFilePersistence<Database>(dataFilePath)
-    const store = new TinychokStore(database, persistDatabase)
+    const store = new TinychokStore(database, persistDatabase, options?.smsOtpSender)
 
     const droppedLegacyGroupStorage = store.dropLegacyGroupStorageState()
     if (needsPersistenceRewrite || droppedLegacyGroupStorage) {
@@ -4972,14 +5089,16 @@ export class TinychokStore {
       entryPoint?: AuthEntrypoint
       flow?: AuthRequestCodeFlow
       ip?: string
+      userAgent?: string
     },
   ): Promise<RequestCodeResponse> {
-    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const normalizedIdentifier = normalizeSmsPhoneE164(identifier)
     const entryPoint = options?.entryPoint ?? 'user'
     const flow = options?.flow ?? 'default'
     const sanitizedIp = sanitizeIpAddress(options?.ip)
+    const sanitizedUserAgent = sanitizeUserAgent(options?.userAgent)
 
-    if (!normalizedIdentifier || normalizedIdentifier.length < 12) {
+    if (!normalizedIdentifier) {
       throw new Error('Проверь номер телефона.')
     }
 
@@ -5012,56 +5131,77 @@ export class TinychokStore {
       throw new Error('Аккаунт с таким номером не найден.')
     }
 
-    const expiresAt = new Date(Date.now() + AUTH_CODE_TTL_MS).toISOString()
-    const purpose =
-      entryPoint === 'admin'
-        ? 'admin'
-        : flow === 'password-reset'
-          ? 'password-reset'
-          : existingAccount
-            ? 'password-setup'
-            : 'registration'
-
+    const purpose = buildAuthChallengePurpose(existingAccount, entryPoint, flow)
     const didCleanupAuthCodeAttempts = this.cleanupExpiredAuthCodeSendAttempts()
+    const didCleanupOtpChallenges = this.cleanupExpiredOtpChallenges()
     const authCodeRateLimitError = this.getAuthCodeSendRateLimitError(normalizedIdentifier, sanitizedIp)
     if (authCodeRateLimitError) {
-      if (didCleanupAuthCodeAttempts) {
+      if (didCleanupAuthCodeAttempts || didCleanupOtpChallenges) {
         await this.persist()
       }
       throw authCodeRateLimitError
     }
 
-    this.database.authCodeSendAttempts.push({
-      createdAt: new Date().toISOString(),
-      entryPoint,
-      flow,
-      identifier: normalizedIdentifier,
-      ip: sanitizedIp ?? undefined,
-    })
-    this.clearChallenge(normalizedIdentifier, purpose)
-    this.database.authChallenges.push({
-      code: DEMO_AUTH_CODE,
-      expiresAt,
-      identifier: normalizedIdentifier,
+    const nowIso = new Date().toISOString()
+    const code = this.generateOtpCode()
+    const challenge = this.createOtpChallengeRecord({
+      clientIp: sanitizedIp,
+      code,
+      createdAt: nowIso,
+      phoneE164: normalizedIdentifier,
       purpose,
+      resendCount: this.getLatestOtpChallengeResendCount(normalizedIdentifier, purpose) + 1,
+      userAgent: sanitizedUserAgent,
     })
 
-    await this.persist()
-    console.info(`[tinychok-server] demo code for ${normalizedIdentifier}: ${DEMO_AUTH_CODE}`)
+    try {
+      const sendResult = await this.smsOtpSender({
+        clientIp: sanitizedIp,
+        code,
+        phoneE164: normalizedIdentifier,
+      })
+      this.cancelOtpChallenges(normalizedIdentifier, purpose)
+      challenge.lastSentAt = nowIso
+      challenge.providerMessageId = sendResult.providerMessageId
+      challenge.providerStatus = sendResult.providerStatus
+      challenge.providerStatusCode = sendResult.providerStatusCode
+      challenge.updatedAt = nowIso
+      this.database.otpChallenges.push(challenge)
 
-    return {
-      delivery: 'sms',
-      existingAccount: existingAccount ? buildExistingAccountPreview(existingAccount) : null,
-      expiresAt,
-      hasPassword: hasAccountPassword(existingAccount),
-      status:
-        entryPoint === 'admin'
-          ? 'code-sent'
-          : flow === 'password-reset'
-            ? 'needs-sms-reset'
-            : existingAccount
-              ? 'needs-sms-password-setup'
-              : 'needs-sms-registration',
+      this.database.authCodeSendAttempts.push({
+        createdAt: nowIso,
+        entryPoint,
+        flow,
+        identifier: normalizedIdentifier,
+        ip: sanitizedIp ?? undefined,
+      })
+      await this.persist()
+      console.info(`[tinychok-server] sms otp accepted for ${maskPhoneE164(normalizedIdentifier)}`)
+
+      return {
+        challengeId: challenge.id,
+        cooldownSeconds: smsOtpConfig.resendCooldownSeconds,
+        delivery: 'sms',
+        existingAccount: existingAccount ? buildExistingAccountPreview(existingAccount) : null,
+        expiresAt: challenge.expiresAt,
+        hasPassword: hasAccountPassword(existingAccount),
+        status: buildRequestCodeStatus(existingAccount, entryPoint, flow),
+      }
+    } catch (error) {
+      challenge.lastSentAt = nowIso
+      challenge.status = 'send_failed'
+      challenge.updatedAt = nowIso
+      if (error instanceof Error && 'providerStatusCode' in error) {
+        challenge.providerStatusCode = Number(
+          (error as { providerStatusCode?: number }).providerStatusCode ?? 0,
+        ) || undefined
+      }
+      if (error instanceof Error && 'providerStatus' in error) {
+        challenge.providerStatus = (error as { providerStatus?: string }).providerStatus
+      }
+      this.database.otpChallenges.push(challenge)
+      await this.persist()
+      throw error
     }
   }
 
@@ -5073,7 +5213,7 @@ export class TinychokStore {
       entryPoint?: AuthEntrypoint
     },
   ): Promise<VerifyCodeResponse> {
-    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const normalizedIdentifier = normalizeSmsPhoneE164(identifier)
     const entryPoint = options?.entryPoint ?? 'user'
     if (!isAllowedTestPhone(normalizedIdentifier)) {
       throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
@@ -5085,7 +5225,12 @@ export class TinychokStore {
 
     const existingAccount = this.findAccount(normalizedIdentifier)
     if (entryPoint === 'admin') {
-      const challenge = this.assertValidChallenge(normalizedIdentifier, code, 'admin')
+      try {
+        this.consumeOtpCode(normalizedIdentifier, code, 'admin')
+      } catch (error) {
+        await this.persist()
+        throw error
+      }
 
       if (!existingAccount || !hasStaffAccess(existingAccount)) {
         throw new HttpError(403, ADMIN_STAFF_ONLY_MESSAGE)
@@ -5100,7 +5245,6 @@ export class TinychokStore {
         source: 'verify-code',
         userAgent: options?.accessContext?.userAgent,
       })
-      this.clearChallenge(normalizedIdentifier, challenge.purpose)
       await this.persist()
 
       return {
@@ -5109,18 +5253,27 @@ export class TinychokStore {
       }
     }
 
-    const challenge = this.assertValidChallenge(normalizedIdentifier, code, [
-      'registration',
-      'password-reset',
-      'password-setup',
-    ])
+    let challenge: OtpChallenge
+    try {
+      challenge = this.consumeOtpCode(normalizedIdentifier, code, [
+        'register',
+        'reset_password',
+        'password_setup',
+      ])
+    } catch (error) {
+      await this.persist()
+      throw error
+    }
 
-    if (!existingAccount && challenge.purpose !== 'registration') {
+    if (!existingAccount && challenge.purpose !== 'register') {
       throw new Error('Аккаунт с таким номером не найден.')
     }
 
     if (!existingAccount) {
+      const continuationToken = this.issueOtpContinuationToken(challenge)
+      await this.persist()
       return {
+        continuationToken,
         existingAccount: null,
         status: 'needs-profile-and-password',
       }
@@ -5130,36 +5283,54 @@ export class TinychokStore {
       throw new Error(existingAccount.blockedReason || 'Аккаунт заблокирован staff-командой.')
     }
 
-    if (challenge.purpose === 'password-reset') {
+    const continuationToken = this.issueOtpContinuationToken(challenge)
+
+    if (challenge.purpose === 'reset_password') {
+      await this.persist()
       return {
+        continuationToken,
         existingAccount: buildExistingAccountPreview(existingAccount),
         status: 'needs-password-reset',
       }
     }
 
     if (!hasAccountPassword(existingAccount)) {
+      await this.persist()
       return {
+        continuationToken,
         existingAccount: buildExistingAccountPreview(existingAccount),
         status: 'needs-password-setup',
       }
     }
 
+    await this.persist()
     throw new Error('Для этого аккаунта уже задан пароль. Войдите по паролю.')
   }
 
   async registerAccount(payload: RegisterBody, accessContext?: Omit<SessionAccessContext, 'source'>): Promise<AppSnapshot> {
-    const normalizedIdentifier = normalizeIdentifier(payload.identifier)
+    const normalizedIdentifier = normalizeSmsPhoneE164(payload.identifier)
+    if (!normalizedIdentifier) {
+      throw new Error('Проверь номер телефона.')
+    }
     if (!isAllowedTestPhone(normalizedIdentifier)) {
       throw new Error(RESTRICTED_TEST_PHONE_MESSAGE)
     }
 
-    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code, 'registration')
+    let challenge: OtpChallenge
+    try {
+      challenge = payload.continuationToken
+        ? this.assertOtpContinuation(normalizedIdentifier, payload.continuationToken, 'register')
+        : this.consumeOtpCode(normalizedIdentifier, payload.code, 'register')
+    } catch (error) {
+      await this.persist()
+      throw error
+    }
 
     if (this.findAccount(normalizedIdentifier)) {
       throw new Error('Аккаунт уже существует. Попробуйте войти.')
     }
 
-    if (challenge.purpose !== 'registration') {
+    if (challenge.purpose !== 'register') {
       throw new Error('Для этого шага нужен код подтверждения регистрации.')
     }
 
@@ -5214,7 +5385,7 @@ export class TinychokStore {
       source: 'register',
       userAgent: accessContext?.userAgent,
     })
-    this.clearChallenge(normalizedIdentifier, challenge.purpose)
+    this.clearOtpContinuation(challenge.id)
     await this.persist()
 
     return this.buildSnapshot(nextAccount, token)
@@ -5279,15 +5450,26 @@ export class TinychokStore {
     payload: SetPasswordBody,
     accessContext?: Omit<SessionAccessContext, 'source'>,
   ): Promise<{ broadcastIdentifiers: string[]; revokedTokens: string[]; snapshot: AppSnapshot }> {
-    const normalizedIdentifier = normalizeIdentifier(payload.identifier)
-    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code, 'password-setup')
+    const normalizedIdentifier = normalizeSmsPhoneE164(payload.identifier)
+    if (!normalizedIdentifier) {
+      throw new Error('Проверь номер телефона.')
+    }
+    let challenge: OtpChallenge
+    try {
+      challenge = payload.continuationToken
+        ? this.assertOtpContinuation(normalizedIdentifier, payload.continuationToken, 'password_setup')
+        : this.consumeOtpCode(normalizedIdentifier, payload.code, 'password_setup')
+    } catch (error) {
+      await this.persist()
+      throw error
+    }
     const existingAccount = this.findAccount(normalizedIdentifier)
 
     if (!existingAccount) {
       throw new Error('Аккаунт с таким номером не найден.')
     }
 
-    if (challenge.purpose !== 'password-setup') {
+    if (challenge.purpose !== 'password_setup') {
       throw new Error('Для этого шага нужен код подтверждения установки пароля.')
     }
 
@@ -5306,7 +5488,7 @@ export class TinychokStore {
       source: 'password-setup',
       userAgent: accessContext?.userAgent,
     })
-    this.clearChallenge(normalizedIdentifier, challenge.purpose)
+    this.clearOtpContinuation(challenge.id)
     await this.persist()
     return {
       broadcastIdentifiers: revocation.broadcastIdentifiers,
@@ -5319,15 +5501,26 @@ export class TinychokStore {
     payload: ResetPasswordBody,
     accessContext?: Omit<SessionAccessContext, 'source'>,
   ): Promise<{ broadcastIdentifiers: string[]; revokedTokens: string[]; snapshot: AppSnapshot }> {
-    const normalizedIdentifier = normalizeIdentifier(payload.identifier)
-    const challenge = this.assertValidChallenge(normalizedIdentifier, payload.code, 'password-reset')
+    const normalizedIdentifier = normalizeSmsPhoneE164(payload.identifier)
+    if (!normalizedIdentifier) {
+      throw new Error('Проверь номер телефона.')
+    }
+    let challenge: OtpChallenge
+    try {
+      challenge = payload.continuationToken
+        ? this.assertOtpContinuation(normalizedIdentifier, payload.continuationToken, 'reset_password')
+        : this.consumeOtpCode(normalizedIdentifier, payload.code, 'reset_password')
+    } catch (error) {
+      await this.persist()
+      throw error
+    }
     const existingAccount = this.findAccount(normalizedIdentifier)
 
     if (!existingAccount) {
       throw new Error('Аккаунт с таким номером не найден.')
     }
 
-    if (challenge.purpose !== 'password-reset') {
+    if (challenge.purpose !== 'reset_password') {
       throw new Error('Для этого шага нужен код подтверждения сброса пароля.')
     }
 
@@ -5342,7 +5535,7 @@ export class TinychokStore {
       source: 'password-reset',
       userAgent: accessContext?.userAgent,
     })
-    this.clearChallenge(normalizedIdentifier, challenge.purpose)
+    this.clearOtpContinuation(challenge.id)
     await this.persist()
     return {
       broadcastIdentifiers: revocation.broadcastIdentifiers,
@@ -5427,7 +5620,7 @@ export class TinychokStore {
 
     this.revokeSessionsForIdentifier(liveIdentifier)
     this.clearPasswordLoginAttempts(liveIdentifier)
-    this.clearChallenge(liveIdentifier)
+    this.cancelOtpChallenges(liveIdentifier)
     this.rewriteAccountIdentifierReferences(liveIdentifier, archivedIdentifier)
     const deletionImpact = this.applyOwnedEntityDeletionPolicy(archivedIdentifier, {
       archivedAt: deletedAt,
@@ -5889,7 +6082,7 @@ export class TinychokStore {
   }
 
   private cleanupExpiredAuthCodeSendAttempts(now = Date.now()) {
-    const cutoffTimestamp = now - AUTH_CODE_DAILY_WINDOW_MS
+    const cutoffTimestamp = now - SMS_OTP_DAILY_WINDOW_MS
     const nextAttempts = this.database.authCodeSendAttempts.filter((attempt) => {
       const createdAt = parseIsoDate(attempt.createdAt)
       return createdAt !== null && createdAt >= cutoffTimestamp
@@ -5903,21 +6096,38 @@ export class TinychokStore {
     return true
   }
 
+  private cleanupExpiredOtpChallenges(now = Date.now()) {
+    let didMutate = false
+
+    for (const challenge of this.database.otpChallenges) {
+      if (challenge.status !== 'pending') {
+        continue
+      }
+
+      const expiresAt = parseIsoDate(challenge.expiresAt)
+      if (expiresAt === null || expiresAt > now) {
+        continue
+      }
+
+      challenge.status = 'expired'
+      challenge.updatedAt = new Date(now).toISOString()
+      didMutate = true
+    }
+
+    return didMutate
+  }
+
   private getAuthCodeSendRateLimitError(identifier: string, ip?: string | null, now = Date.now()) {
-    const normalizedIdentifier = normalizeIdentifier(identifier)
+    const normalizedIdentifier = normalizeSmsPhoneE164(identifier)
     if (!normalizedIdentifier) {
       return null
     }
 
     const sanitizedIp = sanitizeIpAddress(ip ?? undefined)
-    const hourlyCutoffTimestamp = now - AUTH_CODE_HOURLY_WINDOW_MS
-    const dailyCutoffTimestamp = now - AUTH_CODE_DAILY_WINDOW_MS
+    const dailyCutoffTimestamp = now - SMS_OTP_DAILY_WINDOW_MS
     let latestIdentifierAttemptTimestamp: number | null = null
-    let identifierHourlyCount = 0
     let identifierDailyCount = 0
-    let ipHourlyCount = 0
     let ipDailyCount = 0
-    let globalDailyCount = 0
 
     for (const attempt of this.database.authCodeSendAttempts) {
       const createdAt = parseIsoDate(attempt.createdAt)
@@ -5925,13 +6135,8 @@ export class TinychokStore {
         continue
       }
 
-      globalDailyCount += 1
-
       if (attempt.identifier === normalizedIdentifier) {
         identifierDailyCount += 1
-        if (createdAt >= hourlyCutoffTimestamp) {
-          identifierHourlyCount += 1
-        }
         if (latestIdentifierAttemptTimestamp === null || createdAt > latestIdentifierAttemptTimestamp) {
           latestIdentifierAttemptTimestamp = createdAt
         }
@@ -5939,9 +6144,6 @@ export class TinychokStore {
 
       if (sanitizedIp && attempt.ip === sanitizedIp) {
         ipDailyCount += 1
-        if (createdAt >= hourlyCutoffTimestamp) {
-          ipHourlyCount += 1
-        }
       }
     }
 
@@ -5952,19 +6154,11 @@ export class TinychokStore {
       return new HttpError(429, AUTH_CODE_COOLDOWN_MESSAGE)
     }
 
-    if (
-      identifierHourlyCount >= authRequestCodeLimits.identifierHourlyLimit ||
-      identifierDailyCount >= authRequestCodeLimits.identifierDailyLimit ||
-      globalDailyCount >= authRequestCodeLimits.globalDailyLimit
-    ) {
+    if (identifierDailyCount >= smsOtpConfig.maxSendsPerPhonePerDay) {
       return new HttpError(429, AUTH_CODE_RATE_LIMITED_MESSAGE)
     }
 
-    if (
-      sanitizedIp &&
-      (ipHourlyCount >= authRequestCodeLimits.ipHourlyLimit ||
-        ipDailyCount >= authRequestCodeLimits.ipDailyLimit)
-    ) {
+    if (sanitizedIp && ipDailyCount >= smsOtpConfig.maxSendsPerIpPerDay) {
       return new HttpError(429, AUTH_CODE_RATE_LIMITED_MESSAGE)
     }
 
@@ -6107,8 +6301,8 @@ export class TinychokStore {
       }
     }
 
-    this.database.authChallenges = this.database.authChallenges.filter(
-      (challenge) => challenge.identifier !== liveIdentifier,
+    this.database.otpChallenges = this.database.otpChallenges.filter(
+      (challenge) => challenge.phoneE164 !== liveIdentifier,
     )
     this.database.passwordAuthAttempts = this.database.passwordAuthAttempts.filter(
       (attempt) => attempt.identifier !== liveIdentifier,
@@ -14264,36 +14458,199 @@ export class TinychokStore {
     }
   }
 
-  private assertValidChallenge(
-    identifier: string,
-    code: string,
-    expectedPurpose?: AuthChallengePurpose | AuthChallengePurpose[],
+  private getSmsOtpHashSecret() {
+    const secret = smsOtpConfig.hashSecret?.trim()
+    if (!secret) {
+      throw new HttpError(503, AUTH_CODE_PROVIDER_NOT_CONFIGURED_MESSAGE)
+    }
+
+    return secret
+  }
+
+  private generateOtpCode() {
+    return generateSmsOtpCode(smsOtpConfig.length)
+  }
+
+  private createOtpChallengeRecord(options: {
+    clientIp: string
+    code: string
+    createdAt: string
+    phoneE164: string
+    purpose: OtpChallengePurpose
+    resendCount: number
+    userAgent?: string
+  }): OtpChallenge {
+    const secret = this.getSmsOtpHashSecret()
+    return {
+      attemptsCount: 0,
+      clientIp: options.clientIp,
+      codeHash: buildSmsOtpHash(options.code, options.phoneE164, options.purpose, secret),
+      codeLength: smsOtpConfig.length,
+      createdAt: options.createdAt,
+      expiresAt: new Date(Date.parse(options.createdAt) + smsOtpTtlMs).toISOString(),
+      id: randomUUID(),
+      phoneE164: options.phoneE164,
+      provider: 'sms_ru',
+      purpose: options.purpose,
+      resendCount: options.resendCount,
+      status: 'pending',
+      updatedAt: options.createdAt,
+      userAgent: options.userAgent,
+    }
+  }
+
+  private getLatestOtpChallengeResendCount(phoneE164: string, purpose: OtpChallengePurpose) {
+    return this.database.otpChallenges.reduce((highest, challenge) => {
+      if (challenge.phoneE164 !== phoneE164 || challenge.purpose !== purpose) {
+        return highest
+      }
+
+      return Math.max(highest, challenge.resendCount)
+    }, -1)
+  }
+
+  private findLatestOtpChallenge(
+    phoneE164: string,
+    expectedPurpose?: OtpChallengePurpose | OtpChallengePurpose[],
   ) {
     const allowedPurposes = expectedPurpose
       ? Array.isArray(expectedPurpose)
         ? expectedPurpose
         : [expectedPurpose]
       : null
-    const challenge = this.database.authChallenges.find(
-      (item) =>
-        item.identifier === identifier &&
-        (allowedPurposes === null || allowedPurposes.includes(item.purpose)),
-    )
+    let latest: OtpChallenge | null = null
+    let latestTimestamp = -1
+
+    for (const challenge of this.database.otpChallenges) {
+      if (challenge.phoneE164 !== phoneE164) {
+        continue
+      }
+      if (allowedPurposes !== null && !allowedPurposes.includes(challenge.purpose)) {
+        continue
+      }
+
+      const createdAt = Date.parse(challenge.createdAt)
+      if (!Number.isFinite(createdAt)) {
+        continue
+      }
+      if (createdAt > latestTimestamp) {
+        latest = challenge
+        latestTimestamp = createdAt
+      }
+    }
+
+    return latest
+  }
+
+  private cancelOtpChallenges(phoneE164: string, purpose?: OtpChallengePurpose | OtpChallengePurpose[]) {
+    const allowedPurposes = purpose
+      ? Array.isArray(purpose)
+        ? purpose
+        : [purpose]
+      : null
+    const nowIso = new Date().toISOString()
+
+    for (const challenge of this.database.otpChallenges) {
+      if (challenge.phoneE164 !== phoneE164 || challenge.status !== 'pending') {
+        continue
+      }
+      if (allowedPurposes !== null && !allowedPurposes.includes(challenge.purpose)) {
+        continue
+      }
+
+      challenge.status = 'cancelled'
+      challenge.updatedAt = nowIso
+    }
+  }
+
+  private consumeOtpCode(
+    phoneE164: string,
+    code: string,
+    expectedPurpose?: OtpChallengePurpose | OtpChallengePurpose[],
+  ) {
+    const challenge = this.findLatestOtpChallenge(phoneE164, expectedPurpose)
 
     if (!challenge) {
       throw new Error('Сначала запросите код подтверждения.')
     }
 
-    if (new Date(challenge.expiresAt).getTime() <= Date.now()) {
-      this.clearChallenge(identifier, challenge.purpose)
+    const nowIso = new Date().toISOString()
+    const expiresAt = Date.parse(challenge.expiresAt)
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      challenge.status = 'expired'
+      challenge.updatedAt = nowIso
       throw new Error('Код истёк. Запросите новый.')
     }
 
-    if (challenge.code !== code.trim()) {
-      throw new Error('Неверный код из SMS.')
+    if (challenge.status === 'blocked') {
+      throw new Error(AUTH_CODE_BLOCKED_MESSAGE)
+    }
+
+    if (challenge.status !== 'pending') {
+      throw new Error('Сначала запросите код подтверждения.')
+    }
+
+    const secret = this.getSmsOtpHashSecret()
+    if (!verifySmsOtpHash(code.trim(), challenge.phoneE164, challenge.purpose, secret, challenge.codeHash)) {
+      challenge.attemptsCount += 1
+      challenge.updatedAt = nowIso
+      if (challenge.attemptsCount >= smsOtpConfig.maxVerifyAttempts) {
+        challenge.blockedAt = nowIso
+        challenge.status = 'blocked'
+        throw new Error(AUTH_CODE_BLOCKED_MESSAGE)
+      }
+
+      throw new Error(AUTH_CODE_INVALID_MESSAGE)
+    }
+
+    challenge.status = 'used'
+    challenge.usedAt = nowIso
+    challenge.updatedAt = nowIso
+    return challenge
+  }
+
+  private issueOtpContinuationToken(challenge: OtpChallenge) {
+    const secret = this.getSmsOtpHashSecret()
+    const token = generateSmsOtpContinuationToken()
+    const nowIso = new Date().toISOString()
+    challenge.continuationExpiresAt = new Date(Date.now() + SMS_OTP_CONTINUATION_TTL_MS).toISOString()
+    challenge.continuationTokenHash = buildOpaqueTokenHash(token, secret)
+    challenge.updatedAt = nowIso
+    return token
+  }
+
+  private assertOtpContinuation(
+    phoneE164: string,
+    continuationToken: string,
+    expectedPurpose?: OtpChallengePurpose | OtpChallengePurpose[],
+  ) {
+    const challenge = this.findLatestOtpChallenge(phoneE164, expectedPurpose)
+    if (!challenge || challenge.status !== 'used' || !challenge.continuationTokenHash) {
+      throw new Error('Сначала подтвердите код из SMS.')
+    }
+
+    const expiresAt = parseIsoDate(challenge.continuationExpiresAt)
+    if (expiresAt === null || expiresAt <= Date.now()) {
+      throw new Error('Подтверждение по SMS истекло. Запросите новый код.')
+    }
+
+    const secret = this.getSmsOtpHashSecret()
+    if (!verifyOpaqueTokenHash(continuationToken.trim(), secret, challenge.continuationTokenHash)) {
+      throw new Error('Сначала подтвердите код из SMS.')
     }
 
     return challenge
+  }
+
+  private clearOtpContinuation(challengeId: string) {
+    const challenge = this.database.otpChallenges.find((item) => item.id === challengeId)
+    if (!challenge) {
+      return
+    }
+
+    delete challenge.continuationExpiresAt
+    delete challenge.continuationTokenHash
+    challenge.updatedAt = new Date().toISOString()
   }
 
   private getFrozenPrimaryMediaUrlsForOwner(
@@ -18506,19 +18863,6 @@ export class TinychokStore {
     }
   }
 
-  private clearChallenge(identifier: string, purpose?: AuthChallengePurpose | AuthChallengePurpose[]) {
-    const allowedPurposes = purpose
-      ? Array.isArray(purpose)
-        ? purpose
-        : [purpose]
-      : null
-    this.database.authChallenges = this.database.authChallenges.filter(
-      (challenge) =>
-        challenge.identifier !== identifier ||
-        (allowedPurposes !== null && !allowedPurposes.includes(challenge.purpose)),
-    )
-  }
-
   private async createSessionToken(identifier: string, accessContext?: SessionAccessContext) {
     const account = this.findAccount(identifier)
     if (account) {
@@ -21390,11 +21734,11 @@ function applyProductionFixtureCleanup(database: Database) {
     didMutate = true
   }
 
-  const nextAuthChallenges = database.authChallenges.filter(
-    (challenge) => !testAccountIdentifiers.has(challenge.identifier),
+  const nextOtpChallenges = database.otpChallenges.filter(
+    (challenge) => !testAccountIdentifiers.has(challenge.phoneE164),
   )
-  if (nextAuthChallenges.length !== database.authChallenges.length) {
-    database.authChallenges = nextAuthChallenges
+  if (nextOtpChallenges.length !== database.otpChallenges.length) {
+    database.otpChallenges = nextOtpChallenges
     didMutate = true
   }
 
@@ -22306,6 +22650,9 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>): {
   }
 
   const normalized = parsed as Partial<Database>
+  const legacyAuthChallenges = Array.isArray((parsed as LegacyDatabase).authChallenges)
+    ? (parsed as LegacyDatabase).authChallenges ?? []
+    : []
   const normalizedAccounts = (normalized.accounts ?? []).map((account) => ({
     ...account,
     accountId: account.accountId?.trim() || randomUUID(),
@@ -22376,15 +22723,59 @@ function normalizeDatabasePayload(parsed: Partial<Database | LegacyDatabase>): {
           ip: sanitizeIpAddress(attempt.ip) ?? undefined,
         }))
         .filter((attempt) => Boolean(attempt.identifier && parseIsoDate(attempt.createdAt) !== null)),
-      authChallenges: (normalized.authChallenges ?? []).map((challenge) => ({
-        ...challenge,
-        purpose:
-          challenge.purpose === 'admin' ||
-          challenge.purpose === 'password-reset' ||
-          challenge.purpose === 'password-setup'
-            ? challenge.purpose
-            : 'registration',
-      })),
+      otpChallenges: [...(normalized.otpChallenges ?? []), ...legacyAuthChallenges.map(migrateLegacyAuthChallenge)]
+        .map((challenge): OtpChallenge => ({
+          attemptsCount: Math.max(0, Number.parseInt(String(challenge.attemptsCount ?? 0), 10) || 0),
+          blockedAt: challenge.blockedAt || undefined,
+          clientIp: sanitizeIpAddress(challenge.clientIp) ?? '',
+          codeHash: String(challenge.codeHash ?? '').trim(),
+          codeLength: challenge.codeLength === 4 ? 4 : 6,
+          continuationExpiresAt: challenge.continuationExpiresAt || undefined,
+          continuationTokenHash: String(challenge.continuationTokenHash ?? '').trim() || undefined,
+          createdAt: challenge.createdAt,
+          expiresAt: challenge.expiresAt,
+          id: String(challenge.id ?? randomUUID()).trim() || randomUUID(),
+          lastSentAt: challenge.lastSentAt || undefined,
+          phoneE164:
+            normalizeSmsPhoneE164(challenge.phoneE164) || normalizeIdentifier(challenge.phoneE164 ?? ''),
+          provider: 'sms_ru',
+          providerMessageId: String(challenge.providerMessageId ?? '').trim() || undefined,
+          providerStatus: String(challenge.providerStatus ?? '').trim() || undefined,
+          providerStatusCode:
+            Number.isInteger(challenge.providerStatusCode) ? challenge.providerStatusCode : undefined,
+          purpose:
+            challenge.purpose === 'admin' ||
+            challenge.purpose === 'login' ||
+            challenge.purpose === 'password_setup' ||
+            challenge.purpose === 'register' ||
+            challenge.purpose === 'reset_password'
+              ? challenge.purpose
+              : 'register',
+          resendCount: Math.max(0, Number.parseInt(String(challenge.resendCount ?? 0), 10) || 0),
+          status:
+            challenge.status === 'pending' ||
+            challenge.status === 'used' ||
+            challenge.status === 'expired' ||
+            challenge.status === 'blocked' ||
+            challenge.status === 'cancelled' ||
+            challenge.status === 'send_failed'
+              ? challenge.status
+              : 'expired',
+          updatedAt: challenge.updatedAt || challenge.createdAt,
+          usedAt: challenge.usedAt || undefined,
+          userAgent: sanitizeUserAgent(challenge.userAgent) ?? undefined,
+        }))
+        .filter(
+          (challenge) =>
+            Boolean(
+              challenge.id &&
+              challenge.phoneE164 &&
+              challenge.codeHash &&
+              parseIsoDate(challenge.createdAt) !== null &&
+              parseIsoDate(challenge.expiresAt) !== null &&
+              parseIsoDate(challenge.updatedAt) !== null,
+            ),
+        ),
       contactLinks: (normalized.contactLinks ?? [])
         .map((link): ContactLink => {
           const pair = buildCanonicalContactPair(link.leftIdentifier, link.rightIdentifier)

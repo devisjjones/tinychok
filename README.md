@@ -97,7 +97,10 @@ npm run start:server
 - `TINYCHOK_MEDIA_BACKEND=local|object-storage` для выбора media backend;
 - `TINYCHOK_CAPTCHA_PROVIDER`, `TINYCHOK_CAPTCHA_SITE_KEY`, `TINYCHOK_CAPTCHA_SECRET_KEY` обязательны в `staging` и `production`;
 - `TINYCHOK_ALLOWED_TEST_PHONES=+79990000001,+79990000002` для закрытия staging по списку тестовых номеров;
-- `TINYCHOK_AUTH_CODE_IDENTIFIER_COOLDOWN_SECONDS`, `TINYCHOK_AUTH_CODE_IDENTIFIER_HOURLY_LIMIT`, `TINYCHOK_AUTH_CODE_IDENTIFIER_DAILY_LIMIT`, `TINYCHOK_AUTH_CODE_IP_HOURLY_LIMIT`, `TINYCHOK_AUTH_CODE_IP_DAILY_LIMIT`, `TINYCHOK_AUTH_CODE_GLOBAL_DAILY_LIMIT` для server-side защиты SMS auth-flow;
+- `SMS_RU_API_ID`, `SMS_RU_BASE_URL`, `SMS_OTP_HASH_SECRET`, `SMS_OTP_TEMPLATE` для `sms.ru` OTP-провайдера;
+- `SMS_OTP_LENGTH=4|6`, `SMS_OTP_TTL_SECONDS=300`, `SMS_OTP_RESEND_COOLDOWN_SECONDS=60`, `SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY=5`, `SMS_OTP_MAX_SENDS_PER_IP_PER_DAY=10`, `SMS_OTP_MAX_VERIFY_ATTEMPTS=3` для server-side ограничений SMS OTP;
+- `SMS_OTP_TEST_MODE=true|false` включает `test=1` для staging/dev smoke без реальной доставки; в production должен оставаться `false`;
+- `TINYCHOK_TRUST_PROXY=true` обязателен на staging/production, чтобы backend брал реальный client IP из доверенного proxy chain, а не IP VM;
 - `VITE_API_BASE_URL` и `VITE_WS_BASE_URL` для раздельных frontend/backend доменов;
 - `PUBLIC_API_URL` и `PUBLIC_MEDIA_BASE_URL` для корректных media URL в snapshot и upload response;
 - `POSTGRES_*` и `OBJECT_STORAGE_*` как текущий deploy-конфиг backend.
@@ -121,12 +124,18 @@ npm run start:server
   - `needs-sms-registration`
   - `needs-sms-password-setup`
   - `needs-sms-reset`
-- `POST /api/auth/request-code` теперь валидирует `entryPoint`/`flow`, режет abuse по server-side cooldown/quotas и возвращает `429` при превышении лимитов
+- `POST /api/auth/request-code` теперь валидирует `entryPoint`/`flow`, режет abuse по server-side cooldown/quotas, создаёт не больше одного активного OTP challenge на `phone + purpose` и возвращает `429` при превышении лимитов
 - `POST /api/auth/login-password` логинит существующий аккаунт без SMS
 - `POST /api/auth/verify-code` проверяет код и решает следующий шаг:
   - `needs-profile-and-password`
   - `needs-password-setup`
   - `needs-password-reset`
+- `POST /api/auth/verify-code` и `POST /api/auth/sms/verify` одноразово потребляют OTP, сразу переводят challenge в `used` и выдают continuation token для последующего `register` / `set-password` / `reset-password`
+- `POST /api/auth/sms/request` и `POST /api/auth/sms/resend` — явный SMS OTP API поверх того же auth subsystem:
+  - captcha обязательна перед отправкой
+  - код хранится только как HMAC hash
+  - `sms.ru` вызывается без `from`
+  - в `sms.ru` уходит публичный IP конечного пользователя
 - admin auth-flow по SMS доступен только существующим `staff`-аккаунтам; non-staff не может получить admin session через `entryPoint=admin`
 - `POST /api/auth/register` создаёт новый аккаунт сразу с паролем и seed state
   - новый аккаунт создаётся как free-tier аккаунт без `premiumExpiresAt`
@@ -148,6 +157,27 @@ npm run start:server
 - `POST /api/dialogs/:dialogId/messages` теперь поддерживает attachment metadata и attachment-only сообщения
 - direct room уже рендерит image/file attachments из стабильных `/uploads/...` URL
 - `POST /api/groups` создаёт новую группу
+
+## SMS OTP Local Runbook
+
+- базовая конфигурация для `sms.ru`:
+  - `SMS_RU_API_ID=<real api id>`
+  - `SMS_OTP_HASH_SECRET=<long random secret>`
+  - `SMS_RU_BASE_URL=https://sms.ru`
+  - `SMS_OTP_TEMPLATE=Ваш код: {CODE}`
+- staging/dev smoke без реальной доставки:
+  - включить `SMS_OTP_TEST_MODE=true`
+  - `sms.ru` примет запрос с `test=1`, но живую SMS не отправит
+- локальный `127.0.0.1` runtime не подходит для реальной ручной отправки:
+  - backend отклоняет private / loopback IP
+  - plain local browser или curl с `127.0.0.1` не пройдут public-IP guard по дизайну
+- поэтому локально есть два валидных способа проверки:
+  - автоматический happy-path: `node --test --import tsx server/src/sms-otp.test.ts`
+  - staging/dev за публичным proxy с `SMS_OTP_TEST_MODE=true` для smoke самого provider path без доставки
+- полный локальный запуск:
+  - `npm install`
+  - `npm run dev`
+  - для backend отдельно можно использовать `npm run dev:server`
 - `POST /api/groups/:groupId/messages` отправляет сообщение в группу и теперь тоже поддерживает attachment metadata и attachment-only сообщения
 - `POST /api/groups/:groupId/read` помечает группу прочитанной
 - `POST /api/channels` создаёт управляемый канал

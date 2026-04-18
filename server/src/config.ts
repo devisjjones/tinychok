@@ -9,6 +9,8 @@ type AnalyticsProvider = 'disabled' | 'log' | 'clickhouse'
 type PaymentProvider = 'disabled' | 'yookassa'
 type RuntimeEnv = NodeJS.ProcessEnv | Record<string, string | undefined>
 
+import { readSmsOtpLength } from './sms-otp'
+
 function normalizeBaseUrl(value: string | undefined) {
   const trimmed = value?.trim()
   if (!trimmed) return null
@@ -214,6 +216,33 @@ function assertPaymentsConfiguration(config: {
   }
 }
 
+function assertSmsOtpConfiguration(config: {
+  auth: {
+    smsOtp: {
+      apiId: string | null
+      hashSecret: string | null
+      provider: 'disabled' | 'sms_ru'
+      template: string
+    }
+  }
+}) {
+  if (config.auth.smsOtp.provider !== 'sms_ru') {
+    return
+  }
+
+  if (!config.auth.smsOtp.apiId) {
+    throw new Error('SMS.ru api id обязателен, когда включена SMS OTP авторизация.')
+  }
+
+  if (!config.auth.smsOtp.hashSecret) {
+    throw new Error('SMS OTP hash secret обязателен, когда включена SMS OTP авторизация.')
+  }
+
+  if (!config.auth.smsOtp.template.includes('{CODE}')) {
+    throw new Error('SMS OTP template должен содержать плейсхолдер {CODE}.')
+  }
+}
+
 export function createRuntimeConfig(env: RuntimeEnv = process.env) {
   const runtimeEnvironment = readEnvironment(env.TINYCHOK_APP_ENV ?? env.NODE_ENV)
   const captchaProvider = readCaptchaProvider(env.TINYCHOK_CAPTCHA_PROVIDER)
@@ -279,6 +308,30 @@ export function createRuntimeConfig(env: RuntimeEnv = process.env) {
 
   assertPaymentsConfiguration({ payments })
 
+  const smsOtpApiId = readOptionalString(env.SMS_RU_API_ID)
+  const smsOtp = {
+    apiId: smsOtpApiId,
+    baseUrl: normalizeBaseUrl(env.SMS_RU_BASE_URL) ?? 'https://sms.ru',
+    hashSecret:
+      readOptionalString(env.SMS_OTP_HASH_SECRET) ??
+      (runtimeEnvironment === 'development' ? 'dev-sms-otp-secret' : null),
+    length: readSmsOtpLength(env.SMS_OTP_LENGTH, 6),
+    maxSendsPerIpPerDay: readPositiveInteger(env.SMS_OTP_MAX_SENDS_PER_IP_PER_DAY, 10),
+    maxSendsPerPhonePerDay: readPositiveInteger(env.SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY, 5),
+    maxVerifyAttempts: readPositiveInteger(env.SMS_OTP_MAX_VERIFY_ATTEMPTS, 3),
+    provider: smsOtpApiId ? ('sms_ru' as const) : ('disabled' as const),
+    resendCooldownSeconds: readPositiveInteger(env.SMS_OTP_RESEND_COOLDOWN_SECONDS, 60),
+    template: readOptionalString(env.SMS_OTP_TEMPLATE) ?? 'Ваш код: {CODE}',
+    testMode: readBoolean(env.SMS_OTP_TEST_MODE, false),
+    ttlSeconds: readPositiveInteger(env.SMS_OTP_TTL_SECONDS, 300),
+  }
+
+  assertSmsOtpConfiguration({
+    auth: {
+      smsOtp,
+    },
+  })
+
   return {
     environment: runtimeEnvironment,
     publicUrls: {
@@ -302,23 +355,7 @@ export function createRuntimeConfig(env: RuntimeEnv = process.env) {
     auth: {
       allowedTestPhones: readStringList(env.TINYCHOK_ALLOWED_TEST_PHONES),
       captcha,
-      requestCodeLimits: {
-        globalDailyLimit: readPositiveInteger(env.TINYCHOK_AUTH_CODE_GLOBAL_DAILY_LIMIT, 500),
-        identifierCooldownSeconds: readPositiveInteger(
-          env.TINYCHOK_AUTH_CODE_IDENTIFIER_COOLDOWN_SECONDS,
-          60,
-        ),
-        identifierDailyLimit: readPositiveInteger(
-          env.TINYCHOK_AUTH_CODE_IDENTIFIER_DAILY_LIMIT,
-          5,
-        ),
-        identifierHourlyLimit: readPositiveInteger(
-          env.TINYCHOK_AUTH_CODE_IDENTIFIER_HOURLY_LIMIT,
-          3,
-        ),
-        ipDailyLimit: readPositiveInteger(env.TINYCHOK_AUTH_CODE_IP_DAILY_LIMIT, 20),
-        ipHourlyLimit: readPositiveInteger(env.TINYCHOK_AUTH_CODE_IP_HOURLY_LIMIT, 10),
-      },
+      smsOtp,
     },
     analytics,
     payments,

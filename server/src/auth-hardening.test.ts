@@ -4,6 +4,7 @@ import type { AuthEntrypoint, AuthRequestCodeFlow } from '../../src/shared/backe
 import { parseRequestCodeBody, parseVerifyCodeBody } from './auth-route-validation'
 import { createRuntimeConfig } from './config'
 import { HttpError } from './http-error'
+import { buildSmsOtpHash, type SmsOtpSender } from './sms-otp'
 import {
   coerceDatabasePayload,
   TinychokStore,
@@ -11,10 +12,26 @@ import {
 } from './store'
 
 const originalConsoleInfo = console.info
+const testSmsOtpHashSecret = createRuntimeConfig({ NODE_ENV: 'development' }).auth.smsOtp.hashSecret!
 
 function createStore() {
   const { database } = coerceDatabasePayload(undefined)
-  return TinychokStore.create(database, async () => undefined)
+  const sentCodes = new Map<string, string[]>()
+  const smsOtpSender: SmsOtpSender = async ({ code, phoneE164 }) => {
+    const nextCodes = [...(sentCodes.get(phoneE164) ?? []), code]
+    sentCodes.set(phoneE164, nextCodes)
+    return {
+      provider: 'sms_ru',
+      providerMessageId: `sms-${nextCodes.length}`,
+      providerStatus: 'OK',
+      providerStatusCode: 100,
+    }
+  }
+
+  return {
+    sentCodes,
+    store: TinychokStore.create(database, async () => undefined, { smsOtpSender }),
+  }
 }
 
 function isoMsAgo(milliseconds: number) {
@@ -23,6 +40,32 @@ function isoMsAgo(milliseconds: number) {
 
 function getStoreDatabase(store: TinychokStore) {
   return (store as unknown as Record<string, Database>)['database']
+}
+
+function getSentCode(sentCodes: Map<string, string[]>, identifier: string, index = 0) {
+  const codes = sentCodes.get(identifier) ?? []
+  return codes[index] ?? null
+}
+
+function createOtpChallenge(identifier: string, purpose: 'admin' | 'register' | 'password_setup' | 'reset_password', code = '111111') {
+  return {
+    attemptsCount: 0,
+    clientIp: '93.184.216.34',
+    codeHash: buildSmsOtpHash(code, identifier, purpose, testSmsOtpHashSecret),
+    codeLength: 6 as const,
+    createdAt: '2026-03-28T00:00:00.000Z',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    id: `otp-${identifier}-${purpose}`,
+    lastSentAt: '2026-03-28T00:00:00.000Z',
+    phoneE164: identifier,
+    provider: 'sms_ru' as const,
+    providerStatus: 'OK',
+    providerStatusCode: 100,
+    purpose,
+    resendCount: 0,
+    status: 'pending' as const,
+    updatedAt: '2026-03-28T00:00:00.000Z',
+  }
 }
 
 function createAccount(identifier: string, options?: { passwordHash?: string; staffRole?: 'owner' | 'moderator' | 'support' }) {
@@ -91,7 +134,7 @@ test('request/verify auth parsers reject unknown enum values', () => {
 })
 
 test('requestCode enforces per-identifier cooldown', async () => {
-  const store = createStore()
+  const { store } = createStore()
 
   await store.requestCode('+79990000001')
   await assert.rejects(
@@ -100,22 +143,8 @@ test('requestCode enforces per-identifier cooldown', async () => {
   )
 })
 
-test('requestCode enforces per-identifier hourly limit', async () => {
-  const store = createStore()
-  const database = getStoreDatabase(store)
-
-  await seedSuccessfulRequest(store, database, '+79990000001', isoMsAgo(55 * 60 * 1000))
-  await seedSuccessfulRequest(store, database, '+79990000001', isoMsAgo(35 * 60 * 1000))
-  await seedSuccessfulRequest(store, database, '+79990000001', isoMsAgo(15 * 60 * 1000))
-
-  await assert.rejects(
-    () => store.requestCode('+79990000001'),
-    (error) => error instanceof HttpError && error.statusCode === 429,
-  )
-})
-
-test('requestCode enforces per-identifier daily limit outside hourly window', async () => {
-  const store = createStore()
+test('requestCode enforces per-identifier daily limit', async () => {
+  const { store } = createStore()
   const database = getStoreDatabase(store)
 
   await seedSuccessfulRequest(store, database, '+79990000001', isoMsAgo(23 * 60 * 60 * 1000))
@@ -130,8 +159,8 @@ test('requestCode enforces per-identifier daily limit outside hourly window', as
   )
 })
 
-test('requestCode enforces per-ip hourly and daily limits', async () => {
-  const store = createStore()
+test('requestCode enforces per-ip daily limit', async () => {
+  const { store } = createStore()
   const database = getStoreDatabase(store)
   const ip = '198.51.100.10'
 
@@ -140,7 +169,7 @@ test('requestCode enforces per-ip hourly and daily limits', async () => {
       store,
       database,
       `+799900001${String(index).padStart(2, '0')}`,
-      isoMsAgo((59 - index) * 60 * 1000),
+      isoMsAgo((23 - index) * 60 * 60 * 1000),
       { ip },
     )
   }
@@ -149,46 +178,10 @@ test('requestCode enforces per-ip hourly and daily limits', async () => {
     () => store.requestCode('+79990000200', { ip }),
     (error) => error instanceof HttpError && error.statusCode === 429,
   )
-
-  database.authCodeSendAttempts = []
-
-  for (let index = 0; index < 20; index += 1) {
-    await seedSuccessfulRequest(
-      store,
-      database,
-      `+799900003${String(index).padStart(2, '0')}`,
-      isoMsAgo((23 - index) * 60 * 60 * 1000),
-      { ip },
-    )
-  }
-
-  await assert.rejects(
-    () => store.requestCode('+79990000400', { ip }),
-    (error) => error instanceof HttpError && error.statusCode === 429,
-  )
-})
-
-test('requestCode enforces global daily limit', async () => {
-  const store = createStore()
-  const database = getStoreDatabase(store)
-
-  for (let index = 0; index < 500; index += 1) {
-    await seedSuccessfulRequest(
-      store,
-      database,
-      `+79991${String(index).padStart(6, '0')}`,
-      isoMsAgo(((index % 24) * 60 * 60 * 1000) + ((index % 60) * 60 * 1000)),
-    )
-  }
-
-  await assert.rejects(
-    () => store.requestCode('+79991999999'),
-    (error) => error instanceof HttpError && error.statusCode === 429,
-  )
 })
 
 test('admin requestCode is staff-only while user password flow still skips SMS', async () => {
-  const store = createStore()
+  const { store } = createStore()
   const database = getStoreDatabase(store)
 
   database.accounts.push(
@@ -209,7 +202,7 @@ test('admin requestCode is staff-only while user password flow still skips SMS',
 })
 
 test('blocked user requestCode returns blocked without creating sms challenge', async () => {
-  const store = createStore()
+  const { store } = createStore()
   const database = getStoreDatabase(store)
 
   database.accounts.push({
@@ -220,12 +213,12 @@ test('blocked user requestCode returns blocked without creating sms challenge', 
 
   const response = await store.requestCode('+79990000014', { entryPoint: 'user' })
   assert.equal(response.status, 'blocked')
-  assert.equal(database.authChallenges.length, 0)
+  assert.equal(database.otpChallenges.length, 0)
   assert.equal(database.authCodeSendAttempts.length, 0)
 })
 
 test('admin auth challenge survives parallel user auth challenge for the same identifier', async () => {
-  const store = createStore()
+  const { sentCodes, store } = createStore()
   const database = getStoreDatabase(store)
 
   database.accounts.push(createAccount('+79990000015', { staffRole: 'owner' }))
@@ -243,39 +236,34 @@ test('admin auth challenge survives parallel user auth challenge for the same id
   })
   assert.equal(userResponse.status, 'needs-sms-password-setup')
   assert.equal(
-    database.authChallenges.filter((challenge) => challenge.identifier === '+79990000015').length,
+    database.otpChallenges.filter((challenge) => challenge.phoneE164 === '+79990000015').length,
     2,
   )
 
-  const verifyResponse = await store.verifyCode('+79990000015', '1111', {
+  const verifyResponse = await store.verifyCode('+79990000015', getSentCode(sentCodes, '+79990000015', 0) ?? '', {
     accessContext: { ip: '203.0.113.15', userAgent: 'test' },
     entryPoint: 'admin',
   })
   assert.equal(verifyResponse.status, 'authenticated')
   assert.equal(
-    database.authChallenges.some(
+    database.otpChallenges.some(
       (challenge) =>
-        challenge.identifier === '+79990000015' && challenge.purpose === 'password-setup',
+        challenge.phoneE164 === '+79990000015' && challenge.purpose === 'password_setup',
     ),
     true,
   )
 })
 
 test('admin verifyCode never authenticates non-staff account', async () => {
-  const store = createStore()
+  const { store } = createStore()
   const database = getStoreDatabase(store)
 
   database.accounts.push(createAccount('+79990000003'))
-  database.authChallenges.push({
-    code: '1111',
-    expiresAt: '2099-01-01T00:00:00.000Z',
-    identifier: '+79990000003',
-    purpose: 'admin',
-  })
+  database.otpChallenges.push(createOtpChallenge('+79990000003', 'admin'))
 
   await assert.rejects(
     () =>
-      store.verifyCode('+79990000003', '1111', {
+      store.verifyCode('+79990000003', '111111', {
         accessContext: { ip: '203.0.113.11', userAgent: 'test' },
         entryPoint: 'admin',
       }),
@@ -286,7 +274,7 @@ test('admin verifyCode never authenticates non-staff account', async () => {
 })
 
 test('registration, password reset and staff admin login happy paths remain valid', async () => {
-  const store = createStore()
+  const { sentCodes, store } = createStore()
   const database = getStoreDatabase(store)
 
   const registrationResponse = await store.requestCode('+79990000011')
@@ -300,7 +288,7 @@ test('registration, password reset and staff admin login happy paths remain vali
   const adminRequestResponse = await store.requestCode('+79990000013', { entryPoint: 'admin', ip: '203.0.113.12' })
   assert.equal(adminRequestResponse.status, 'code-sent')
 
-  const adminVerifyResponse = await store.verifyCode('+79990000013', '1111', {
+  const adminVerifyResponse = await store.verifyCode('+79990000013', getSentCode(sentCodes, '+79990000013', 0) ?? '', {
     accessContext: { ip: '203.0.113.12', userAgent: 'test' },
     entryPoint: 'admin',
   })

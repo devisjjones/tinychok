@@ -1734,6 +1734,7 @@ function App() {
   const [displayName, setDisplayName] = useState('')
   const [identifier, setIdentifier] = useState('')
   const [smsCode, setSmsCode] = useState('')
+  const [authContinuationToken, setAuthContinuationToken] = useState<string | null>(null)
   const [authPassword, setAuthPassword] = useState('')
   const [authPasswordConfirm, setAuthPasswordConfirm] = useState('')
   const [authCodeFlow, setAuthCodeFlow] = useState<UserAuthAnalyticsFlow>('registration')
@@ -6347,6 +6348,7 @@ function App() {
       setAuthExistingAccount(response.existingAccount)
       setAuthBlockedNoticeOpen(false)
       setPasswordLoginCaptchaRequired(false)
+      setAuthContinuationToken(null)
       if (phoneStepCaptchaActive) {
         trackAnalyticsEvent('auth_captcha_completed', {
           context: authCodeFlow === 'password-reset' ? 'password-reset' : 'phone',
@@ -6373,6 +6375,7 @@ function App() {
         setAuthPassword('')
         setAuthPasswordConfirm('')
         setSmsCode('')
+        setAuthContinuationToken(null)
         setAuthStep('phone')
         trackAnalyticsEvent('auth_code_request_failed', {
           blocked: true,
@@ -6393,6 +6396,7 @@ function App() {
       setAuthError('')
       setAuthPhoneBlockedNotice(false)
       setSmsCode('')
+      setAuthContinuationToken(null)
       setAuthStep('code')
       if (nextFlow === 'password-reset') {
         trackAnalyticsEvent('auth_password_reset_code_requested', {
@@ -6446,6 +6450,7 @@ function App() {
       setAuthPassword('')
       setAuthPasswordConfirm('')
       setSmsCode('')
+      setAuthContinuationToken(null)
       setAuthStep('phone')
       setAuthError('Подтвердите номер через SmartCaptcha, чтобы сбросить пароль.')
       resetCaptcha()
@@ -6475,6 +6480,7 @@ function App() {
         applySnapshot(response.snapshot)
         setBackendReady(true)
         setAuthError('')
+        setAuthContinuationToken(null)
         setAuthPassword('')
         setAuthPasswordConfirm('')
         trackAnalyticsEvent('auth_code_verify_succeeded', {
@@ -6488,6 +6494,7 @@ function App() {
       setAuthPassword('')
       setAuthPasswordConfirm('')
       setPasswordLoginCaptchaRequired(false)
+      setAuthContinuationToken(response.continuationToken ?? null)
 
       if (response.status === 'needs-profile-and-password') {
         setAuthExistingAccount(null)
@@ -6617,6 +6624,7 @@ function App() {
       const response = await registerAccount({
         code: smsCode.trim(),
         confirmPassword: authPasswordConfirm,
+        continuationToken: authContinuationToken ?? undefined,
         displayName: trimmedName,
         identifier: normalized,
         password: authPassword,
@@ -6625,6 +6633,7 @@ function App() {
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthError('')
+      setAuthContinuationToken(null)
       setAuthPassword('')
       setAuthPasswordConfirm('')
       trackAnalyticsEvent('auth_registration_succeeded', {})
@@ -6645,6 +6654,7 @@ function App() {
       const response = await setPassword({
         code: smsCode.trim(),
         confirmPassword: authPasswordConfirm,
+        continuationToken: authContinuationToken ?? undefined,
         identifier: normalized,
         password: authPassword,
       })
@@ -6652,6 +6662,7 @@ function App() {
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthError('')
+      setAuthContinuationToken(null)
       setAuthPassword('')
       setAuthPasswordConfirm('')
       trackAnalyticsEvent('auth_password_set_succeeded', {
@@ -6674,6 +6685,7 @@ function App() {
       const response = await resetPassword({
         code: smsCode.trim(),
         confirmPassword: authPasswordConfirm,
+        continuationToken: authContinuationToken ?? undefined,
         identifier: normalized,
         password: authPassword,
       })
@@ -6681,6 +6693,7 @@ function App() {
       applySnapshot(response.snapshot)
       setBackendReady(true)
       setAuthError('')
+      setAuthContinuationToken(null)
       setAuthPassword('')
       setAuthPasswordConfirm('')
       trackAnalyticsEvent('auth_password_reset_succeeded', {

@@ -33,7 +33,7 @@ test('staging does not treat seeded mock phone as disposable fixture account', (
       threadStates: [],
       adminAuditLogs: [],
       adminReports: [],
-      authChallenges: [],
+      otpChallenges: [],
       authCodeSendAttempts: [],
       contactReports: [],
       dialogMessages: [],

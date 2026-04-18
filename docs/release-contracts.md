@@ -107,6 +107,36 @@
   - автоматическое дотягивание статуса через `/api/premium/purchases/:purchaseId`
   - фактическая выдача premium после `succeeded`
 
+### 3.2. SMS OTP / sms.ru Contract
+
+- если live env включает SMS OTP, обязательны:
+  - `SMS_RU_API_ID`
+  - `SMS_RU_BASE_URL=https://sms.ru`
+  - `SMS_OTP_HASH_SECRET`
+  - `SMS_OTP_LENGTH=4|6`
+  - `SMS_OTP_TTL_SECONDS=300`
+  - `SMS_OTP_RESEND_COOLDOWN_SECONDS=60`
+  - `SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY=5`
+  - `SMS_OTP_MAX_SENDS_PER_IP_PER_DAY=10`
+  - `SMS_OTP_MAX_VERIFY_ATTEMPTS=3`
+  - `SMS_OTP_TEMPLATE` с обязательным плейсхолдером `{CODE}`
+- staging может использовать `SMS_OTP_TEST_MODE=true` для smoke provider path без живой доставки
+- production не должен запускаться с `SMS_OTP_TEST_MODE=true`
+- backend не должен передавать `from` в `sms.ru`
+- backend не должен использовать IP сервера вместо IP пользователя:
+  - `TINYCHOK_TRUST_PROXY=true` обязателен на staging / production
+  - если public client IP не определён, SMS flow обязан падать, а не silently bypass-ить защиту
+- runtime contract для auth OTP:
+  - `POST /api/auth/request-code`
+  - `POST /api/auth/verify-code`
+  - `POST /api/auth/sms/request`
+  - `POST /api/auth/sms/verify`
+  - `POST /api/auth/sms/resend`
+- OTP код одноразовый:
+  - backend хранит только hash
+  - после успешного verify challenge обязан немедленно стать `used`
+  - повторный resend должен отменять старый pending challenge только после успешного accept от provider
+
 ### 4. Staging Access Contract
 
 - базовый контракт: `staging.tinychok.ru` и `admin.staging.tinychok.ru` закрыты через `nginx basic auth`

@@ -59,3 +59,47 @@ export function parseVerifyCodeBody(value: unknown): VerifyCodeBody & {
     identifier: readOptionalString(body.identifier) ?? '',
   }
 }
+
+export type SmsOtpApiPurpose = 'login' | 'register' | 'reset_password'
+
+function parseSmsOtpApiPurpose(value: unknown): SmsOtpApiPurpose {
+  if (value === undefined || value === null || value === 'login') {
+    return 'login'
+  }
+
+  if (value === 'register' || value === 'reset_password') {
+    return value
+  }
+
+  throw new HttpError(400, 'Некорректный сценарий SMS OTP авторизации.')
+}
+
+export function parseSmsRequestBody(value: unknown) {
+  const body = (value ?? {}) as {
+    captchaToken?: string
+    phone?: string
+    purpose?: SmsOtpApiPurpose
+  }
+
+  return {
+    captchaToken: readOptionalString(body.captchaToken),
+    phone: readOptionalString(body.phone) ?? '',
+    purpose: parseSmsOtpApiPurpose(body.purpose),
+  }
+}
+
+export function parseSmsVerifyBody(value: unknown) {
+  const body = (value ?? {}) as {
+    challengeId?: string
+    code?: string
+    phone?: string
+    purpose?: SmsOtpApiPurpose
+  }
+
+  return {
+    challengeId: readOptionalString(body.challengeId),
+    code: readOptionalString(body.code) ?? '',
+    phone: readOptionalString(body.phone) ?? '',
+    purpose: parseSmsOtpApiPurpose(body.purpose),
+  }
+}

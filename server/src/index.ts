@@ -78,7 +78,13 @@ import {
 } from '../../src/shared/constants'
 import { ingestAnalyticsBatch, parseAnalyticsBatch } from './analytics'
 import { registerAdminRoutes } from './admin-routes'
-import { parseRequestCodeBody, parseVerifyCodeBody } from './auth-route-validation'
+import {
+  parseRequestCodeBody,
+  parseSmsRequestBody,
+  parseSmsVerifyBody,
+  parseVerifyCodeBody,
+  type SmsOtpApiPurpose,
+} from './auth-route-validation'
 import { verifyCaptchaOrThrow } from './captcha'
 import { runtimeConfig } from './config'
 import { getErrorStatusCode } from './http-error'
@@ -107,6 +113,13 @@ function sendError(reply: FastifyReply, error: unknown) {
 
 function parseJsonPayload<T>(value: unknown) {
   return (value ?? {}) as T
+}
+
+function mapSmsOtpPurposeToRequestOptions(purpose: SmsOtpApiPurpose) {
+  return {
+    entryPoint: 'user' as const,
+    flow: purpose === 'reset_password' ? ('password-reset' as const) : ('default' as const),
+  }
 }
 
 function getNumericRouteParam(request: FastifyRequest, key: string) {
@@ -604,7 +617,36 @@ app.post('/api/auth/request-code', async (request, reply) => {
       entryPoint,
       flow,
       ip: request.ip,
+      userAgent: request.headers['user-agent'],
     })
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/auth/sms/request', async (request, reply) => {
+  try {
+    const body = parseSmsRequestBody(request.body)
+    await verifyCaptchaOrThrow({
+      action: 'auth.request-code',
+      remoteIp: request.ip,
+      token: body.captchaToken,
+    })
+
+    const response = await store.requestCode(body.phone, {
+      ...mapSmsOtpPurposeToRequestOptions(body.purpose),
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+    })
+
+    return {
+      challengeId: 'challengeId' in response ? response.challengeId : undefined,
+      cooldownSeconds:
+        'cooldownSeconds' in response && typeof response.cooldownSeconds === 'number'
+          ? response.cooldownSeconds
+          : runtimeConfig.auth.smsOtp.resendCooldownSeconds,
+      success: true,
+    }
   } catch (error) {
     return sendError(reply, error)
   }
@@ -620,6 +662,62 @@ app.post('/api/auth/verify-code', async (request, reply) => {
       },
       entryPoint: body.entryPoint,
     })
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/auth/sms/verify', async (request, reply) => {
+  try {
+    const body = parseSmsVerifyBody(request.body)
+    const response = await store.verifyCode(body.phone, body.code, {
+      accessContext: {
+        ip: request.ip,
+        userAgent: request.headers['user-agent'],
+      },
+      entryPoint: 'user',
+    })
+
+    if (response.status === 'authenticated') {
+      return {
+        accessToken: response.snapshot.session.sessionToken,
+        refreshToken: null,
+        success: true,
+      }
+    }
+
+    return {
+      continuationToken: response.continuationToken ?? null,
+      nextStep: response.status,
+      success: true,
+    }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.post('/api/auth/sms/resend', async (request, reply) => {
+  try {
+    const body = parseSmsRequestBody(request.body)
+    await verifyCaptchaOrThrow({
+      action: 'auth.request-code',
+      remoteIp: request.ip,
+      token: body.captchaToken,
+    })
+
+    const response = await store.requestCode(body.phone, {
+      ...mapSmsOtpPurposeToRequestOptions(body.purpose),
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+    })
+
+    return {
+      cooldownSeconds:
+        'cooldownSeconds' in response && typeof response.cooldownSeconds === 'number'
+          ? response.cooldownSeconds
+          : runtimeConfig.auth.smsOtp.resendCooldownSeconds,
+      success: true,
+    }
   } catch (error) {
     return sendError(reply, error)
   }

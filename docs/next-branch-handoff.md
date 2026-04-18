@@ -1009,6 +1009,30 @@
 - password-login защищён server-side lockout по связке `identifier + ip`
 - после `3` неверных password attempts следующий login по этой связке требует SmartCaptcha прямо на шаге пароля
 - после `password-setup` и `password-reset` все старые bearer sessions пользователя отзываются; активной остаётся только новая сессия текущего входа
+- SMS OTP provider теперь только `sms.ru`:
+  - код одноразовый, живёт `5 минут`
+  - длина кода задаётся через `SMS_OTP_LENGTH` и сейчас допускает только `4` или `6`
+  - в базе хранится только `code_hash`, plaintext код не сохраняется
+  - после успешного `verify-code` challenge сразу уходит в `used`, а дальнейший `register` / `set-password` / `reset-password` опирается на continuation token
+  - повторная отправка создаёт новый challenge и отменяет старый только после успешного accept от `sms.ru`
+  - `from` в provider request не используется вообще
+  - в provider request уходит публичный IP конечного пользователя; при отсутствии валидного public IP backend режет отправку
+- обязательные env для SMS OTP:
+  - `SMS_RU_API_ID`
+  - `SMS_RU_BASE_URL`
+  - `SMS_OTP_HASH_SECRET`
+  - `SMS_OTP_LENGTH`
+  - `SMS_OTP_TTL_SECONDS`
+  - `SMS_OTP_RESEND_COOLDOWN_SECONDS`
+  - `SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY`
+  - `SMS_OTP_MAX_SENDS_PER_IP_PER_DAY`
+  - `SMS_OTP_MAX_VERIFY_ATTEMPTS`
+  - `SMS_OTP_TEMPLATE`
+  - `SMS_OTP_TEST_MODE`
+- staging caveat по SMS:
+  - для smoke без живой доставки можно держать `SMS_OTP_TEST_MODE=true`
+  - production должен идти с `SMS_OTP_TEST_MODE=false`
+  - `TINYCHOK_TRUST_PROXY=true` обязателен, иначе backend не увидит корректный client IP для `sms.ru`
 - в `Настройки -> Управление` доступны:
   - `Сменить пароль`
   - `Удалить аккаунт`

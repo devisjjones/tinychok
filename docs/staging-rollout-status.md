@@ -785,6 +785,24 @@ curl -s https://api.staging.tinychok.ru/healthz
 - backend отвечает `status: ok`
 - user auth показывает support email `tinychok.help@yandex.com` внизу auth-экрана
 - user login и admin login показывают SmartCaptcha на шаге запроса SMS
+- staging SMS OTP smoke тоже release-blocking:
+  - обязательные env на VM:
+    - `SMS_RU_API_ID`
+    - `SMS_RU_BASE_URL=https://sms.ru`
+    - `SMS_OTP_HASH_SECRET`
+    - `SMS_OTP_LENGTH=4|6`
+    - `SMS_OTP_TTL_SECONDS=300`
+    - `SMS_OTP_RESEND_COOLDOWN_SECONDS=60`
+    - `SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY=5`
+    - `SMS_OTP_MAX_SENDS_PER_IP_PER_DAY=10`
+    - `SMS_OTP_MAX_VERIFY_ATTEMPTS=3`
+    - `SMS_OTP_TEMPLATE=Ваш код: {CODE}`
+    - `SMS_OTP_TEST_MODE`
+    - `TINYCHOK_TRUST_PROXY=true`
+  - staging не должен передавать `from` в `sms.ru`
+  - staging не должен подставлять IP VM вместо client IP пользователя
+  - если backend не может вытащить публичный client IP из trusted proxy chain, `/api/auth/request-code` и `/api/auth/sms/request` должны падать понятной продуктовой ошибкой, а не отправлять SMS от IP сервера
+  - при `SMS_OTP_TEST_MODE=true` provider path smoke считается валидным даже без живой доставки SMS
 - user auth поддерживает password-login:
   - новый аккаунт после SMS обязан задать пароль
   - существующий аккаунт с паролем после ввода номера идёт сразу на password-step без SMS
@@ -829,6 +847,12 @@ curl -s https://api.staging.tinychok.ru/healthz
 ## Manual Smoke Checklist
 
 - login на staging под allowlist номером
+- SMS OTP smoke:
+  - `POST /api/auth/request-code` или `POST /api/auth/sms/request` под allowlist номером из публичного браузера
+  - повторный запрос в пределах `60 секунд` обязан вернуть `429`
+  - после `3` неверных verify attempts challenge должен блокироваться
+  - новый resend после cooldown должен отменять предыдущий pending challenge
+  - при `SMS_OTP_TEST_MODE=false` должна приходить ровно одна SMS без `from`, без ссылок и без лишнего текста
 - login по паролю на существующем аккаунте
 - открыть длинный direct, получить новое входящее в уже открытый room, выйти из комнаты:
   - unread badge не должен появляться на уже прочитанном сообщении

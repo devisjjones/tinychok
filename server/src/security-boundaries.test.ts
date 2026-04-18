@@ -6,7 +6,10 @@ import {
   type Database,
 } from './store'
 import { hashPassword } from './auth-security'
+import { buildSmsOtpHash } from './sms-otp'
 import { formatPreview, normalizeQuietModeSettings } from '../../src/shared/utils'
+
+const testSmsOtpHashSecret = 'dev-sms-otp-secret'
 
 function createStore() {
   const { database } = coerceDatabasePayload(undefined)
@@ -784,15 +787,27 @@ test('password reset revokes prior sessions and issues a fresh session', async (
   const account = createAccount('+79991110202')
   database.accounts.push(account)
   const oldToken = createSession(database, account.identifier, 'reset-old')
-  database.authChallenges.push({
-    code: '1111',
+  database.otpChallenges.push({
+    attemptsCount: 0,
+    clientIp: '93.184.216.34',
+    codeHash: buildSmsOtpHash('111111', account.identifier, 'reset_password', testSmsOtpHashSecret),
+    codeLength: 6,
+    createdAt: '2026-03-28T00:00:00.000Z',
     expiresAt: '2099-01-01T00:00:00.000Z',
-    identifier: account.identifier,
-    purpose: 'password-reset',
+    id: 'otp-reset',
+    lastSentAt: '2026-03-28T00:00:00.000Z',
+    phoneE164: account.identifier,
+    provider: 'sms_ru',
+    providerStatus: 'OK',
+    providerStatusCode: 100,
+    purpose: 'reset_password',
+    resendCount: 0,
+    status: 'pending',
+    updatedAt: '2026-03-28T00:00:00.000Z',
   })
 
   const result = await store.resetPasswordAfterCode({
-    code: '1111',
+    code: '111111',
     confirmPassword: 'StrongPass123',
     identifier: account.identifier,
     password: 'StrongPass123',

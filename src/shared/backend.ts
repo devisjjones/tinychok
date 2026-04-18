@@ -659,6 +659,8 @@ export type RequestCodeResponse =
     }
   | {
       delivery: 'sms'
+      challengeId?: string
+      cooldownSeconds?: number
       existingAccount: ExistingAccountPreview | null
       expiresAt: string
       hasPassword: boolean
@@ -677,6 +679,7 @@ export type VerifyCodeResponse =
       status: 'authenticated'
     }
   | {
+      continuationToken?: string
       existingAccount: ExistingAccountPreview | null
       status: 'needs-password-reset' | 'needs-password-setup' | 'needs-profile-and-password'
     }
@@ -685,6 +688,7 @@ export type RegisterBody = {
   captchaToken?: string
   code: string
   confirmPassword: string
+  continuationToken?: string
   displayName: string
   identifier: string
   password: string
@@ -707,6 +711,7 @@ export type LoginPasswordResponse = {
 export type SetPasswordBody = {
   code: string
   confirmPassword: string
+  continuationToken?: string
   identifier: string
   password: string
 }
@@ -718,6 +723,7 @@ export type SetPasswordResponse = {
 export type ResetPasswordBody = {
   code: string
   confirmPassword: string
+  continuationToken?: string
   identifier: string
   password: string
 }
