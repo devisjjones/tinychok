@@ -1360,6 +1360,14 @@
   gap: 12px;
 }
 
+.chat-card.channel-list-card .chat-topline,
+.chat-card.group-list-card .chat-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
 .chat-card.channel-list-card .avatar,
 .chat-card.group-list-card .avatar {
   width: 56px;
@@ -1370,6 +1378,16 @@
 
 .chat-card.group-list-card .chat-copy {
   gap: 2px;
+}
+
+.chat-card.channel-list-card .chat-name-row,
+.chat-card.group-list-card .chat-name-row {
+  flex-wrap: nowrap;
+}
+
+.chat-card.channel-list-card .chat-name-text,
+.chat-card.group-list-card .chat-name-text {
+  flex: 1 1 auto;
 }
 
 .chat-card.group-list-card .group-preview-row {

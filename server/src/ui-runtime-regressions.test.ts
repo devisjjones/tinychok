@@ -843,8 +843,20 @@ test('group and channel left-rail cards share avatar layout and group previews u
   )
   assert.match(appCss, /\.chat-card\.dialog-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;[\s\S]*border-radius:\s*20px;/u)
   assert.match(appCss, /\.chat-card\.channel-list-card,\s*[\r\n]+\s*\.chat-card\.group-list-card\s*\{[\s\S]*padding:\s*9px 14px 9px 10px;[\s\S]*gap:\s*12px;/u)
+  assert.match(
+    appCss,
+    /\.chat-card\.channel-list-card \.chat-topline,\s*[\r\n]+\s*\.chat-card\.group-list-card \.chat-topline\s*\{[\s\S]*display:\s*grid;[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto;[\s\S]*align-items:\s*start;/u,
+  )
   assert.match(appCss, /\.chat-card\.channel-list-card \.avatar,\s*[\r\n]+\s*\.chat-card\.group-list-card \.avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;/u)
   assert.match(appCss, /\.chat-card\.group-list-card \.chat-copy\s*\{[\s\S]*gap:\s*2px;/u)
+  assert.match(
+    appCss,
+    /\.chat-card\.channel-list-card \.chat-name-row,\s*[\r\n]+\s*\.chat-card\.group-list-card \.chat-name-row\s*\{[\s\S]*flex-wrap:\s*nowrap;/u,
+  )
+  assert.match(
+    appCss,
+    /\.chat-card\.channel-list-card \.chat-name-text,\s*[\r\n]+\s*\.chat-card\.group-list-card \.chat-name-text\s*\{[\s\S]*flex:\s*1 1 auto;/u,
+  )
   assert.match(appCss, /\.chat-card\.group-list-card \.group-preview-row\s*\{[\s\S]*display:\s*flex;[\s\S]*align-items:\s*center;/u)
   assert.match(appCss, /\.chat-card\.group-list-card \.group-preview-author-avatar\s*\{[\s\S]*width:\s*18px;[\s\S]*height:\s*18px;/u)
   assert.match(appCss, /\.chat-card\.group-list-card \.chat-handle,\s*[\r\n]+\s*\.chat-card\.group-list-card \.chat-preview\s*\{[\s\S]*line-height:\s*1\.2;/u)
@@ -856,6 +868,19 @@ test('group and channel left-rail cards share avatar layout and group previews u
   assert.match(releaseDoc, /group\/channel cards в левом списке должны использовать одинаковую avatar-геометрию/u)
   assert.match(releaseDoc, /### 11\.1\.3\. Direct Dialog Left Rail Avatar Contract/u)
   assert.match(releaseDoc, /direct dialog cards в левом списке должны использовать отдельный [`']?dialog-list-card[`']? avatar-slot/u)
+})
+
+test('group and channel left-rail time meta stays pinned to the top line even when name badges are present', () => {
+  const appCss = readFileSync(join(process.cwd(), 'src', 'App.css'), 'utf8')
+
+  assert.match(
+    appCss,
+    /\.chat-card\.channel-list-card \.chat-topline,\s*[\r\n]+\s*\.chat-card\.group-list-card \.chat-topline\s*\{[\s\S]*align-items:\s*start;/u,
+  )
+  assert.match(
+    appCss,
+    /\.chat-card\.channel-list-card \.chat-name-row,\s*[\r\n]+\s*\.chat-card\.group-list-card \.chat-name-row\s*\{[\s\S]*flex-wrap:\s*nowrap;/u,
+  )
 })
 
 test('direct dialog cards keep compact preview layout and lighter dark-theme surface', () => {
