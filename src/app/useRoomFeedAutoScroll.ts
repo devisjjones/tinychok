@@ -3,6 +3,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   type RefObject,
 } from 'react'
 
@@ -16,6 +17,7 @@ import {
 import {
   classifyRoomFeedChange,
   isRoomFeedNearBottom,
+  shouldShowJumpToLatestRoomFeedButton,
   shouldAutoScrollRoomFeed,
   type RoomFeedIntent,
   type RoomFeedSignature,
@@ -51,6 +53,7 @@ export function useRoomFeedAutoScroll(options: {
   const lastHandledPrependMutationSeqRef = useRef(0)
   const pendingRoomFeedScrollRef = useRef<PendingRoomFeedScroll | null>(null)
   const pendingRoomFeedScrollFrameRef = useRef<number | null>(null)
+  const [showJumpToLatestRoomFeedButton, setShowJumpToLatestRoomFeedButton] = useState(false)
 
   function buildRoomFeedPendingScroll(
     roomKey: string,
@@ -108,9 +111,19 @@ export function useRoomFeedAutoScroll(options: {
     })
   }, [cancelPendingRoomFeedScrollFrame, runPendingRoomFeedScroll])
 
+  const syncJumpToLatestRoomFeedButton = useCallback((feed: HTMLDivElement | HTMLElement | null) => {
+    if (!activeRoomFeedKey || !feed) {
+      setShowJumpToLatestRoomFeedButton(false)
+      return
+    }
+
+    setShowJumpToLatestRoomFeedButton(shouldShowJumpToLatestRoomFeedButton(feed))
+  }, [activeRoomFeedKey])
+
   const requestRoomFeedScrollToBottom = useCallback((intent: RoomFeedIntent) => {
     roomFeedIntentRef.current = intent
     shouldStickRoomFeedToBottomRef.current = true
+    setShowJumpToLatestRoomFeedButton(false)
 
     if (!activeRoomFeedKey) {
       return
@@ -119,6 +132,26 @@ export function useRoomFeedAutoScroll(options: {
     const reason: RoomFeedScrollReason = intent === 'local-send' ? 'local-send' : 'room-open'
     schedulePendingRoomFeedScroll(buildRoomFeedPendingScroll(activeRoomFeedKey, reason))
   }, [activeRoomFeedKey, schedulePendingRoomFeedScroll])
+
+  const jumpRoomFeedToBottom = useCallback(() => {
+    const feed = feedRef.current
+    roomFeedIntentRef.current = 'room-open'
+    shouldStickRoomFeedToBottomRef.current = true
+    setShowJumpToLatestRoomFeedButton(false)
+
+    if (feed) {
+      feed.scrollTo({
+        behavior: 'smooth',
+        top: feed.scrollHeight,
+      })
+    }
+
+    if (!activeRoomFeedKey) {
+      return
+    }
+
+    schedulePendingRoomFeedScroll(buildRoomFeedPendingScroll(activeRoomFeedKey, 'room-open'))
+  }, [activeRoomFeedKey, feedRef, schedulePendingRoomFeedScroll])
 
   useEffect(() => {
     if (!activeRoomFeedKey || !feedRef.current) return
@@ -135,6 +168,7 @@ export function useRoomFeedAutoScroll(options: {
 
       const isNearBottom = isRoomFeedNearBottom(feed)
       shouldStickRoomFeedToBottomRef.current = isNearBottom
+      syncJumpToLatestRoomFeedButton(feed)
 
       if (!isNearBottom) {
         pendingRoomFeedScrollRef.current = null
@@ -148,13 +182,14 @@ export function useRoomFeedAutoScroll(options: {
     return () => {
       feed.removeEventListener('scroll', updateStickyState)
     }
-  }, [activeRoomFeedKey, cancelPendingRoomFeedScrollFrame, feedRef])
+  }, [activeRoomFeedKey, cancelPendingRoomFeedScrollFrame, feedRef, syncJumpToLatestRoomFeedButton])
 
   useLayoutEffect(() => {
     if (!activeRoomFeedKey) {
       previousRoomFeedRef.current = { roomKey: null, signature: null }
       pendingRoomFeedScrollRef.current = null
       roomFeedIntentRef.current = null
+      setShowJumpToLatestRoomFeedButton(false)
       cancelPendingRoomFeedScrollFrame()
       return
     }
@@ -217,6 +252,10 @@ export function useRoomFeedAutoScroll(options: {
     schedulePendingRoomFeedScroll,
   ])
 
+  useLayoutEffect(() => {
+    syncJumpToLatestRoomFeedButton(feedRef.current)
+  }, [activeRoomFeedKey, activeRoomFeedSignature, feedRef, syncJumpToLatestRoomFeedButton])
+
   useEffect(() => {
     if (!activeRoomFeedKey || !feedRef.current) return
 
@@ -269,6 +308,8 @@ export function useRoomFeedAutoScroll(options: {
   }, [cancelPendingRoomFeedScrollFrame])
 
   return {
+    jumpRoomFeedToBottom,
     requestRoomFeedScrollToBottom,
+    showJumpToLatestRoomFeedButton,
   }
 }

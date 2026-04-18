@@ -44,6 +44,7 @@ import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
 import { RoomComposer } from '../components/RoomComposer'
+import { RoomJumpToLatestButton } from '../components/RoomJumpToLatestButton'
 import { ThreadedBubble } from '../components/ThreadedBubble'
 
 type GroupSystemEventActor = NonNullable<NonNullable<Message['groupSystemEvent']>['actor']>
@@ -161,7 +162,9 @@ type GroupRoomProps = {
   replyTarget: ReplyTarget | null
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
   composerDisabledNotice?: string | null
+  onJumpToLatest?: () => void
   onEditCancel: () => void
+  showJumpToLatestButton?: boolean
   onSubmit: () => void | Promise<void>
   storageCleanupWarning?: ReactNode
 }
@@ -214,7 +217,9 @@ export function GroupRoom({
   replyTarget,
   resolveLinkedChannelFromMessage,
   composerDisabledNotice,
+  onJumpToLatest,
   onEditCancel,
+  showJumpToLatestButton = false,
   onSubmit,
   storageCleanupWarning = null,
 }: GroupRoomProps) {
@@ -773,6 +778,10 @@ export function GroupRoom({
             )
           })}
         </div>
+
+        {showJumpToLatestButton && onJumpToLatest ? (
+          <RoomJumpToLatestButton onClick={onJumpToLatest} />
+        ) : null}
 
         {composerDisabledNotice ? (
           <div className="composer composer-disabled">

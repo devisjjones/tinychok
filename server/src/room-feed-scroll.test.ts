@@ -5,6 +5,7 @@ import {
   buildRoomFeedSignature,
   classifyRoomFeedChange,
   isRoomFeedNearBottom,
+  shouldShowJumpToLatestRoomFeedButton,
   shouldAutoScrollRoomFeed,
 } from '../../src/app/roomFeedScroll'
 
@@ -117,6 +118,33 @@ test('near-bottom helper uses sticky threshold for live feeds', () => {
       clientHeight: 400,
       scrollHeight: 1000,
       scrollTop: 500,
+    }),
+    false,
+  )
+})
+
+test('jump-to-latest helper appears only when the room feed is scrolled away from the latest items', () => {
+  assert.equal(
+    shouldShowJumpToLatestRoomFeedButton({
+      clientHeight: 400,
+      scrollHeight: 1000,
+      scrollTop: 500,
+    }),
+    true,
+  )
+  assert.equal(
+    shouldShowJumpToLatestRoomFeedButton({
+      clientHeight: 400,
+      scrollHeight: 1000,
+      scrollTop: 540,
+    }),
+    false,
+  )
+  assert.equal(
+    shouldShowJumpToLatestRoomFeedButton({
+      clientHeight: 400,
+      scrollHeight: 430,
+      scrollTop: 0,
     }),
     false,
   )

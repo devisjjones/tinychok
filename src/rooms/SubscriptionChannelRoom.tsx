@@ -23,6 +23,7 @@ import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
 import { RoomComposer } from '../components/RoomComposer'
+import { RoomJumpToLatestButton } from '../components/RoomJumpToLatestButton'
 import { ThreadedBubble } from '../components/ThreadedBubble'
 
 type SubscriptionChannelRoomProps = {
@@ -77,7 +78,9 @@ type SubscriptionChannelRoomProps = {
     label: string
     onClick: () => void
   }
+  onJumpToLatest?: () => void
   showOwnerEditIcon?: boolean
+  showJumpToLatestButton?: boolean
   subscriberCountLabel: string
 }
 
@@ -97,7 +100,9 @@ export function SubscriptionChannelRoom({
   onPostSelect,
   onReplyReferenceJump,
   publisher,
+  onJumpToLatest,
   showOwnerEditIcon,
+  showJumpToLatestButton = false,
   subscriberCountLabel,
   subscriptionAction,
 }: SubscriptionChannelRoomProps) {
@@ -399,6 +404,9 @@ export function SubscriptionChannelRoom({
             )
           })}
         </div>
+        {showJumpToLatestButton && onJumpToLatest ? (
+          <RoomJumpToLatestButton onClick={onJumpToLatest} />
+        ) : null}
         {publisher ? (
           <RoomComposer
             attachmentDraft={publisherAttachmentDraft}

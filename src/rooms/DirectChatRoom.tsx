@@ -37,6 +37,7 @@ import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
 import { RoomComposer } from '../components/RoomComposer'
+import { RoomJumpToLatestButton } from '../components/RoomJumpToLatestButton'
 
 type DirectChatComposerGate =
   | {
@@ -118,6 +119,8 @@ type DirectChatRoomProps = {
   gifLibrary?: UserGifLibraryItem[]
   gifSelectionBlockedReason?: string | null
   resolveLinkedChannelFromMessage: (message: Message) => ChannelMessageSource | null
+  onJumpToLatest?: () => void
+  showJumpToLatestButton?: boolean
   onSubmit: () => void | Promise<void>
   onToggleChatActions: () => void
   onToggleFavoriteChat: () => void
@@ -185,6 +188,8 @@ export function DirectChatRoom({
   gifSelectionBlockedReason = null,
   premiumUnlocked = false,
   resolveLinkedChannelFromMessage,
+  onJumpToLatest,
+  showJumpToLatestButton = false,
   onSubmit,
   onToggleChatActions,
   onToggleFavoriteChat,
@@ -913,6 +918,10 @@ export function DirectChatRoom({
           </div>
         ) : null}
       </div>
+
+      {showJumpToLatestButton && onJumpToLatest ? (
+        <RoomJumpToLatestButton onClick={onJumpToLatest} />
+      ) : null}
 
       {effectiveComposerDisabledNotice ? (
         <div className="composer composer-disabled">

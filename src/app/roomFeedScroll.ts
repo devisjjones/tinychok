@@ -29,6 +29,17 @@ export function isRoomFeedNearBottom(
   return distanceToBottom <= threshold
 }
 
+export function shouldShowJumpToLatestRoomFeedButton(
+  metrics: Pick<HTMLElement, 'clientHeight' | 'scrollHeight' | 'scrollTop'>,
+  threshold = 64,
+) {
+  if (metrics.scrollHeight <= metrics.clientHeight + threshold) {
+    return false
+  }
+
+  return !isRoomFeedNearBottom(metrics, threshold)
+}
+
 export function classifyRoomFeedChange(options: {
   next: RoomFeedSignature
   previous: RoomFeedSignature | null

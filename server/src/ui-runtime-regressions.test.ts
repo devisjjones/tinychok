@@ -3428,6 +3428,8 @@ test('room feeds auto-scroll to the latest message on open and stay sticky near 
 
   assert.match(appSource, /const activeRoomFeedTimeline = threadTarget/u)
   assert.match(appSource, /requestRoomFeedScrollToBottom\('local-send'\)/u)
+  assert.match(appSource, /showJumpToLatestRoomFeedButton/u)
+  assert.match(appSource, /jumpRoomFeedToBottom/u)
   assert.match(appSource, /const activeRoomHistoryMutation = threadTarget/u)
   assert.match(appSource, /useRoomFeedAutoScroll\(\{/u)
   assert.match(appSource, /const activeRoomReadTarget: ActiveRoomReadTarget \| null = threadTarget/u)
@@ -3437,10 +3439,14 @@ test('room feeds auto-scroll to the latest message on open and stay sticky near 
   assert.match(appSource, /syncGroupRead\(activeRoomReadTarget\.id\)/u)
   assert.match(appSource, /syncSubscriptionChannelRead\(activeRoomReadTarget\.id\)/u)
   assert.match(scrollPolicySource, /export function classifyRoomFeedChange/u)
+  assert.match(scrollPolicySource, /export function shouldShowJumpToLatestRoomFeedButton/u)
   assert.match(scrollPolicySource, /export function shouldAutoScrollRoomFeed/u)
   assert.match(autoScrollControllerSource, /Critical scroll invariant:/u)
   assert.match(autoScrollControllerSource, /createPendingRoomFeedScroll/u)
   assert.match(autoScrollControllerSource, /Keep local-send\/media-relayout sticky longer/u)
+  assert.match(autoScrollControllerSource, /setShowJumpToLatestRoomFeedButton/u)
+  assert.match(autoScrollControllerSource, /shouldShowJumpToLatestRoomFeedButton\(feed\)/u)
+  assert.match(autoScrollControllerSource, /behavior:\s*'smooth'/u)
   assert.match(autoScrollControllerSource, /reason === 'local-send'/u)
   assert.match(autoScrollControllerSource, /reason === 'media-relayout'/u)
   assert.match(autoScrollControllerSource, /shouldPreserveStickyRoomFeedScroll/u)
@@ -7810,4 +7816,28 @@ test('attachment composers keep the action row pinned to the lower edge of the f
     appCss,
     /\.settings-support-composer \.composer-field\.composer-field-expanded \.composer-tools,\s*\n\.settings-support-composer \.composer-field\.composer-field-has-attachment \.composer-tools\s*\{[\s\S]*bottom:\s*14px;[\s\S]*transform:\s*none;/u,
   )
+})
+
+test('room feeds expose a jump-to-latest control above the composer across direct, group, channel and thread rooms', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const channelRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'SubscriptionChannelRoom.tsx'), 'utf8')
+  const jumpButtonSource = readFileSync(
+    join(repoRoot, 'src', 'components', 'RoomJumpToLatestButton.tsx'),
+    'utf8',
+  )
+
+  assert.match(jumpButtonSource, /room-jump-to-latest-wrap/u)
+  assert.match(jumpButtonSource, /К последним сообщениям/u)
+  assert.match(directRoomSource, /showJumpToLatestButton && onJumpToLatest/u)
+  assert.match(groupRoomSource, /showJumpToLatestButton && onJumpToLatest/u)
+  assert.match(channelRoomSource, /showJumpToLatestButton && onJumpToLatest/u)
+  assert.match(appSource, /<RoomJumpToLatestButton onClick=\{jumpRoomFeedToBottom\} \/>/u)
+  assert.match(appCss, /\.room-jump-to-latest-wrap/u)
+  assert.match(appCss, /\.room-jump-to-latest\s*\{[\s\S]*width:\s*42px;/u)
+  assert.match(appCss, /\.room-jump-to-latest-icon/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.room-jump-to-latest/u)
 })

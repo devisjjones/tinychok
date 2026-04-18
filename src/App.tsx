@@ -327,6 +327,7 @@ import { AttachedReplyBubble } from './components/AttachedReplyBubble'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { MediaOnlyBubbleRow } from './components/MediaOnlyBubbleRow'
 import { RoomComposer } from './components/RoomComposer'
+import { RoomJumpToLatestButton } from './components/RoomJumpToLatestButton'
 import { ThreadedBubble } from './components/ThreadedBubble'
 import { useCookieConsent } from './app/useCookieConsent'
 import { useDocumentTheme } from './app/useDocumentTheme'
@@ -4236,7 +4237,11 @@ function App() {
   const cookieConsentBanner = (
     <CookieConsentBanner consent={cookieConsent} onChoice={updateCookieConsent} />
   )
-  const { requestRoomFeedScrollToBottom } = useRoomFeedAutoScroll({
+  const {
+    jumpRoomFeedToBottom,
+    requestRoomFeedScrollToBottom,
+    showJumpToLatestRoomFeedButton,
+  } = useRoomFeedAutoScroll({
     activeRoomFeedKey,
     activeRoomFeedSignature,
     activeRoomHistoryMutation,
@@ -16147,6 +16152,10 @@ function App() {
           ) : null}
         </div>
 
+        {showJumpToLatestRoomFeedButton ? (
+          <RoomJumpToLatestButton onClick={jumpRoomFeedToBottom} />
+        ) : null}
+
         {activeThreadBlockReason ? (
           <div className="composer composer-disabled">
             <p className="composer-disabled-note">{activeThreadBlockReason}</p>
@@ -21098,6 +21107,7 @@ function App() {
             activePostId={forwardingSubscriptionPostText ? null : activeSubscriptionPostId}
             channel={currentSubscriptionChannel!}
             messageFeedRef={messageFeedRef}
+            onJumpToLatest={jumpRoomFeedToBottom}
             onBack={handleRoomBack}
             onOpenThread={isPreviewSubscriptionChannel ? undefined : openChannelThread}
             onOpenChannelActions={
@@ -21202,6 +21212,7 @@ function App() {
             onOpenExternalLink={requestOpenExternalLink}
             onOpenSourceContact={openSourceContact}
             showOwnerEditIcon={isCurrentSubscriptionChannelOwner}
+            showJumpToLatestButton={showJumpToLatestRoomFeedButton}
           />
         ) : null}
 
@@ -21223,6 +21234,7 @@ function App() {
             group={activeGroup}
             mentionCandidates={groupMentionCandidates}
             messageFeedRef={messageFeedRef}
+            onJumpToLatest={jumpRoomFeedToBottom}
             onAttachmentChange={handleGroupAttachmentChange}
             onAttachmentClear={() => clearGroupAttachmentDraft(activeGroup.id)}
             onAttachmentPreviewOpen={() => openAttachmentDraftPreview(groupAttachmentDrafts[activeGroup.id])}
@@ -21285,6 +21297,7 @@ function App() {
             editTarget={groupMessageEditTarget}
             replyTarget={replyTarget}
             resolveLinkedChannelFromMessage={resolveEmbeddedChannelFromMessage}
+            showJumpToLatestButton={showJumpToLatestRoomFeedButton}
             storageCleanupWarning={getStorageCleanupWarning(groupAttachmentDrafts[activeGroup.id])}
             visibleMessages={visibleGroupMessages}
             onEditCancel={() => cancelGroupMessageEdit(activeGroup.id)}
@@ -21309,6 +21322,7 @@ function App() {
               getMessageDeliveryIssue={getDirectMessageDeliveryIssue}
               getMessageUploadProgress={getDirectMessageUploadProgress}
               messageFeedRef={messageFeedRef}
+              onJumpToLatest={jumpRoomFeedToBottom}
               onAttachmentClear={() => clearChatAttachmentDraft(activeChat.id)}
               onAttachmentPreviewOpen={() => openAttachmentDraftPreview(chatAttachmentDrafts[activeChat.id])}
               onRenameAttachmentFileBaseName={(nextBaseName) =>
@@ -21318,6 +21332,7 @@ function App() {
               quietMode={quietMode}
               editTarget={directMessageEditTarget}
               replyTarget={replyTarget}
+              showJumpToLatestButton={showJumpToLatestRoomFeedButton}
               visibleMessages={visibleDirectMessages}
               composerDisabledNotice={activeChatAdminBlockNotice}
               composerGate={activeChatComposerGate}
