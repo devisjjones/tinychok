@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { MessageReaction } from '../shared/types'
-import { fullEmojiCategories } from '../shared/emoji'
+import { MessageReactionPicker } from './MessageReactionPicker'
 
 type MessageReactionSurfaceProps = {
   bubble: ReactNode
@@ -116,37 +116,17 @@ export function MessageReactionSurface({
       </div>
       {!mine ? trigger : null}
       {open ? (
-        <div
+        <MessageReactionPicker
           className={`message-reaction-picker${mine ? ' message-reaction-picker-mine' : ''}`}
+          currentEmoji={myReactionEmoji}
+          disabled={busy}
           onClick={(event) => {
             event.stopPropagation()
           }}
-        >
-          <div className="message-reaction-picker-scroll">
-            {fullEmojiCategories.map((category) => (
-              <section key={category.id} className="message-reaction-picker-category">
-                <p className="message-reaction-picker-label">{category.label}</p>
-                <div className="message-reaction-picker-grid">
-                  {category.items.map((emoji) => (
-                    <button
-                      key={`${category.id}-${emoji}`}
-                      type="button"
-                      className={`message-reaction-picker-item${myReactionEmoji === emoji ? ' is-selected' : ''}`}
-                      disabled={busy}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        void submitReaction(emoji)
-                      }}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        </div>
+          onSelect={(emoji) => {
+            void submitReaction(emoji)
+          }}
+        />
       ) : null}
     </div>
   )

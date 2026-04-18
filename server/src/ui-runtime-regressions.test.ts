@@ -7903,6 +7903,10 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
     join(repoRoot, 'src', 'components', 'MessageReactionSurface.tsx'),
     'utf8',
   )
+  const reactionPickerSource = readFileSync(
+    join(repoRoot, 'src', 'components', 'MessageReactionPicker.tsx'),
+    'utf8',
+  )
   const backendSource = readFileSync(join(repoRoot, 'src', 'app', 'backend.ts'), 'utf8')
   const sharedTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'types.ts'), 'utf8')
   const storeContractSource = readFileSync(
@@ -7917,9 +7921,10 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
   assert.match(reactionSurfaceSource, /<img src="\/icons\/heart\.png"/u)
   assert.match(reactionSurfaceSource, /className=\{`message-reaction-trigger/u)
   assert.match(reactionSurfaceSource, /message-reaction-surface\$\{mine \? ' mine' : ''\}\$\{canReact \? ' can-react' : ''\}/u)
-  assert.match(reactionSurfaceSource, /message-reaction-picker-item/u)
-  assert.match(reactionSurfaceSource, /fullEmojiCategories\.map/u)
-  assert.doesNotMatch(reactionSurfaceSource, /emoji-picker-tab/u)
+  assert.match(reactionSurfaceSource, /<MessageReactionPicker/u)
+  assert.match(reactionPickerSource, /message-reaction-picker-item/u)
+  assert.match(reactionPickerSource, /fullEmojiCategories\.map/u)
+  assert.doesNotMatch(reactionPickerSource, /emoji-picker-tab/u)
 
   assert.match(directRoomSource, /<MessageReactionSurface/u)
   assert.match(directRoomSource, /reactions=\{message\.reactions\}/u)
@@ -7934,6 +7939,11 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
   assert.match(appSource, /function updateSubscriptionChannelPostReaction/u)
   assert.match(appSource, /function updateSubscriptionChannelThreadCommentReaction/u)
   assert.match(appSource, /<MessageReactionSurface/u)
+  assert.match(appSource, /messageReactionMenuTarget/u)
+  assert.match(appSource, /openDirectMessageReactionMenu/u)
+  assert.match(appSource, /openGroupMessageReactionMenu/u)
+  assert.match(appSource, /openChannelPostReactionMenu/u)
+  assert.match(appSource, /openThreadCommentReactionMenu/u)
 
   assert.match(backendSource, /export async function setDirectMessageReaction/u)
   assert.match(backendSource, /export async function setGroupMessageReaction/u)
@@ -7965,8 +7975,25 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
   assert.match(appCss, /\.message-reaction-surface\.can-react::after/u)
   assert.match(appCss, /\.message-reaction-chip/u)
   assert.match(appCss, /\.message-reaction-picker/u)
+  assert.match(appCss, /\.message-reaction-picker-embedded/u)
+  assert.match(appCss, /\.message-menu-reaction-picker/u)
   assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*justify-content:\s*flex-end;/u)
   assert.match(appCss, /\.message-reaction-list\.mine\s*\{[\s\S]*justify-content:\s*flex-start;/u)
   assert.match(appCss, /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-trigger/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.message-reaction-trigger/u)
+})
+
+test('mobile message action menus expose reaction entry with heart icon across supported rooms', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+
+  const reactionActionCount = (appSource.match(/<span>Реакция<\/span>/gu) ?? []).length
+
+  assert.ok(reactionActionCount >= 4)
+  assert.match(appSource, /showingGroupMessageReactionMenu/u)
+  assert.match(appSource, /showingChannelPostReactionMenu/u)
+  assert.match(appSource, /showingThreadCommentReactionMenu/u)
+  assert.match(appSource, /message-menu-reaction-picker/u)
+  assert.match(appSource, /message-reaction-picker-embedded/u)
+  assert.match(appSource, /\/icons\/heart\.png/u)
 })

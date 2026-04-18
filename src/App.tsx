@@ -331,6 +331,7 @@ import {
 import { AttachedReplyBubble } from './components/AttachedReplyBubble'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { MediaOnlyBubbleRow } from './components/MediaOnlyBubbleRow'
+import { MessageReactionPicker } from './components/MessageReactionPicker'
 import { MessageReactionSurface } from './components/MessageReactionSurface'
 import { RoomComposer } from './components/RoomComposer'
 import { RoomJumpToLatestButton } from './components/RoomJumpToLatestButton'
@@ -1487,6 +1488,37 @@ function dedupeChatsByNormalizedPhone(chats: Chat[]) {
   })
 }
 
+function getReactedEmoji(
+  reactions: Array<{
+    emoji: string
+    reactedByMe: boolean
+  }> | undefined,
+) {
+  return reactions?.find((reaction) => reaction.reactedByMe)?.emoji ?? null
+}
+
+type MessageReactionMenuTarget =
+  | {
+      kind: 'direct'
+      messageId: number
+    }
+  | {
+      kind: 'group-message'
+      messageId: number
+    }
+  | {
+      kind: 'channel-post'
+      postId: number
+    }
+  | {
+      kind: 'group-thread-comment'
+      commentId: number
+    }
+  | {
+      kind: 'channel-thread-comment'
+      commentId: number
+    }
+
 function App() {
   const messageFeedRef = useRef<HTMLDivElement | null>(null)
   const threadSourceRef = useRef<HTMLDivElement | null>(null)
@@ -1948,6 +1980,8 @@ function App() {
     | null
   >(null)
   const [messageActionAnchor, setMessageActionAnchor] = useState<ActionAnchor | null>(null)
+  const [messageReactionMenuTarget, setMessageReactionMenuTarget] =
+    useState<MessageReactionMenuTarget | null>(null)
   const [contactShareOpen, setContactShareOpen] = useState(false)
   const [contactShareBusy, setContactShareBusy] = useState(false)
   const [contactShareError, setContactShareError] = useState('')
@@ -3277,6 +3311,65 @@ function App() {
       ? isRoomCommentsBlacklisted(activeGroup, activeGroupMessageParticipant.identifier)
       : false
   const activeGroupMessageDialogAction = resolveParticipantDialogAction(activeGroupMessageParticipant)
+  const showingDirectMessageReactionMenu =
+    messageReactionMenuTarget?.kind === 'direct' &&
+    activeMessage?.id === messageReactionMenuTarget.messageId
+  const showingGroupMessageReactionMenu =
+    messageReactionMenuTarget?.kind === 'group-message' &&
+    activeGroupMessage?.id === messageReactionMenuTarget.messageId
+  const showingChannelPostReactionMenu =
+    messageReactionMenuTarget?.kind === 'channel-post' &&
+    activeSubscriptionPost?.id === messageReactionMenuTarget.postId
+  const showingGroupThreadCommentReactionMenu =
+    messageReactionMenuTarget?.kind === 'group-thread-comment' &&
+    threadTarget?.kind === 'group' &&
+    activeThreadComment?.id === messageReactionMenuTarget.commentId
+  const showingChannelThreadCommentReactionMenu =
+    messageReactionMenuTarget?.kind === 'channel-thread-comment' &&
+    threadTarget?.kind === 'channel' &&
+    activeThreadComment?.id === messageReactionMenuTarget.commentId
+  const showingThreadCommentReactionMenu =
+    showingGroupThreadCommentReactionMenu || showingChannelThreadCommentReactionMenu
+
+  useEffect(() => {
+    if (!messageReactionMenuTarget) {
+      return
+    }
+
+    const targetStillOpen =
+      (messageReactionMenuTarget.kind === 'direct' &&
+        Boolean(messageActionAnchor) &&
+        activeMessage?.id === messageReactionMenuTarget.messageId) ||
+      (messageReactionMenuTarget.kind === 'group-message' &&
+        Boolean(groupMessageActionAnchor) &&
+        activeGroupMessage?.id === messageReactionMenuTarget.messageId) ||
+      (messageReactionMenuTarget.kind === 'channel-post' &&
+        Boolean(subscriptionPostActionAnchor) &&
+        activeSubscriptionPost?.id === messageReactionMenuTarget.postId) ||
+      (messageReactionMenuTarget.kind === 'group-thread-comment' &&
+        threadTarget?.kind === 'group' &&
+        Boolean(threadCommentActionAnchor) &&
+        activeThreadComment?.id === messageReactionMenuTarget.commentId) ||
+      (messageReactionMenuTarget.kind === 'channel-thread-comment' &&
+        threadTarget?.kind === 'channel' &&
+        Boolean(threadCommentActionAnchor) &&
+        activeThreadComment?.id === messageReactionMenuTarget.commentId)
+
+    if (!targetStillOpen) {
+      setMessageReactionMenuTarget(null)
+    }
+  }, [
+    activeGroupMessage,
+    activeMessage,
+    activeSubscriptionPost,
+    activeThreadComment,
+    groupMessageActionAnchor,
+    messageActionAnchor,
+    messageReactionMenuTarget,
+    subscriptionPostActionAnchor,
+    threadCommentActionAnchor,
+    threadTarget,
+  ])
 
   useLayoutEffect(() => {
     const messageFeed = messageFeedRef.current
@@ -13442,6 +13535,7 @@ function App() {
 
     setMessageActionMessageId(null)
     setMessageActionAnchor(null)
+    setMessageReactionMenuTarget(null)
     setForwardingMessageId(null)
   }
 
@@ -13453,6 +13547,7 @@ function App() {
 
   function closeThreadCommentActions() {
     closeThreadFlowCommentActions()
+    setMessageReactionMenuTarget(null)
     clearBlacklistHint()
   }
 
@@ -15206,13 +15301,53 @@ function App() {
 
   function closeSubscriptionPostActions() {
     closeRoomSubscriptionPostActions()
+    setMessageReactionMenuTarget(null)
     setThreadCommentHintTarget(null)
   }
 
   function closeGroupMessageActions() {
     closeRoomGroupMessageActions()
+    setMessageReactionMenuTarget(null)
     clearBlacklistHint()
     setThreadCommentHintTarget(null)
+  }
+
+  function openDirectMessageReactionMenu(messageId: number) {
+    setMessageReactionMenuTarget({
+      kind: 'direct',
+      messageId,
+    })
+  }
+
+  function openGroupMessageReactionMenu(messageId: number) {
+    setMessageReactionMenuTarget({
+      kind: 'group-message',
+      messageId,
+    })
+  }
+
+  function openChannelPostReactionMenu(postId: number) {
+    setMessageReactionMenuTarget({
+      kind: 'channel-post',
+      postId,
+    })
+  }
+
+  function openThreadCommentReactionMenu(commentId: number) {
+    if (threadTarget?.kind === 'group') {
+      setMessageReactionMenuTarget({
+        kind: 'group-thread-comment',
+        commentId,
+      })
+      return
+    }
+
+    if (threadTarget?.kind === 'channel') {
+      setMessageReactionMenuTarget({
+        kind: 'channel-thread-comment',
+        commentId,
+      })
+    }
   }
 
   async function deleteChannel(channelId: number) {
@@ -15438,88 +15573,120 @@ function App() {
       ) : null}
       {currentSubscriptionChannel?.visibility === 'closed' ? (
         subscriptionPostActionAnchor ? (
-          <div
-            ref={subscriptionPostMenuRef}
-            className="message-menu"
-            style={subscriptionPostMenuStyle}
-          >
-            {isCurrentSubscriptionChannelOwner ? (
-              <button
-                type="button"
-                className="message-menu-item"
-                onClick={() => {
-                  setChannelPostEditTarget(null)
-                  setChannelPostReplyTarget({
-                    author: 'me',
-                    id: activeSubscriptionPost.id,
-                    text: formatMessagePreview(activeSubscriptionPost),
-                  })
+          showingChannelPostReactionMenu ? (
+            <div
+              ref={subscriptionPostMenuRef}
+              className="message-menu message-menu-reaction-picker"
+              style={subscriptionPostMenuStyle}
+            >
+              <MessageReactionPicker
+                className="message-reaction-picker message-reaction-picker-embedded"
+                currentEmoji={getReactedEmoji(activeSubscriptionPost.reactions)}
+                onSelect={(emoji) => {
+                  const reactionChannelId =
+                    actionableSubscriptionChannel?.id ?? currentSubscriptionChannel?.id
+                  if (!reactionChannelId) return
+                  void updateSubscriptionChannelPostReaction(
+                    reactionChannelId,
+                    activeSubscriptionPost.id,
+                    emoji,
+                  )
                   closeSubscriptionPostActions()
                 }}
-              >
-                Ответить
-              </button>
-            ) : null}
-            {isCurrentSubscriptionChannelOwner && isEditableOwnChannelPost(activeSubscriptionPost) ? (
-              <button
-                type="button"
-                className="message-menu-item"
-                onClick={() => startChannelPostEdit(activeSubscriptionPost)}
-              >
-                Редактировать
-              </button>
-            ) : null}
-            {!isPreviewSubscriptionChannel ? (
-              <>
+              />
+            </div>
+          ) : (
+            <div
+              ref={subscriptionPostMenuRef}
+              className="message-menu"
+              style={subscriptionPostMenuStyle}
+            >
+              {isCurrentSubscriptionChannelOwner ? (
                 <button
                   type="button"
-                  className={`message-menu-item${
-                    hasRoomThreadsEnabled(currentSubscriptionChannel) ? '' : ' disabled'
-                  }`}
-                  aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
+                  className="message-menu-item"
                   onClick={() => {
-                    if (activeSubscriptionPost.threadArchivedAt) {
-                      setThreadCommentHintTarget({
-                        reason: 'archived',
-                        target: 'channel-post',
-                      })
-                      return
-                    }
-
-                    if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
-                      setThreadCommentHintTarget({
-                        reason: 'disabled',
-                        target: 'channel-post',
-                      })
-                      return
-                    }
-
-                    openChannelThread(activeSubscriptionPost.id)
+                    setChannelPostEditTarget(null)
+                    setChannelPostReplyTarget({
+                      author: 'me',
+                      id: activeSubscriptionPost.id,
+                      text: formatMessagePreview(activeSubscriptionPost),
+                    })
+                    closeSubscriptionPostActions()
                   }}
                 >
-                  Прокомментировать
+                  Ответить
                 </button>
-                {threadCommentHintTarget?.target === 'channel-post' ? (
-                  <p className="settings-text message-menu-note">
-                    {threadCommentHintTarget.reason === 'archived'
-                      ? getThreadsModerationNoticeText()
-                      : getThreadsDisabledNoticeText('channel')}
-                  </p>
-                ) : null}
-              </>
-            ) : null}
-            {isCurrentSubscriptionChannelOwner ? (
+              ) : null}
               <button
                 type="button"
-                className="message-menu-item danger"
-                onClick={() => {
-                  requestSubscriptionPostDelete(activeSubscriptionPost.id)
-                }}
+                className="message-menu-item message-menu-item-with-icon"
+                onClick={() => openChannelPostReactionMenu(activeSubscriptionPost.id)}
               >
-                Удалить
+                <img src="/icons/heart.png" alt="" aria-hidden="true" />
+                <span>Реакция</span>
               </button>
-            ) : null}
-          </div>
+              {isCurrentSubscriptionChannelOwner && isEditableOwnChannelPost(activeSubscriptionPost) ? (
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => startChannelPostEdit(activeSubscriptionPost)}
+                >
+                  Редактировать
+                </button>
+              ) : null}
+              {!isPreviewSubscriptionChannel ? (
+                <>
+                  <button
+                    type="button"
+                    className={`message-menu-item${
+                      hasRoomThreadsEnabled(currentSubscriptionChannel) ? '' : ' disabled'
+                    }`}
+                    aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
+                    onClick={() => {
+                      if (activeSubscriptionPost.threadArchivedAt) {
+                        setThreadCommentHintTarget({
+                          reason: 'archived',
+                          target: 'channel-post',
+                        })
+                        return
+                      }
+
+                      if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
+                        setThreadCommentHintTarget({
+                          reason: 'disabled',
+                          target: 'channel-post',
+                        })
+                        return
+                      }
+
+                      openChannelThread(activeSubscriptionPost.id)
+                    }}
+                  >
+                    Прокомментировать
+                  </button>
+                  {threadCommentHintTarget?.target === 'channel-post' ? (
+                    <p className="settings-text message-menu-note">
+                      {threadCommentHintTarget.reason === 'archived'
+                        ? getThreadsModerationNoticeText()
+                        : getThreadsDisabledNoticeText('channel')}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+              {isCurrentSubscriptionChannelOwner ? (
+                <button
+                  type="button"
+                  className="message-menu-item danger"
+                  onClick={() => {
+                    requestSubscriptionPostDelete(activeSubscriptionPost.id)
+                  }}
+                >
+                  Удалить
+                </button>
+              ) : null}
+            </div>
+          )
         ) : null
       ) : forwardingSubscriptionPostText ? (
         <div className="room-confirm room-forward">
@@ -15605,105 +15772,137 @@ function App() {
           </button>
         </div>
       ) : subscriptionPostActionAnchor ? (
-        <div
-          ref={subscriptionPostMenuRef}
-          className="message-menu"
-          style={subscriptionPostMenuStyle}
-        >
-          {isCurrentSubscriptionChannelOwner ? (
-            <button
-              type="button"
-              className="message-menu-item"
-              onClick={() => {
-                setChannelPostEditTarget(null)
-                setChannelPostReplyTarget({
-                  author: 'me',
-                  id: activeSubscriptionPost.id,
-                  text: formatMessagePreview(activeSubscriptionPost),
-                })
-                closeSubscriptionPostActions()
-              }}
-            >
-              Ответить
-            </button>
-          ) : null}
-          {isCurrentSubscriptionChannelOwner && isEditableOwnChannelPost(activeSubscriptionPost) ? (
-            <button
-              type="button"
-              className="message-menu-item"
-              onClick={() => startChannelPostEdit(activeSubscriptionPost)}
-            >
-              Редактировать
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="message-menu-item"
-            onClick={() => startSubscriptionPostForwarding(formatMessagePreview(activeSubscriptionPost))}
+        showingChannelPostReactionMenu ? (
+          <div
+            ref={subscriptionPostMenuRef}
+            className="message-menu message-menu-reaction-picker"
+            style={subscriptionPostMenuStyle}
           >
-            Переслать
-          </button>
-          {!activeSubscriptionPost.attachment ? (
+            <MessageReactionPicker
+              className="message-reaction-picker message-reaction-picker-embedded"
+              currentEmoji={getReactedEmoji(activeSubscriptionPost.reactions)}
+              onSelect={(emoji) => {
+                const reactionChannelId =
+                  actionableSubscriptionChannel?.id ?? currentSubscriptionChannel?.id
+                if (!reactionChannelId) return
+                void updateSubscriptionChannelPostReaction(
+                  reactionChannelId,
+                  activeSubscriptionPost.id,
+                  emoji,
+                )
+                closeSubscriptionPostActions()
+              }}
+            />
+          </div>
+        ) : (
+          <div
+            ref={subscriptionPostMenuRef}
+            className="message-menu"
+            style={subscriptionPostMenuStyle}
+          >
+            {isCurrentSubscriptionChannelOwner ? (
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => {
+                  setChannelPostEditTarget(null)
+                  setChannelPostReplyTarget({
+                    author: 'me',
+                    id: activeSubscriptionPost.id,
+                    text: formatMessagePreview(activeSubscriptionPost),
+                  })
+                  closeSubscriptionPostActions()
+                }}
+              >
+                Ответить
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="message-menu-item message-menu-item-with-icon"
+              onClick={() => openChannelPostReactionMenu(activeSubscriptionPost.id)}
+            >
+              <img src="/icons/heart.png" alt="" aria-hidden="true" />
+              <span>Реакция</span>
+            </button>
+            {isCurrentSubscriptionChannelOwner && isEditableOwnChannelPost(activeSubscriptionPost) ? (
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => startChannelPostEdit(activeSubscriptionPost)}
+              >
+                Редактировать
+              </button>
+            ) : null}
             <button
               type="button"
               className="message-menu-item"
-              onClick={() => {
-                copyToClipboard(formatMessagePreview(activeSubscriptionPost), 'Сообщение скопировано')
-                closeSubscriptionPostActions()
-              }}
+              onClick={() => startSubscriptionPostForwarding(formatMessagePreview(activeSubscriptionPost))}
             >
-              Скопировать
+              Переслать
             </button>
-          ) : null}
+            {!activeSubscriptionPost.attachment ? (
+              <button
+                type="button"
+                className="message-menu-item"
+                onClick={() => {
+                  copyToClipboard(formatMessagePreview(activeSubscriptionPost), 'Сообщение скопировано')
+                  closeSubscriptionPostActions()
+                }}
+              >
+                Скопировать
+              </button>
+            ) : null}
             {currentSubscriptionChannel && !isPreviewSubscriptionChannel ? (
               <>
                 <button
                   type="button"
                   className={`message-menu-item${hasRoomThreadsEnabled(currentSubscriptionChannel) ? '' : ' disabled'}`}
-                aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
+                  aria-disabled={!hasRoomThreadsEnabled(currentSubscriptionChannel)}
+                  onClick={() => {
+                    if (activeSubscriptionPost.threadArchivedAt) {
+                      setThreadCommentHintTarget({
+                        reason: 'archived',
+                        target: 'channel-post',
+                      })
+                      return
+                    }
+
+                    if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
+                      setThreadCommentHintTarget({
+                        reason: 'disabled',
+                        target: 'channel-post',
+                      })
+                      return
+                    }
+
+                    openChannelThread(activeSubscriptionPost.id)
+                  }}
+                >
+                  Прокомментировать
+                </button>
+                {threadCommentHintTarget?.target === 'channel-post' ? (
+                  <p className="settings-text message-menu-note">
+                    {threadCommentHintTarget.reason === 'archived'
+                      ? getThreadsModerationNoticeText()
+                      : getThreadsDisabledNoticeText('channel')}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+            {isCurrentSubscriptionChannelOwner ? (
+              <button
+                type="button"
+                className="message-menu-item danger"
                 onClick={() => {
-                  if (activeSubscriptionPost.threadArchivedAt) {
-                    setThreadCommentHintTarget({
-                      reason: 'archived',
-                      target: 'channel-post',
-                    })
-                    return
-                  }
-
-                  if (!hasRoomThreadsEnabled(currentSubscriptionChannel)) {
-                    setThreadCommentHintTarget({
-                      reason: 'disabled',
-                      target: 'channel-post',
-                    })
-                    return
-                  }
-
-                  openChannelThread(activeSubscriptionPost.id)
+                  requestSubscriptionPostDelete(activeSubscriptionPost.id)
                 }}
               >
-                Прокомментировать
+                Удалить
               </button>
-              {threadCommentHintTarget?.target === 'channel-post' ? (
-                <p className="settings-text message-menu-note">
-                  {threadCommentHintTarget.reason === 'archived'
-                    ? getThreadsModerationNoticeText()
-                    : getThreadsDisabledNoticeText('channel')}
-                </p>
-              ) : null}
-            </>
-          ) : null}
-          {isCurrentSubscriptionChannelOwner ? (
-            <button
-              type="button"
-              className="message-menu-item danger"
-              onClick={() => {
-                requestSubscriptionPostDelete(activeSubscriptionPost.id)
-              }}
-            >
-              Удалить
-            </button>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
+        )
       ) : null}
     </>
   ) : null
@@ -16463,110 +16662,151 @@ function App() {
               </button>
             </div>
           ) : threadCommentActionAnchor ? (
-            <div
-              ref={threadCommentMenuRef}
-              className="message-menu"
-              style={threadCommentMenuStyle}
-            >
-              {activeThreadCommentDialogAction ? (
-                <button
-                  type="button"
-                  className="message-menu-item message-menu-item-with-icon"
-                  onClick={() =>
-                    openParticipantDialogAction(activeThreadCommentParticipant, closeThreadCommentActions)
-                  }
-                >
-                  <img
-                    src={
-                      activeThreadCommentDialogAction.kind === 'chat'
-                        ? '/icons/chat100.png'
-                        : '/icons/man-raising-hand.png'
-                    }
-                    alt=""
-                    aria-hidden="true"
-                  />
-                  <span>{activeThreadCommentDialogAction.kind === 'chat' ? 'В личку' : 'Добавить'}</span>
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="message-menu-item"
-                onClick={() => replyToThreadComment(activeThreadComment)}
+            showingThreadCommentReactionMenu ? (
+              <div
+                ref={threadCommentMenuRef}
+                className="message-menu message-menu-reaction-picker"
+                style={threadCommentMenuStyle}
               >
-                Ответить
-              </button>
-              {threadTarget.kind !== 'support' && isEditableOwnThreadComment(activeThreadComment) ? (
-                <button
-                  type="button"
-                  className="message-menu-item"
-                  onClick={() => {
-                    editThreadComment(activeThreadComment)
-                    clearBlacklistHint()
-                  }}
-                >
-                  Редактировать
-                </button>
-              ) : null}
-              {!activeThreadComment.attachment ? (
-                <button
-                  type="button"
-                  className="message-menu-item"
-                  onClick={() => {
-                    // Media bubbles do not support binary clipboard export, so the
-                    // copy action stays text-only and must be hidden for attachments.
-                    copyToClipboard(activeThreadComment.text, 'Сообщение скопировано')
+                <MessageReactionPicker
+                  className="message-reaction-picker message-reaction-picker-embedded"
+                  currentEmoji={getReactedEmoji(activeThreadComment.reactions)}
+                  onSelect={(emoji) => {
+                    if (threadTarget.kind === 'group') {
+                      void updateGroupThreadCommentReaction(
+                        threadTarget.groupId,
+                        threadTarget.messageId,
+                        activeThreadComment.id,
+                        emoji,
+                      )
+                    } else if (threadTarget.kind === 'channel') {
+                      void updateSubscriptionChannelThreadCommentReaction(
+                        threadTarget.channelId,
+                        threadTarget.postId,
+                        activeThreadComment.id,
+                        emoji,
+                      )
+                    }
                     closeThreadCommentActions()
                   }}
-                >
-                  Скопировать
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="message-menu-item"
-                onClick={() => setForwardingThreadCommentText(activeThreadComment.text)}
+                />
+              </div>
+            ) : (
+              <div
+                ref={threadCommentMenuRef}
+                className="message-menu"
+                style={threadCommentMenuStyle}
               >
-                Переслать
-              </button>
-              {activeThreadComment.author === 'me' ? (
-                <button
-                  type="button"
-                  className="message-menu-item danger"
-                  onClick={() => {
-                    requestThreadCommentDeleteFlow(activeThreadComment.id)
-                  }}
-                >
-                  Удалить
-                </button>
-              ) : canBlacklistActiveThreadComment ? (
-                <>
+                {activeThreadCommentDialogAction ? (
                   <button
                     type="button"
-                    className={`message-menu-item danger${activeThreadCommentAlreadyBlacklisted ? ' disabled' : ''}`}
-                    aria-disabled={activeThreadCommentAlreadyBlacklisted}
-                    onClick={() => {
-                      if (activeThreadCommentAlreadyBlacklisted) {
-                        showBlacklistHint('thread-comment')
-                        return
+                    className="message-menu-item message-menu-item-with-icon"
+                    onClick={() =>
+                      openParticipantDialogAction(activeThreadCommentParticipant, closeThreadCommentActions)
+                    }
+                  >
+                    <img
+                      src={
+                        activeThreadCommentDialogAction.kind === 'chat'
+                          ? '/icons/chat100.png'
+                          : '/icons/man-raising-hand.png'
                       }
-                      if (!activeThreadCommentParticipant?.identifier) return
-                      openBlacklistConfirmation({
-                        identifier: activeThreadCommentParticipant.identifier,
-                        nickname: activeThreadCommentParticipant.nickname,
-                        roomKind: threadTarget.kind,
-                        title: activeThreadCommentParticipant.title,
-                      })
+                      alt=""
+                      aria-hidden="true"
+                    />
+                    <span>{activeThreadCommentDialogAction.kind === 'chat' ? 'В личку' : 'Добавить'}</span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => replyToThreadComment(activeThreadComment)}
+                >
+                  Ответить
+                </button>
+                {threadTarget.kind !== 'support' ? (
+                  <button
+                    type="button"
+                    className="message-menu-item message-menu-item-with-icon"
+                    onClick={() => openThreadCommentReactionMenu(activeThreadComment.id)}
+                  >
+                    <img src="/icons/heart.png" alt="" aria-hidden="true" />
+                    <span>Реакция</span>
+                  </button>
+                ) : null}
+                {threadTarget.kind !== 'support' && isEditableOwnThreadComment(activeThreadComment) ? (
+                  <button
+                    type="button"
+                    className="message-menu-item"
+                    onClick={() => {
+                      editThreadComment(activeThreadComment)
+                      clearBlacklistHint()
+                    }}
+                  >
+                    Редактировать
+                  </button>
+                ) : null}
+                {!activeThreadComment.attachment ? (
+                  <button
+                    type="button"
+                    className="message-menu-item"
+                    onClick={() => {
+                      // Media bubbles do not support binary clipboard export, so the
+                      // copy action stays text-only and must be hidden for attachments.
+                      copyToClipboard(activeThreadComment.text, 'Сообщение скопировано')
                       closeThreadCommentActions()
                     }}
                   >
-                    В чёрный список
+                    Скопировать
                   </button>
-                  {blacklistHintTarget === 'thread-comment' ? (
-                    <p className="settings-text message-menu-note">Пользователь уже в чёрном списке</p>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => setForwardingThreadCommentText(activeThreadComment.text)}
+                >
+                  Переслать
+                </button>
+                {activeThreadComment.author === 'me' ? (
+                  <button
+                    type="button"
+                    className="message-menu-item danger"
+                    onClick={() => {
+                      requestThreadCommentDeleteFlow(activeThreadComment.id)
+                    }}
+                  >
+                    Удалить
+                  </button>
+                ) : canBlacklistActiveThreadComment ? (
+                  <>
+                    <button
+                      type="button"
+                      className={`message-menu-item danger${activeThreadCommentAlreadyBlacklisted ? ' disabled' : ''}`}
+                      aria-disabled={activeThreadCommentAlreadyBlacklisted}
+                      onClick={() => {
+                        if (activeThreadCommentAlreadyBlacklisted) {
+                          showBlacklistHint('thread-comment')
+                          return
+                        }
+                        if (!activeThreadCommentParticipant?.identifier) return
+                        openBlacklistConfirmation({
+                          identifier: activeThreadCommentParticipant.identifier,
+                          nickname: activeThreadCommentParticipant.nickname,
+                          roomKind: threadTarget.kind,
+                          title: activeThreadCommentParticipant.title,
+                        })
+                        closeThreadCommentActions()
+                      }}
+                    >
+                      В чёрный список
+                    </button>
+                    {blacklistHintTarget === 'thread-comment' ? (
+                      <p className="settings-text message-menu-note">Пользователь уже в чёрном списке</p>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            )
           ) : null}
         </>
       ) : null}
@@ -17265,167 +17505,193 @@ function App() {
           </button>
         </div>
       ) : groupMessageActionAnchor ? (
-        <div
-          ref={groupMessageMenuRef}
-          className="message-menu"
-          style={groupMessageMenuStyle}
-        >
-          {activeGroupMessageDeliveryIssue === 'failed' ? (
-            <>
-              <button
-                type="button"
-                className="message-menu-item"
-                onClick={() => retryFailedGroupMessage(activeGroup!.id, activeGroupMessage.id)}
-              >
-                Отправить повторно
-              </button>
-              <button
-                type="button"
-                className="message-menu-item danger"
-                onClick={() => deleteFailedGroupMessage(activeGroup!.id, activeGroupMessage.id)}
-              >
-                Удалить
-              </button>
-            </>
-          ) : (
-            <>
-              {activeGroupMessageDialogAction ? (
-                <button
-                  type="button"
-                  className="message-menu-item message-menu-item-with-icon"
-                  onClick={() =>
-                    openParticipantDialogAction(activeGroupMessageParticipant, closeGroupMessageActions)
-                  }
-                >
-                  <img
-                    src={
-                      activeGroupMessageDialogAction.kind === 'chat'
-                        ? '/icons/chat100.png'
-                        : '/icons/man-raising-hand.png'
-                    }
-                    alt=""
-                    aria-hidden="true"
-                  />
-                  <span>{activeGroupMessageDialogAction.kind === 'chat' ? 'В личку' : 'Добавить'}</span>
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="message-menu-item"
-                onClick={() => {
-                  replyToMessage(activeGroupMessage)
-                  closeGroupMessageActions()
-                }}
-              >
-                Ответить
-              </button>
-              {isEditableOwnTextMessage(activeGroupMessage) ? (
+        showingGroupMessageReactionMenu ? (
+          <div
+            ref={groupMessageMenuRef}
+            className="message-menu message-menu-reaction-picker"
+            style={groupMessageMenuStyle}
+          >
+            <MessageReactionPicker
+              className="message-reaction-picker message-reaction-picker-embedded"
+              currentEmoji={getReactedEmoji(activeGroupMessage.reactions)}
+              onSelect={(emoji) => {
+                if (!activeGroup) return
+                void updateGroupMessageReaction(activeGroup.id, activeGroupMessage.id, emoji)
+                closeGroupMessageActions()
+              }}
+            />
+          </div>
+        ) : (
+          <div
+            ref={groupMessageMenuRef}
+            className="message-menu"
+            style={groupMessageMenuStyle}
+          >
+            {activeGroupMessageDeliveryIssue === 'failed' ? (
+              <>
                 <button
                   type="button"
                   className="message-menu-item"
-                  onClick={() => startGroupMessageEdit(activeGroupMessage)}
+                  onClick={() => retryFailedGroupMessage(activeGroup!.id, activeGroupMessage.id)}
                 >
-                  Редактировать
+                  Отправить повторно
                 </button>
-              ) : null}
-              <button
-                type="button"
-                className="message-menu-item"
-                onClick={() => startGroupMessageForwarding(formatMessagePreview(activeGroupMessage))}
-              >
-                Переслать
-              </button>
-              {!activeGroupMessage.attachment ? (
+                <button
+                  type="button"
+                  className="message-menu-item danger"
+                  onClick={() => deleteFailedGroupMessage(activeGroup!.id, activeGroupMessage.id)}
+                >
+                  Удалить
+                </button>
+              </>
+            ) : (
+              <>
+                {activeGroupMessageDialogAction ? (
+                  <button
+                    type="button"
+                    className="message-menu-item message-menu-item-with-icon"
+                    onClick={() =>
+                      openParticipantDialogAction(activeGroupMessageParticipant, closeGroupMessageActions)
+                    }
+                  >
+                    <img
+                      src={
+                        activeGroupMessageDialogAction.kind === 'chat'
+                          ? '/icons/chat100.png'
+                          : '/icons/man-raising-hand.png'
+                      }
+                      alt=""
+                      aria-hidden="true"
+                    />
+                    <span>{activeGroupMessageDialogAction.kind === 'chat' ? 'В личку' : 'Добавить'}</span>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="message-menu-item"
                   onClick={() => {
-                    copyToClipboard(formatMessagePreview(activeGroupMessage), 'Сообщение скопировано')
+                    replyToMessage(activeGroupMessage)
                     closeGroupMessageActions()
                   }}
                 >
-                  Скопировать
+                  Ответить
                 </button>
-              ) : null}
-              {activeGroup ? (
-                <>
-                  <button
-                    type="button"
-                    className={`message-menu-item${hasRoomThreadsEnabled(activeGroup) ? '' : ' disabled'}`}
-                    aria-disabled={!hasRoomThreadsEnabled(activeGroup)}
-                    onClick={() => {
-                      if (activeGroupMessage.threadArchivedAt) {
-                        setThreadCommentHintTarget({
-                          reason: 'archived',
-                          target: 'group-message',
-                        })
-                        return
-                      }
-
-                      if (!hasRoomThreadsEnabled(activeGroup)) {
-                        setThreadCommentHintTarget({
-                          reason: 'disabled',
-                          target: 'group-message',
-                        })
-                        return
-                      }
-
-                      openGroupThread(activeGroupMessage.id)
-                    }}
-                  >
-                    Прокомментировать
-                  </button>
-                  {threadCommentHintTarget?.target === 'group-message' ? (
-                    <p className="settings-text message-menu-note">
-                      {threadCommentHintTarget.reason === 'archived'
-                        ? getThreadsModerationNoticeText()
-                        : getThreadsDisabledNoticeText('group')}
-                    </p>
-                  ) : null}
-                </>
-              ) : null}
-              {isActiveGroupCreator &&
-              activeGroupMessage.author !== 'me' &&
-              activeGroupMessageParticipant?.identifier ? (
-                <>
-                  <button
-                    type="button"
-                    className={`message-menu-item danger${activeGroupMessageAlreadyBlacklisted ? ' disabled' : ''}`}
-                    aria-disabled={activeGroupMessageAlreadyBlacklisted}
-                    onClick={() => {
-                      if (activeGroupMessageAlreadyBlacklisted) {
-                        showBlacklistHint('group-message')
-                        return
-                      }
-                      if (!activeGroupMessageParticipant?.identifier) return
-                      openBlacklistConfirmation({
-                        identifier: activeGroupMessageParticipant.identifier,
-                        nickname: activeGroupMessageParticipant.nickname,
-                        roomKind: 'group',
-                        title: activeGroupMessageParticipant.title,
-                      })
-                      resetGroupMessageActions()
-                    }}
-                  >
-                    В чёрный список
-                  </button>
-                  {blacklistHintTarget === 'group-message' ? (
-                    <p className="settings-text message-menu-note">Пользователь уже в чёрном списке</p>
-                  ) : null}
-                </>
-              ) : null}
-              {activeGroupMessage.author === 'me' || isActiveGroupCreator ? (
                 <button
                   type="button"
-                  className="message-menu-item danger"
-                  onClick={() => requestGroupMessageDelete(activeGroupMessage.id)}
+                  className="message-menu-item message-menu-item-with-icon"
+                  onClick={() => openGroupMessageReactionMenu(activeGroupMessage.id)}
                 >
-                  Удалить
+                  <img src="/icons/heart.png" alt="" aria-hidden="true" />
+                  <span>Реакция</span>
                 </button>
-              ) : null}
-            </>
-          )}
-        </div>
+                {isEditableOwnTextMessage(activeGroupMessage) ? (
+                  <button
+                    type="button"
+                    className="message-menu-item"
+                    onClick={() => startGroupMessageEdit(activeGroupMessage)}
+                  >
+                    Редактировать
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="message-menu-item"
+                  onClick={() => startGroupMessageForwarding(formatMessagePreview(activeGroupMessage))}
+                >
+                  Переслать
+                </button>
+                {!activeGroupMessage.attachment ? (
+                  <button
+                    type="button"
+                    className="message-menu-item"
+                    onClick={() => {
+                      copyToClipboard(formatMessagePreview(activeGroupMessage), 'Сообщение скопировано')
+                      closeGroupMessageActions()
+                    }}
+                  >
+                    Скопировать
+                  </button>
+                ) : null}
+                {activeGroup ? (
+                  <>
+                    <button
+                      type="button"
+                      className={`message-menu-item${hasRoomThreadsEnabled(activeGroup) ? '' : ' disabled'}`}
+                      aria-disabled={!hasRoomThreadsEnabled(activeGroup)}
+                      onClick={() => {
+                        if (activeGroupMessage.threadArchivedAt) {
+                          setThreadCommentHintTarget({
+                            reason: 'archived',
+                            target: 'group-message',
+                          })
+                          return
+                        }
+
+                        if (!hasRoomThreadsEnabled(activeGroup)) {
+                          setThreadCommentHintTarget({
+                            reason: 'disabled',
+                            target: 'group-message',
+                          })
+                          return
+                        }
+
+                        openGroupThread(activeGroupMessage.id)
+                      }}
+                    >
+                      Прокомментировать
+                    </button>
+                    {threadCommentHintTarget?.target === 'group-message' ? (
+                      <p className="settings-text message-menu-note">
+                        {threadCommentHintTarget.reason === 'archived'
+                          ? getThreadsModerationNoticeText()
+                          : getThreadsDisabledNoticeText('group')}
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
+                {isActiveGroupCreator &&
+                activeGroupMessage.author !== 'me' &&
+                activeGroupMessageParticipant?.identifier ? (
+                  <>
+                    <button
+                      type="button"
+                      className={`message-menu-item danger${activeGroupMessageAlreadyBlacklisted ? ' disabled' : ''}`}
+                      aria-disabled={activeGroupMessageAlreadyBlacklisted}
+                      onClick={() => {
+                        if (activeGroupMessageAlreadyBlacklisted) {
+                          showBlacklistHint('group-message')
+                          return
+                        }
+                        if (!activeGroupMessageParticipant?.identifier) return
+                        openBlacklistConfirmation({
+                          identifier: activeGroupMessageParticipant.identifier,
+                          nickname: activeGroupMessageParticipant.nickname,
+                          roomKind: 'group',
+                          title: activeGroupMessageParticipant.title,
+                        })
+                        resetGroupMessageActions()
+                      }}
+                    >
+                      В чёрный список
+                    </button>
+                    {blacklistHintTarget === 'group-message' ? (
+                      <p className="settings-text message-menu-note">Пользователь уже в чёрном списке</p>
+                    ) : null}
+                  </>
+                ) : null}
+                {activeGroupMessage.author === 'me' || isActiveGroupCreator ? (
+                  <button
+                    type="button"
+                    className="message-menu-item danger"
+                    onClick={() => requestGroupMessageDelete(activeGroupMessage.id)}
+                  >
+                    Удалить
+                  </button>
+                ) : null}
+              </>
+            )}
+          </div>
+        )
       ) : null}
     </>
   ) : null
@@ -21620,6 +21886,7 @@ function App() {
                   className="room-confirm-scrim message-menu-scrim"
                   aria-label="Закрыть меню сообщения"
                   onClick={() => {
+                    setMessageReactionMenuTarget(null)
                     setMessageActionMessageId(null)
                     setMessageActionAnchor(null)
                   }}
@@ -21642,84 +21909,111 @@ function App() {
                   </Suspense>
                 ) : null}
                 {messageActionAnchor ? (
-                  <div
-                    ref={messageMenuRef}
-                    className="message-menu"
-                    style={messageMenuStyle}
-                  >
-                    {activeMessageDeliveryIssue === 'failed' ? (
-                      <>
-                        <button
-                          type="button"
-                          className="message-menu-item"
-                          onClick={() => retryFailedDirectMessage(activeChat.id, activeMessage.id)}
-                        >
-                          Отправить повторно
-                        </button>
-                        <button
-                          type="button"
-                          className="message-menu-item danger"
-                          onClick={() => deleteFailedDirectMessage(activeChat.id, activeMessage.id)}
-                        >
-                          Удалить
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button type="button" className="message-menu-item" onClick={() => replyToMessage(activeMessage)}>
-                          Ответить
-                        </button>
-                        {isEditableOwnTextMessage(activeMessage) ? (
+                  showingDirectMessageReactionMenu ? (
+                    <div
+                      ref={messageMenuRef}
+                      className="message-menu message-menu-reaction-picker"
+                      style={messageMenuStyle}
+                    >
+                      <MessageReactionPicker
+                        className="message-reaction-picker message-reaction-picker-embedded"
+                        currentEmoji={getReactedEmoji(activeMessage.reactions)}
+                        onSelect={(emoji) => {
+                          void updateDirectMessageReaction(activeChat.id, activeMessage.id, emoji)
+                          setMessageReactionMenuTarget(null)
+                          setMessageActionMessageId(null)
+                          setMessageActionAnchor(null)
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      ref={messageMenuRef}
+                      className="message-menu"
+                      style={messageMenuStyle}
+                    >
+                      {activeMessageDeliveryIssue === 'failed' ? (
+                        <>
                           <button
                             type="button"
                             className="message-menu-item"
-                            onClick={() => startDirectMessageEdit(activeMessage)}
+                            onClick={() => retryFailedDirectMessage(activeChat.id, activeMessage.id)}
                           >
-                            Редактировать
+                            Отправить повторно
                           </button>
-                        ) : null}
-                        {!activeMessage.attachment ? (
+                          <button
+                            type="button"
+                            className="message-menu-item danger"
+                            onClick={() => deleteFailedDirectMessage(activeChat.id, activeMessage.id)}
+                          >
+                            Удалить
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" className="message-menu-item" onClick={() => replyToMessage(activeMessage)}>
+                            Ответить
+                          </button>
+                          <button
+                            type="button"
+                            className="message-menu-item message-menu-item-with-icon"
+                            onClick={() => openDirectMessageReactionMenu(activeMessage.id)}
+                          >
+                            <img src="/icons/heart.png" alt="" aria-hidden="true" />
+                            <span>Реакция</span>
+                          </button>
+                          {isEditableOwnTextMessage(activeMessage) ? (
+                            <button
+                              type="button"
+                              className="message-menu-item"
+                              onClick={() => startDirectMessageEdit(activeMessage)}
+                            >
+                              Редактировать
+                            </button>
+                          ) : null}
+                          {!activeMessage.attachment ? (
+                            <button
+                              type="button"
+                              className="message-menu-item"
+                              onClick={() => copyMessageText(activeMessage)}
+                            >
+                              Скопировать
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             className="message-menu-item"
-                            onClick={() => copyMessageText(activeMessage)}
+                            onClick={() => {
+                              void pinMessage(activeChat.id, activeMessage.id)
+                            }}
                           >
-                            Скопировать
+                            Закрепить
                           </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="message-menu-item"
-                          onClick={() => {
-                            void pinMessage(activeChat.id, activeMessage.id)
-                          }}
-                        >
-                          Закрепить
-                        </button>
-                        <button
-                          type="button"
-                          className="message-menu-item"
-                          onClick={() => {
-                            setForwardingMessageId(activeMessage.id)
-                            setMessageActionMessageId(null)
-                            setMessageActionAnchor(null)
-                          }}
-                        >
-                          Переслать
-                        </button>
-                        <button
-                          type="button"
-                          className="message-menu-item danger"
-                          onClick={() => {
-                            setConfirmingDeleteMessageId(activeMessage.id)
-                            setMessageActionMessageId(null)
-                          }}
-                        >
-                          Удалить
-                        </button>
-                      </>
-                    )}
-                  </div>
+                          <button
+                            type="button"
+                            className="message-menu-item"
+                            onClick={() => {
+                              setForwardingMessageId(activeMessage.id)
+                              setMessageActionMessageId(null)
+                              setMessageActionAnchor(null)
+                            }}
+                          >
+                            Переслать
+                          </button>
+                          <button
+                            type="button"
+                            className="message-menu-item danger"
+                            onClick={() => {
+                              setConfirmingDeleteMessageId(activeMessage.id)
+                              setMessageActionMessageId(null)
+                            }}
+                          >
+                            Удалить
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )
                 ) : null}
               </>
             ) : null}

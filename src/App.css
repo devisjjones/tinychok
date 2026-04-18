@@ -4436,6 +4436,15 @@
   right: 0;
 }
 
+.message-reaction-picker-embedded {
+  position: static;
+  bottom: auto;
+  left: auto;
+  right: auto;
+  width: min(320px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+}
+
 .message-reaction-picker-scroll {
   display: grid;
   gap: 12px;
@@ -7813,6 +7822,14 @@
   border: 1px solid rgba(141, 89, 57, 0.14);
   box-shadow: 0 24px 60px rgba(64, 35, 18, 0.16);
   z-index: 8;
+}
+
+.message-menu-reaction-picker {
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .message-menu-note {
