@@ -6402,8 +6402,8 @@
 
 .group-room-feed .bubble:not(.media-only-bubble):not(.emoji-only-message),
 .room-thread-feed .bubble:not(.media-only-bubble):not(.emoji-only-message) {
-  padding-top: 12px;
-  padding-bottom: 10px;
+  padding-top: 10px;
+  padding-bottom: 8px;
 }
 
 .group-room-feed .bubble.group-captioned-media-bubble,

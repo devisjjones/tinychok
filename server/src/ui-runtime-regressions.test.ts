@@ -2880,7 +2880,7 @@ test('direct, group and thread feeds keep compact bubble spacing while channel p
   )
   assert.match(
     appCss,
-    /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 12px;\s*padding-bottom: 10px;/u,
+    /\.group-room-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\),\s*\.room-thread-feed \.bubble:not\(\.media-only-bubble\):not\(\.emoji-only-message\) \{\s*padding-top: 10px;\s*padding-bottom: 8px;/u,
   )
   assert.match(
     appCss,
