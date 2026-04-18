@@ -405,9 +405,8 @@ export function AuthScreen({
               ) : null}
               <div className="auth-code-note">
                 <span className="settings-label">
-                  {authCodeFlow === 'password-reset'
-                    ? 'Подтвердите номер через SMS'
-                    : 'Код отправлен на номер'}
+                  На указанный номер отправлена SMS. Введите код из неё. Если SMS ещё не дошла,
+                  немного подождите.
                 </span>
                 <strong>{identifier}</strong>
               </div>
