@@ -315,7 +315,7 @@ export function createRuntimeConfig(env: RuntimeEnv = process.env) {
     hashSecret:
       readOptionalString(env.SMS_OTP_HASH_SECRET) ??
       (runtimeEnvironment === 'development' ? 'dev-sms-otp-secret' : null),
-    length: readSmsOtpLength(env.SMS_OTP_LENGTH, 6),
+    length: readSmsOtpLength(env.SMS_OTP_LENGTH, 4),
     maxSendsPerIpPerDay: readPositiveInteger(env.SMS_OTP_MAX_SENDS_PER_IP_PER_DAY, 10),
     maxSendsPerPhonePerDay: readPositiveInteger(env.SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY, 5),
     maxVerifyAttempts: readPositiveInteger(env.SMS_OTP_MAX_VERIFY_ATTEMPTS, 3),

@@ -98,7 +98,7 @@ npm run start:server
 - `TINYCHOK_CAPTCHA_PROVIDER`, `TINYCHOK_CAPTCHA_SITE_KEY`, `TINYCHOK_CAPTCHA_SECRET_KEY` обязательны в `staging` и `production`;
 - `TINYCHOK_ALLOWED_TEST_PHONES=+79990000001,+79990000002` для закрытия staging по списку тестовых номеров;
 - `SMS_RU_API_ID`, `SMS_RU_BASE_URL`, `SMS_OTP_HASH_SECRET`, `SMS_OTP_TEMPLATE` для `sms.ru` OTP-провайдера;
-- `SMS_OTP_LENGTH=4|6`, `SMS_OTP_TTL_SECONDS=300`, `SMS_OTP_RESEND_COOLDOWN_SECONDS=60`, `SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY=5`, `SMS_OTP_MAX_SENDS_PER_IP_PER_DAY=10`, `SMS_OTP_MAX_VERIFY_ATTEMPTS=3` для server-side ограничений SMS OTP;
+- `SMS_OTP_LENGTH=4|6` (по умолчанию `4`), `SMS_OTP_TTL_SECONDS=300`, `SMS_OTP_RESEND_COOLDOWN_SECONDS=60`, `SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY=5`, `SMS_OTP_MAX_SENDS_PER_IP_PER_DAY=10`, `SMS_OTP_MAX_VERIFY_ATTEMPTS=3` для server-side ограничений SMS OTP;
 - `SMS_OTP_TEST_MODE=true|false` включает `test=1` для staging/dev smoke без реальной доставки; в production должен оставаться `false`;
 - `TINYCHOK_TRUST_PROXY=true` обязателен на staging/production, чтобы backend брал реальный client IP из доверенного proxy chain, а не IP VM;
 - `VITE_API_BASE_URL` и `VITE_WS_BASE_URL` для раздельных frontend/backend доменов;

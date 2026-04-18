@@ -58,14 +58,14 @@ function createPendingChallenge(identifier: string, options?: {
   expiresAt?: string
   purpose?: 'admin' | 'password_setup' | 'register' | 'reset_password'
 }) {
-  const code = options?.code ?? '111111'
+  const code = options?.code ?? '1111'
   const purpose = options?.purpose ?? 'register'
 
   return {
     attemptsCount: options?.attemptsCount ?? 0,
     clientIp: '93.184.216.34',
     codeHash: buildSmsOtpHash(code, identifier, purpose, testSmsOtpHashSecret),
-    codeLength: 6 as const,
+    codeLength: 4 as const,
     createdAt: '2026-03-28T00:00:00.000Z',
     expiresAt: options?.expiresAt ?? '2099-01-01T00:00:00.000Z',
     id: `otp-${identifier}-${purpose}`,
@@ -87,9 +87,9 @@ test('generateSmsOtpCode returns fixed-length numeric values with leading zeros'
 })
 
 test('buildSmsOtpHash and verifySmsOtpHash validate the code without storing plaintext', () => {
-  const hash = buildSmsOtpHash('123456', '+79990000001', 'register', testSmsOtpHashSecret)
-  assert.equal(verifySmsOtpHash('123456', '+79990000001', 'register', testSmsOtpHashSecret, hash), true)
-  assert.equal(verifySmsOtpHash('654321', '+79990000001', 'register', testSmsOtpHashSecret, hash), false)
+  const hash = buildSmsOtpHash('1234', '+79990000001', 'register', testSmsOtpHashSecret)
+  assert.equal(verifySmsOtpHash('1234', '+79990000001', 'register', testSmsOtpHashSecret, hash), true)
+  assert.equal(verifySmsOtpHash('6543', '+79990000001', 'register', testSmsOtpHashSecret, hash), false)
 })
 
 test('assertPublicClientIp rejects private addresses', () => {
@@ -157,7 +157,7 @@ test('sms.ru sender retries one temporary provider error and then succeeds', asy
 
   const result = await sender({
     clientIp: '93.184.216.34',
-    code: '123456',
+    code: '1234',
     phoneE164: '+79990000001',
   })
 
@@ -202,7 +202,7 @@ test('sms.ru sender maps provider business and antifraud errors into domain Http
     () =>
       buildSender(230)({
         clientIp: '93.184.216.34',
-        code: '123456',
+        code: '1234',
         phoneE164: '+79990000001',
       }),
     (error) => error instanceof HttpError && error.statusCode === 429,
@@ -212,7 +212,7 @@ test('sms.ru sender maps provider business and antifraud errors into domain Http
     () =>
       buildSender(206)({
         clientIp: '93.184.216.34',
-        code: '123456',
+        code: '1234',
         phoneE164: '+79990000001',
       }),
     (error) => error instanceof HttpError && error.statusCode === 503,
@@ -222,7 +222,7 @@ test('sms.ru sender maps provider business and antifraud errors into domain Http
     () =>
       buildSender(507)({
         clientIp: '93.184.216.34',
-        code: '123456',
+        code: '1234',
         phoneE164: '+79990000001',
       }),
     (error) => error instanceof HttpError && error.statusCode === 400,
@@ -240,7 +240,7 @@ test('expired otp challenge is marked as expired and rejected', async () => {
 
   await assert.rejects(
     () =>
-      store.verifyCode('+79990000001', '111111', {
+      store.verifyCode('+79990000001', '1111', {
         accessContext: { ip: '93.184.216.34', userAgent: 'test' },
         entryPoint: 'user',
       }),
@@ -256,15 +256,15 @@ test('otp challenge blocks after three invalid verification attempts', async () 
   database.otpChallenges.push(createPendingChallenge('+79990000001'))
 
   await assert.rejects(
-    () => store.verifyCode('+79990000001', '000000', { accessContext: { ip: '93.184.216.34' }, entryPoint: 'user' }),
+    () => store.verifyCode('+79990000001', '0000', { accessContext: { ip: '93.184.216.34' }, entryPoint: 'user' }),
     /Неверный код/u,
   )
   await assert.rejects(
-    () => store.verifyCode('+79990000001', '000000', { accessContext: { ip: '93.184.216.34' }, entryPoint: 'user' }),
+    () => store.verifyCode('+79990000001', '0000', { accessContext: { ip: '93.184.216.34' }, entryPoint: 'user' }),
     /Неверный код/u,
   )
   await assert.rejects(
-    () => store.verifyCode('+79990000001', '000000', { accessContext: { ip: '93.184.216.34' }, entryPoint: 'user' }),
+    () => store.verifyCode('+79990000001', '0000', { accessContext: { ip: '93.184.216.34' }, entryPoint: 'user' }),
     /Слишком много неверных попыток/u,
   )
 

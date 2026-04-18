@@ -1011,7 +1011,7 @@
 - после `password-setup` и `password-reset` все старые bearer sessions пользователя отзываются; активной остаётся только новая сессия текущего входа
 - SMS OTP provider теперь только `sms.ru`:
   - код одноразовый, живёт `5 минут`
-  - длина кода задаётся через `SMS_OTP_LENGTH` и сейчас допускает только `4` или `6`
+  - длина кода задаётся через `SMS_OTP_LENGTH`, сейчас допускает только `4` или `6`, а дефолт и staging value — `4`
   - в базе хранится только `code_hash`, plaintext код не сохраняется
   - после успешного `verify-code` challenge сразу уходит в `used`, а дальнейший `register` / `set-password` / `reset-password` опирается на continuation token
   - повторная отправка создаёт новый challenge и отменяет старый только после успешного accept от `sms.ru`

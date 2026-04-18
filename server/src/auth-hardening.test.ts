@@ -47,12 +47,12 @@ function getSentCode(sentCodes: Map<string, string[]>, identifier: string, index
   return codes[index] ?? null
 }
 
-function createOtpChallenge(identifier: string, purpose: 'admin' | 'register' | 'password_setup' | 'reset_password', code = '111111') {
+function createOtpChallenge(identifier: string, purpose: 'admin' | 'register' | 'password_setup' | 'reset_password', code = '1111') {
   return {
     attemptsCount: 0,
     clientIp: '93.184.216.34',
     codeHash: buildSmsOtpHash(code, identifier, purpose, testSmsOtpHashSecret),
-    codeLength: 6 as const,
+    codeLength: 4 as const,
     createdAt: '2026-03-28T00:00:00.000Z',
     expiresAt: '2099-01-01T00:00:00.000Z',
     id: `otp-${identifier}-${purpose}`,
@@ -263,7 +263,7 @@ test('admin verifyCode never authenticates non-staff account', async () => {
 
   await assert.rejects(
     () =>
-      store.verifyCode('+79990000003', '111111', {
+      store.verifyCode('+79990000003', '1111', {
         accessContext: { ip: '203.0.113.11', userAgent: 'test' },
         entryPoint: 'admin',
       }),
@@ -313,4 +313,5 @@ test('createRuntimeConfig fails closed for staging/production captcha and allows
   const developmentConfig = createRuntimeConfig({ NODE_ENV: 'development' })
   assert.equal(developmentConfig.environment, 'development')
   assert.equal(developmentConfig.auth.captcha.provider, 'disabled')
+  assert.equal(developmentConfig.auth.smsOtp.length, 4)
 })

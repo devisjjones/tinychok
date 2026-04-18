@@ -790,8 +790,8 @@ test('password reset revokes prior sessions and issues a fresh session', async (
   database.otpChallenges.push({
     attemptsCount: 0,
     clientIp: '93.184.216.34',
-    codeHash: buildSmsOtpHash('111111', account.identifier, 'reset_password', testSmsOtpHashSecret),
-    codeLength: 6,
+    codeHash: buildSmsOtpHash('1111', account.identifier, 'reset_password', testSmsOtpHashSecret),
+    codeLength: 4,
     createdAt: '2026-03-28T00:00:00.000Z',
     expiresAt: '2099-01-01T00:00:00.000Z',
     id: 'otp-reset',
@@ -807,7 +807,7 @@ test('password reset revokes prior sessions and issues a fresh session', async (
   })
 
   const result = await store.resetPasswordAfterCode({
-    code: '111111',
+    code: '1111',
     confirmPassword: 'StrongPass123',
     identifier: account.identifier,
     password: 'StrongPass123',

@@ -790,7 +790,7 @@ curl -s https://api.staging.tinychok.ru/healthz
     - `SMS_RU_API_ID`
     - `SMS_RU_BASE_URL=https://sms.ru`
     - `SMS_OTP_HASH_SECRET`
-    - `SMS_OTP_LENGTH=4|6`
+    - `SMS_OTP_LENGTH=4|6` (`4` по умолчанию; current staging должен идти на `4`)
     - `SMS_OTP_TTL_SECONDS=300`
     - `SMS_OTP_RESEND_COOLDOWN_SECONDS=60`
     - `SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY=5`
