@@ -790,7 +790,7 @@ curl -s https://api.staging.tinychok.ru/healthz
     - `SMS_RU_API_ID`
     - `SMS_RU_BASE_URL=https://sms.ru`
     - `SMS_OTP_HASH_SECRET`
-    - `SMS_OTP_LENGTH=4|6` (`4` по умолчанию; current staging должен идти на `4`)
+    - `SMS_OTP_LENGTH=4|6` (`4` по умолчанию; текущий staging идёт на `4`)
     - `SMS_OTP_TTL_SECONDS=300`
     - `SMS_OTP_RESEND_COOLDOWN_SECONDS=60`
     - `SMS_OTP_MAX_SENDS_PER_PHONE_PER_DAY=5`
@@ -808,6 +808,9 @@ curl -s https://api.staging.tinychok.ru/healthz
   - существующий аккаунт с паролем после ввода номера идёт сразу на password-step без SMS
   - существующий аккаунт без пароля идёт через SMS и затем обязан задать пароль
   - `Забыли пароль?` переводит на шаг телефона, требует SmartCaptcha и только потом запускает SMS reset-flow
+  - шаг ввода SMS-кода должен явно говорить, что SMS отправлена на указанный номер и может идти до `15 минут`
+  - на mobile при открытой клавиатуре auth screen должен скрывать верхний brand-block, если нужно освободить место под CTA
+  - на password-step mobile должен показывать inline submit duplicate внутри поля, чтобы CTA не терялся под клавиатурой
   - после `3` неверных password attempts на шаге пароля появляется обязательная SmartCaptcha
   - password-login режется server-side lockout по `identifier + ip`
   - после `password-setup` и `password-reset` старые bearer sessions перестают работать
@@ -840,6 +843,7 @@ curl -s https://api.staging.tinychok.ru/healthz
 - публичные статические страницы тоже входят в staging build:
   - `/privacy-policy.html`
   - `/user-agreement.html`
+  - `/moderation-rules.html`
   - `/premium-terms.html`
   - `/refund-policy.html`
   - `/contacts.html`
@@ -853,7 +857,12 @@ curl -s https://api.staging.tinychok.ru/healthz
   - после `3` неверных verify attempts challenge должен блокироваться
   - новый resend после cooldown должен отменять предыдущий pending challenge
   - при `SMS_OTP_TEST_MODE=false` должна приходить ровно одна SMS без `from`, без ссылок и без лишнего текста
+  - на code-step видна явная подсказка, что SMS отправлена на указанный номер и доставка может занять до `15 минут`
 - login по паролю на существующем аккаунте
+- mobile auth keyboard UX:
+  - на phone/password/code screens CTA не должен прятаться под клавиатурой
+  - на password-step внутри input есть inline send-arrow duplicate
+  - верхний brand-block может скрываться при открытой клавиатуре и это считается нормальным контрактом
 - открыть длинный direct, получить новое входящее в уже открытый room, выйти из комнаты:
   - unread badge не должен появляться на уже прочитанном сообщении
 - то же для group / channel room
@@ -906,6 +915,10 @@ curl -s https://api.staging.tinychok.ru/healthz
   - own send => сразу на последнем элементе
   - incoming while near bottom => остаёмся у актуального низа
   - incoming while reading older history => не должно срывать вниз
+- jump-to-latest control:
+  - при чтении старой истории над composer появляется кнопка возврата к последним сообщениям
+  - direct / group / channel / thread используют один и тот же control
+  - hover/focus не должны уводить кнопку в сторону
 - channel create flow:
   - пустые placeholders
   - отдельные `statusText` и `description`
@@ -916,6 +929,11 @@ curl -s https://api.staging.tinychok.ru/healthz
   - новый подписчик видит старые посты
   - старые комментарии остаются после выключения комментариев
 - thread comment send
+- message reactions:
+  - на desktop reaction trigger появляется у bubble без drift и привязывается к реальной ширине bubble
+  - на mobile floating reaction trigger вне action menu не должен быть постоянно виден
+  - action menu по сообщению содержит пункт `Реакция`
+  - reaction chips прижаты к ближнему краю bubble и не уезжают на media messages
 - delete message / post / comment с повторным входом
 - photo send и viewer
 - GIF send без premium
@@ -923,6 +941,10 @@ curl -s https://api.staging.tinychok.ru/healthz
 - локальный GIF upload в личную библиотеку premium-only
 - GIF pool вынесен из пользовательского storage/quota
 - avatar update
+- `Настройки -> Документы Тайничка`:
+  - раздел открывается отдельно от `Управление`
+  - внутри доступны `Пользовательское соглашение`, `Политика обработки персональных данных`, `Правила модерации и реагирования на незаконный контент`, `Условия Premium`, `Политика возвратов`
+  - `Правила модерации...` открываются как публичная static page
 - storage quota warning / block
 - session expiry now applies equally to HTTP bootstrap and websocket realtime
 - password change / reset revokes every other session and should kick old devices out immediately

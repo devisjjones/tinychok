@@ -1,6 +1,6 @@
 # Staging Frontend Rollout
 
-Короткий frontend-only rollout для `staging.tinychok.ru` по состоянию на `2026-04-13`.
+Короткий frontend-only rollout для `staging.tinychok.ru`.
 
 ## Решение
 
@@ -14,6 +14,7 @@
   - `privacy-policy.html`
   - `user-agreement.html`
   - `contacts.html`
+  - `moderation-rules.html`
   - `premium-terms.html`
   - `refund-policy.html`
 - websocket идёт напрямую в `wss://api.staging.tinychok.ru/ws`, так что frontend site не должен сам проксировать websocket.
@@ -110,6 +111,7 @@ curl -I http://staging.tinychok.ru
 curl -I https://staging.tinychok.ru
 curl -I https://staging.tinychok.ru/privacy-policy.html
 curl -I https://staging.tinychok.ru/user-agreement.html
+curl -I https://staging.tinychok.ru/moderation-rules.html
 curl -I https://staging.tinychok.ru/premium-terms.html
 curl -I https://staging.tinychok.ru/refund-policy.html
 curl -I https://staging.tinychok.ru/contacts.html
@@ -153,7 +155,7 @@ curl -s https://staging.tinychok.ru | rg -o 'assets/main-[^"]+\\.js'
 
 1. открыть `https://staging.tinychok.ru`;
 2. убедиться, что UI загружается без mixed-content и CORS ошибок;
-3. пройти auth flow с demo-кодом `1111`;
+3. пройти auth flow под allowlist-номером с актуальным SMS-кодом или через password-login существующего аккаунта;
 4. в DevTools Network подтвердить:
    - HTTP запросы уходят на `https://api.staging.tinychok.ru`;
    - websocket открывается на `wss://api.staging.tinychok.ru/ws?...`;

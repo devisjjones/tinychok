@@ -27,6 +27,28 @@
 - кастомные SSH alias вроде `github-tinychok` не считаются допустимым release-контрактом, если из-за них staging теряет воспроизводимый `fetch/pull`
 - staging rollout нельзя считать закрытым, пока live VM commit не совпадает с `origin/codex/staging-deploy`
 
+### 1.1. Production Build Contract
+
+- global release нельзя собирать из staging dist или implicit same-origin build
+- production frontend обязан собираться отдельно:
+  - `npm run build:production`
+  - `npm run build:frontend:production`
+- production dist обязан содержать runtime references на:
+  - `https://api.tinychok.ru`
+  - `wss://api.tinychok.ru`
+- production release prep branch должна оставаться отдельной от staging deploy branch:
+  - `codex/staging-deploy` остаётся staging-only
+  - production prep / deploy branch не должна переиспользовать staging rollout path
+- production deploy-script обязан валидировать live runtime не только по `healthz`, но и по:
+  - `readyz.environment = production`
+  - `publicUrls.appBaseUrl = https://tinychok.ru`
+  - `publicUrls.apiBaseUrl = https://api.tinychok.ru`
+  - `client-config.admin.environment = production`
+  - `captcha.provider = smartcaptcha`
+  - `server.trustProxy = true`
+- production analytics не должны молча наследовать staging metrica counter `108249405`
+- production admin по умолчанию остаётся выключенным через `ADMIN_PANEL_ENABLED=false`, пока не будет отдельного ручного решения по rollout
+
 ### 2. Runtime Health Contract
 
 - staging runtime после restart обязан пройти:
@@ -132,10 +154,22 @@
   - `POST /api/auth/sms/request`
   - `POST /api/auth/sms/verify`
   - `POST /api/auth/sms/resend`
+- user-facing code step не должен обещать мгновенную доставку:
+  - экран должен явно говорить, что SMS отправлена на указанный номер
+  - copy должна предупреждать, что SMS может идти до `15 минут`
 - OTP код одноразовый:
   - backend хранит только hash
   - после успешного verify challenge обязан немедленно стать `used`
   - повторный resend должен отменять старый pending challenge только после успешного accept от provider
+
+### 3.3. Mobile Auth Keyboard Contract
+
+- на mobile/touch auth-экран не должен прятать primary action под системной клавиатурой
+- при открытой клавиатуре auth-shell может скрывать верхний бренд/заголовок, если это нужно для освобождения места под CTA
+- password-step и password-reset/password-setup должны держать inline submit duplicate прямо внутри password field:
+  - использовать ту же send-arrow иконку, что и основной submit affordance
+  - desktop не должен получать этот duplicate-control
+- SMS step, password step и captcha step должны сохранять читаемую product-copy даже при сжатом mobile viewport
 
 ### 4. Staging Access Contract
 
@@ -169,6 +203,7 @@
 - публичные legal pages и их PDF считаются release-blocking surface:
   - `/user-agreement.html`
   - `/privacy-policy.html`
+  - `/moderation-rules.html`
   - `/premium-terms.html`
   - `/refund-policy.html`
   - `/contacts.html`
@@ -178,11 +213,21 @@
 - premium checkout legal consent должен держать обе ссылки:
   - `/premium-terms.html`
   - `/refund-policy.html`
+- `Настройки -> Документы Тайничка` считаются user-facing entrypoint-ом для публичных документов и должны держать ссылки на:
+  - `/user-agreement.html`
+  - `/privacy-policy.html`
+  - `/moderation-rules.html`
+  - `/premium-terms.html`
+  - `/refund-policy.html`
 - support email на публичных страницах:
   - `tinychok.help@yandex.com`
 - legal/general email:
   - `devisjjones@gmail.com`
 - legal pages не должны тихо расходиться с утверждёнными документами
+- moderation rules page тоже входит в public/legal contract:
+  - страница остаётся публичной и открывается без auth
+  - source-of-truth в коде = `src/moderationRulesContent.ts` и `src/ModerationRulesPage.tsx`
+  - со страницы должен оставаться видимым путь к `tinychok.help@yandex.com` и `/contacts.html`
 - privacy policy должна прямо покрывать текущую storage-механику:
   - пользовательские вложения не обещаны к бессрочному хранению
   - отдельные вложения могут быть автоматически удалены при достижении лимита пользовательского хранилища
@@ -718,6 +763,33 @@
   - отправку текста
   - одинаковое поведение во всех комнатах
 
+### 11.8.3. Room Jump-To-Latest Contract
+
+- direct / group / channel / thread room должны показывать jump-to-latest control над composer, когда пользователь ушёл от последних сообщений
+- control должен возвращать room feed в самый низ без промежуточного drift и без отдельной широкой подложки на всю комнату
+- hover/focus uplift допустим только как компактная анимация самой кнопки; control не должен уезжать в сторону или менять anchor относительно composer
+- dark theme обязана держать тот же control без светлого артефакта или потерянного контраста
+
+### 11.8.4. Message Reactions Contract
+
+- реакции поддерживаются для:
+  - direct messages
+  - group messages
+  - group thread comments
+  - subscription channel posts
+  - subscription channel thread comments
+- выбор реакции идёт через emoji-only picker:
+  - без GIF tabs
+  - floating trigger использует `heart.png`
+- один пользователь может держать только одну реакцию на конкретном сообщении:
+  - выбор нового emoji заменяет старую реакцию
+  - tap по собственной reaction chip снимает реакцию
+- reaction chips должны быть прижаты к ближнему краю bubble, а не висеть отдельно в комнате
+- для media bubbles anchoring идёт по измеренному bubble/content width, а не по ширине всей media-row
+- mobile contract отличается от desktop:
+  - floating trigger вне message menu скрыт на touch-устройствах
+  - action menu по long-press/tap должен содержать явный пункт `Реакция`
+
 ### 12. Thread Root Preview Contract
 
 - root message в открытом треде не должен визуально вести себя как обычный room-bubble
@@ -810,17 +882,20 @@
   - live `assets/main-*.js`
   - `healthz` / `readyz`
 - полный anti-confusion checklist лежит в [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md)
-- текущее подтверждённое состояние staging после live deploy `2026-04-13`:
-  - `origin/codex/staging-deploy = 5af9915`
-  - staging VM `HEAD = 5af9915`
-  - live frontend bundle = `assets/main-DSXa58mu.js`
+- exact live commit и `assets/main-*.js` здесь специально не фиксируются:
+  - эти значения устаревают на каждом следующем deploy
+  - актуальные proof-points нужно снимать по командам из [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md)
 
 ## Автоматические проверки
 
-- `npm test`
-- `npm run audit:release`
-- `npm run build:staging`
-- `npm run verify:staging-runtime`
+- локальный gate:
+  - `npm test`
+  - `npm run audit:release`
+  - `npm run build:staging`
+  - `npm run build:production`
+- live runtime verify:
+  - `npm run verify:staging-runtime`
+  - `npm run verify:production-runtime`
 
 ## Что считается инцидентом
 

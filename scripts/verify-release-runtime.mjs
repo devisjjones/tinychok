@@ -53,7 +53,15 @@ const readyUrl = readFlag('--ready-url')
 const requireAnalytics = hasFlag('--require-analytics')
 const expectedMetricaCounterIdRaw = readFlag('--expected-metrica-counter-id')
 const expectedMetricaCounterId = expectedMetricaCounterIdRaw ? Number(expectedMetricaCounterIdRaw) : null
+const forbiddenMetricaCounterIdRaw = readFlag('--forbid-metrica-counter-id')
+const forbiddenMetricaCounterId = forbiddenMetricaCounterIdRaw ? Number(forbiddenMetricaCounterIdRaw) : null
 const expectedAnalyticsProvider = readFlag('--expected-analytics-provider') ?? 'log'
+const expectedReadyEnvironment = readFlag('--expected-ready-environment')
+const expectedAdminEnvironment = readFlag('--expected-admin-environment')
+const expectedPublicAppUrl = readFlag('--expected-public-app-url')
+const expectedPublicApiUrl = readFlag('--expected-public-api-url')
+const expectedCaptchaProvider = readFlag('--expected-captcha-provider')
+const requireTrustProxy = hasFlag('--require-trust-proxy')
 
 if (!clientConfigUrl) {
   throw new Error('Missing required --client-config-url for release runtime verification.')
@@ -63,9 +71,40 @@ if (expectedMetricaCounterIdRaw && !Number.isInteger(expectedMetricaCounterId)) 
   throw new Error('Expected --expected-metrica-counter-id to be an integer.')
 }
 
+if (forbiddenMetricaCounterIdRaw && !Number.isInteger(forbiddenMetricaCounterId)) {
+  throw new Error('Expected --forbid-metrica-counter-id to be an integer.')
+}
+
 if (!['log', 'clickhouse'].includes(expectedAnalyticsProvider)) {
   throw new Error(
     `Expected --expected-analytics-provider to be "log" or "clickhouse", got ${String(expectedAnalyticsProvider)}.`,
+  )
+}
+
+if (
+  expectedReadyEnvironment &&
+  !['development', 'staging', 'production'].includes(expectedReadyEnvironment)
+) {
+  throw new Error(
+    `Expected --expected-ready-environment to be development, staging or production, got ${String(expectedReadyEnvironment)}.`,
+  )
+}
+
+if (
+  expectedAdminEnvironment &&
+  !['development', 'staging', 'production'].includes(expectedAdminEnvironment)
+) {
+  throw new Error(
+    `Expected --expected-admin-environment to be development, staging or production, got ${String(expectedAdminEnvironment)}.`,
+  )
+}
+
+if (
+  expectedCaptchaProvider &&
+  !['disabled', 'turnstile', 'smartcaptcha'].includes(expectedCaptchaProvider)
+) {
+  throw new Error(
+    `Expected --expected-captcha-provider to be disabled, turnstile or smartcaptcha, got ${String(expectedCaptchaProvider)}.`,
   )
 }
 
@@ -79,6 +118,28 @@ if (healthPayload) {
 
 if (readyPayload) {
   assertStatusOk(readyPayload, 'readyz')
+}
+
+if (expectedReadyEnvironment && readyPayload?.environment !== expectedReadyEnvironment) {
+  throw new Error(
+    `Runtime readyz environment mismatch. Expected "${expectedReadyEnvironment}", got ${String(readyPayload?.environment)}.`,
+  )
+}
+
+if (expectedPublicAppUrl && readyPayload?.publicUrls?.appBaseUrl !== expectedPublicAppUrl) {
+  throw new Error(
+    `Runtime readyz public app url mismatch. Expected "${expectedPublicAppUrl}", got ${String(readyPayload?.publicUrls?.appBaseUrl)}.`,
+  )
+}
+
+if (expectedPublicApiUrl && readyPayload?.publicUrls?.apiBaseUrl !== expectedPublicApiUrl) {
+  throw new Error(
+    `Runtime readyz public api url mismatch. Expected "${expectedPublicApiUrl}", got ${String(readyPayload?.publicUrls?.apiBaseUrl)}.`,
+  )
+}
+
+if (requireTrustProxy && readyPayload?.server?.trustProxy !== true) {
+  throw new Error('Runtime readyz server.trustProxy must stay true for staging/production proxy safety.')
 }
 
 if (requireAnalytics) {
@@ -110,6 +171,27 @@ if (requireAnalytics) {
       `Runtime config metricaCounterId mismatch. Expected ${expectedMetricaCounterId}, got ${analytics.metricaCounterId}.`,
     )
   }
+
+  if (
+    Number.isInteger(forbiddenMetricaCounterId) &&
+    analytics.metricaCounterId === forbiddenMetricaCounterId
+  ) {
+    throw new Error(
+      `Runtime config metricaCounterId must not reuse ${forbiddenMetricaCounterId}. Production must not inherit the staging counter id.`,
+    )
+  }
+}
+
+if (expectedAdminEnvironment && clientConfigPayload?.admin?.environment !== expectedAdminEnvironment) {
+  throw new Error(
+    `Runtime client-config admin.environment mismatch. Expected "${expectedAdminEnvironment}", got ${String(clientConfigPayload?.admin?.environment)}.`,
+  )
+}
+
+if (expectedCaptchaProvider && clientConfigPayload?.captcha?.provider !== expectedCaptchaProvider) {
+  throw new Error(
+    `Runtime client-config captcha.provider mismatch. Expected "${expectedCaptchaProvider}", got ${String(clientConfigPayload?.captcha?.provider)}.`,
+  )
 }
 
 console.log(
@@ -118,7 +200,15 @@ console.log(
       verifiedClientConfigUrl: clientConfigUrl,
       verifiedHealthUrl: healthUrl,
       verifiedReadyUrl: readyUrl,
+      expectedReadyEnvironment,
+      expectedAdminEnvironment,
+      expectedPublicAppUrl,
+      expectedPublicApiUrl,
+      expectedCaptchaProvider,
+      requireTrustProxy,
       analytics: clientConfigPayload?.analytics ?? null,
+      admin: clientConfigPayload?.admin ?? null,
+      captcha: clientConfigPayload?.captcha ?? null,
       expectedAnalyticsProvider,
       health: healthPayload,
       ready: readyPayload,

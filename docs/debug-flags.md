@@ -4,29 +4,28 @@
 
 ## Premium Debug Layer
 
-- в premium-экране есть debug-тоггл автопокупки
-- при включённом тоггле кнопки покупки не запускают реальный платёжный flow, а автоматически включают premium текущему аккаунту
-- при выключённом тоггле purchase-кнопки идут в реальный checkout-flow через ЮKassa
-- debug-включение и debug-выключение premium сохраняются server-side для текущего аккаунта
+- на `codex/global-release-prep` user-facing debug-тоггл в premium-экране уже убран
+- premium-экран в этой ветке всегда запускает реальный checkout-flow через ЮKassa
+- server-side debug premium path пока остаётся только как технический staging/dev инструмент без user-facing affordance
 
 ## Technical Placement
 
-- debug toggle хранится в `localStorage` по ключу `tinychok.debug.premium-auto-checkout`
-- UI-логика живёт в [src/App.tsx](/Users/devisjjones/Documents/tinychok/src/App.tsx)
-- стили debug premium layer живут в [src/App.css](/Users/devisjjones/Documents/tinychok/src/App.css)
+- UI premium purchase flow живёт в [src/App.tsx](/Users/devisjjones/Documents/tinychok/src/App.tsx)
+- технический debug premium endpoint остаётся в:
+  - [src/app/backend.ts](/Users/devisjjones/Documents/tinychok/src/app/backend.ts)
+  - [server/src/index.ts](/Users/devisjjones/Documents/tinychok/server/src/index.ts)
+  - [server/src/store.ts](/Users/devisjjones/Documents/tinychok/server/src/store.ts)
 
 ## What This Covers
 
-- быстрый переход между premium / non-premium состояниями
-- проверка locked premium features
-- проверка unlocked premium features
-- проверка UX premium purchase buttons без прохождения реального платежа
+- техническое server-side переключение premium для dev/staging сценариев
+- storage quota regression tests
+- premium restore / downgrade tests
 
 ## What Must Be Removed Or Replaced Before Production
 
-- debug-тоггл автопокупки
+- технический debug premium endpoint или любой внешний путь к нему
 - любые debug-only affordance вокруг premium purchase
-- storage key `tinychok.debug.premium-auto-checkout`
 
 Вместо этого должен появиться реальный платёжный контур с:
 

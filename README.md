@@ -7,6 +7,8 @@ Production-архитектура под `Yandex Cloud` для `10k+` польз
 Короткая точка продолжения для новой ветки или нового треда лежит в [docs/next-branch-handoff.md](/Users/devisjjones/Documents/tinychok/docs/next-branch-handoff.md).
 Текущее состояние staging rollout зафиксировано в [docs/staging-rollout-status.md](/Users/devisjjones/Documents/tinychok/docs/staging-rollout-status.md).
 Короткий runbook по защите staging для тестеров лежит в [docs/staging-access-guard.md](/Users/devisjjones/Documents/tinychok/docs/staging-access-guard.md).
+Production rollout runbook лежит в [docs/production-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/production-deploy-runbook.md).
+Чек-лист production readiness лежит в [docs/production-readiness-checklist.md](/Users/devisjjones/Documents/tinychok/docs/production-readiness-checklist.md).
 Текущая схема аналитики и goals описана в [docs/analytics-instrumentation.md](/Users/devisjjones/Documents/tinychok/docs/analytics-instrumentation.md).
 Текущая политика хранения данных описана в [docs/data-retention.md](/Users/devisjjones/Documents/tinychok/docs/data-retention.md).
 
@@ -42,6 +44,7 @@ Production-архитектура под `Yandex Cloud` для `10k+` польз
   - `premium-terms.html`
   - `refund-policy.html`
   - `contacts.html`
+  - `moderation-rules.html`
 - серверный bootstrap, realtime snapshot fanout и mutation API для горячих сценариев
 - файловое dev-хранилище в `server/data/dev-db.json`
 
@@ -67,6 +70,7 @@ npm run dev:server
 npm run test:ui-contracts
 npm run test:gate
 npm run build
+npm run build:production
 npm run build:staging
 npm run start:server
 ```
@@ -83,6 +87,7 @@ npm run start:server
   - `npm run test:ui-contracts`
   - `npm run audit:release`
   - `npm run build:staging`
+  - `npm run build:production`
 - если задача не `docs-only`, нельзя считать её завершённой, пока `npm run test:gate` не зелёный
 
 ## Production env
@@ -102,7 +107,10 @@ npm run start:server
 - `SMS_OTP_TEST_MODE=true|false` включает `test=1` для staging/dev smoke без реальной доставки; в production должен оставаться `false`;
 - `TINYCHOK_TRUST_PROXY=true` обязателен на staging/production, чтобы backend брал реальный client IP из доверенного proxy chain, а не IP VM;
 - `VITE_API_BASE_URL` и `VITE_WS_BASE_URL` для раздельных frontend/backend доменов;
+- `PUBLIC_ADMIN_STAGING_URL`, `PUBLIC_ADMIN_PRODUCTION_URL`, `ADMIN_STAGING_HOST`, `ADMIN_PRODUCTION_HOST` для admin-host contract;
 - `PUBLIC_API_URL` и `PUBLIC_MEDIA_BASE_URL` для корректных media URL в snapshot и upload response;
+- `ADMIN_PANEL_ENABLED=false` в production по умолчанию, пока production admin не включён отдельным ручным решением;
+- `TINYCHOK_TRUST_PROXY=true` обязателен на staging/production и должен оставаться явным в env template;
 - `POSTGRES_*` и `OBJECT_STORAGE_*` как текущий deploy-конфиг backend.
 
 `Valkey` остаётся частью целевой production-архитектуры, но текущий backend и runtime env его ещё не используют.

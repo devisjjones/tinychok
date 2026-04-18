@@ -50,7 +50,6 @@ export {
   premiumGroupsPerUserLimit,
   premiumMonthlyPriceRub,
   premiumAnnualPriceRub,
-  premiumDebugAutoCheckoutStorageKey,
   premiumStorageQuotaBytes,
   premiumArchiveStorageQuotaBytes,
   channelStorageQuotaBytes,

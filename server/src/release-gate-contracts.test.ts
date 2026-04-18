@@ -16,6 +16,7 @@ test('release gate keeps lint and ui contracts inside the final local validation
   assert.match(testGate, /npm run lint/u)
   assert.match(testGate, /npm run test:ui-contracts/u)
   assert.match(testGate, /npm run build:staging/u)
+  assert.match(testGate, /npm run build:production/u)
   assert.match(testUiContracts, /ui-runtime-regressions\.test\.ts/u)
   assert.match(testUiContracts, /release-gate-contracts\.test\.ts/u)
   assert.match(testUiContracts, /persisted-auth-storage\.test\.ts/u)

@@ -43,7 +43,6 @@ import {
   premiumMonthlyPriceRub,
   premiumAnnualPriceRub,
   premiumMessageFileUploadMaxSizeBytes,
-  premiumDebugAutoCheckoutStorageKey,
   quickFilters,
   statusFieldMaxLength,
   surnameFieldMaxLength,
@@ -147,7 +146,6 @@ import {
   removeSubscriptionChannelSubscriber as removeSubscriptionChannelSubscriberRequest,
   removeGroupParticipant as removeGroupParticipantRequest,
   registerAccount,
-  setDebugPremiumState as setDebugPremiumStateRequest,
   registerUserGif,
   requestAuthCode,
   saveSnapshot,
@@ -267,7 +265,6 @@ import {
   formatContactStatus,
   formatPreview,
   formatSidebarActivityLabel,
-  extendPremiumExpiry,
   formatGroupPreview,
   formatGroupTime,
   formatMessageTimeLabel,
@@ -1775,10 +1772,6 @@ function App() {
   const [chatActionsOpen, setChatActionsOpen] = useState(false)
   const [blockedActionChatId, setBlockedActionChatId] = useState<number | null>(null)
   const [premiumGiftChatId, setPremiumGiftChatId] = useState<number | null>(null)
-  const [premiumDebugAutoCheckout, setPremiumDebugAutoCheckout] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return window.localStorage.getItem(premiumDebugAutoCheckoutStorageKey) === 'true'
-  })
   const [photoSendOriginalPreference, setPhotoSendOriginalPreference] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.sessionStorage.getItem(messagePhotoSendOriginalPreferenceStorageKey) === 'true'
@@ -3866,24 +3859,6 @@ function App() {
       : `На бесплатном аккаунте можно создать только ${defaultGroupsPerUserLimit} групп. Чтобы создать больше, активируйте премиум.`
   }
 
-  async function applyPremiumDebugState(enabled: boolean, durationDays = 30) {
-    if (!session) return
-
-    if (backendReady && session.sessionToken) {
-      const response = await setDebugPremiumStateRequest(session.sessionToken, {
-        durationDays,
-        enabled,
-      })
-      applySnapshot(response.snapshot)
-      return
-    }
-
-    syncSession({
-      ...session,
-      premium: enabled,
-      premiumExpiresAt: enabled ? extendPremiumExpiry(durationDays, session.premiumExpiresAt) : '',
-    })
-  }
   const profilePreviewSession =
     session && profileSettingsDraft
       ? {
@@ -4261,29 +4236,20 @@ function App() {
     setPremiumPurchaseBusy(true)
     setPremiumCheckoutNotice(null)
     trackAnalyticsEvent('premium_purchase_started', {
-      debugAutoCheckout: premiumDebugAutoCheckout,
+      debugAutoCheckout: false,
       gift: Boolean(premiumGiftChatId),
       plan,
     })
     trackAnalyticsEvent(
       plan === 'year' ? 'premium_purchase_started_year' : 'premium_purchase_started_month',
       {
-        debugAutoCheckout: premiumDebugAutoCheckout,
+        debugAutoCheckout: false,
         gift: Boolean(premiumGiftChatId),
         plan,
       },
     )
 
     try {
-      if (premiumDebugAutoCheckout) {
-        await applyPremiumDebugState(true, plan === 'year' ? 365 : 30)
-        trackPremiumPurchaseSucceeded(plan, {
-          debugAutoCheckout: true,
-          gift: Boolean(premiumGiftChatId),
-        })
-        return
-      }
-
       await startRealPremiumCheckout(plan)
     } catch (error) {
       const errorMessage = getFriendlyPremiumCheckoutErrorMessage(
@@ -4291,7 +4257,7 @@ function App() {
         'Не удалось запустить покупку premium.',
       )
       trackPremiumPurchaseFailed(plan, {
-        debugAutoCheckout: premiumDebugAutoCheckout,
+        debugAutoCheckout: false,
         gift: Boolean(premiumGiftChatId),
         reason: errorMessage,
       })
@@ -4302,16 +4268,6 @@ function App() {
     } finally {
       setPremiumPurchaseBusy(false)
     }
-  }
-
-  function disablePremiumForDebug() {
-    if (!session) return
-
-    void applyPremiumDebugState(false).catch((error) => {
-      window.alert(
-        error instanceof Error ? error.message : 'Не удалось отключить премиум в debug-режиме.',
-      )
-    })
   }
 
   const cookieConsentStatus =
@@ -4626,15 +4582,6 @@ function App() {
   }, [session?.quietModeEnabled])
 
   useDocumentTheme(darkThemeEnabled)
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    window.localStorage.setItem(
-      premiumDebugAutoCheckoutStorageKey,
-      premiumDebugAutoCheckout ? 'true' : 'false',
-    )
-  }, [premiumDebugAutoCheckout])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -20540,34 +20487,6 @@ function App() {
                   ) : (
                     <h2>{sessionHasPremium ? 'Продли премиум Тайничок' : 'Премиум Тайничок'}</h2>
                   )}
-                  <div className="premium-debug-block">
-                    <div className="premium-debug-toggle-row">
-                      <span className="premium-debug-label">Дебаг</span>
-                      <button
-                        type="button"
-                        className={
-                          premiumDebugAutoCheckout
-                            ? 'premium-debug-toggle active'
-                            : 'premium-debug-toggle'
-                        }
-                        aria-pressed={premiumDebugAutoCheckout}
-                        onClick={() => {
-                          setPremiumDebugAutoCheckout((current) => !current)
-                        }}
-                      >
-                        <span className="premium-debug-toggle-thumb" aria-hidden="true" />
-                      </button>
-                    </div>
-                    {sessionHasPremium ? (
-                      <button
-                        type="button"
-                        className="soft-button premium-debug-disable-button"
-                        onClick={disablePremiumForDebug}
-                      >
-                        Выключить премиум
-                      </button>
-                    ) : null}
-                  </div>
                 </div>
                 {premiumGiftChat ? (
                   <p className="premium-gift-contact">{`Контакту ${premiumGiftChat.title}`}</p>

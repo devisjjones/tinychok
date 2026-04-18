@@ -179,3 +179,10 @@ Backend надо держать не как один большой `store.ts`, 
 2. Вводим Object Storage adapter для media.
 3. После этого переносим realtime на Valkey pub/sub.
 4. Только затем подключаем платежный контур.
+
+Текущий operational prep для этого шага теперь разнесён так:
+
+- live staging branch = `codex/staging-deploy`
+- global release / production prep branch = `codex/global-release-prep`
+- production rollout path описан в [docs/production-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/production-deploy-runbook.md)
+- readiness checklist описан в [docs/production-readiness-checklist.md](/Users/devisjjones/Documents/tinychok/docs/production-readiness-checklist.md)

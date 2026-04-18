@@ -2,26 +2,27 @@
 
 set -euo pipefail
 
-BRANCH="${TINYCHOK_STAGING_BRANCH:-codex/staging-deploy}"
-SERVICE_NAME="${TINYCHOK_STAGING_SERVICE:-tinychok-staging}"
-FRONTEND_DIR="${TINYCHOK_STAGING_FRONTEND_DIR:-/var/www/tinychok-staging}"
-EXPECTED_ANALYTICS_PROVIDER="${TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-clickhouse}"
+BRANCH="${TINYCHOK_PRODUCTION_BRANCH:-codex/global-release-prep}"
+SERVICE_NAME="${TINYCHOK_PRODUCTION_SERVICE:-tinychok-production}"
+FRONTEND_DIR="${TINYCHOK_PRODUCTION_FRONTEND_DIR:-/var/www/tinychok-production}"
+EXPECTED_ANALYTICS_PROVIDER="${TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-log}"
+FORBIDDEN_STAGING_METRICA_COUNTER_ID="${TINYCHOK_FORBIDDEN_STAGING_METRICA_COUNTER_ID:-108249405}"
 SKIP_PULL=0
 
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/deploy-staging.sh [--skip-pull] [--branch <name>] [--service <name>] [--frontend-dir <path>]
+  bash scripts/deploy-production.sh [--skip-pull] [--branch <name>] [--service <name>] [--frontend-dir <path>]
 
 Defaults:
-  branch:       codex/staging-deploy
-  service:      tinychok-staging
-  frontend-dir: /var/www/tinychok-staging
+  branch:       codex/global-release-prep
+  service:      tinychok-production
+  frontend-dir: /var/www/tinychok-production
 
 Examples:
-  bash scripts/deploy-staging.sh
-  bash scripts/deploy-staging.sh --skip-pull
-  TINYCHOK_STAGING_BRANCH=codex/staging-deploy bash scripts/deploy-staging.sh
+  bash scripts/deploy-production.sh
+  bash scripts/deploy-production.sh --skip-pull
+  TINYCHOK_PRODUCTION_BRANCH=codex/global-release-prep bash scripts/deploy-production.sh
 EOF
 }
 
@@ -30,7 +31,7 @@ ensure_clean_worktree() {
   dirty_status="$(git status --porcelain)"
 
   if [[ -n "$dirty_status" ]]; then
-    echo "Staging deploy requires a clean commit-backed worktree." >&2
+    echo "Production deploy requires a clean commit-backed worktree." >&2
     echo "Dirty paths:" >&2
     echo "$dirty_status" >&2
     exit 1
@@ -45,41 +46,41 @@ ensure_origin_remote_contract() {
     git@github.com:devisjjones/tinychok.git|https://github.com/devisjjones/tinychok.git)
       ;;
     *)
-      echo "Staging deploy requires origin to point directly at github.com for devisjjones/tinychok.git." >&2
+      echo "Production deploy requires origin to point directly at github.com for devisjjones/tinychok.git." >&2
       echo "Current origin: ${origin_url:-<missing>}" >&2
       exit 1
       ;;
   esac
 }
 
-verify_staging_runtime_release() {
+verify_production_runtime_release() {
   node scripts/verify-release-runtime.mjs \
-    --client-config-url https://api.staging.tinychok.ru/api/client-config \
-    --health-url https://api.staging.tinychok.ru/healthz \
-    --ready-url https://api.staging.tinychok.ru/readyz \
+    --client-config-url https://api.tinychok.ru/api/client-config \
+    --health-url https://api.tinychok.ru/healthz \
+    --ready-url https://api.tinychok.ru/readyz \
     --require-analytics \
-    --expected-metrica-counter-id 108249405 \
     --expected-analytics-provider "$EXPECTED_ANALYTICS_PROVIDER" \
-    --expected-ready-environment staging \
-    --expected-admin-environment staging \
-    --expected-public-app-url https://staging.tinychok.ru \
-    --expected-public-api-url https://api.staging.tinychok.ru \
+    --forbid-metrica-counter-id "$FORBIDDEN_STAGING_METRICA_COUNTER_ID" \
+    --expected-ready-environment production \
+    --expected-admin-environment production \
+    --expected-public-app-url https://tinychok.ru \
+    --expected-public-api-url https://api.tinychok.ru \
     --expected-captcha-provider smartcaptcha \
     --require-trust-proxy
 }
 
-wait_for_staging_runtime_release() {
+wait_for_production_runtime_release() {
   local attempt=1
-  local max_attempts=12
+  local max_attempts=15
   local retry_delay_seconds=2
 
-  until verify_staging_runtime_release; do
+  until verify_production_runtime_release; do
     if (( attempt >= max_attempts )); then
-      echo "Staging runtime contracts did not recover after ${max_attempts} attempts." >&2
+      echo "Production runtime contracts did not recover after ${max_attempts} attempts." >&2
       return 1
     fi
 
-    echo "Runtime not ready yet; retrying release verification in ${retry_delay_seconds}s (attempt ${attempt}/${max_attempts})."
+    echo "Production runtime not ready yet; retrying release verification in ${retry_delay_seconds}s (attempt ${attempt}/${max_attempts})."
     sleep "$retry_delay_seconds"
     attempt=$((attempt + 1))
   done
@@ -162,38 +163,38 @@ npm ci
 echo "==> Verifying release audit gate"
 npm run audit:release
 
-echo "==> Building project for staging"
-# Staging must never be deployed from plain `npm run build` output.
-# If the frontend falls back to same-origin `/api`, Chrome re-opens nginx basic auth
-# in a loop because the web host challenges those requests. `build:staging` now
-# verifies that dist embeds `api.staging.tinychok.ru` and `wss://api.staging.tinychok.ru`.
-npm run build:staging
+echo "==> Building project for production"
+# Global release must never reuse a staging build or a plain same-origin dist.
+# Production frontend has to embed api.tinychok.ru and the dedicated realtime host,
+# otherwise the runtime contour, payments and auth contracts are being verified
+# against a different surface than the one the live users actually load.
+npm run build:production
 
 echo "==> Restarting service $SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"
 
-echo "==> Verifying staging runtime release contracts"
-# Release must fail if live runtime contracts drift even when the app still boots.
-# Staging analytics must stay explicitly enabled with the expected sink provider and
-# counter id 108249405, otherwise Metrica or internal analytics can silently stop
-# receiving new events. After restart, nginx can briefly return 502 before the backend
-# has rebound the socket, so the release gate must wait for live healthz/readyz to
-# recover before failing.
-wait_for_staging_runtime_release
+echo "==> Verifying production runtime release contracts"
+# Production must come back with the real production environment markers:
+# - readyz.environment=production
+# - public urls pinned to tinychok.ru / api.tinychok.ru
+# - SmartCaptcha enabled
+# - trust proxy enabled
+# - analytics enabled with a non-staging counter id
+wait_for_production_runtime_release
 
 echo "==> Syncing dist/ to $FRONTEND_DIR"
 sudo rsync -av --delete --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r dist/ "$FRONTEND_DIR/"
 
-echo "==> Verifying staging static web icon contracts"
+echo "==> Verifying production static web icon contracts"
 node scripts/verify-web-static-assets.mjs \
-  --root-url https://staging.tinychok.ru
+  --root-url https://tinychok.ru
 
-echo "==> Verifying live user/admin app asset chain"
+echo "==> Verifying live production app asset chain"
 node scripts/verify-live-app-assets.mjs \
-  --root-url https://staging.tinychok.ru
+  --root-url https://tinychok.ru
 
 echo "==> Done"
 echo "Commit: $CURRENT_HEAD"
 echo "Next check:"
-echo "  curl -I https://staging.tinychok.ru"
-echo "  curl -s https://api.staging.tinychok.ru/healthz"
+echo "  curl -I https://tinychok.ru"
+echo "  curl -s https://api.tinychok.ru/healthz"

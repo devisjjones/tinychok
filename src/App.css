@@ -2658,52 +2658,6 @@
   color: var(--ink);
 }
 
-.premium-debug-block {
-  display: grid;
-  justify-items: end;
-  gap: 8px;
-  flex: 0 0 auto;
-}
-
-.premium-debug-toggle-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.premium-debug-label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(180, 78, 61, 0.12);
-  color: rgba(122, 52, 40, 0.92);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.premium-debug-disable-button {
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: 999px;
-}
-
-.premium-debug-status-card {
-  gap: 10px;
-}
-
-.premium-debug-status-copy {
-  color: var(--ink);
-}
-
-.premium-debug-status-error {
-  margin: 0;
-}
-
 .premium-heading .settings-copy {
   margin-top: 12px;
   max-width: 56ch;
@@ -2865,41 +2819,6 @@
 
 .premium-consent-copy .settings-inline-link {
   white-space: nowrap;
-}
-
-.premium-debug-toggle {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  width: 54px;
-  min-width: 54px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(122, 98, 85, 0.22);
-  cursor: pointer;
-  transition: background 160ms ease;
-}
-
-.premium-debug-toggle.active {
-  background: rgba(140, 87, 56, 0.62);
-}
-
-.premium-debug-toggle-thumb {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background: #fffaf5;
-  box-shadow: 0 6px 14px rgba(64, 35, 18, 0.16);
-  transition: transform 160ms ease;
-}
-
-.premium-debug-toggle.active .premium-debug-toggle-thumb {
-  transform: translateX(22px);
 }
 
 .settings-stack {
@@ -9704,10 +9623,6 @@
     padding: 0 20px;
   }
 
-  .premium-debug-block {
-    justify-items: start;
-  }
-
   .account-headline {
     flex-direction: row;
     align-items: flex-start;
@@ -11277,19 +11192,9 @@ html[data-theme='dark'] .hero-stats div {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-html[data-theme='dark'] .premium-debug-toggle {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-html[data-theme='dark'] .premium-debug-toggle.active,
 html[data-theme='dark'] .channel-avatar-picker-toggle.active {
   background: rgba(255, 255, 255, 0.18);
   border-color: rgba(255, 255, 255, 0.22);
-}
-
-html[data-theme='dark'] .premium-debug-toggle-thumb {
-  background: #f1f2f4;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
 }
 
 html[data-theme='dark'] .settings-handle:focus-within,

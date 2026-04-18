@@ -5,6 +5,18 @@
 Отдельный staging rollout discipline-checklist лежит в [docs/staging-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/staging-deploy-runbook.md).
 Отдельная памятка по продолжению работы в новом чате лежит в [docs/new-thread-runbook.md](/Users/devisjjones/Documents/tinychok/docs/new-thread-runbook.md).
 
+## Release Branch Strategy
+
+- live staging branch остаётся `codex/staging-deploy`
+- текущая ветка под global release / production contour prep = `codex/global-release-prep`
+- staging и production нельзя снова вести из одной release-ветки:
+  - staging VM привязана к `codex/staging-deploy`
+  - production deploy/runbook и readiness checklist теперь готовятся отдельно
+- production operational docs:
+  - [docs/production-deploy-runbook.md](/Users/devisjjones/Documents/tinychok/docs/production-deploy-runbook.md)
+  - [docs/production-readiness-checklist.md](/Users/devisjjones/Documents/tinychok/docs/production-readiness-checklist.md)
+- если production ветка позже будет переименована в отдельный deploy-branch, staging branch от этого не трогать и не переиспользовать
+
 ## Runtime Topology
 
 - staging frontend: `https://staging.tinychok.ru`
@@ -122,7 +134,8 @@
 - staging premium reporting пока трактовать только как product smoke / estimated revenue:
   - real checkout уже идёт через ЮKassa redirect + return-status flow
   - `premium_purchase_succeeded*` теперь должны появляться только после backend confirm из `/api/premium/purchases/:purchaseId`
-  - `debugAutoCheckout` всё ещё может добавлять debug-успехи на staging, если toggle включён вручную
+  - в `codex/global-release-prep` user-facing premium toggle уже убран из окна подписки; экран идёт только в реальный checkout-flow
+  - технический `debugAutoCheckout` path пока остаётся только как non-UI staging/dev инструмент
   - production revenue dashboard потом нужно будет переключать на `environment=production`
 - refund charts строятся тем же workbook-side SQL-подходом:
   - базовый фильтр = `event_name = refund_processed`
@@ -141,6 +154,31 @@
   - если нужны чеки через YooKassa, отдельно включаются `TINYCHOK_YOOKASSA_RECEIPTS_ENABLED`, `TINYCHOK_YOOKASSA_RECEIPT_VAT_CODE`, `TINYCHOK_YOOKASSA_RECEIPT_TIMEZONE`
 - единый release-blocking список теперь собран в [docs/release-contracts.md](/Users/devisjjones/Documents/tinychok/docs/release-contracts.md)
 
+## Production Release Prep
+
+- production frontend build теперь нужно собирать отдельно от staging:
+  - `npm run build:production`
+  - dist обязан содержать `https://api.tinychok.ru` и `wss://api.tinychok.ru`
+- production runtime verify теперь тоже отдельный:
+  - `npm run verify:production-runtime`
+  - verify обязан проверять:
+    - `readyz.environment = production`
+    - `publicUrls.appBaseUrl = https://tinychok.ru`
+    - `publicUrls.apiBaseUrl = https://api.tinychok.ru`
+    - `client-config.admin.environment = production`
+    - `captcha.provider = smartcaptcha`
+    - `server.trustProxy = true`
+    - production `metricaCounterId` не совпадает со staging id `108249405`
+- production deploy script:
+  - `bash scripts/deploy-production.sh`
+  - дефолтная release-prep branch в скрипте = `codex/global-release-prep`
+  - service / branch / frontend dir можно переопределить флагами или env
+- `.env.production.example` и `.env.staging.example` теперь явно держат:
+  - `PUBLIC_ADMIN_*` / `ADMIN_*` host contract
+  - `ADMIN_PANEL_ENABLED`
+  - `TINYCHOK_TRUST_PROXY=true`
+  - `SMS_OTP_LENGTH=4` как текущий default contract
+
 ## Core Product Mechanics
 
 ### Public Legal Pages
@@ -149,6 +187,7 @@
 - текущий публичный набор страниц:
   - `https://tinychok.ru/user-agreement.html`
   - `https://tinychok.ru/privacy-policy.html`
+  - `https://tinychok.ru/moderation-rules.html`
   - `https://tinychok.ru/premium-terms.html`
   - `https://tinychok.ru/refund-policy.html`
   - `https://tinychok.ru/contacts.html`
@@ -159,6 +198,7 @@
 - source-of-truth в коде:
   - `src/userAgreementContent.ts`
   - `src/privacyPolicyContent.ts`
+  - `src/moderationRulesContent.ts`
   - `src/premiumTermsContent.ts`
   - `src/refundPolicyContent.ts`
   - `src/ContactsPage.tsx`
@@ -193,6 +233,13 @@
     - хранилище до `1000 МБ`
     - создание тематических каналов
     - группы до `200` участников
+- `Настройки -> Документы Тайничка` теперь считаются отдельным entrypoint-ом публичных документов:
+  - экран живёт отдельно от `Управление`
+  - внутри держатся ссылки на `Пользовательское соглашение`, `Политику`, `Правила модерации`, `Условия Premium` и `Политику возвратов`
+- `Правила модерации и реагирования на незаконный контент` считаются такой же публичной static page, как и остальные документы:
+  - route = `/moderation-rules.html`
+  - page source-of-truth = `src/ModerationRulesPage.tsx`
+  - на странице остаются `tinychok.help@yandex.com` и ссылка на `/contacts.html`
 - если меняется хоть одна из этих legal pages, нужно обновлять:
   - страницу HTML
   - публичный PDF, если у страницы есть отдельная PDF-версия
@@ -1017,6 +1064,7 @@
   - повторная отправка создаёт новый challenge и отменяет старый только после успешного accept от `sms.ru`
   - `from` в provider request не используется вообще
   - в provider request уходит публичный IP конечного пользователя; при отсутствии валидного public IP backend режет отправку
+  - user-facing code-step copy прямо говорит, что SMS отправлена на указанный номер и может идти до `15 минут`
 - обязательные env для SMS OTP:
   - `SMS_RU_API_ID`
   - `SMS_RU_BASE_URL`
@@ -1033,6 +1081,10 @@
   - для smoke без живой доставки можно держать `SMS_OTP_TEST_MODE=true`
   - production должен идти с `SMS_OTP_TEST_MODE=false`
   - `TINYCHOK_TRUST_PROXY=true` обязателен, иначе backend не увидит корректный client IP для `sms.ru`
+- mobile auth keyboard contract:
+  - при открытой клавиатуре auth-screen может скрывать верхний brand/title block, чтобы поднять CTA
+  - password-step, password-reset и password-setup держат inline submit duplicate прямо внутри input
+  - mobile CTA не должен теряться под клавиатурой на phone/password/code screens
 - в `Настройки -> Управление` доступны:
   - `Сменить пароль`
   - `Удалить аккаунт`
@@ -1310,10 +1362,18 @@ npm run bootstrap:staff -- <identifier> <owner|moderator|support>
   - own send must land on the latest item
   - incoming should auto-scroll only when the user is already near bottom
   - prepend older history must preserve viewport and must never fight open/send scroll-to-bottom
+  - если пользователь ушёл от последних сообщений, над composer появляется `jump-to-latest` control для direct / group / channel / thread
+  - hover/focus у этого control не должны сдвигать его anchor относительно composer
   - visible scrollbar в room feed считается дефектом layout и не должен ложиться поверх bubbles
   - scroll / overflow fixes нельзя закрывать только по source-contract тестам; нужен runtime smoke и на desktop, и на mobile
   - широкий `touch-action` на `.message-feed`, `.chat-list` и других реальных scroll-контейнерах считается рискованной правкой, пока не доказан живой сценарий на обеих платформах
   - `justify-content:flex-end` на реальном scroll-контейнере комнаты запрещён: в Chromium/Firefox это может сделать старую историю сверху недостижимой; для bottom-align короткой ленты использовать auto-margin/spacer, а не end-alignment самого overflow-контейнера
+- reactions contract:
+  - reactions поддерживаются на direct/group messages, thread comments и channel posts/comments
+  - на desktop floating trigger использует `heart.png` и привязывается к реальной ширине bubble, включая media bubbles
+  - на mobile floating trigger скрыт вне action menu; long-press/tap menu содержит пункт `Реакция`
+  - один viewer держит только одну reaction на сообщение; выбор нового emoji заменяет старый, tap по своей chip снимает reaction
+  - reaction chips должны быть прижаты к ближнему краю bubble, а не висеть отдельно в комнате
 - premium debug state может использоваться на staging, но не должен попадать в production без отдельного решения
 - production deploy обязан идти в режиме `TINYCHOK_APP_ENV=production`, чтобы тестовые сущности не попадали в боевой runtime
 - admin production нельзя включать без отдельного ручного решения по env и rollout-проверке staging

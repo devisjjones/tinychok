@@ -5209,19 +5209,22 @@ test('refund policy page mirrors the approved refund document and premium checko
   assert.ok(existsSync(join(repoRoot, 'refund-policy.html')))
 })
 
-test('premium debug toggle stays in the top-right header cluster without helper copy', () => {
+test('premium checkout view no longer exposes user-facing debug toggle or local storage contract', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
   const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  const constantsSource = readFileSync(join(repoRoot, 'src', 'shared', 'constants.ts'), 'utf8')
   const premiumViewStart = appSource.indexOf('{isPremiumView ? (')
 
   assert.ok(premiumViewStart >= 0)
 
   const premiumViewSource = appSource.slice(premiumViewStart)
-  assert.match(premiumViewSource, /className="premium-debug-toggle-row"/u)
+  assert.doesNotMatch(premiumViewSource, /premium-debug-block/u)
+  assert.doesNotMatch(appSource, /premiumDebugAutoCheckout/u)
+  assert.doesNotMatch(appSource, /applyPremiumDebugState/u)
+  assert.doesNotMatch(constantsSource, /tinychok\.debug\.premium-auto-checkout/u)
   assert.doesNotMatch(premiumViewSource, /Автопокупка для тестов/u)
-  assert.doesNotMatch(premiumViewSource, /premium-debug-inline-copy/u)
-  assert.doesNotMatch(appCss, /\.premium-debug-inline-copy/u)
+  assert.doesNotMatch(appCss, /\.premium-debug-toggle/u)
 })
 
 test('premium footer keeps legal links on the right and cards align their CTA rows', () => {
@@ -5867,7 +5870,7 @@ test('runbooks keep the autotest gate explicit before final answers and staging 
   assert.match(packageJson, /server\/src\/json-file-persistence\.test\.ts/u)
   assert.match(
     packageJson,
-    /"test:gate": "npm run lint && npm test && npm run test:ui-contracts && npm run audit:release && npm run build:staging"/u,
+    /"test:gate": "npm run lint && npm test && npm run test:ui-contracts && npm run audit:release && npm run build:staging && npm run build:production"/u,
   )
 
   assert.match(newThreadRunbook, /быстрый контрактный прогон во время работы: `npm run test:ui-contracts`/u)
@@ -5922,7 +5925,7 @@ test('analytics and release runtime contracts stay explicit in env examples, dep
   assert.ok(existsSync(join(repoRoot, 'server', 'sql', 'yandex-clickhouse-analytics.sql')))
   assert.match(
     packageJson,
-    /"verify:staging-runtime": "node scripts\/verify-release-runtime\.mjs --client-config-url https:\/\/api\.staging\.tinychok\.ru\/api\/client-config --health-url https:\/\/api\.staging\.tinychok\.ru\/healthz --ready-url https:\/\/api\.staging\.tinychok\.ru\/readyz --require-analytics --expected-metrica-counter-id 108249405 --expected-analytics-provider \$\{TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-clickhouse\}"/u,
+    /"verify:staging-runtime": "node scripts\/verify-release-runtime\.mjs --client-config-url https:\/\/api\.staging\.tinychok\.ru\/api\/client-config --health-url https:\/\/api\.staging\.tinychok\.ru\/healthz --ready-url https:\/\/api\.staging\.tinychok\.ru\/readyz --require-analytics --expected-metrica-counter-id 108249405 --expected-analytics-provider \$\{TINYCHOK_EXPECTED_ANALYTICS_PROVIDER:-clickhouse\} --expected-ready-environment staging --expected-admin-environment staging --expected-public-app-url https:\/\/staging\.tinychok\.ru --expected-public-api-url https:\/\/api\.staging\.tinychok\.ru --expected-captcha-provider smartcaptcha --require-trust-proxy"/u,
   )
 
   assert.match(stagingEnvExample, /TINYCHOK_ANALYTICS_ENABLED=true/u)
@@ -5965,11 +5968,17 @@ test('analytics and release runtime contracts stay explicit in env examples, dep
 
   assert.match(verifyReleaseScript, /Missing required --client-config-url/u)
   assert.match(verifyReleaseScript, /expected-analytics-provider/u)
+  assert.match(verifyReleaseScript, /expected-ready-environment/u)
+  assert.match(verifyReleaseScript, /expected-admin-environment/u)
+  assert.match(verifyReleaseScript, /forbid-metrica-counter-id/u)
+  assert.match(verifyReleaseScript, /require-trust-proxy/u)
   assert.match(verifyReleaseScript, /healthz/u)
   assert.match(verifyReleaseScript, /readyz/u)
   assert.match(verifyReleaseScript, /analytics\.enabled=false/u)
   assert.match(verifyReleaseScript, /analytics\.provider mismatch/u)
   assert.match(verifyReleaseScript, /metricaCounterId mismatch/u)
+  assert.match(verifyReleaseScript, /must not reuse/u)
+  assert.match(verifyReleaseScript, /server\.trustProxy must stay true/u)
   assert.match(verifyReleaseScript, /expectedAnalyticsProvider/u)
   assert.match(verifyReleaseScript, /verifiedClientConfigUrl/u)
 
