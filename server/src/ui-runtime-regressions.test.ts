@@ -3629,6 +3629,10 @@ test('mobile auth keyboard flow keeps the submit action visible above the on-scr
   )
   assert.match(
     appCss,
+    /@media \(max-width: 920px\) \{[\s\S]*\.auth-shell\[data-keyboard-open='true'\] \.auth-card-brand\s*\{[\s\S]*max-height:\s*0;[\s\S]*opacity:\s*0;[\s\S]*transform:\s*translateY\(-12px\);/u,
+  )
+  assert.match(
+    appCss,
     /\.auth-submit\s*\{[\s\S]*scroll-margin-block-end:\s*calc\(var\(--auth-keyboard-inset\) \+ 20px\);/u,
   )
 })

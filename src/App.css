@@ -9381,6 +9381,24 @@
     padding-bottom: calc(var(--auth-shell-block-padding) + var(--auth-keyboard-inset));
   }
 
+  .auth-shell[data-keyboard-open='true'] .auth-card {
+    align-content: start;
+    gap: 14px;
+  }
+
+  .auth-shell[data-keyboard-open='true'] .auth-form {
+    gap: 12px;
+  }
+
+  .auth-shell[data-keyboard-open='true'] .auth-card-brand {
+    max-height: 0;
+    margin: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    transform: translateY(-12px);
+  }
+
   .auth-promo {
     display: none;
   }
@@ -9392,6 +9410,11 @@
   .auth-card-brand {
     display: grid;
     gap: 8px;
+    transition:
+      max-height 180ms ease,
+      opacity 180ms ease,
+      transform 180ms ease,
+      margin 180ms ease;
   }
 
   .auth-support-footer {
