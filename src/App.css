@@ -4395,10 +4395,10 @@
   width: var(--message-reaction-anchor-width, 100%);
   max-width: var(--message-reaction-anchor-width, 100%);
   box-sizing: border-box;
-  margin-left: var(--message-reaction-anchor-left, 0px);
   margin-top: -2px;
   position: relative;
   z-index: 1;
+  transform: translateX(var(--message-reaction-anchor-left, 0px));
 }
 
 .message-reaction-list.mine {

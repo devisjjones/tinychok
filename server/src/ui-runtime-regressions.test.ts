@@ -8034,8 +8034,9 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
   )
   assert.match(
     appCss,
-    /\.message-reaction-list\s*\{[\s\S]*margin-left:\s*var\(--message-reaction-anchor-left,\s*0px\);/u,
+    /\.message-reaction-list\s*\{[\s\S]*transform:\s*translateX\(var\(--message-reaction-anchor-left,\s*0px\)\);/u,
   )
+  assert.doesNotMatch(appCss, /\.message-reaction-list\s*\{[\s\S]*margin-left:\s*var\(--message-reaction-anchor-left,\s*0px\);/u)
   assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*margin-top:\s*-2px;/u)
   assert.match(appCss, /\.message-reaction-list\.mine\s*\{[\s\S]*justify-content:\s*flex-start;/u)
   assert.match(
@@ -8060,7 +8061,11 @@ test('media reactions stay anchored to the measured media bubble instead of the 
   assert.match(reactionSurfaceSource, /observer\.observe\(mainNode\)/u)
   assert.match(
     appCss,
-    /\.message-reaction-list\s*\{[\s\S]*width:\s*var\(--message-reaction-anchor-width,\s*100%\);[\s\S]*margin-left:\s*var\(--message-reaction-anchor-left,\s*0px\);/u,
+    /\.message-reaction-list\s*\{[\s\S]*width:\s*var\(--message-reaction-anchor-width,\s*100%\);[\s\S]*transform:\s*translateX\(var\(--message-reaction-anchor-left,\s*0px\)\);/u,
+  )
+  assert.doesNotMatch(
+    appCss,
+    /\.message-reaction-list\s*\{[\s\S]*margin-left:\s*var\(--message-reaction-anchor-left,\s*0px\);/u,
   )
 })
 
