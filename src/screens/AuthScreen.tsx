@@ -406,7 +406,7 @@ export function AuthScreen({
               <div className="auth-code-note">
                 <span className="settings-label">
                   На указанный номер отправлена SMS. Введите код из неё. Если SMS ещё не дошла,
-                  немного подождите.
+                  подождите до 15 минут.
                 </span>
                 <strong>{identifier}</strong>
               </div>
