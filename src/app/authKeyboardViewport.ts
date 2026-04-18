@@ -1,5 +1,6 @@
 const mobileKeyboardInsetActivationThresholdPx = 120
 const mobileKeyboardViewportBottomGapPx = 20
+const mobileKeyboardViewportTopGapPx = 8
 
 export function resolveMobileViewportKeyboardInset(options: {
   layoutViewportHeight: number
@@ -50,4 +51,22 @@ export function resolveMobileViewportRevealDelta(options: {
 
   const safeViewportBottom = visualViewportOffsetTop + visualViewportHeight - viewportBottomGap
   return Math.max(0, Math.ceil(elementBottom - safeViewportBottom))
+}
+
+export function resolveMobileViewportTopHideDelta(options: {
+  elementBottom: number
+  viewportTop?: number
+  viewportTopGap?: number
+}) {
+  const elementBottom = Number.isFinite(options.elementBottom) ? options.elementBottom : 0
+  const viewportTop = Number.isFinite(options.viewportTop) ? (options.viewportTop ?? 0) : 0
+  const viewportTopGap = Number.isFinite(options.viewportTopGap)
+    ? (options.viewportTopGap ?? mobileKeyboardViewportTopGapPx)
+    : mobileKeyboardViewportTopGapPx
+
+  if (elementBottom <= 0) {
+    return 0
+  }
+
+  return Math.max(0, Math.ceil(elementBottom - (viewportTop + viewportTopGap)))
 }

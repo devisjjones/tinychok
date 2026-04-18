@@ -2,6 +2,7 @@ import type { Account, AuthStep } from '../app/types'
 import {
   resolveMobileViewportKeyboardInset,
   resolveMobileViewportRevealDelta,
+  resolveMobileViewportTopHideDelta,
 } from '../app/authKeyboardViewport'
 import { formatAccountName } from '../app/utils'
 import { isMobileBrowserEnvironment } from '../shared/utils'
@@ -72,6 +73,7 @@ export function AuthScreen({
   const [passwordConfirmVisible, setPasswordConfirmVisible] = useState(false)
   const showInlineBlockedNotice = isPhoneStep && authPhoneBlockedNotice
   const shellRef = useRef<HTMLElement | null>(null)
+  const authCardBrandRef = useRef<HTMLDivElement | null>(null)
   const submitButtonRef = useRef<HTMLButtonElement | null>(null)
   const viewportBaselineHeightRef = useRef(0)
 
@@ -137,18 +139,33 @@ export function AuthScreen({
         inline: 'nearest',
       })
 
-      const submitButton = submitButtonRef.current
-      if (!submitButton) {
-        return
+      let nextScrollDelta = 0
+      const shellTop = shell.getBoundingClientRect().top
+      const authCardBrand = authCardBrandRef.current
+      if (authCardBrand) {
+        nextScrollDelta = Math.max(
+          nextScrollDelta,
+          resolveMobileViewportTopHideDelta({
+            elementBottom: authCardBrand.getBoundingClientRect().bottom,
+            viewportTop: shellTop,
+          }),
+        )
       }
 
-      const revealDelta = resolveMobileViewportRevealDelta({
-        elementBottom: submitButton.getBoundingClientRect().bottom,
-        visualViewportHeight: currentViewportHeight,
-        visualViewportOffsetTop: currentViewportOffsetTop,
-      })
-      if (revealDelta > 0) {
-        shell.scrollTop += revealDelta
+      const submitButton = submitButtonRef.current
+      if (submitButton) {
+        nextScrollDelta = Math.max(
+          nextScrollDelta,
+          resolveMobileViewportRevealDelta({
+            elementBottom: submitButton.getBoundingClientRect().bottom,
+            visualViewportHeight: currentViewportHeight,
+            visualViewportOffsetTop: currentViewportOffsetTop,
+          }),
+        )
+      }
+
+      if (nextScrollDelta > 0) {
+        shell.scrollTop += nextScrollDelta
       }
     }
 
@@ -279,7 +296,7 @@ export function AuthScreen({
       </section>
 
       <section className="auth-panel auth-card">
-        <div className="auth-card-brand">
+        <div ref={authCardBrandRef} className="auth-card-brand">
           <p className="eyebrow">Тайничок</p>
           <h2>Тихое общение без лишнего шума</h2>
         </div>

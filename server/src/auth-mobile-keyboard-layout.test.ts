@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   resolveMobileViewportKeyboardInset,
   resolveMobileViewportRevealDelta,
+  resolveMobileViewportTopHideDelta,
 } from '../../src/app/authKeyboardViewport'
 
 test('mobile auth keyboard inset stays off until the visual viewport meaningfully shrinks', () => {
@@ -47,5 +48,15 @@ test('mobile auth reveal delta reports how much the screen must scroll to fully 
       visualViewportOffsetTop: 0,
     }),
     142,
+  )
+})
+
+test('mobile auth title hide delta reports how much the screen must scroll to lift the card header out of view', () => {
+  assert.equal(
+    resolveMobileViewportTopHideDelta({
+      elementBottom: 268,
+      viewportTop: 24,
+    }),
+    236,
   )
 })
