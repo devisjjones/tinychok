@@ -4374,7 +4374,12 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
-  margin-top: 7px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-top: -2px;
+  position: relative;
+  z-index: 1;
 }
 
 .message-reaction-list.mine {

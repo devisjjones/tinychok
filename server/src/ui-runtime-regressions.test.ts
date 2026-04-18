@@ -7985,6 +7985,8 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
   assert.match(appCss, /\.message-reaction-picker-embedded/u)
   assert.match(appCss, /\.message-menu-reaction-picker/u)
   assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*justify-content:\s*flex-end;/u)
+  assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*width:\s*100%;/u)
+  assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*margin-top:\s*-2px;/u)
   assert.match(appCss, /\.message-reaction-list\.mine\s*\{[\s\S]*justify-content:\s*flex-start;/u)
   assert.match(appCss, /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-trigger/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.message-reaction-trigger/u)
