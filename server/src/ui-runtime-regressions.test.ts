@@ -7988,8 +7988,20 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
   assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*width:\s*100%;/u)
   assert.match(appCss, /\.message-reaction-list\s*\{[\s\S]*margin-top:\s*-2px;/u)
   assert.match(appCss, /\.message-reaction-list\.mine\s*\{[\s\S]*justify-content:\s*flex-start;/u)
-  assert.match(appCss, /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-trigger/u)
+  assert.match(
+    appCss,
+    /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-surface:hover > \.message-reaction-trigger,[\s\S]*opacity:\s*0;[\s\S]*pointer-events:\s*none;[\s\S]*\.message-reaction-surface\.reaction-picker-open > \.message-reaction-trigger[\s\S]*opacity:\s*1;/u,
+  )
   assert.match(appCss, /html\[data-theme='dark'\] \.message-reaction-trigger/u)
+})
+
+test('mobile room bubbles keep the floating reaction trigger hidden outside the message action menu', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(appCss, /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-surface:hover > \.message-reaction-trigger/u)
+  assert.match(appCss, /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-surface:focus-within > \.message-reaction-trigger[\s\S]*opacity:\s*0;/u)
+  assert.match(appCss, /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-surface\.reaction-picker-open > \.message-reaction-trigger[\s\S]*pointer-events:\s*auto;/u)
 })
 
 test('mobile message action menus expose reaction entry with heart icon across supported rooms', () => {

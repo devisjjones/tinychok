@@ -4510,7 +4510,14 @@
 }
 
 @media (hover: none) {
-  .message-reaction-trigger {
+  .message-reaction-surface:hover > .message-reaction-trigger,
+  .message-reaction-surface:focus-within > .message-reaction-trigger {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%) scale(0.92);
+  }
+
+  .message-reaction-surface.reaction-picker-open > .message-reaction-trigger {
     opacity: 1;
     pointer-events: auto;
     transform: translateY(-50%) scale(1);
