@@ -8,6 +8,37 @@ import {
 
 const originalConsoleInfo = console.info
 
+async function registerPendingAttachment(
+  store: TinychokStore,
+  token: string,
+  attachment: {
+    fileName: string
+    mediaUrl: string
+    mimeType: string
+    size: number
+  },
+) {
+  await store.registerPendingMediaUpload(token, {
+    fileName: attachment.fileName,
+    kind: 'attachment',
+    mediaUrl: attachment.mediaUrl,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+    storageKey: attachment.mediaUrl,
+  })
+}
+
+function buildAttachment(label: string, size = 256 * 1024) {
+  return {
+    fileName: `${label}.png`,
+    mediaUrl: `uploads/attachments/${label}.png`,
+    mimeType: 'image/png',
+    size,
+    width: 640,
+    height: 480,
+  }
+}
+
 function createStore() {
   const { database } = coerceDatabasePayload(undefined)
   return TinychokStore.create(database, async () => undefined)
@@ -186,4 +217,53 @@ test('editing a group thread comment updates the visible comment for participant
     ?.threadComments?.find((comment) => comment.text === 'Исправленный комментарий')
   assert.ok(memberComment)
   assert.ok(memberComment.editedAt)
+})
+
+test('editing a caption keeps the direct message attachment intact', async () => {
+  const store = createStore()
+  const database = getStoreDatabase(store)
+  const left = createAccount('+79990100401', { displayName: 'Алексей' })
+  const right = createAccount('+79990100402', { displayName: 'Мираслава' })
+
+  database.accounts.push(left, right)
+  const leftToken = createSession(database, left.identifier, 'caption-left')
+  const rightToken = createSession(database, right.identifier, 'caption-right')
+
+  const opened = await store.openDirectDialog(leftToken, { identifier: right.identifier })
+  await store.sendContactRequest(leftToken, { identifier: right.identifier })
+  await store.acceptContactRequest(rightToken, left.identifier)
+
+  const attachment = buildAttachment('editable-caption')
+  await registerPendingAttachment(store, leftToken, attachment)
+  await store.sendDirectMessage(leftToken, opened.dialogId, {
+    attachment,
+    text: 'Подпись до правки',
+  })
+
+  const beforeEditMessage = store.getSnapshotByToken(leftToken)?.chats
+    .find((chat) => chat.id === opened.dialogId)
+    ?.messages.find((message) => message.text === 'Подпись до правки')
+  assert.ok(beforeEditMessage)
+  assert.equal(beforeEditMessage.attachment?.mediaUrl, attachment.mediaUrl)
+
+  const mutation = await store.editDirectMessage(leftToken, opened.dialogId, beforeEditMessage.id, {
+    text: 'Подпись после правки',
+  })
+  const editedMessage = mutation.snapshot.chats
+    .find((chat) => chat.id === opened.dialogId)
+    ?.messages.find((message) => message.id === beforeEditMessage.id)
+  assert.ok(editedMessage)
+  assert.equal(editedMessage.text, 'Подпись после правки')
+  assert.equal(editedMessage.attachment?.mediaUrl, attachment.mediaUrl)
+  assert.equal(editedMessage.attachment?.fileName, attachment.fileName)
+  assert.ok(editedMessage.editedAt)
+
+  const recipientMessage = store.getSnapshotByToken(rightToken)?.chats
+    .find((chat) => chat.phone === left.identifier)
+    ?.messages.find((message) => message.id === beforeEditMessage.id)
+  assert.ok(recipientMessage)
+  assert.equal(recipientMessage.text, 'Подпись после правки')
+  assert.equal(recipientMessage.attachment?.mediaUrl, attachment.mediaUrl)
+  assert.equal(recipientMessage.attachment?.fileName, attachment.fileName)
+  assert.ok(recipientMessage.editedAt)
 })

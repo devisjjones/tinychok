@@ -7291,7 +7291,6 @@ function App() {
   ) {
     return (
       message.author === 'me' &&
-      !message.attachment &&
       !message.attachmentRemovedNotice &&
       !message.forwarded &&
       !message.sourceChannel &&
@@ -7311,7 +7310,6 @@ function App() {
     text: string
   }) {
     return (
-      !post.attachment &&
       !post.attachmentRemovedNotice &&
       !post.forwarded &&
       !post.sourceContact &&
@@ -7333,7 +7331,6 @@ function App() {
   }) {
     return (
       comment.author === 'me' &&
-      !comment.attachment &&
       !comment.attachmentRemovedNotice &&
       !comment.forwarded &&
       !comment.sourceChannel &&

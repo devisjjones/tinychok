@@ -18519,8 +18519,8 @@ export class TinychokStore {
     if (sanitizeMessageText(record.text).length === 0) {
       throw new Error('Нельзя редактировать пустое сообщение.')
     }
-    if (record.attachment || record.attachmentRemovedNotice) {
-      throw new Error('Пока можно редактировать только текстовые сообщения.')
+    if (record.attachmentRemovedNotice) {
+      throw new Error('Сообщение без доступного вложения редактировать нельзя.')
     }
     if ('forwarded' in record && record.forwarded) {
       throw new Error('Пересланное сообщение редактировать нельзя.')
