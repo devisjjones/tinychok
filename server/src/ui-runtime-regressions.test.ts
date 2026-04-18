@@ -3637,6 +3637,32 @@ test('mobile auth keyboard flow keeps the submit action visible above the on-scr
   )
 })
 
+test('mobile auth password fields expose an inline submit duplicate inside the input', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const authScreenSource = readFileSync(join(repoRoot, 'src', 'screens', 'AuthScreen.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+
+  assert.match(authScreenSource, /import sendIcon from '\.\.\/\.\.\/public\/icons\/sent\.png'/u)
+  assert.match(authScreenSource, /showMobileSubmit\?: boolean/u)
+  assert.match(authScreenSource, /mobileSubmitLabel\?: string/u)
+  assert.match(authScreenSource, /auth-password-input-with-submit/u)
+  assert.match(authScreenSource, /className="send-button auth-password-inline-submit"/u)
+  assert.match(authScreenSource, /aria-label=\{mobileSubmitLabel\}/u)
+  assert.match(authScreenSource, /title=\{mobileSubmitLabel\}/u)
+  assert.match(authScreenSource, /<img src=\{sendIcon\} alt="" aria-hidden="true" \/>/u)
+  assert.match(authScreenSource, /showMobileSubmit:\s*true/u)
+  assert.match(authScreenSource, /mobileSubmitLabel:\s*submitLabel/u)
+  assert.match(appCss, /\.auth-password-inline-submit\s*\{\s*display:\s*none;/u)
+  assert.match(
+    appCss,
+    /@media \(max-width: 920px\) \{[\s\S]*\.auth-password-input-with-submit input\s*\{[\s\S]*padding-right:\s*104px;/u,
+  )
+  assert.match(
+    appCss,
+    /@media \(max-width: 920px\) \{[\s\S]*\.auth-password-inline-submit\s*\{[\s\S]*display:\s*inline-grid;/u,
+  )
+})
+
 test('admin auth code step exposes explicit resend path', () => {
   const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
   const adminSource = readFileSync(join(repoRoot, 'src', 'AdminApp.tsx'), 'utf8')

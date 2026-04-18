@@ -480,6 +480,19 @@
   object-fit: contain;
 }
 
+.auth-password-inline-submit {
+  display: none;
+}
+
+.auth-password-inline-submit img {
+  width: 18px;
+  height: 18px;
+  display: block;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(98%) sepia(10%) saturate(250%) hue-rotate(316deg)
+    brightness(103%) contrast(98%);
+}
+
 .auth-error {
   margin: 0;
   color: #9d3828;
@@ -9415,6 +9428,27 @@
       opacity 180ms ease,
       transform 180ms ease,
       margin 180ms ease;
+  }
+
+  .auth-password-input-with-submit input {
+    padding-right: 104px;
+  }
+
+  .auth-password-input-with-submit .auth-password-visibility {
+    right: 58px;
+  }
+
+  .auth-password-inline-submit {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 14px;
+    display: inline-grid;
+    place-items: center;
+    z-index: 1;
   }
 
   .auth-support-footer {

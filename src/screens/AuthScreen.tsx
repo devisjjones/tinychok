@@ -9,6 +9,7 @@ import { isMobileBrowserEnvironment } from '../shared/utils'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import eyeOffIcon from '../../public/icons/eyeoff.png'
 import eyeOnIcon from '../../public/icons/eyeon.png'
+import sendIcon from '../../public/icons/sent.png'
 
 type AuthScreenProps = {
   authCodeFlow: 'password-reset' | 'password-setup' | 'registration'
@@ -219,14 +220,20 @@ export function AuthScreen({
     label,
     onChange,
     placeholder,
+    showMobileSubmit,
+    mobileSubmitLabel,
+    submitDisabled,
     value,
     visible,
     onToggleVisible,
   }: {
     autoComplete: string
     label: string
+    mobileSubmitLabel?: string
     onChange: (value: string) => void
     placeholder: string
+    showMobileSubmit?: boolean
+    submitDisabled?: boolean
     value: string
     visible: boolean
     onToggleVisible: () => void
@@ -234,7 +241,7 @@ export function AuthScreen({
     return (
       <label className="auth-field">
         <span>{label}</span>
-        <div className="auth-password-input">
+        <div className={`auth-password-input${showMobileSubmit ? ' auth-password-input-with-submit' : ''}`}>
           <input
             type={visible ? 'text' : 'password'}
             autoComplete={autoComplete}
@@ -250,6 +257,17 @@ export function AuthScreen({
           >
             <img src={visible ? eyeOffIcon : eyeOnIcon} alt="" aria-hidden="true" />
           </button>
+          {showMobileSubmit && mobileSubmitLabel ? (
+            <button
+              type="submit"
+              className="send-button auth-password-inline-submit"
+              disabled={submitDisabled}
+              aria-label={mobileSubmitLabel}
+              title={mobileSubmitLabel}
+            >
+              <img src={sendIcon} alt="" aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </label>
     )
@@ -355,9 +373,12 @@ export function AuthScreen({
               {renderPasswordField({
                 autoComplete: 'current-password',
                 label: 'Пароль',
+                mobileSubmitLabel: submitLabel,
                 onChange: onPasswordChange,
                 onToggleVisible: () => setPasswordVisible((current) => !current),
                 placeholder: 'Введите пароль',
+                showMobileSubmit: true,
+                submitDisabled: captchaBusy,
                 value: password,
                 visible: passwordVisible,
               })}
@@ -417,9 +438,12 @@ export function AuthScreen({
               {renderPasswordField({
                 autoComplete: 'new-password',
                 label: 'Подтвердите пароль',
+                mobileSubmitLabel: submitLabel,
                 onChange: onPasswordConfirmChange,
                 onToggleVisible: () => setPasswordConfirmVisible((current) => !current),
                 placeholder: 'Повторите пароль',
+                showMobileSubmit: true,
+                submitDisabled: captchaBusy,
                 value: passwordConfirm,
                 visible: passwordConfirmVisible,
               })}
