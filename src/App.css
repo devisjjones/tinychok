@@ -4271,6 +4271,21 @@
   overflow: visible;
 }
 
+.message-reaction-surface.can-react::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -52px;
+  width: 52px;
+  z-index: 1;
+}
+
+.message-reaction-surface.mine.can-react::after {
+  right: auto;
+  left: -52px;
+}
+
 .message-reaction-surface-main {
   display: grid;
   width: fit-content;

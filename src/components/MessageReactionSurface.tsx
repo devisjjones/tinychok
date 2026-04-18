@@ -84,7 +84,7 @@ export function MessageReactionSurface({
   return (
     <div
       ref={rootRef}
-      className={`message-reaction-surface${mine ? ' mine' : ''}${open ? ' reaction-picker-open' : ''}`}
+      className={`message-reaction-surface${mine ? ' mine' : ''}${canReact ? ' can-react' : ''}${open ? ' reaction-picker-open' : ''}`}
     >
       {mine ? trigger : null}
       <div className={`message-reaction-surface-main${reactions.length > 0 ? ' has-reactions' : ''}`}>

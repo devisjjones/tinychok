@@ -7876,6 +7876,7 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
   assert.ok(sharedTypesSource.includes('reactions?: MessageReaction[]'))
   assert.match(reactionSurfaceSource, /<img src="\/icons\/heart\.png"/u)
   assert.match(reactionSurfaceSource, /className=\{`message-reaction-trigger/u)
+  assert.match(reactionSurfaceSource, /message-reaction-surface\$\{mine \? ' mine' : ''\}\$\{canReact \? ' can-react' : ''\}/u)
   assert.match(reactionSurfaceSource, /message-reaction-picker-item/u)
   assert.match(reactionSurfaceSource, /fullEmojiCategories\.map/u)
   assert.doesNotMatch(reactionSurfaceSource, /emoji-picker-tab/u)
@@ -7921,6 +7922,7 @@ test('message reactions stay wired through room bubbles, emoji-only picker plumb
   assert.match(indexSource, /\/api\/subscription-channels\/:channelId\/posts\/:postId\/comments\/:commentId\/reaction/u)
 
   assert.match(appCss, /\.message-reaction-trigger/u)
+  assert.match(appCss, /\.message-reaction-surface\.can-react::after/u)
   assert.match(appCss, /\.message-reaction-chip/u)
   assert.match(appCss, /\.message-reaction-picker/u)
   assert.match(appCss, /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-trigger/u)
