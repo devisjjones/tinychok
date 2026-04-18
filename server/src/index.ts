@@ -46,6 +46,7 @@ import type {
   RegisterBody,
   SaveSnapshotBody,
   SendContactRequestBody,
+  SetMessageReactionBody,
   SetDialogFavoriteBody,
   SetDialogPinnedMessageBody,
   SendDirectMessageBody,
@@ -1615,6 +1616,24 @@ app.put('/api/dialogs/:dialogId/messages/:messageId', async (request, reply) => 
   }
 })
 
+app.put('/api/dialogs/:dialogId/messages/:messageId/reaction', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const dialogId = getNumericRouteParam(request, 'dialogId')
+    const messageId = getNumericRouteParam(request, 'messageId')
+    const body = parseJsonPayload<SetMessageReactionBody>(request.body)
+    const result = await store.setDirectMessageReaction(token, dialogId, messageId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.put('/api/dialogs/:dialogId/favorite', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -1779,6 +1798,24 @@ app.put('/api/groups/:groupId/messages/:messageId', async (request, reply) => {
   }
 })
 
+app.put('/api/groups/:groupId/messages/:messageId/reaction', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const messageId = getNumericRouteParam(request, 'messageId')
+    const body = parseJsonPayload<SetMessageReactionBody>(request.body)
+    const result = await store.setGroupMessageReaction(token, groupId, messageId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.post('/api/groups/:groupId/messages/:messageId/comments', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -1809,6 +1846,25 @@ app.put('/api/groups/:groupId/messages/:messageId/comments/:commentId', async (r
     const commentId = getNumericRouteParam(request, 'commentId')
     const body = parseJsonPayload<EditGroupThreadCommentBody>(request.body)
     const result = await store.editGroupThreadComment(token, groupId, messageId, commentId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.put('/api/groups/:groupId/messages/:messageId/comments/:commentId/reaction', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const groupId = getNumericRouteParam(request, 'groupId')
+    const messageId = getNumericRouteParam(request, 'messageId')
+    const commentId = getNumericRouteParam(request, 'commentId')
+    const body = parseJsonPayload<SetMessageReactionBody>(request.body)
+    const result = await store.setGroupThreadCommentReaction(token, groupId, messageId, commentId, body)
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {
@@ -2307,6 +2363,24 @@ app.put('/api/subscription-channels/:channelId', async (request, reply) => {
   }
 })
 
+app.put('/api/subscription-channels/:channelId/posts/:postId/reaction', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const postId = getNumericRouteParam(request, 'postId')
+    const body = parseJsonPayload<SetMessageReactionBody>(request.body)
+    const result = await store.setSubscriptionChannelPostReaction(token, channelId, postId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
 app.post('/api/subscription-channels/:channelId/posts/:postId/comments', async (request, reply) => {
   const token = getBearerToken(request)
   if (!token) {
@@ -2337,6 +2411,31 @@ app.put('/api/subscription-channels/:channelId/posts/:postId/comments/:commentId
     const commentId = getNumericRouteParam(request, 'commentId')
     const body = parseJsonPayload<EditSubscriptionChannelThreadCommentBody>(request.body)
     const result = await store.editSubscriptionChannelThreadComment(token, channelId, postId, commentId, body)
+    await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
+    return { snapshot: result.snapshot }
+  } catch (error) {
+    return sendError(reply, error)
+  }
+})
+
+app.put('/api/subscription-channels/:channelId/posts/:postId/comments/:commentId/reaction', async (request, reply) => {
+  const token = getBearerToken(request)
+  if (!token) {
+    return reply.code(401).send({ message: 'Не найдена активная сессия.' })
+  }
+
+  try {
+    const channelId = getNumericRouteParam(request, 'channelId')
+    const postId = getNumericRouteParam(request, 'postId')
+    const commentId = getNumericRouteParam(request, 'commentId')
+    const body = parseJsonPayload<SetMessageReactionBody>(request.body)
+    const result = await store.setSubscriptionChannelThreadCommentReaction(
+      token,
+      channelId,
+      postId,
+      commentId,
+      body,
+    )
     await broadcastSnapshotsForIdentifiers(result.broadcastIdentifiers)
     return { snapshot: result.snapshot }
   } catch (error) {

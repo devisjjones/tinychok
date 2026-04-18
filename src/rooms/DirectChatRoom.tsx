@@ -36,6 +36,7 @@ import {
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
+import { MessageReactionSurface } from '../components/MessageReactionSurface'
 import { RoomComposer } from '../components/RoomComposer'
 import { RoomJumpToLatestButton } from '../components/RoomJumpToLatestButton'
 
@@ -89,6 +90,7 @@ type DirectChatRoomProps = {
   onDraftChange: (value: string) => void
   onEditCancel: () => void
   onMessageSelect: (anchorElement: HTMLElement, message: Message) => void
+  onSetMessageReaction?: (message: Message, emoji: string | null) => void | Promise<void>
   onOpenAttachment: (attachment: NonNullable<Message['attachment']>) => void
   onOpenExternalLink?: (url: string) => void
   onOpenLinkedChannel: (sourceChannel: ChannelMessageSource) => void
@@ -158,6 +160,7 @@ export function DirectChatRoom({
   onDraftChange,
   onEditCancel,
   onMessageSelect,
+  onSetMessageReaction,
   onOpenAttachment,
   onOpenExternalLink,
   onOpenLinkedChannel,
@@ -761,82 +764,22 @@ export function DirectChatRoom({
                 replyTo={replyReference}
                 bubble={
                   isImageOnlyBubble ? (
-                    <MediaOnlyBubbleRow
-                      actionLabel="Открыть действия сообщения"
-                      bubbleAttributes={{ 'data-direct-message-id': message.id }}
-                      bubbleClassName={bubbleClassNames.join(' ')}
+                    <MessageReactionSurface
                       mine={message.author === 'me'}
-                      onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
-                    >
-                      <BubbleMessageContent
-                        imageOverlay={
-                          hasImageAttachment ? (
-                            <BubbleImageOverlayMeta
-                              deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
-                              time={renderedMessageTime}
-                            />
-                          ) : undefined
-                        }
-                        linkedChannel={linkedChannel}
-                        message={message}
-                        onOpenAttachment={onOpenAttachment}
-                        onOpenExternalLink={onOpenExternalLink}
-                        onOpenLinkedChannel={
-                          linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                        }
-                        onOpenPremiumUpsell={onOpenPremiumUpsell}
-                        onOpenSourceContact={
-                          message.sourceContact
-                            ? () =>
-                                onOpenSourceContact(
-                                  message.sourceContact as NonNullable<Message['sourceContact']>,
-                                )
-                            : undefined
-                        }
-                        onOpenSourceGroup={
-                          message.sourceGroup
-                            ? () => onOpenSourceGroup(message.sourceGroup as NonNullable<Message['sourceGroup']>)
-                            : undefined
-                        }
-                        replyChatTitle={activeChat.title}
-                        showReplyInline={false}
-                        uploadProgress={messageUploadProgress ?? undefined}
-                      />
-                    </MediaOnlyBubbleRow>
-                  ) : (
-                    <button
-                      type="button"
-                      data-direct-message-id={message.id}
-                      className={bubbleClassNames.join(' ')}
-                      onClick={(event) => onMessageSelect(event.currentTarget, message)}
-                    >
-                      {isStandaloneEmojiOnlyMessage ? (
-                        <EmojiOnlyMessageContent
-                          deliveryIndicatorSrc={showDeliveryIndicator ? deliveryIndicatorSrc : null}
-                          edited={Boolean(message.editedAt)}
-                          emoji={standaloneEmojiGlyph}
-                          time={renderedMessageTime}
-                        />
-                      ) : (
-                        <>
-                          {message.sourceChannel ? (
-                            <>
-                              <ForwardedChannelHeader
-                                sourceChannel={message.sourceChannel}
-                                onClick={() => onOpenSourceChannel(message)}
-                              />
-                              {!message.sourceChannel.leadText ? (
-                                <span className="bubble-meta">Переслано</span>
-                              ) : null}
-                            </>
-                          ) : null}
-                          {message.forwarded && !message.sourceChannel ? (
-                            <span className="bubble-meta">
-                              {message.forwardedAuthorName
-                                ? `Переслано ${message.forwardedAuthorName}`
-                                : 'Переслано'}
-                            </span>
-                          ) : null}
+                      onSetReaction={
+                        onSetMessageReaction
+                          ? (emoji) => onSetMessageReaction(message, emoji)
+                          : undefined
+                      }
+                      reactions={message.reactions}
+                      bubble={
+                        <MediaOnlyBubbleRow
+                          actionLabel="Открыть действия сообщения"
+                          bubbleAttributes={{ 'data-direct-message-id': message.id }}
+                          bubbleClassName={bubbleClassNames.join(' ')}
+                          mine={message.author === 'me'}
+                          onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
+                        >
                           <BubbleMessageContent
                             imageOverlay={
                               hasImageAttachment ? (
@@ -847,17 +790,6 @@ export function DirectChatRoom({
                               ) : undefined
                             }
                             linkedChannel={linkedChannel}
-                            inlineMeta={
-                              shouldUseInlineTextMeta ? (
-                                <BubbleTextInlineMeta
-                                  deliveryIndicatorSrc={
-                                    showDeliveryIndicator ? deliveryIndicatorSrc : null
-                                  }
-                                  edited={Boolean(message.editedAt)}
-                                  time={renderedMessageTime}
-                                />
-                              ) : undefined
-                            }
                             message={message}
                             onOpenAttachment={onOpenAttachment}
                             onOpenExternalLink={onOpenExternalLink}
@@ -882,25 +814,118 @@ export function DirectChatRoom({
                             showReplyInline={false}
                             uploadProgress={messageUploadProgress ?? undefined}
                           />
-                          {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{renderedMessageTime}</time> : null}
-                          {!hasImageAttachment && showDeliveryCaption ? (
-                            <span className="bubble-delivery-caption">Сообщение не отправлено</span>
-                          ) : null}
-                          {!hasImageAttachment && !shouldUseInlineTextMeta && showDeliveryIndicator ? (
-                            <img
-                              className={
-                                shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
-                                  ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
-                                  : 'bubble-delivery-indicator'
-                              }
-                              src={deliveryIndicatorSrc}
-                              alt=""
-                              aria-hidden="true"
+                        </MediaOnlyBubbleRow>
+                      }
+                    />
+                  ) : (
+                    <MessageReactionSurface
+                      mine={message.author === 'me'}
+                      onSetReaction={
+                        onSetMessageReaction
+                          ? (emoji) => onSetMessageReaction(message, emoji)
+                          : undefined
+                      }
+                      reactions={message.reactions}
+                      bubble={
+                        <button
+                          type="button"
+                          data-direct-message-id={message.id}
+                          className={bubbleClassNames.join(' ')}
+                          onClick={(event) => onMessageSelect(event.currentTarget, message)}
+                        >
+                          {isStandaloneEmojiOnlyMessage ? (
+                            <EmojiOnlyMessageContent
+                              deliveryIndicatorSrc={showDeliveryIndicator ? deliveryIndicatorSrc : null}
+                              edited={Boolean(message.editedAt)}
+                              emoji={standaloneEmojiGlyph}
+                              time={renderedMessageTime}
                             />
-                          ) : null}
-                        </>
-                      )}
-                    </button>
+                          ) : (
+                            <>
+                              {message.sourceChannel ? (
+                                <>
+                                  <ForwardedChannelHeader
+                                    sourceChannel={message.sourceChannel}
+                                    onClick={() => onOpenSourceChannel(message)}
+                                  />
+                                  {!message.sourceChannel.leadText ? (
+                                    <span className="bubble-meta">Переслано</span>
+                                  ) : null}
+                                </>
+                              ) : null}
+                              {message.forwarded && !message.sourceChannel ? (
+                                <span className="bubble-meta">
+                                  {message.forwardedAuthorName
+                                    ? `Переслано ${message.forwardedAuthorName}`
+                                    : 'Переслано'}
+                                </span>
+                              ) : null}
+                              <BubbleMessageContent
+                                imageOverlay={
+                                  hasImageAttachment ? (
+                                    <BubbleImageOverlayMeta
+                                      deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
+                                      time={renderedMessageTime}
+                                    />
+                                  ) : undefined
+                                }
+                                linkedChannel={linkedChannel}
+                                inlineMeta={
+                                  shouldUseInlineTextMeta ? (
+                                    <BubbleTextInlineMeta
+                                      deliveryIndicatorSrc={
+                                        showDeliveryIndicator ? deliveryIndicatorSrc : null
+                                      }
+                                      edited={Boolean(message.editedAt)}
+                                      time={renderedMessageTime}
+                                    />
+                                  ) : undefined
+                                }
+                                message={message}
+                                onOpenAttachment={onOpenAttachment}
+                                onOpenExternalLink={onOpenExternalLink}
+                                onOpenLinkedChannel={
+                                  linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
+                                }
+                                onOpenPremiumUpsell={onOpenPremiumUpsell}
+                                onOpenSourceContact={
+                                  message.sourceContact
+                                    ? () =>
+                                        onOpenSourceContact(
+                                          message.sourceContact as NonNullable<Message['sourceContact']>,
+                                        )
+                                    : undefined
+                                }
+                                onOpenSourceGroup={
+                                  message.sourceGroup
+                                    ? () => onOpenSourceGroup(message.sourceGroup as NonNullable<Message['sourceGroup']>)
+                                    : undefined
+                                }
+                                replyChatTitle={activeChat.title}
+                                showReplyInline={false}
+                                uploadProgress={messageUploadProgress ?? undefined}
+                              />
+                              {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{renderedMessageTime}</time> : null}
+                              {!hasImageAttachment && showDeliveryCaption ? (
+                                <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                              ) : null}
+                              {!hasImageAttachment && !shouldUseInlineTextMeta && showDeliveryIndicator ? (
+                                <img
+                                  className={
+                                    shouldUseLightDeliveryIndicatorTint(deliveryIndicatorSrc)
+                                      ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
+                                      : 'bubble-delivery-indicator'
+                                  }
+                                  src={deliveryIndicatorSrc}
+                                  alt=""
+                                  aria-hidden="true"
+                                />
+                              ) : null}
+                            </>
+                          )}
+                        </button>
+                      }
+                    />
                   )
                 }
               />

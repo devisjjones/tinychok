@@ -915,6 +915,10 @@ export type EditDirectMessageBody = {
   text: string
 }
 
+export type SetMessageReactionBody = {
+  emoji: string | null
+}
+
 export type SetDialogFavoriteBody = {
   pinned: boolean
 }

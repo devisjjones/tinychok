@@ -43,6 +43,7 @@ import {
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
+import { MessageReactionSurface } from '../components/MessageReactionSurface'
 import { RoomComposer } from '../components/RoomComposer'
 import { RoomJumpToLatestButton } from '../components/RoomJumpToLatestButton'
 import { ThreadedBubble } from '../components/ThreadedBubble'
@@ -137,6 +138,7 @@ type GroupRoomProps = {
   onComposerFocus: () => void
   onDraftChange: (value: string) => void
   onMessageSelect: (anchorElement: HTMLElement, message: Message) => void
+  onSetMessageReaction?: (message: Message, emoji: string | null) => void | Promise<void>
   onOpenAttachment: (attachment: NonNullable<Message['attachment']>) => void
   onOpenExternalLink?: (url: string) => void
   onOpenThread: (messageId: number) => void
@@ -192,6 +194,7 @@ export function GroupRoom({
   onComposerFocus,
   onDraftChange,
   onMessageSelect,
+  onSetMessageReaction,
   onOpenAttachment,
   onOpenExternalLink,
   onOpenThread,
@@ -592,106 +595,34 @@ export function GroupRoom({
                             isImageOnlyBubble ? (
                               (() => {
                                 const groupMediaBubbleRow = (
-                                  <MediaOnlyBubbleRow
-                                    actionLabel="Открыть действия сообщения"
-                                    bubbleAttributes={{ 'data-group-message-id': message.id }}
-                                    bubbleClassName={bubbleClassNames.join(' ')}
+                                  <MessageReactionSurface
                                     mine={message.author === 'me'}
-                                    onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
-                                  >
-                                    {groupMediaAuthor && !isVideoNoteOnlyBubble ? (
-                                      <button
-                                        type="button"
-                                        className="bubble-media-header bubble-media-header-button"
-                                        onClick={(event) => {
-                                          event.stopPropagation()
-                                          onMessageSelect(event.currentTarget, message)
-                                        }}
+                                    onSetReaction={
+                                      onSetMessageReaction
+                                        ? (emoji) => onSetMessageReaction(message, emoji)
+                                        : undefined
+                                    }
+                                    reactions={message.reactions}
+                                    bubble={
+                                      <MediaOnlyBubbleRow
+                                        actionLabel="Открыть действия сообщения"
+                                        bubbleAttributes={{ 'data-group-message-id': message.id }}
+                                        bubbleClassName={bubbleClassNames.join(' ')}
+                                        mine={message.author === 'me'}
+                                        onOpenActions={(anchorElement) => onMessageSelect(anchorElement, message)}
                                       >
-                                        {groupMediaAuthor}
-                                      </button>
-                                    ) : null}
-                                    <BubbleMessageContent
-                                      imageOverlay={
-                                        hasImageAttachment ? (
-                                          <BubbleImageOverlayMeta
-                                            deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
-                                            time={renderedMessageTime}
-                                          />
-                                        ) : undefined
-                                      }
-                                      linkedChannel={linkedChannel}
-                                      message={message}
-                                      onOpenAttachment={onOpenAttachment}
-                                      onOpenExternalLink={onOpenExternalLink}
-                                      onOpenLinkedChannel={
-                                        linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
-                                      }
-                                      onOpenPremiumUpsell={onOpenPremiumUpsell}
-                                      onOpenSourceContact={
-                                        message.sourceContact
-                                          ? () =>
-                                              onOpenSourceContact(
-                                                message.sourceContact as NonNullable<
-                                                  Message['sourceContact']
-                                                >,
-                                              )
-                                          : undefined
-                                      }
-                                      showReplyInline={false}
-                                      uploadProgress={messageUploadProgress ?? undefined}
-                                    />
-                                  </MediaOnlyBubbleRow>
-                                )
-
-                                return shouldRenderExternalGroupAuthor ? (
-                                  <div className="bubble-author-layout">
-                                    <div className="bubble-author-strip">{groupMediaAuthor}</div>
-                                    {groupMediaBubbleRow}
-                                  </div>
-                                ) : (
-                                  groupMediaBubbleRow
-                                )
-                              })()
-                            ) : (
-                              (() => {
-                                const messageBubbleButton = (
-                                  <button
-                                    type="button"
-                                    data-bubble-measure={shouldRenderExternalGroupAuthor ? 'true' : undefined}
-                                    data-group-message-id={message.id}
-                                    className={bubbleClassNames.join(' ')}
-                                    onClick={(event) => onMessageSelect(event.currentTarget, message)}
-                                  >
-                                    {isGroupCaptionedImageBubble && groupMediaAuthor ? (
-                                      <div className="bubble-media-header bubble-media-header-captioned">
-                                        {groupMediaAuthor}
-                                      </div>
-                                    ) : null}
-                                    {message.sourceChannel ? (
-                                      <>
-                                        <ForwardedChannelHeader
-                                          sourceChannel={message.sourceChannel}
-                                          onClick={() => onOpenSourceChannel(message)}
-                                        />
-                                        {!message.sourceChannel.leadText ? (
-                                          <span className="bubble-meta">Переслано</span>
+                                        {groupMediaAuthor && !isVideoNoteOnlyBubble ? (
+                                          <button
+                                            type="button"
+                                            className="bubble-media-header bubble-media-header-button"
+                                            onClick={(event) => {
+                                              event.stopPropagation()
+                                              onMessageSelect(event.currentTarget, message)
+                                            }}
+                                          >
+                                            {groupMediaAuthor}
+                                          </button>
                                         ) : null}
-                                      </>
-                                    ) : null}
-                                    {isStandaloneEmojiOnlyMessage ? (
-                                      <EmojiOnlyMessageContent
-                                        deliveryIndicatorSrc={
-                                          showDeliveryIndicator
-                                            ? bubbleDeliveryIndicatorSrc
-                                            : null
-                                        }
-                                        edited={Boolean(message.editedAt)}
-                                        emoji={standaloneEmojiGlyph}
-                                        time={renderedMessageTime}
-                                      />
-                                    ) : (
-                                      <>
                                         <BubbleMessageContent
                                           imageOverlay={
                                             hasImageAttachment ? (
@@ -702,24 +633,11 @@ export function GroupRoom({
                                             ) : undefined
                                           }
                                           linkedChannel={linkedChannel}
-                                          inlineMeta={
-                                            shouldUseInlineTextMeta ? (
-                                              <BubbleTextInlineMeta
-                                                deliveryIndicatorSrc={
-                                                  showDeliveryIndicator ? bubbleDeliveryIndicatorSrc : null
-                                                }
-                                                edited={Boolean(message.editedAt)}
-                                                time={renderedMessageTime}
-                                              />
-                                            ) : undefined
-                                          }
                                           message={message}
                                           onOpenAttachment={onOpenAttachment}
                                           onOpenExternalLink={onOpenExternalLink}
                                           onOpenLinkedChannel={
-                                            linkedChannel
-                                              ? () => onOpenLinkedChannel(linkedChannel)
-                                              : undefined
+                                            linkedChannel ? () => onOpenLinkedChannel(linkedChannel) : undefined
                                           }
                                           onOpenPremiumUpsell={onOpenPremiumUpsell}
                                           onOpenSourceContact={
@@ -735,27 +653,134 @@ export function GroupRoom({
                                           showReplyInline={false}
                                           uploadProgress={messageUploadProgress ?? undefined}
                                         />
-                                        {!hasImageAttachment && !shouldUseInlineTextMeta ? (
-                                          <time>{renderedMessageTime}</time>
+                                      </MediaOnlyBubbleRow>
+                                    }
+                                  />
+                                )
+
+                                return shouldRenderExternalGroupAuthor ? (
+                                  <div className="bubble-author-layout">
+                                    <div className="bubble-author-strip">{groupMediaAuthor}</div>
+                                    {groupMediaBubbleRow}
+                                  </div>
+                                ) : (
+                                  groupMediaBubbleRow
+                                )
+                              })()
+                            ) : (
+                              (() => {
+                                const messageBubbleButton = (
+                                  <MessageReactionSurface
+                                    mine={message.author === 'me'}
+                                    onSetReaction={
+                                      onSetMessageReaction
+                                        ? (emoji) => onSetMessageReaction(message, emoji)
+                                        : undefined
+                                    }
+                                    reactions={message.reactions}
+                                    bubble={
+                                      <button
+                                        type="button"
+                                        data-bubble-measure={shouldRenderExternalGroupAuthor ? 'true' : undefined}
+                                        data-group-message-id={message.id}
+                                        className={bubbleClassNames.join(' ')}
+                                        onClick={(event) => onMessageSelect(event.currentTarget, message)}
+                                      >
+                                        {isGroupCaptionedImageBubble && groupMediaAuthor ? (
+                                          <div className="bubble-media-header bubble-media-header-captioned">
+                                            {groupMediaAuthor}
+                                          </div>
                                         ) : null}
-                                        {!hasImageAttachment && showDeliveryCaption ? (
-                                          <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                                        {message.sourceChannel ? (
+                                          <>
+                                            <ForwardedChannelHeader
+                                              sourceChannel={message.sourceChannel}
+                                              onClick={() => onOpenSourceChannel(message)}
+                                            />
+                                            {!message.sourceChannel.leadText ? (
+                                              <span className="bubble-meta">Переслано</span>
+                                            ) : null}
+                                          </>
                                         ) : null}
-                                        {!hasImageAttachment && !shouldUseInlineTextMeta && showDeliveryIndicator ? (
-                                          <img
-                                            className={
-                                              shouldUseLightDeliveryIndicatorTint(bubbleDeliveryIndicatorSrc)
-                                                ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
-                                                : 'bubble-delivery-indicator'
+                                        {isStandaloneEmojiOnlyMessage ? (
+                                          <EmojiOnlyMessageContent
+                                            deliveryIndicatorSrc={
+                                              showDeliveryIndicator
+                                                ? bubbleDeliveryIndicatorSrc
+                                                : null
                                             }
-                                            src={bubbleDeliveryIndicatorSrc}
-                                            alt=""
-                                            aria-hidden="true"
+                                            edited={Boolean(message.editedAt)}
+                                            emoji={standaloneEmojiGlyph}
+                                            time={renderedMessageTime}
                                           />
-                                        ) : null}
-                                      </>
-                                    )}
-                                  </button>
+                                        ) : (
+                                          <>
+                                            <BubbleMessageContent
+                                              imageOverlay={
+                                                hasImageAttachment ? (
+                                                  <BubbleImageOverlayMeta
+                                                    deliveryIndicatorSrc={videoNoteDeliveryIndicatorSrc}
+                                                    time={renderedMessageTime}
+                                                  />
+                                                ) : undefined
+                                              }
+                                              linkedChannel={linkedChannel}
+                                              inlineMeta={
+                                                shouldUseInlineTextMeta ? (
+                                                  <BubbleTextInlineMeta
+                                                    deliveryIndicatorSrc={
+                                                      showDeliveryIndicator ? bubbleDeliveryIndicatorSrc : null
+                                                    }
+                                                    edited={Boolean(message.editedAt)}
+                                                    time={renderedMessageTime}
+                                                  />
+                                                ) : undefined
+                                              }
+                                              message={message}
+                                              onOpenAttachment={onOpenAttachment}
+                                              onOpenExternalLink={onOpenExternalLink}
+                                              onOpenLinkedChannel={
+                                                linkedChannel
+                                                  ? () => onOpenLinkedChannel(linkedChannel)
+                                                  : undefined
+                                              }
+                                              onOpenPremiumUpsell={onOpenPremiumUpsell}
+                                              onOpenSourceContact={
+                                                message.sourceContact
+                                                  ? () =>
+                                                      onOpenSourceContact(
+                                                        message.sourceContact as NonNullable<
+                                                          Message['sourceContact']
+                                                        >,
+                                                      )
+                                                  : undefined
+                                              }
+                                              showReplyInline={false}
+                                              uploadProgress={messageUploadProgress ?? undefined}
+                                            />
+                                            {!hasImageAttachment && !shouldUseInlineTextMeta ? (
+                                              <time>{renderedMessageTime}</time>
+                                            ) : null}
+                                            {!hasImageAttachment && showDeliveryCaption ? (
+                                              <span className="bubble-delivery-caption">Сообщение не отправлено</span>
+                                            ) : null}
+                                            {!hasImageAttachment && !shouldUseInlineTextMeta && showDeliveryIndicator ? (
+                                              <img
+                                                className={
+                                                  shouldUseLightDeliveryIndicatorTint(bubbleDeliveryIndicatorSrc)
+                                                    ? 'bubble-delivery-indicator bubble-delivery-indicator-light'
+                                                    : 'bubble-delivery-indicator'
+                                                }
+                                                src={bubbleDeliveryIndicatorSrc}
+                                                alt=""
+                                                aria-hidden="true"
+                                              />
+                                            ) : null}
+                                          </>
+                                        )}
+                                      </button>
+                                    }
+                                  />
                                 )
 
                                 return shouldRenderExternalGroupAuthor ? (

@@ -22,6 +22,7 @@ import {
 import { AttachedReplyBubble } from '../components/AttachedReplyBubble'
 import { ConversationDayDivider } from '../components/ConversationDayDivider'
 import { MediaOnlyBubbleRow } from '../components/MediaOnlyBubbleRow'
+import { MessageReactionSurface } from '../components/MessageReactionSurface'
 import { RoomComposer } from '../components/RoomComposer'
 import { RoomJumpToLatestButton } from '../components/RoomJumpToLatestButton'
 import { ThreadedBubble } from '../components/ThreadedBubble'
@@ -40,6 +41,7 @@ type SubscriptionChannelRoomProps = {
   onOpenSourceContact?: (sourceContact: NonNullable<Message['sourceContact']>) => void
   onOpenThread?: (postId: number) => void
   onPostSelect: (anchorElement: HTMLElement, postId: number) => void
+  onSetPostReaction?: (postId: number, emoji: string | null) => void | Promise<void>
   onReplyReferenceJump?: (postId: number) => void
   publisher?: {
     attachmentDraft?: ComposerAttachmentDraft
@@ -98,6 +100,7 @@ export function SubscriptionChannelRoom({
   onOpenSourceContact,
   onOpenThread,
   onPostSelect,
+  onSetPostReaction,
   onReplyReferenceJump,
   publisher,
   onJumpToLatest,
@@ -317,83 +320,103 @@ export function SubscriptionChannelRoom({
                         replyTo={replyReference}
                         bubble={
                           isImageOnlyBubble ? (
-                            <MediaOnlyBubbleRow
-                              actionLabel="Открыть действия публикации"
-                              bubbleAttributes={{ 'data-channel-post-id': post.id }}
-                              bubbleClassName={
-                                activePostId === post.id
-                                  ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
-                                  : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
+                            <MessageReactionSurface
+                              onSetReaction={
+                                onSetPostReaction
+                                  ? (emoji) => onSetPostReaction(post.id, emoji)
+                                  : undefined
                               }
-                              lane="channel"
-                              onOpenActions={(anchorElement) => onPostSelect(anchorElement, post.id)}
-                            >
-                              <BubbleMessageContent
-                                imageOverlay={
-                                  hasImageAttachment ? <BubbleImageOverlayMeta time={renderedPostTime} /> : undefined
-                                }
-                                inlineMeta={
-                                  shouldUseInlineTextMeta ? (
-                                    <BubbleTextInlineMeta
-                                      edited={Boolean(post.editedAt)}
-                                      time={renderedPostTime}
-                                    />
-                                  ) : undefined
-                                }
-                                message={post}
-                                onOpenAttachment={onOpenAttachment}
-                                onOpenExternalLink={onOpenExternalLink}
-                                onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
-                                onOpenSourceContact={
-                                  post.sourceContact
-                                    ? () =>
-                                        onOpenSourceContact?.(
-                                          post.sourceContact as NonNullable<Message['sourceContact']>,
-                                        )
-                                    : undefined
-                                }
-                                showReplyInline={false}
-                              />
-                            </MediaOnlyBubbleRow>
+                              reactions={post.reactions}
+                              bubble={
+                                <MediaOnlyBubbleRow
+                                  actionLabel="Открыть действия публикации"
+                                  bubbleAttributes={{ 'data-channel-post-id': post.id }}
+                                  bubbleClassName={
+                                    activePostId === post.id
+                                      ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
+                                      : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
+                                  }
+                                  lane="channel"
+                                  onOpenActions={(anchorElement) => onPostSelect(anchorElement, post.id)}
+                                >
+                                  <BubbleMessageContent
+                                    imageOverlay={
+                                      hasImageAttachment ? <BubbleImageOverlayMeta time={renderedPostTime} /> : undefined
+                                    }
+                                    inlineMeta={
+                                      shouldUseInlineTextMeta ? (
+                                        <BubbleTextInlineMeta
+                                          edited={Boolean(post.editedAt)}
+                                          time={renderedPostTime}
+                                        />
+                                      ) : undefined
+                                    }
+                                    message={post}
+                                    onOpenAttachment={onOpenAttachment}
+                                    onOpenExternalLink={onOpenExternalLink}
+                                    onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
+                                    onOpenSourceContact={
+                                      post.sourceContact
+                                        ? () =>
+                                            onOpenSourceContact?.(
+                                              post.sourceContact as NonNullable<Message['sourceContact']>,
+                                            )
+                                        : undefined
+                                    }
+                                    showReplyInline={false}
+                                  />
+                                </MediaOnlyBubbleRow>
+                              }
+                            />
                           ) : (
-                            <button
-                              type="button"
-                              data-channel-post-id={post.id}
-                              className={
-                                activePostId === post.id
-                                  ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
-                                  : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
+                            <MessageReactionSurface
+                              onSetReaction={
+                                onSetPostReaction
+                                  ? (emoji) => onSetPostReaction(post.id, emoji)
+                                  : undefined
                               }
-                              onClick={(event) => onPostSelect(event.currentTarget, post.id)}
-                            >
-                              <BubbleMessageContent
-                                imageOverlay={
-                                  hasImageAttachment ? <BubbleImageOverlayMeta time={renderedPostTime} /> : undefined
-                                }
-                                inlineMeta={
-                                  shouldUseInlineTextMeta ? (
-                                    <BubbleTextInlineMeta
-                                      edited={Boolean(post.editedAt)}
-                                      time={renderedPostTime}
-                                    />
-                                  ) : undefined
-                                }
-                                message={post}
-                                onOpenAttachment={onOpenAttachment}
-                                onOpenExternalLink={onOpenExternalLink}
-                                onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
-                                onOpenSourceContact={
-                                  post.sourceContact
-                                    ? () =>
-                                        onOpenSourceContact?.(
-                                          post.sourceContact as NonNullable<Message['sourceContact']>,
-                                        )
-                                    : undefined
-                                }
-                                showReplyInline={false}
-                              />
-                              {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{renderedPostTime}</time> : null}
-                            </button>
+                              reactions={post.reactions}
+                              bubble={
+                                <button
+                                  type="button"
+                                  data-channel-post-id={post.id}
+                                  className={
+                                    activePostId === post.id
+                                      ? `bubble bubble-button channel-post selected${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
+                                      : `bubble bubble-button channel-post${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`
+                                  }
+                                  onClick={(event) => onPostSelect(event.currentTarget, post.id)}
+                                >
+                                  <BubbleMessageContent
+                                    imageOverlay={
+                                      hasImageAttachment ? <BubbleImageOverlayMeta time={renderedPostTime} /> : undefined
+                                    }
+                                    inlineMeta={
+                                      shouldUseInlineTextMeta ? (
+                                        <BubbleTextInlineMeta
+                                          edited={Boolean(post.editedAt)}
+                                          time={renderedPostTime}
+                                        />
+                                      ) : undefined
+                                    }
+                                    message={post}
+                                    onOpenAttachment={onOpenAttachment}
+                                    onOpenExternalLink={onOpenExternalLink}
+                                    onOpenPremiumUpsell={publisherOnOpenPremiumUpsell}
+                                    onOpenSourceContact={
+                                      post.sourceContact
+                                        ? () =>
+                                            onOpenSourceContact?.(
+                                              post.sourceContact as NonNullable<Message['sourceContact']>,
+                                            )
+                                        : undefined
+                                    }
+                                    showReplyInline={false}
+                                  />
+                                  {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{renderedPostTime}</time> : null}
+                                </button>
+                              }
+                            />
                           )
                         }
                       />

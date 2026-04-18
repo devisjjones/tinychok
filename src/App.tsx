@@ -110,6 +110,11 @@ import {
   editGroupThreadComment as editGroupThreadCommentRequest,
   editManagedChannelPost as editManagedChannelPostRequest,
   editSubscriptionChannelThreadComment as editSubscriptionChannelThreadCommentRequest,
+  setDirectMessageReaction as setDirectMessageReactionRequest,
+  setGroupMessageReaction as setGroupMessageReactionRequest,
+  setGroupThreadCommentReaction as setGroupThreadCommentReactionRequest,
+  setSubscriptionChannelPostReaction as setSubscriptionChannelPostReactionRequest,
+  setSubscriptionChannelThreadCommentReaction as setSubscriptionChannelThreadCommentReactionRequest,
   deleteGroupMessage as deleteGroupMessageRequest,
   deleteGroupThreadComment as deleteGroupThreadCommentRequest,
   deleteAccount as deleteAccountRequest,
@@ -326,6 +331,7 @@ import {
 import { AttachedReplyBubble } from './components/AttachedReplyBubble'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { MediaOnlyBubbleRow } from './components/MediaOnlyBubbleRow'
+import { MessageReactionSurface } from './components/MessageReactionSurface'
 import { RoomComposer } from './components/RoomComposer'
 import { RoomJumpToLatestButton } from './components/RoomJumpToLatestButton'
 import { ThreadedBubble } from './components/ThreadedBubble'
@@ -13649,6 +13655,102 @@ function App() {
     closeThreadCommentActions()
   }
 
+  async function updateDirectMessageReaction(dialogId: number, messageId: number, emoji: string | null) {
+    if (!backendReady || !session?.sessionToken) {
+      return
+    }
+
+    try {
+      const response = await setDirectMessageReactionRequest(session.sessionToken, dialogId, messageId, { emoji })
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to update direct message reaction', error)
+    }
+  }
+
+  async function updateGroupMessageReaction(groupId: number, messageId: number, emoji: string | null) {
+    if (!backendReady || !session?.sessionToken) {
+      return
+    }
+
+    try {
+      const response = await setGroupMessageReactionRequest(session.sessionToken, groupId, messageId, { emoji })
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to update group message reaction', error)
+    }
+  }
+
+  async function updateGroupThreadCommentReaction(
+    groupId: number,
+    messageId: number,
+    commentId: number,
+    emoji: string | null,
+  ) {
+    if (!backendReady || !session?.sessionToken) {
+      return
+    }
+
+    try {
+      const response = await setGroupThreadCommentReactionRequest(
+        session.sessionToken,
+        groupId,
+        messageId,
+        commentId,
+        { emoji },
+      )
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to update group thread reaction', error)
+    }
+  }
+
+  async function updateSubscriptionChannelPostReaction(
+    channelId: number,
+    postId: number,
+    emoji: string | null,
+  ) {
+    if (!backendReady || !session?.sessionToken) {
+      return
+    }
+
+    try {
+      const response = await setSubscriptionChannelPostReactionRequest(
+        session.sessionToken,
+        channelId,
+        postId,
+        { emoji },
+      )
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to update channel post reaction', error)
+    }
+  }
+
+  async function updateSubscriptionChannelThreadCommentReaction(
+    channelId: number,
+    postId: number,
+    commentId: number,
+    emoji: string | null,
+  ) {
+    if (!backendReady || !session?.sessionToken) {
+      return
+    }
+
+    try {
+      const response = await setSubscriptionChannelThreadCommentReactionRequest(
+        session.sessionToken,
+        channelId,
+        postId,
+        commentId,
+        { emoji },
+      )
+      applySnapshot(response.snapshot)
+    } catch (error) {
+      console.error('Failed to update channel thread reaction', error)
+    }
+  }
+
   function prepareChannelDraft(channelNumber: number, channelId: number) {
     releaseChannelAvatarDraft(creatingChannelAvatarDraft)
     const nextDraft = makeDraftChannel(channelNumber, channelId)
@@ -15710,102 +15812,113 @@ function App() {
                 !threadGroupMessage.attachmentRemovedNotice
               const usesThumbnailImageLayout =
                 hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout
-              const threadSourceBubble = isImageOnlyBubble ? (
-                <MediaOnlyBubbleRow
-                  bubbleClassName={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
+              const threadSourceBubble = (
+                <MessageReactionSurface
                   mine={threadGroupMessage.author === 'me'}
-                  semantic="article"
-                >
-                  <BubbleMessageContent
-                    attachmentLayout={
-                      usesCaptionedImageCardLayout || usesImageOnlyCardLayout
-                        ? 'thread-source-card'
-                        : usesThumbnailImageLayout
-                          ? 'thread-source-thumbnail'
-                          : undefined
-                    }
-                    imageOverlay={
-                      hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout ? (
-                        <BubbleImageOverlayMeta time={threadSourceTime} />
-                      ) : undefined
-                    }
-                    inlineMeta={
-                      usesInlineTimeLayout ? (
-                        <BubbleTextInlineMeta
-                          edited={Boolean(threadGroupMessage.editedAt)}
-                          time={threadSourceTime}
+                  onSetReaction={(emoji) =>
+                    updateGroupMessageReaction(threadTarget.groupId, threadTarget.messageId, emoji)
+                  }
+                  reactions={threadGroupMessage.reactions}
+                  bubble={
+                    isImageOnlyBubble ? (
+                      <MediaOnlyBubbleRow
+                        bubbleClassName={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
+                        mine={threadGroupMessage.author === 'me'}
+                        semantic="article"
+                      >
+                        <BubbleMessageContent
+                          attachmentLayout={
+                            usesCaptionedImageCardLayout || usesImageOnlyCardLayout
+                              ? 'thread-source-card'
+                              : usesThumbnailImageLayout
+                                ? 'thread-source-thumbnail'
+                                : undefined
+                          }
+                          imageOverlay={
+                            hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout ? (
+                              <BubbleImageOverlayMeta time={threadSourceTime} />
+                            ) : undefined
+                          }
+                          inlineMeta={
+                            usesInlineTimeLayout ? (
+                              <BubbleTextInlineMeta
+                                edited={Boolean(threadGroupMessage.editedAt)}
+                                time={threadSourceTime}
+                              />
+                            ) : undefined
+                          }
+                          linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
+                          message={{
+                            ...threadGroupMessage,
+                            text: threadSourceText,
+                          }}
+                          onOpenAttachment={openMediaViewer}
+                          onOpenExternalLink={requestOpenExternalLink}
+                          onOpenPremiumUpsell={openPremiumUpsell}
+                          onOpenSourceContact={
+                            threadGroupMessage.sourceContact
+                              ? () =>
+                                  openSourceContact(
+                                    threadGroupMessage.sourceContact as NonNullable<Message['sourceContact']>,
+                                  )
+                              : undefined
+                          }
+                          showReplyInline={false}
                         />
-                      ) : undefined
-                    }
-                    linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
-                    message={{
-                      ...threadGroupMessage,
-                      text: threadSourceText,
-                    }}
-                    onOpenAttachment={openMediaViewer}
-                    onOpenExternalLink={requestOpenExternalLink}
-                    onOpenPremiumUpsell={openPremiumUpsell}
-                    onOpenSourceContact={
-                      threadGroupMessage.sourceContact
-                        ? () =>
-                            openSourceContact(
-                              threadGroupMessage.sourceContact as NonNullable<Message['sourceContact']>,
-                            )
-                        : undefined
-                    }
-                    showReplyInline={false}
-                  />
-                  {!usesInlineTimeLayout && (!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout) ? (
-                    <time>{threadSourceTime}</time>
-                  ) : null}
-                </MediaOnlyBubbleRow>
-              ) : (
-                <article
-                  className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
-                >
-                  <BubbleMessageContent
-                    attachmentLayout={
-                      usesCaptionedImageCardLayout || usesImageOnlyCardLayout
-                        ? 'thread-source-card'
-                        : usesThumbnailImageLayout
-                          ? 'thread-source-thumbnail'
-                          : undefined
-                    }
-                    imageOverlay={
-                      hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout ? (
-                        <BubbleImageOverlayMeta time={threadSourceTime} />
-                      ) : undefined
-                    }
-                    inlineMeta={
-                      usesInlineTimeLayout ? (
-                        <BubbleTextInlineMeta
-                          edited={Boolean(threadGroupMessage.editedAt)}
-                          time={threadSourceTime}
+                        {!usesInlineTimeLayout && (!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout) ? (
+                          <time>{threadSourceTime}</time>
+                        ) : null}
+                      </MediaOnlyBubbleRow>
+                    ) : (
+                      <article
+                        className={`bubble room-thread-source-bubble${threadGroupMessage.author === 'me' ? ' mine' : ''}${threadGroupMessage.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
+                      >
+                        <BubbleMessageContent
+                          attachmentLayout={
+                            usesCaptionedImageCardLayout || usesImageOnlyCardLayout
+                              ? 'thread-source-card'
+                              : usesThumbnailImageLayout
+                                ? 'thread-source-thumbnail'
+                                : undefined
+                          }
+                          imageOverlay={
+                            hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout ? (
+                              <BubbleImageOverlayMeta time={threadSourceTime} />
+                            ) : undefined
+                          }
+                          inlineMeta={
+                            usesInlineTimeLayout ? (
+                              <BubbleTextInlineMeta
+                                edited={Boolean(threadGroupMessage.editedAt)}
+                                time={threadSourceTime}
+                              />
+                            ) : undefined
+                          }
+                          linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
+                          message={{
+                            ...threadGroupMessage,
+                            text: threadSourceText,
+                          }}
+                          onOpenAttachment={openMediaViewer}
+                          onOpenExternalLink={requestOpenExternalLink}
+                          onOpenPremiumUpsell={openPremiumUpsell}
+                          onOpenSourceContact={
+                            threadGroupMessage.sourceContact
+                              ? () =>
+                                  openSourceContact(
+                                    threadGroupMessage.sourceContact as NonNullable<Message['sourceContact']>,
+                                  )
+                              : undefined
+                          }
+                          showReplyInline={false}
                         />
-                      ) : undefined
-                    }
-                    linkedChannel={resolveEmbeddedChannelFromMessage(threadGroupMessage)}
-                    message={{
-                      ...threadGroupMessage,
-                      text: threadSourceText,
-                    }}
-                    onOpenAttachment={openMediaViewer}
-                    onOpenExternalLink={requestOpenExternalLink}
-                    onOpenPremiumUpsell={openPremiumUpsell}
-                    onOpenSourceContact={
-                      threadGroupMessage.sourceContact
-                        ? () =>
-                            openSourceContact(
-                              threadGroupMessage.sourceContact as NonNullable<Message['sourceContact']>,
-                            )
-                        : undefined
-                    }
-                    showReplyInline={false}
-                  />
-                  {!usesInlineTimeLayout && (!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout) ? (
-                    <time>{threadSourceTime}</time>
-                  ) : null}
-                </article>
+                        {!usesInlineTimeLayout && (!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout) ? (
+                          <time>{threadSourceTime}</time>
+                        ) : null}
+                      </article>
+                    )
+                  }
+                />
               )
               const threadSourceBubbleWithReply = (
                 <AttachedReplyBubble
@@ -15875,51 +15988,59 @@ function App() {
               })()}
               replyTo={threadChannelPost.replyTo}
               bubble={
-                <article
-                  className={`bubble channel-post room-thread-source-bubble${threadChannelPost.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
-                >
-                  <BubbleMessageContent
-                    attachmentLayout={
-                      usesCaptionedImageCardLayout || usesImageOnlyCardLayout
-                        ? 'thread-source-card'
-                        : usesThumbnailImageLayout
-                          ? 'thread-source-thumbnail'
-                          : undefined
-                    }
-                    imageOverlay={
-                      hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout ? (
-                        <BubbleImageOverlayMeta time={threadSourceTime} />
-                      ) : undefined
-                    }
-                    inlineMeta={
-                      usesInlineTimeLayout ? (
-                        <BubbleTextInlineMeta
-                          edited={Boolean(threadChannelPost.editedAt)}
-                          time={threadSourceTime}
-                        />
-                      ) : undefined
-                    }
-                    message={{
-                      ...threadChannelPost,
-                      text: threadSourceText,
-                    }}
-                    onOpenAttachment={openMediaViewer}
-                    onOpenExternalLink={requestOpenExternalLink}
-                    onOpenPremiumUpsell={openPremiumUpsell}
-                    onOpenSourceContact={
-                      threadChannelPost.sourceContact
-                        ? () =>
-                            openSourceContact(
-                              threadChannelPost.sourceContact as NonNullable<Message['sourceContact']>,
-                            )
-                        : undefined
-                    }
-                    showReplyInline={false}
-                  />
-                  {!usesInlineTimeLayout && (!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout) ? (
-                    <time>{threadSourceTime}</time>
-                  ) : null}
-                </article>
+                <MessageReactionSurface
+                  onSetReaction={(emoji) =>
+                    updateSubscriptionChannelPostReaction(threadTarget.channelId, threadTarget.postId, emoji)
+                  }
+                  reactions={threadChannelPost.reactions}
+                  bubble={
+                    <article
+                      className={`bubble channel-post room-thread-source-bubble${threadChannelPost.replyTo ? ' has-attached-reply' : ''}${useMediaOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}${usesInlineTimeLayout ? ' room-thread-source-bubble-inline-time' : ''}${usesThumbnailImageLayout ? ' room-thread-source-bubble-thumbnail' : ''}${usesCaptionedImageCardLayout ? ' room-thread-source-bubble-thumbnail-captioned' : ''}${usesImageOnlyCardLayout ? ' room-thread-source-bubble-thumbnail-image-only-card' : ''}`}
+                    >
+                      <BubbleMessageContent
+                        attachmentLayout={
+                          usesCaptionedImageCardLayout || usesImageOnlyCardLayout
+                            ? 'thread-source-card'
+                            : usesThumbnailImageLayout
+                              ? 'thread-source-thumbnail'
+                              : undefined
+                        }
+                        imageOverlay={
+                          hasImageAttachment && !usesCaptionedImageCardLayout && !usesImageOnlyCardLayout ? (
+                            <BubbleImageOverlayMeta time={threadSourceTime} />
+                          ) : undefined
+                        }
+                        inlineMeta={
+                          usesInlineTimeLayout ? (
+                            <BubbleTextInlineMeta
+                              edited={Boolean(threadChannelPost.editedAt)}
+                              time={threadSourceTime}
+                            />
+                          ) : undefined
+                        }
+                        message={{
+                          ...threadChannelPost,
+                          text: threadSourceText,
+                        }}
+                        onOpenAttachment={openMediaViewer}
+                        onOpenExternalLink={requestOpenExternalLink}
+                        onOpenPremiumUpsell={openPremiumUpsell}
+                        onOpenSourceContact={
+                          threadChannelPost.sourceContact
+                            ? () =>
+                                openSourceContact(
+                                  threadChannelPost.sourceContact as NonNullable<Message['sourceContact']>,
+                                )
+                            : undefined
+                        }
+                        showReplyInline={false}
+                      />
+                      {!usesInlineTimeLayout && (!hasImageAttachment || usesCaptionedImageCardLayout || usesImageOnlyCardLayout) ? (
+                        <time>{threadSourceTime}</time>
+                      ) : null}
+                    </article>
+                  }
+                />
               }
             />
               )
@@ -16010,62 +16131,87 @@ function App() {
                       isImageOnlyBubble ? (
                         (() => {
                           const threadCommentMediaBubbleRow = (
-                            <MediaOnlyBubbleRow
-                              actionLabel="Открыть действия комментария"
-                              bubbleAttributes={{ 'data-thread-comment-id': comment.id }}
-                              bubbleClassName={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`}
+                            <MessageReactionSurface
                               mine={mine}
-                              onOpenActions={(anchorElement) => {
-                                scheduleActionAnchor(
-                                  anchorElement,
-                                  mine ? 'end' : 'start',
-                                  (anchor) => openThreadFlowCommentActions(comment.id, anchor),
-                                )
-                              }}
-                            >
-                              {commentAuthorNode && !isVideoNoteOnlyBubble ? (
-                                <button
-                                  type="button"
-                                  className="bubble-media-header bubble-media-header-button"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
+                              onSetReaction={
+                                threadTarget.kind === 'group'
+                                  ? (emoji) =>
+                                      updateGroupThreadCommentReaction(
+                                        threadTarget.groupId,
+                                        threadTarget.messageId,
+                                        comment.id,
+                                        emoji,
+                                      )
+                                  : threadTarget.kind === 'channel'
+                                    ? (emoji) =>
+                                        updateSubscriptionChannelThreadCommentReaction(
+                                          threadTarget.channelId,
+                                          threadTarget.postId,
+                                          comment.id,
+                                          emoji,
+                                        )
+                                    : undefined
+                              }
+                              reactions={comment.reactions}
+                              bubble={
+                                <MediaOnlyBubbleRow
+                                  actionLabel="Открыть действия комментария"
+                                  bubbleAttributes={{ 'data-thread-comment-id': comment.id }}
+                                  bubbleClassName={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`}
+                                  mine={mine}
+                                  onOpenActions={(anchorElement) => {
                                     scheduleActionAnchor(
-                                      event.currentTarget,
+                                      anchorElement,
                                       mine ? 'end' : 'start',
                                       (anchor) => openThreadFlowCommentActions(comment.id, anchor),
                                     )
                                   }}
                                 >
-                                  {commentAuthorNode}
-                                </button>
-                              ) : null}
-                              <BubbleMessageContent
-                                imageOverlay={
-                                  hasImageAttachment
-                                    ? <BubbleImageOverlayMeta time={threadCommentTime} />
-                                    : undefined
-                                }
-                                message={{
-                                  attachment: comment.attachment,
-                                  replyTo: comment.replyTo,
-                                  sourceContact: comment.sourceContact,
-                                  sourceGroup: undefined,
-                                  text: comment.text,
-                                }}
-                                onOpenAttachment={openMediaViewer}
-                                onOpenExternalLink={requestOpenExternalLink}
-                                onOpenPremiumUpsell={openPremiumUpsell}
-                                onOpenSourceContact={
-                                  comment.sourceContact
-                                    ? () =>
-                                        openSourceContact(
-                                          comment.sourceContact as NonNullable<Message['sourceContact']>,
+                                  {commentAuthorNode && !isVideoNoteOnlyBubble ? (
+                                    <button
+                                      type="button"
+                                      className="bubble-media-header bubble-media-header-button"
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        scheduleActionAnchor(
+                                          event.currentTarget,
+                                          mine ? 'end' : 'start',
+                                          (anchor) => openThreadFlowCommentActions(comment.id, anchor),
                                         )
-                                    : undefined
-                                }
-                                showReplyInline={false}
-                              />
-                            </MediaOnlyBubbleRow>
+                                      }}
+                                    >
+                                      {commentAuthorNode}
+                                    </button>
+                                  ) : null}
+                                  <BubbleMessageContent
+                                    imageOverlay={
+                                      hasImageAttachment
+                                        ? <BubbleImageOverlayMeta time={threadCommentTime} />
+                                        : undefined
+                                    }
+                                    message={{
+                                      attachment: comment.attachment,
+                                      replyTo: comment.replyTo,
+                                      sourceContact: comment.sourceContact,
+                                      sourceGroup: undefined,
+                                      text: comment.text,
+                                    }}
+                                    onOpenAttachment={openMediaViewer}
+                                    onOpenExternalLink={requestOpenExternalLink}
+                                    onOpenPremiumUpsell={openPremiumUpsell}
+                                    onOpenSourceContact={
+                                      comment.sourceContact
+                                        ? () =>
+                                            openSourceContact(
+                                              comment.sourceContact as NonNullable<Message['sourceContact']>,
+                                            )
+                                        : undefined
+                                    }
+                                    showReplyInline={false}
+                                  />
+                                </MediaOnlyBubbleRow>
+                              }
+                            />
                           )
 
                           return shouldRenderExternalCommentAuthor ? (
@@ -16083,55 +16229,80 @@ function App() {
                             !hasImageAttachment &&
                             (comment.text.trim().length > 0 || Boolean(comment.attachment))
                           const threadCommentBubbleButton = (
-                            <button
-                              type="button"
-                              data-bubble-measure={shouldRenderExternalCommentAuthor ? 'true' : undefined}
-                              data-thread-comment-id={comment.id}
-                              className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`}
-                              onClick={(event) => {
-                                scheduleActionAnchor(
-                                  event.currentTarget,
-                                  mine ? 'end' : 'start',
-                                  (anchor) => openThreadFlowCommentActions(comment.id, anchor),
-                                )
-                              }}
-                            >
-                              <BubbleMessageContent
-                                imageOverlay={
-                                  hasImageAttachment
-                                    ? <BubbleImageOverlayMeta time={threadCommentTime} />
-                                    : undefined
-                                }
-                                inlineMeta={
-                                  shouldUseInlineTextMeta ? (
-                                    <BubbleTextInlineMeta
-                                      edited={Boolean(comment.editedAt)}
-                                      time={threadCommentTime}
-                                    />
-                                  ) : undefined
-                                }
-                                message={{
-                                  attachment: comment.attachment,
-                                  replyTo: comment.replyTo,
-                                  sourceContact: comment.sourceContact,
-                                  sourceGroup: undefined,
-                                  text: comment.text,
-                                }}
-                                onOpenAttachment={openMediaViewer}
-                                onOpenExternalLink={requestOpenExternalLink}
-                                onOpenPremiumUpsell={openPremiumUpsell}
-                                onOpenSourceContact={
-                                  comment.sourceContact
-                                    ? () =>
-                                        openSourceContact(
-                                          comment.sourceContact as NonNullable<Message['sourceContact']>,
+                            <MessageReactionSurface
+                              mine={mine}
+                              onSetReaction={
+                                threadTarget.kind === 'group'
+                                  ? (emoji) =>
+                                      updateGroupThreadCommentReaction(
+                                        threadTarget.groupId,
+                                        threadTarget.messageId,
+                                        comment.id,
+                                        emoji,
+                                      )
+                                  : threadTarget.kind === 'channel'
+                                    ? (emoji) =>
+                                        updateSubscriptionChannelThreadCommentReaction(
+                                          threadTarget.channelId,
+                                          threadTarget.postId,
+                                          comment.id,
+                                          emoji,
                                         )
                                     : undefined
-                                }
-                                showReplyInline={false}
-                              />
-                              {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{threadCommentTime}</time> : null}
-                            </button>
+                              }
+                              reactions={comment.reactions}
+                              bubble={
+                                <button
+                                  type="button"
+                                  data-bubble-measure={shouldRenderExternalCommentAuthor ? 'true' : undefined}
+                                  data-thread-comment-id={comment.id}
+                                  className={`bubble bubble-button${mine ? ' mine' : ''}${replyReference ? ' has-attached-reply' : ''}${isImageOnlyBubble ? ' media-only-bubble' : ''}${isVideoNoteOnlyBubble ? ' video-note-only-bubble' : ''}`}
+                                  onClick={(event) => {
+                                    scheduleActionAnchor(
+                                      event.currentTarget,
+                                      mine ? 'end' : 'start',
+                                      (anchor) => openThreadFlowCommentActions(comment.id, anchor),
+                                    )
+                                  }}
+                                >
+                                  <BubbleMessageContent
+                                    imageOverlay={
+                                      hasImageAttachment
+                                        ? <BubbleImageOverlayMeta time={threadCommentTime} />
+                                        : undefined
+                                    }
+                                    inlineMeta={
+                                      shouldUseInlineTextMeta ? (
+                                        <BubbleTextInlineMeta
+                                          edited={Boolean(comment.editedAt)}
+                                          time={threadCommentTime}
+                                        />
+                                      ) : undefined
+                                    }
+                                    message={{
+                                      attachment: comment.attachment,
+                                      replyTo: comment.replyTo,
+                                      sourceContact: comment.sourceContact,
+                                      sourceGroup: undefined,
+                                      text: comment.text,
+                                    }}
+                                    onOpenAttachment={openMediaViewer}
+                                    onOpenExternalLink={requestOpenExternalLink}
+                                    onOpenPremiumUpsell={openPremiumUpsell}
+                                    onOpenSourceContact={
+                                      comment.sourceContact
+                                        ? () =>
+                                            openSourceContact(
+                                              comment.sourceContact as NonNullable<Message['sourceContact']>,
+                                            )
+                                        : undefined
+                                    }
+                                    showReplyInline={false}
+                                  />
+                                  {!hasImageAttachment && !shouldUseInlineTextMeta ? <time>{threadCommentTime}</time> : null}
+                                </button>
+                              }
+                            />
                           )
 
                           return shouldRenderExternalCommentAuthor ? (
@@ -21149,6 +21320,9 @@ function App() {
                 openSubscriptionPostActions(postId, anchor),
               )
             }}
+            onSetPostReaction={(postId, emoji) =>
+              updateSubscriptionChannelPostReaction(currentSubscriptionChannel!.id, postId, emoji)
+            }
             onReplyReferenceJump={scrollToChannelPost}
             visiblePosts={visibleSubscriptionPosts}
             publisher={
@@ -21265,6 +21439,9 @@ function App() {
                 (anchor) => openGroupMessageActions(message.id, anchor),
               )
             }}
+            onSetMessageReaction={(message, emoji) =>
+              updateGroupMessageReaction(activeGroup.id, message.id, emoji)
+            }
             onOpenAttachment={openMediaViewer}
             onOpenExternalLink={requestOpenExternalLink}
             onOpenLinkedChannel={openSourceChannel}
@@ -21362,6 +21539,9 @@ function App() {
                   setMessageActionAnchor,
                 )
               }}
+              onSetMessageReaction={(message, emoji) =>
+                updateDirectMessageReaction(activeChat.id, message.id, emoji)
+              }
               onOpenAttachment={openMediaViewer}
               onOpenExternalLink={requestOpenExternalLink}
               onOpenLinkedChannel={openSourceChannel}

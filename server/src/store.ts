@@ -81,6 +81,7 @@ import {
   sanitizePersonField,
   sanitizeStatusField,
 } from '../../src/shared/utils'
+import { fullEmojiCategories } from '../../src/shared/emoji'
 import {
   buildMessageMentions,
   buildThreadMentionCandidates,
@@ -157,6 +158,7 @@ import type {
   SendSubscriptionChannelThreadCommentBody,
   SendSupportTicketBody,
   SendSupportTicketCommentBody,
+  SetMessageReactionBody,
   SubscriptionChannelHistoryResponse,
   SubscriptionChannelPreviewResponse,
   TransferManagedChannelBody,
@@ -226,8 +228,15 @@ type PersistedMessageEditRecord = {
   time: string
 }
 
+type PersistedMessageReactionRecord = {
+  authorIdentifier: string
+  createdAt: string
+  emoji: string
+}
+
 type PersistedThreadComment = ThreadComment & {
   editHistory?: PersistedMessageEditRecord[]
+  reactionRecords?: PersistedMessageReactionRecord[]
 }
 
 type PersistedDialogMessage = Message & {
@@ -240,6 +249,7 @@ type PersistedDialogMessage = Message & {
   dialogId: number
   editHistory?: PersistedMessageEditRecord[]
   ownerIdentifier: string
+  reactionRecords?: PersistedMessageReactionRecord[]
 }
 
 type PersistedRoomRootArchiveReason = 'delete-channel-post' | 'delete-group-message'
@@ -284,6 +294,7 @@ type PersistedGroupMessage = Omit<Message, 'threadComments'> & {
   groupId: number
   ownerIdentifier: string
   editHistory?: PersistedMessageEditRecord[]
+  reactionRecords?: PersistedMessageReactionRecord[]
   threadComments?: PersistedThreadComment[]
 }
 
@@ -305,6 +316,7 @@ type PersistedSubscriptionPost = Omit<SubscriptionPost, 'threadComments'> & {
   channelId: number
   editHistory?: PersistedMessageEditRecord[]
   ownerIdentifier: string
+  reactionRecords?: PersistedMessageReactionRecord[]
   threadComments?: PersistedThreadComment[]
 }
 
@@ -1069,6 +1081,108 @@ function materializeAttachmentRemovedNoticeForViewer(
     perspective,
     text: textBuilder(perspective),
   }
+}
+
+const allowedReactionEmojiSet = new Set(
+  fullEmojiCategories.flatMap((category) => category.items),
+)
+
+function sanitizeReactionEmoji(value: string | null | undefined) {
+  const emoji = value?.trim()
+  if (!emoji) {
+    return null
+  }
+
+  return allowedReactionEmojiSet.has(emoji) ? emoji : null
+}
+
+function cloneReactionRecords(
+  records: PersistedMessageReactionRecord[] | undefined,
+): PersistedMessageReactionRecord[] | undefined {
+  return records?.map((record) => ({ ...record }))
+}
+
+function materializeReactionSummariesForViewer(
+  viewerIdentifier: string,
+  records: PersistedMessageReactionRecord[] | undefined,
+): Message['reactions'] | undefined {
+  if (!records || records.length === 0) {
+    return undefined
+  }
+
+  const normalizedViewerIdentifier = normalizeIdentifier(viewerIdentifier)
+  const aggregates = new Map<string, NonNullable<Message['reactions']>[number]>()
+
+  for (const record of records) {
+    const emoji = sanitizeReactionEmoji(record.emoji)
+    if (!emoji) {
+      continue
+    }
+
+    const existingAggregate = aggregates.get(emoji)
+    if (existingAggregate) {
+      existingAggregate.count += 1
+      existingAggregate.reactedByMe =
+        existingAggregate.reactedByMe ||
+        normalizeIdentifier(record.authorIdentifier) === normalizedViewerIdentifier
+      continue
+    }
+
+    aggregates.set(emoji, {
+      count: 1,
+      emoji,
+      reactedByMe: normalizeIdentifier(record.authorIdentifier) === normalizedViewerIdentifier,
+    })
+  }
+
+  return aggregates.size > 0 ? [...aggregates.values()] : undefined
+}
+
+function applyReactionRecord(
+  record: { reactionRecords?: PersistedMessageReactionRecord[] },
+  actorIdentifier: string,
+  emoji: string | null,
+) {
+  const normalizedActorIdentifier = normalizeIdentifier(actorIdentifier)
+  const sanitizedEmoji = sanitizeReactionEmoji(emoji)
+  let previousEmoji: string | null = null
+  for (const entry of record.reactionRecords ?? []) {
+    if (normalizeIdentifier(entry.authorIdentifier) === normalizedActorIdentifier) {
+      previousEmoji = entry.emoji
+    }
+  }
+
+  if (previousEmoji === sanitizedEmoji) {
+    return false
+  }
+
+  const nextReactionRecords = (record.reactionRecords ?? []).filter(
+    (entry) => normalizeIdentifier(entry.authorIdentifier) !== normalizedActorIdentifier,
+  )
+
+  if (sanitizedEmoji) {
+    nextReactionRecords.push({
+      authorIdentifier: normalizedActorIdentifier,
+      createdAt: new Date().toISOString(),
+      emoji: sanitizedEmoji,
+    })
+  }
+
+  record.reactionRecords = nextReactionRecords.length > 0 ? nextReactionRecords : undefined
+  return true
+}
+
+function parseReactionEmojiPayload(payload: SetMessageReactionBody) {
+  if (payload.emoji === null) {
+    return null
+  }
+
+  const emoji = sanitizeReactionEmoji(payload.emoji)
+  if (!emoji) {
+    throw new Error('Некорректная реакция.')
+  }
+
+  return emoji
 }
 
 function sanitizeUserGifLibraryItem(item: UserGifLibraryItem) {
@@ -2591,35 +2705,35 @@ function syncPersistedDialogWithAccount(
 function materializeThreadCommentsForViewer(
   database: Database,
   reporterIdentifier: string,
-  comments?: ThreadComment[],
+  comments?: Array<PersistedThreadComment | ThreadComment | undefined>,
   perspective: AttachmentRemovedNoticePerspective = 'author',
 ) {
-  return compactThreadComments(comments).flatMap((comment) => {
-    const authorAccount = findAccountByStoredIdentifier(database, comment.authorIdentifier)
-    if (isPublicDeletedAccount(authorAccount)) {
-      return []
-    }
-
-    const materializedComment = materializeThreadCommentForViewer(comment, perspective)
+  return (comments ?? []).flatMap((comment) => {
+    const materializedComment = materializeThreadCommentForViewer(comment, reporterIdentifier, perspective)
     if (!materializedComment) {
       return []
     }
 
-    const mentions = materializeMessageMentionsForViewer(database, comment.mentions)
+    const authorAccount = findAccountByStoredIdentifier(database, materializedComment.authorIdentifier)
+    if (isPublicDeletedAccount(authorAccount)) {
+      return []
+    }
+
+    const mentions = materializeMessageMentionsForViewer(database, comment?.mentions)
     const resolvedSourceContact =
-      sanitizeSourceContact(database, comment.sourceContact) ??
+      sanitizeSourceContact(database, comment?.sourceContact) ??
       (mentions.length > 0
         ? undefined
         : resolveContactSourceReferenceFromText(database, materializedComment.text))
     const resolvedSourceChannel =
-      sanitizeSourceChannel(comment.sourceChannel) ??
+      sanitizeSourceChannel(comment?.sourceChannel) ??
       (resolvedSourceContact || mentions.length > 0
         ? undefined
         : resolveChannelSourceReferenceFromText(database, materializedComment.text))
 
     return [{
       ...materializedComment,
-      attachment: materializeAttachmentForViewer(database, reporterIdentifier, comment.attachment),
+      attachment: materializeAttachmentForViewer(database, reporterIdentifier, comment?.attachment),
       mentions: mentions.length > 0 ? mentions : undefined,
       sourceChannel: resolvedSourceChannel,
       sourceContact: resolvedSourceContact,
@@ -2726,7 +2840,7 @@ function resolveSubscriptionPostAuthorIdentifier(
 }
 
 function materializeThreadComment(
-  comment: PersistedThreadComment | undefined,
+  comment: PersistedThreadComment | ThreadComment | undefined,
   fallbackAuthor: 'me' | 'them' = 'them',
 ): ThreadComment | null {
   if (!comment) return null
@@ -2753,6 +2867,9 @@ function materializeThreadComment(
       }]
     }),
     replyTo: sanitizeReplyTarget(comment.replyTo),
+    reactions: 'reactionRecords' in comment
+      ? materializeReactionSummariesForViewer('', comment.reactionRecords)
+      : comment.reactions,
     sourceChannel: sanitizeSourceChannel(comment.sourceChannel),
     sourceContact: comment.sourceContact ? { ...comment.sourceContact } : undefined,
     text: sanitizeThreadCommentText(comment.text),
@@ -2761,7 +2878,8 @@ function materializeThreadComment(
 }
 
 function materializeThreadCommentForViewer(
-  comment: PersistedThreadComment | undefined,
+  comment: PersistedThreadComment | ThreadComment | undefined,
+  viewerIdentifier: string,
   perspective: AttachmentRemovedNoticePerspective,
   fallbackAuthor: 'me' | 'them' = 'them',
 ): ThreadComment | null {
@@ -2780,6 +2898,10 @@ function materializeThreadCommentForViewer(
     attachmentRemovedNotice: materializeAttachmentRemovedNoticeForViewer(
       materializedComment.attachmentRemovedNotice,
       effectivePerspective,
+    ),
+    reactions: materializeReactionSummariesForViewer(
+      viewerIdentifier,
+      comment && 'reactionRecords' in comment ? comment.reactionRecords : undefined,
     ),
   }
 }
@@ -2820,11 +2942,15 @@ function toPersistedDialogMessage(
   ownerIdentifier: string,
   dialogId: number,
   message: Message,
+  existingMessage?: PersistedDialogMessage,
 ): PersistedDialogMessage {
+  const persistedMessage = { ...message }
+  delete persistedMessage.reactions
   return {
-    ...message,
+    ...persistedMessage,
     dialogId,
     ownerIdentifier,
+    reactionRecords: cloneReactionRecords(existingMessage?.reactionRecords),
   }
 }
 
@@ -2867,11 +2993,25 @@ function toPersistedGroupMessage(
   ownerIdentifier: string,
   groupId: number,
   message: Message,
+  existingMessage?: PersistedGroupMessage,
+  existingThreadComments?: Array<PersistedThreadComment | ThreadComment>,
 ): PersistedGroupMessage {
+  const persistedMessage = { ...message }
+  delete persistedMessage.reactions
+  const { threadComments } = persistedMessage
+  delete persistedMessage.threadComments
   return {
-    ...message,
+    ...persistedMessage,
     groupId,
     ownerIdentifier,
+    reactionRecords: cloneReactionRecords(existingMessage?.reactionRecords),
+    threadComments: (threadComments ?? []).map((comment) =>
+      toPersistedThreadComment(
+        comment,
+        existingThreadComments?.find((existingComment) => existingComment.id === comment.id) ??
+          existingMessage?.threadComments?.find((existingComment) => existingComment.id === comment.id),
+      ),
+    ),
   }
 }
 
@@ -2926,13 +3066,41 @@ function toPersistedSubscriptionPost(
   ownerIdentifier: string,
   channelId: number,
   post: SubscriptionPost,
+  existingPost?: PersistedSubscriptionPost,
+  existingThreadComments?: Array<PersistedThreadComment | ThreadComment>,
 ): PersistedSubscriptionPost {
+  const persistedPost = { ...post }
+  delete persistedPost.reactions
+  const { threadComments } = persistedPost
+  delete persistedPost.threadComments
   return {
-    ...post,
+    ...persistedPost,
     channelId,
-    threadComments: compactThreadComments(post.threadComments),
+    reactionRecords: cloneReactionRecords(existingPost?.reactionRecords),
+    threadComments: (threadComments ?? []).map((comment) =>
+      toPersistedThreadComment(
+        comment,
+        existingThreadComments?.find((existingComment) => existingComment.id === comment.id) ??
+          existingPost?.threadComments?.find((existingComment) => existingComment.id === comment.id),
+      ),
+    ),
     threadId: post.threadId?.trim() || undefined,
     ownerIdentifier,
+  }
+}
+
+function toPersistedThreadComment(
+  comment: ThreadComment,
+  existingComment?: PersistedThreadComment | ThreadComment,
+): PersistedThreadComment {
+  const persistedComment = { ...comment }
+  delete persistedComment.reactions
+  return {
+    ...persistedComment,
+    reactionRecords:
+      existingComment && 'reactionRecords' in existingComment
+        ? cloneReactionRecords(existingComment.reactionRecords)
+        : undefined,
   }
 }
 
@@ -3019,6 +3187,7 @@ function materializeDialogMessage(
     forwardedAuthorName: message.forwardedAuthorName,
     id: message.id,
     mentions: mentions.length > 0 ? mentions : undefined,
+    reactions: materializeReactionSummariesForViewer(viewerIdentifier, message.reactionRecords),
     readAt: message.readAt,
     replyTo,
     sourceChannel:
@@ -3265,6 +3434,7 @@ function materializeGroupMessage(
     groupSystemEvent: materializeGroupSystemEvent(database, message.groupSystemEvent),
     id: message.id,
     mentions: mentions.length > 0 ? mentions : undefined,
+    reactions: materializeReactionSummariesForViewer(viewerIdentifier, message.reactionRecords),
     readAt: message.readAt,
     replyTo: message.replyTo,
     sourceChannel:
@@ -3490,6 +3660,7 @@ function materializeSubscriptionPost(
     createdAt: post.createdAt,
     editedAt: post.editedAt,
     id: post.id,
+    reactions: materializeReactionSummariesForViewer(viewerIdentifier, post.reactionRecords),
     replyTo: post.replyTo,
     sourceChannel:
       post.sourceChannel ??
@@ -3631,23 +3802,48 @@ function buildOlderHistorySlice<T extends HistoryTimelineItem>(
   }
 }
 
-function normalizeChats(ownerIdentifier: string, chats: Chat[]) {
+type OwnerReactionRecordMaps = {
+  dialogMessages?: Map<string, PersistedDialogMessage>
+  groupComments?: Map<string, PersistedThreadComment>
+  groupMessages?: Map<string, PersistedGroupMessage>
+  subscriptionComments?: Map<string, PersistedThreadComment>
+  subscriptionPosts?: Map<string, PersistedSubscriptionPost>
+}
+
+function normalizeChats(ownerIdentifier: string, chats: Chat[], reactionRecordMaps?: OwnerReactionRecordMaps) {
   const persistedChats = chats.filter(
     (chat) => normalizeIdentifier(chat.phone) !== ownerIdentifier,
   )
 
   return {
     dialogMessages: persistedChats.flatMap((chat) =>
-      chat.messages.map((message) => toPersistedDialogMessage(ownerIdentifier, chat.id, message)),
+      chat.messages.map((message) =>
+        toPersistedDialogMessage(
+          ownerIdentifier,
+          chat.id,
+          message,
+          reactionRecordMaps?.dialogMessages?.get(`${chat.id}:${message.id}`),
+        ),
+      ),
     ),
     dialogs: persistedChats.map((chat) => toPersistedDialog(ownerIdentifier, chat)),
   }
 }
 
-function normalizeGroups(ownerIdentifier: string, groups: GroupPreview[]) {
+function normalizeGroups(ownerIdentifier: string, groups: GroupPreview[], reactionRecordMaps?: OwnerReactionRecordMaps) {
   return {
     groupMessages: groups.flatMap((group) =>
-      group.messages.map((message) => toPersistedGroupMessage(ownerIdentifier, group.id, message)),
+      group.messages.map((message) =>
+        toPersistedGroupMessage(
+          ownerIdentifier,
+          group.id,
+          message,
+          reactionRecordMaps?.groupMessages?.get(`${group.id}:${message.id}`),
+          message.threadComments?.map(
+            (comment) => reactionRecordMaps?.groupComments?.get(`${group.id}:${message.id}:${comment.id}`) ?? comment,
+          ),
+        ),
+      ),
     ),
     groups: groups.map((group) => toPersistedGroup(ownerIdentifier, group)),
   }
@@ -3657,14 +3853,27 @@ function normalizeManagedChannels(ownerIdentifier: string, channels: Channel[]) 
   return channels.map((channel) => toPersistedManagedChannel(ownerIdentifier, channel))
 }
 
-function normalizeSubscriptionChannels(ownerIdentifier: string, channels: SubscriptionChannel[]) {
+function normalizeSubscriptionChannels(
+  ownerIdentifier: string,
+  channels: SubscriptionChannel[],
+  reactionRecordMaps?: OwnerReactionRecordMaps,
+) {
   return {
     subscriptionChannels: channels.map((channel) =>
       toPersistedSubscriptionChannel(ownerIdentifier, channel),
     ),
     subscriptionPosts: channels.flatMap((channel) =>
       channel.posts.map((post) =>
-        toPersistedSubscriptionPost(ownerIdentifier, channel.id, post),
+        toPersistedSubscriptionPost(
+          ownerIdentifier,
+          channel.id,
+          post,
+          reactionRecordMaps?.subscriptionPosts?.get(`${channel.id}:${post.id}`),
+          post.threadComments?.map(
+            (comment) =>
+              reactionRecordMaps?.subscriptionComments?.get(`${channel.id}:${post.id}:${comment.id}`) ?? comment,
+          ),
+        ),
       ),
     ),
   }
@@ -5962,7 +6171,7 @@ export class TinychokStore {
       if (message.threadId) {
         message.threadId = nextGroupThreadId(message.threadId)
       }
-      message.threadComments = compactThreadComments(message.threadComments).map((comment) => ({
+      message.threadComments = (message.threadComments ?? []).map((comment) => ({
         ...comment,
         authorIdentifier:
           normalizeStoredIdentifierReference(comment.authorIdentifier ?? '') === liveIdentifier
@@ -6024,7 +6233,7 @@ export class TinychokStore {
           `channel:${archivedIdentifier}:`,
         )
       }
-      post.threadComments = compactThreadComments(post.threadComments).map((comment) => ({
+      post.threadComments = (post.threadComments ?? []).map((comment) => ({
         ...comment,
         authorIdentifier:
           normalizeStoredIdentifierReference(comment.authorIdentifier ?? '') === liveIdentifier
@@ -10453,6 +10662,74 @@ export class TinychokStore {
     }
   }
 
+  async setDirectMessageReaction(
+    token: string,
+    dialogId: number,
+    messageId: number,
+    payload: SetMessageReactionBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const dialog = this.findDialog(account.identifier, dialogId)
+    if (!dialog) {
+      throw new Error('Диалог не найден.')
+    }
+
+    const message = this.database.dialogMessages.find(
+      (candidate) =>
+        candidate.ownerIdentifier === account.identifier &&
+        candidate.dialogId === dialogId &&
+        candidate.id === messageId &&
+        !candidate.archivedAt,
+    )
+    if (!message) {
+      throw new Error('Сообщение не найдено.')
+    }
+
+    const nextEmoji = parseReactionEmojiPayload(payload)
+    const didChange = applyReactionRecord(message, account.identifier, nextEmoji)
+    if (!didChange) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    const broadcastIdentifiers = new Set<string>([account.identifier])
+    const peerIdentifier = normalizeIdentifier(dialog.phone)
+    const peerAccount =
+      peerIdentifier && peerIdentifier !== account.identifier
+        ? this.findAccount(peerIdentifier)
+        : null
+
+    if (peerAccount && !isPublicDeletedAccount(peerAccount) && !isArchivedIdentifier(dialog.phone)) {
+      const peerDialog = this.findDialogByPhone(peerAccount.identifier, account.identifier)
+      if (peerDialog) {
+        const peerDialogMessages = this.database.dialogMessages.filter(
+          (candidate) =>
+            candidate.ownerIdentifier === peerAccount.identifier &&
+            candidate.dialogId === peerDialog.id &&
+            !candidate.archivedAt,
+        )
+        const peerCopy = findMirroredDirectMessageInDialog(peerDialogMessages, message)
+        if (peerCopy) {
+          applyReactionRecord(peerCopy, account.identifier, nextEmoji)
+          broadcastIdentifiers.add(peerAccount.identifier)
+        }
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async setDialogFavorite(
     token: string,
     dialogId: number,
@@ -11113,6 +11390,64 @@ export class TinychokStore {
     }
   }
 
+  async setGroupMessageReaction(
+    token: string,
+    groupId: number,
+    messageId: number,
+    payload: SetMessageReactionBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getGroupMessageById(account.identifier, groupId, messageId)
+    if (!target) {
+      throw new Error('Сообщение группы не найдено.')
+    }
+
+    this.assertGroupWritable(target.group)
+    if (target.message.groupSystemEvent) {
+      throw new Error('Системное сообщение не поддерживает реакции.')
+    }
+
+    const nextEmoji = parseReactionEmojiPayload(payload)
+    const sharedId = this.getSharedGroupId(target.group)
+    const targetThreadId = getGroupMessageThreadId(target.group, target.message)
+    const broadcastIdentifiers = new Set<string>()
+
+    for (const groupCopy of this.listGroupCopies(sharedId)) {
+      const targetMessage = this.database.groupMessages.find(
+        (candidate) =>
+          candidate.ownerIdentifier === groupCopy.ownerIdentifier &&
+          candidate.groupId === groupCopy.id &&
+          getGroupMessageThreadId(groupCopy, candidate) === targetThreadId &&
+          !candidate.archivedAt,
+      )
+      if (!targetMessage) {
+        continue
+      }
+
+      if (applyReactionRecord(targetMessage, account.identifier, nextEmoji)) {
+        broadcastIdentifiers.add(groupCopy.ownerIdentifier)
+      }
+    }
+
+    if (broadcastIdentifiers.size === 0) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
   async sendGroupThreadComment(
     token: string,
     groupId: number,
@@ -11288,6 +11623,74 @@ export class TinychokStore {
         storedComment.sourceContact =
           mentions.length > 0 ? undefined : resolveContactSourceReferenceFromText(this.database, nextText)
         broadcastIdentifiers.add(groupCopy.ownerIdentifier)
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async setGroupThreadCommentReaction(
+    token: string,
+    groupId: number,
+    messageId: number,
+    commentId: number,
+    payload: SetMessageReactionBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getGroupMessageById(account.identifier, groupId, messageId)
+    if (!target) {
+      throw new Error('Сообщение группы не найдено.')
+    }
+    if (isArchivedThread(target.message)) {
+      throw new Error('Обсуждение находится в архиве и недоступно пользователям.')
+    }
+
+    const targetComment = compactThreadComments(target.message.threadComments).find(
+      (comment) => comment.id === commentId,
+    )
+    if (!targetComment) {
+      throw new Error('Комментарий не найден.')
+    }
+
+    const nextEmoji = parseReactionEmojiPayload(payload)
+    const sharedId = this.getSharedGroupId(target.group)
+    const threadId = getGroupMessageThreadId(target.group, target.message)
+    const broadcastIdentifiers = new Set<string>()
+
+    for (const groupCopy of this.listGroupCopies(sharedId)) {
+      const targetMessages = this.database.groupMessages.filter(
+        (candidate) =>
+          candidate.ownerIdentifier === groupCopy.ownerIdentifier &&
+          candidate.groupId === groupCopy.id &&
+          getGroupMessageThreadId(groupCopy, candidate) === threadId &&
+          !candidate.archivedAt,
+      )
+
+      for (const targetMessage of targetMessages) {
+        const storedComment = (targetMessage.threadComments ?? []).find((comment) => comment.id === commentId)
+        if (!storedComment) {
+          continue
+        }
+
+        if (applyReactionRecord(storedComment, account.identifier, nextEmoji)) {
+          broadcastIdentifiers.add(groupCopy.ownerIdentifier)
+        }
+      }
+    }
+
+    if (broadcastIdentifiers.size === 0) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
       }
     }
 
@@ -11693,6 +12096,64 @@ export class TinychokStore {
         channelCopy.time = targetPost.time
       }
       broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async setSubscriptionChannelPostReaction(
+    token: string,
+    channelId: number,
+    postId: number,
+    payload: SetMessageReactionBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getSubscriptionPostById(account.identifier, channelId, postId)
+    if (!target) {
+      throw new Error('Пост канала не найден.')
+    }
+
+    this.assertSubscriptionChannelWritable(target.channel)
+    if (target.post.system) {
+      throw new Error('Техническое сообщение канала не поддерживает реакции.')
+    }
+
+    const nextEmoji = parseReactionEmojiPayload(payload)
+    const normalizedHandle = sanitizeChannelDirectLink(target.channel.handle) || target.channel.handle
+    const threadId = getSubscriptionPostThreadId(target.channel, target.post)
+    const broadcastIdentifiers = new Set<string>()
+
+    for (const channelCopy of this.listSubscriptionChannelCopiesByHandle(normalizedHandle)) {
+      const targetPost = this.database.subscriptionPosts.find(
+        (candidate) =>
+          candidate.ownerIdentifier === channelCopy.ownerIdentifier &&
+          candidate.channelId === channelCopy.id &&
+          getSubscriptionPostThreadId(channelCopy, candidate) === threadId &&
+          !candidate.archivedAt,
+      )
+      if (!targetPost) {
+        continue
+      }
+
+      if (applyReactionRecord(targetPost, account.identifier, nextEmoji)) {
+        broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+      }
+    }
+
+    if (broadcastIdentifiers.size === 0) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
+      }
     }
 
     await this.persist()
@@ -12876,6 +13337,78 @@ export class TinychokStore {
         storedComment.sourceContact =
           mentions.length > 0 ? undefined : resolveContactSourceReferenceFromText(this.database, nextText)
         broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+      }
+    }
+
+    await this.persist()
+
+    return {
+      broadcastIdentifiers: [...broadcastIdentifiers],
+      snapshot: this.buildSnapshot(account, token),
+    }
+  }
+
+  async setSubscriptionChannelThreadCommentReaction(
+    token: string,
+    channelId: number,
+    postId: number,
+    commentId: number,
+    payload: SetMessageReactionBody,
+  ): Promise<MutationResult> {
+    const account = this.findAccountByToken(token)
+    if (!account) {
+      throw new Error('Сессия не найдена.')
+    }
+
+    const target = this.getSubscriptionPostById(account.identifier, channelId, postId)
+    if (!target) {
+      throw new Error('Пост канала не найден.')
+    }
+    if (isArchivedThread(target.post)) {
+      throw new Error('Обсуждение находится в архиве и недоступно пользователям.')
+    }
+    if (target.post.system) {
+      throw new Error('Техническое сообщение канала не поддерживает комментарии.')
+    }
+    this.assertSubscriptionChannelWritable(target.channel)
+
+    const targetComment = compactThreadComments(target.post.threadComments).find(
+      (comment) => comment.id === commentId,
+    )
+    if (!targetComment) {
+      throw new Error('Комментарий не найден.')
+    }
+
+    const nextEmoji = parseReactionEmojiPayload(payload)
+    const normalizedHandle = sanitizeChannelDirectLink(target.channel.handle) || target.channel.handle
+    const threadId = getSubscriptionPostThreadId(target.channel, target.post)
+    const broadcastIdentifiers = new Set<string>()
+
+    for (const channelCopy of this.listSubscriptionChannelCopiesByHandle(normalizedHandle)) {
+      const targetPosts = this.database.subscriptionPosts.filter(
+        (candidate) =>
+          candidate.ownerIdentifier === channelCopy.ownerIdentifier &&
+          candidate.channelId === channelCopy.id &&
+          getSubscriptionPostThreadId(channelCopy, candidate) === threadId &&
+          !candidate.archivedAt,
+      )
+
+      for (const targetPost of targetPosts) {
+        const storedComment = (targetPost.threadComments ?? []).find((comment) => comment.id === commentId)
+        if (!storedComment) {
+          continue
+        }
+
+        if (applyReactionRecord(storedComment, account.identifier, nextEmoji)) {
+          broadcastIdentifiers.add(channelCopy.ownerIdentifier)
+        }
+      }
+    }
+
+    if (broadcastIdentifiers.size === 0) {
+      return {
+        broadcastIdentifiers: [],
+        snapshot: this.buildSnapshot(account, token),
       }
     }
 
@@ -20011,12 +20544,45 @@ export class TinychokStore {
       subscriptionChannels: SubscriptionChannel[]
     },
   ) {
-    const dialogs = normalizeChats(ownerIdentifier, state.chats)
-    const groups = normalizeGroups(ownerIdentifier, state.groups)
+    const reactionRecordMaps: OwnerReactionRecordMaps = {
+      dialogMessages: new Map(
+        this.database.dialogMessages
+          .filter((message) => message.ownerIdentifier === ownerIdentifier)
+          .map((message) => [`${message.dialogId}:${message.id}`, message] as const),
+      ),
+      groupComments: new Map(
+        this.database.groupMessages
+          .filter((message) => message.ownerIdentifier === ownerIdentifier)
+          .flatMap((message) =>
+            (message.threadComments ?? []).map((comment) => [`${message.groupId}:${message.id}:${comment.id}`, comment] as const),
+          ),
+      ),
+      groupMessages: new Map(
+        this.database.groupMessages
+          .filter((message) => message.ownerIdentifier === ownerIdentifier)
+          .map((message) => [`${message.groupId}:${message.id}`, message] as const),
+      ),
+      subscriptionComments: new Map(
+        this.database.subscriptionPosts
+          .filter((post) => post.ownerIdentifier === ownerIdentifier)
+          .flatMap((post) =>
+            (post.threadComments ?? []).map((comment) => [`${post.channelId}:${post.id}:${comment.id}`, comment] as const),
+          ),
+      ),
+      subscriptionPosts: new Map(
+        this.database.subscriptionPosts
+          .filter((post) => post.ownerIdentifier === ownerIdentifier)
+          .map((post) => [`${post.channelId}:${post.id}`, post] as const),
+      ),
+    }
+
+    const dialogs = normalizeChats(ownerIdentifier, state.chats, reactionRecordMaps)
+    const groups = normalizeGroups(ownerIdentifier, state.groups, reactionRecordMaps)
     const managedChannels = normalizeManagedChannels(ownerIdentifier, state.channels)
     const subscriptionChannels = normalizeSubscriptionChannels(
       ownerIdentifier,
       state.subscriptionChannels,
+      reactionRecordMaps,
     )
 
     this.database.dialogs = this.database.dialogs
@@ -20121,6 +20687,7 @@ function cloneThreadCommentRecord(comment: PersistedThreadComment): PersistedThr
       ...mention,
       sourceContact: { ...mention.sourceContact },
     })),
+    reactionRecords: cloneReactionRecords(comment.reactionRecords),
     replyTo: comment.replyTo ? { ...comment.replyTo } : undefined,
     sourceChannel: comment.sourceChannel ? { ...comment.sourceChannel } : undefined,
     sourceContact: comment.sourceContact ? { ...comment.sourceContact } : undefined,
@@ -20141,6 +20708,7 @@ function clonePersistedSubscriptionPostForCopy(
     editedAt: post.editedAt,
     id: nextId,
     ownerIdentifier: channelCopy.ownerIdentifier,
+    reactionRecords: cloneReactionRecords(post.reactionRecords),
     replyTo: post.replyTo ? { ...post.replyTo } : undefined,
     sourceChannel: post.sourceChannel ? { ...post.sourceChannel } : undefined,
     system: Boolean(post.system),

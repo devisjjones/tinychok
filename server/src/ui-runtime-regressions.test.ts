@@ -1311,10 +1311,12 @@ test('thread source attachments stay compact previews instead of full-room media
   assert.match(appCssSource, /\.room-thread-source \.channel-post\.room-thread-source-bubble,/u)
   assert.match(appCssSource, /max-width: 100%;/u)
   assert.match(appCssSource, /box-sizing: border-box;/u)
+  assert.match(appCssSource, /\.room-thread-source > \.bubble-stack > \.bubble-stack-main > \.message-reaction-surface/u)
   assert.match(
     appCssSource,
-    /\.room-thread-source > \.bubble-stack > \.bubble-stack-main > \.room-thread-source-bubble,\s*\.room-thread-source > \.room-thread-source-bubble \{/u,
+    /\.room-thread-source > \.bubble-stack > \.bubble-stack-main > \.message-reaction-surface > \.message-reaction-surface-main > \.room-thread-source-bubble/u,
   )
+  assert.match(appCssSource, /\.room-thread-source > \.room-thread-source-bubble \{/u)
   assert.match(appCssSource, /justify-self: stretch;/u)
   assert.match(appCssSource, /border-top-left-radius: 0;/u)
   assert.match(appCssSource, /border-top-right-radius: 0;/u)
@@ -1325,7 +1327,11 @@ test('thread source attachments stay compact previews instead of full-room media
   )
   assert.match(
     appCssSource,
-    /\.room-thread-source\s*>\s*\.bubble-stack\s*>\s*\.bubble-stack-main\s*>\s*\.room-thread-source-bubble\.room-thread-source-bubble-inline-time,\s*\.room-thread-source > \.room-thread-source-bubble\.room-thread-source-bubble-inline-time \{/u,
+    /\.room-thread-source\s*>\s*\.bubble-stack\s*>\s*\.bubble-stack-main\s*>\s*\.message-reaction-surface\s*>\s*\.message-reaction-surface-main\s*>\s*\.room-thread-source-bubble\.room-thread-source-bubble-inline-time/u,
+  )
+  assert.match(
+    appCssSource,
+    /\.room-thread-source > \.room-thread-source-bubble\.room-thread-source-bubble-inline-time \{/u,
   )
   assert.match(appCssSource, /grid-template-columns: minmax\(0, 1fr\) auto;/u)
   assert.match(
@@ -7840,4 +7846,82 @@ test('room feeds expose a jump-to-latest control above the composer across direc
   assert.match(appCss, /\.room-jump-to-latest\s*\{[\s\S]*width:\s*42px;/u)
   assert.match(appCss, /\.room-jump-to-latest-icon/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.room-jump-to-latest/u)
+})
+
+test('message reactions stay wired through room bubbles, emoji-only picker plumbing and mirrored server mutations', () => {
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+  const appSource = readFileSync(join(repoRoot, 'src', 'App.tsx'), 'utf8')
+  const appCss = readFileSync(join(repoRoot, 'src', 'App.css'), 'utf8')
+  const directRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'DirectChatRoom.tsx'), 'utf8')
+  const groupRoomSource = readFileSync(join(repoRoot, 'src', 'rooms', 'GroupRoom.tsx'), 'utf8')
+  const channelRoomSource = readFileSync(
+    join(repoRoot, 'src', 'rooms', 'SubscriptionChannelRoom.tsx'),
+    'utf8',
+  )
+  const reactionSurfaceSource = readFileSync(
+    join(repoRoot, 'src', 'components', 'MessageReactionSurface.tsx'),
+    'utf8',
+  )
+  const backendSource = readFileSync(join(repoRoot, 'src', 'app', 'backend.ts'), 'utf8')
+  const sharedTypesSource = readFileSync(join(repoRoot, 'src', 'shared', 'types.ts'), 'utf8')
+  const storeContractSource = readFileSync(
+    join(repoRoot, 'server', 'src', 'store-contract.ts'),
+    'utf8',
+  )
+  const storeSource = readFileSync(join(repoRoot, 'server', 'src', 'store.ts'), 'utf8')
+  const indexSource = readFileSync(join(repoRoot, 'server', 'src', 'index.ts'), 'utf8')
+
+  assert.match(sharedTypesSource, /export type MessageReaction = \{/u)
+  assert.ok(sharedTypesSource.includes('reactions?: MessageReaction[]'))
+  assert.match(reactionSurfaceSource, /<img src="\/icons\/heart\.png"/u)
+  assert.match(reactionSurfaceSource, /className=\{`message-reaction-trigger/u)
+  assert.match(reactionSurfaceSource, /message-reaction-picker-item/u)
+  assert.match(reactionSurfaceSource, /fullEmojiCategories\.map/u)
+  assert.doesNotMatch(reactionSurfaceSource, /emoji-picker-tab/u)
+
+  assert.match(directRoomSource, /<MessageReactionSurface/u)
+  assert.match(directRoomSource, /reactions=\{message\.reactions\}/u)
+  assert.match(groupRoomSource, /<MessageReactionSurface/u)
+  assert.match(groupRoomSource, /reactions=\{message\.reactions\}/u)
+  assert.match(channelRoomSource, /<MessageReactionSurface/u)
+  assert.match(channelRoomSource, /reactions=\{post\.reactions\}/u)
+
+  assert.match(appSource, /function updateDirectMessageReaction/u)
+  assert.match(appSource, /function updateGroupMessageReaction/u)
+  assert.match(appSource, /function updateGroupThreadCommentReaction/u)
+  assert.match(appSource, /function updateSubscriptionChannelPostReaction/u)
+  assert.match(appSource, /function updateSubscriptionChannelThreadCommentReaction/u)
+  assert.match(appSource, /<MessageReactionSurface/u)
+
+  assert.match(backendSource, /export async function setDirectMessageReaction/u)
+  assert.match(backendSource, /export async function setGroupMessageReaction/u)
+  assert.match(backendSource, /export async function setGroupThreadCommentReaction/u)
+  assert.match(backendSource, /export async function setSubscriptionChannelPostReaction/u)
+  assert.match(backendSource, /export async function setSubscriptionChannelThreadCommentReaction/u)
+
+  assert.match(storeContractSource, /'setDirectMessageReaction'/u)
+  assert.match(storeContractSource, /'setGroupMessageReaction'/u)
+  assert.match(storeContractSource, /'setGroupThreadCommentReaction'/u)
+  assert.match(storeContractSource, /'setSubscriptionChannelPostReaction'/u)
+  assert.match(storeContractSource, /'setSubscriptionChannelThreadCommentReaction'/u)
+
+  assert.match(storeSource, /function applyReactionRecord/u)
+  assert.match(storeSource, /async setDirectMessageReaction/u)
+  assert.match(storeSource, /async setGroupMessageReaction/u)
+  assert.match(storeSource, /async setGroupThreadCommentReaction/u)
+  assert.match(storeSource, /async setSubscriptionChannelPostReaction/u)
+  assert.match(storeSource, /async setSubscriptionChannelThreadCommentReaction/u)
+  assert.match(storeSource, /materializeReactionSummariesForViewer/u)
+
+  assert.match(indexSource, /\/api\/dialogs\/:dialogId\/messages\/:messageId\/reaction/u)
+  assert.match(indexSource, /\/api\/groups\/:groupId\/messages\/:messageId\/reaction/u)
+  assert.match(indexSource, /\/api\/groups\/:groupId\/messages\/:messageId\/comments\/:commentId\/reaction/u)
+  assert.match(indexSource, /\/api\/subscription-channels\/:channelId\/posts\/:postId\/reaction/u)
+  assert.match(indexSource, /\/api\/subscription-channels\/:channelId\/posts\/:postId\/comments\/:commentId\/reaction/u)
+
+  assert.match(appCss, /\.message-reaction-trigger/u)
+  assert.match(appCss, /\.message-reaction-chip/u)
+  assert.match(appCss, /\.message-reaction-picker/u)
+  assert.match(appCss, /@media \(hover: none\)\s*\{[\s\S]*\.message-reaction-trigger/u)
+  assert.match(appCss, /html\[data-theme='dark'\] \.message-reaction-trigger/u)
 })

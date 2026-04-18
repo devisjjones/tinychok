@@ -103,6 +103,7 @@ import type {
   SendSubscriptionChannelThreadCommentBody,
   SendSupportTicketBody,
   SendSupportTicketCommentBody,
+  SetMessageReactionBody,
   SubscribeToChannelResponse,
   SubscriptionChannelHistoryResponse,
   SubscriptionChannelPreviewResponse,
@@ -1724,6 +1725,20 @@ export async function editDirectMessage(
   return normalizeMutationResponse(payload)
 }
 
+export async function setDirectMessageReaction(
+  sessionToken: string,
+  dialogId: number,
+  messageId: number,
+  body: SetMessageReactionBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/dialogs/${dialogId}/messages/${messageId}/reaction`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function sendContactRequest(
   sessionToken: string,
   body: SendContactRequestBody,
@@ -1923,6 +1938,20 @@ export async function editGroupMessage(
   return normalizeMutationResponse(payload)
 }
 
+export async function setGroupMessageReaction(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+  body: SetMessageReactionBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/reaction`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function markDialogRead(sessionToken: string, dialogId: number) {
   const response = await fetch(
     makeHttpUrl(`/api/dialogs/${dialogId}/read`),
@@ -1988,6 +2017,21 @@ export async function editGroupThreadComment(
 ) {
   const response = await fetch(
     makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/comments/${commentId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function setGroupThreadCommentReaction(
+  sessionToken: string,
+  groupId: number,
+  messageId: number,
+  commentId: number,
+  body: SetMessageReactionBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/groups/${groupId}/messages/${messageId}/comments/${commentId}/reaction`),
     makeJsonRequestInit('PUT', body, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)
@@ -2073,6 +2117,20 @@ export async function editManagedChannelPost(
   return normalizeMutationResponse(payload)
 }
 
+export async function setSubscriptionChannelPostReaction(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+  body: SetMessageReactionBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/reaction`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
 export async function markSubscriptionChannelRead(sessionToken: string, channelId: number) {
   const response = await fetch(
     makeHttpUrl(`/api/subscription-channels/${channelId}/read`),
@@ -2118,6 +2176,21 @@ export async function editSubscriptionChannelThreadComment(
 ) {
   const response = await fetch(
     makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/comments/${commentId}`),
+    makeJsonRequestInit('PUT', body, sessionToken),
+  )
+  const payload = await readJsonResponse<MutationResponse>(response)
+  return normalizeMutationResponse(payload)
+}
+
+export async function setSubscriptionChannelThreadCommentReaction(
+  sessionToken: string,
+  channelId: number,
+  postId: number,
+  commentId: number,
+  body: SetMessageReactionBody,
+) {
+  const response = await fetch(
+    makeHttpUrl(`/api/subscription-channels/${channelId}/posts/${postId}/comments/${commentId}/reaction`),
     makeJsonRequestInit('PUT', body, sessionToken),
   )
   const payload = await readJsonResponse<MutationResponse>(response)

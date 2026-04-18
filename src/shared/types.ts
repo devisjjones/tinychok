@@ -72,6 +72,12 @@ export type StorageSubjectSummary = {
   storageUsage?: StorageQuotaUsage
 }
 
+export type MessageReaction = {
+  count: number
+  emoji: string
+  reactedByMe: boolean
+}
+
 export type ThreadComment = {
   attachment?: MessageAttachment
   attachmentRemovedNotice?: AttachmentRemovedNotice
@@ -83,6 +89,7 @@ export type ThreadComment = {
   displayAuthor?: string
   editedAt?: string
   mentions?: MessageMention[]
+  reactions?: MessageReaction[]
   replyTo?: Message['replyTo']
   sourceChannel?: ChannelMessageSource
   sourceContact?: ContactMessageSource
@@ -161,6 +168,7 @@ export type ChannelPost = {
   deliveryId?: string
   editedAt?: string
   mentions?: MessageMention[]
+  reactions?: MessageReaction[]
   sourceChannel?: ChannelMessageSource
   sourceContact?: ContactMessageSource
   text: string
@@ -261,6 +269,7 @@ export type Message = {
   attachment?: MessageAttachment
   attachmentRemovedNotice?: AttachmentRemovedNotice
   mentions?: MessageMention[]
+  reactions?: MessageReaction[]
   readAt?: string
   system?: boolean
   replyTo?: {
