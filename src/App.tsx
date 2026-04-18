@@ -1744,6 +1744,10 @@ function App() {
     return window.sessionStorage.getItem(messagePhotoSendOriginalPreferenceStorageKey) === 'true'
   })
   const [premiumPurchaseBusy, setPremiumPurchaseBusy] = useState(false)
+  const [premiumCheckoutNotice, setPremiumCheckoutNotice] = useState<{
+    message: string
+    tone: 'error' | 'info' | 'success'
+  } | null>(null)
   const [premiumCheckoutSyncRetryKey, setPremiumCheckoutSyncRetryKey] = useState(0)
   const premiumCheckoutSyncRef = useRef<string | null>(null)
   const [messageActionMessageId, setMessageActionMessageId] = useState<number | null>(null)
@@ -4050,6 +4054,42 @@ function App() {
   const premiumAnnualPrice = premiumAnnualPriceRub
   const premiumAnnualSavingsPercent = Math.round((1 - premiumAnnualPrice / (premiumMonthlyPrice * 12)) * 100)
 
+  const getFriendlyPremiumCheckoutErrorMessage = useCallback((
+    message: string,
+    fallback: string,
+  ) => {
+    const trimmed = message.trim()
+    if (!trimmed) {
+      return fallback
+    }
+
+    if (/expired_on_confirmation/iu.test(trimmed)) {
+      return 'Ссылка на оплату устарела. Попробуйте еще раз.'
+    }
+
+    if (/receipt is missing or illegal/iu.test(trimmed)) {
+      return 'Не удалось подготовить оплату. Попробуйте еще раз.'
+    }
+
+    if (/canceled_by_user|payment_canceled|cancelled_by_merchant|canceled/iu.test(trimmed)) {
+      return 'Оплата отменена.'
+    }
+
+    if (/не найдена активная сессия|сессия устарела/iu.test(trimmed)) {
+      return trimmed
+    }
+
+    if (/не найден контакт для чека/iu.test(trimmed)) {
+      return 'Не удалось подготовить оплату. Попробуйте еще раз.'
+    }
+
+    if (/^[a-z0-9_ -]+$/iu.test(trimmed)) {
+      return fallback
+    }
+
+    return trimmed
+  }, [])
+
   const trackPremiumPurchaseSucceeded = useCallback((
     plan: 'month' | 'year',
     options: { debugAutoCheckout: boolean; gift: boolean },
@@ -4102,31 +4142,10 @@ function App() {
     const giftRecipientIdentifier =
       premiumGiftChat ? normalizeIdentifier(premiumGiftChat.phone) || undefined : undefined
 
-    const createCheckout = async (receiptEmail?: string) =>
-      createPremiumCheckoutRequest(sessionToken, {
-        giftRecipientIdentifier,
-        plan,
-        receiptEmail,
-      })
-
-    const requiresReceiptContact = (errorMessage: string) => /(email|receipt|чек|контакт)/iu.test(errorMessage)
-
-    let response
-    try {
-      response = await createCheckout()
-    } catch (error) {
-      const errorMessage = getErrorMessage(error, 'Не удалось запустить оплату premium.')
-      if (!requiresReceiptContact(errorMessage)) {
-        throw error
-      }
-
-      const receiptEmail = window.prompt('Укажите email для чека ЮKassa', '')?.trim()
-      if (!receiptEmail) {
-        throw new Error('Покупка отменена.')
-      }
-
-      response = await createCheckout(receiptEmail)
-    }
+    const response = await createPremiumCheckoutRequest(sessionToken, {
+      giftRecipientIdentifier,
+      plan,
+    })
 
     if (!response.checkoutUrl) {
       throw new Error('Не удалось получить ссылку на оплату.')
@@ -4139,6 +4158,7 @@ function App() {
     if (!session || premiumPurchaseBusy) return
 
     setPremiumPurchaseBusy(true)
+    setPremiumCheckoutNotice(null)
     trackAnalyticsEvent('premium_purchase_started', {
       debugAutoCheckout: premiumDebugAutoCheckout,
       gift: Boolean(premiumGiftChatId),
@@ -4165,14 +4185,19 @@ function App() {
 
       await startRealPremiumCheckout(plan)
     } catch (error) {
+      const errorMessage = getFriendlyPremiumCheckoutErrorMessage(
+        getErrorMessage(error, 'Не удалось запустить покупку premium.'),
+        'Не удалось запустить покупку premium.',
+      )
       trackPremiumPurchaseFailed(plan, {
         debugAutoCheckout: premiumDebugAutoCheckout,
         gift: Boolean(premiumGiftChatId),
-        reason: getErrorMessage(error, 'premium-purchase-failed'),
+        reason: errorMessage,
       })
-      window.alert(
-        error instanceof Error ? error.message : 'Не удалось запустить покупку премиума.',
-      )
+      setPremiumCheckoutNotice({
+        message: errorMessage,
+        tone: 'error',
+      })
     } finally {
       setPremiumPurchaseBusy(false)
     }
@@ -5275,29 +5300,39 @@ function App() {
           debugAutoCheckout: false,
           gift: latestResponse.purchase.gift,
         })
-        window.alert(
-          latestResponse.purchase.gift
+        setPremiumCheckoutNotice({
+          message: latestResponse.purchase.gift
             ? 'Подарочный premium успешно оплачен.'
             : 'Premium успешно активирован.',
-        )
+          tone: 'success',
+        })
         return
       }
 
+      const failureMessage = getFriendlyPremiumCheckoutErrorMessage(
+        latestResponse.purchase.status === 'refunded'
+          ? 'Платеж помечен как возвращенный.'
+          : latestResponse.purchase.statusReason || latestResponse.purchase.status,
+        'Оплата premium не завершилась. Попробуйте еще раз.',
+      )
       trackPremiumPurchaseFailed(latestResponse.purchase.plan, {
         debugAutoCheckout: false,
         gift: latestResponse.purchase.gift,
-        reason: latestResponse.purchase.statusReason ?? latestResponse.purchase.status,
+        reason: failureMessage,
       })
-      window.alert(
-        latestResponse.purchase.status === 'refunded'
-          ? 'Платеж помечен как возвращенный.'
-          : latestResponse.purchase.statusReason || 'Оплата premium не завершилась.',
-      )
+      setPremiumCheckoutNotice({
+        message: failureMessage,
+        tone: 'error',
+      })
     })().catch((error) => {
       premiumCheckoutSyncRef.current = null
-      window.alert(
-        error instanceof Error ? error.message : 'Не удалось проверить статус оплаты premium.',
-      )
+      setPremiumCheckoutNotice({
+        message: getFriendlyPremiumCheckoutErrorMessage(
+          error instanceof Error ? error.message : 'Не удалось проверить статус оплаты premium.',
+          'Не удалось проверить статус оплаты premium.',
+        ),
+        tone: 'error',
+      })
     }).finally(() => {
       if (!cancelled && !keepBusyUntilNextRetry) {
         setPremiumPurchaseBusy(false)
@@ -5314,6 +5349,7 @@ function App() {
     applySnapshot,
     premiumCheckoutSyncRetryKey,
     session?.sessionToken,
+    getFriendlyPremiumCheckoutErrorMessage,
     trackPremiumPurchaseSucceeded,
     trackPremiumPurchaseFailed,
   ])
@@ -20090,6 +20126,13 @@ function App() {
                     {premiumDaysLeft > 0
                       ? `Премиум активен ещё ${premiumDaysLeft} дн.`
                       : 'Премиум заканчивается сегодня'}
+                  </p>
+                ) : null}
+                {premiumCheckoutNotice ? (
+                  <p
+                    className={`premium-gift-contact premium-checkout-feedback premium-checkout-feedback-${premiumCheckoutNotice.tone}`}
+                  >
+                    {premiumCheckoutNotice.message}
                   </p>
                 ) : null}
               </div>

@@ -2607,6 +2607,26 @@
   letter-spacing: 0.01em;
 }
 
+.premium-checkout-feedback {
+  padding: 12px 14px;
+  border-radius: 18px;
+}
+
+.premium-checkout-feedback-success {
+  background: rgba(103, 167, 116, 0.14);
+  color: rgba(38, 94, 49, 0.96);
+}
+
+.premium-checkout-feedback-error {
+  background: rgba(180, 78, 61, 0.12);
+  color: rgba(122, 52, 40, 0.96);
+}
+
+.premium-checkout-feedback-info {
+  background: rgba(77, 58, 46, 0.08);
+  color: var(--ink);
+}
+
 .premium-debug-block {
   display: grid;
   justify-items: end;
