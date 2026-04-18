@@ -7881,6 +7881,10 @@ test('room feeds expose a jump-to-latest control above the composer across direc
   assert.match(appCss, /\.room-jump-to-latest-wrap\s*\{[\s\S]*height:\s*0;/u)
   assert.match(appCss, /\.room-jump-to-latest\s*\{[\s\S]*width:\s*42px;/u)
   assert.match(appCss, /\.room-jump-to-latest\s*\{[\s\S]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.92\);/u)
+  assert.match(
+    appCss,
+    /\.room-jump-to-latest:hover\s*\{[\s\S]*transform:\s*translate\(-50%,\s*calc\(-100%\s*-\s*6px\)\);/u,
+  )
   assert.match(appCss, /\.room-jump-to-latest-icon/u)
   assert.match(appCss, /html\[data-theme='dark'\] \.room-jump-to-latest/u)
 })

@@ -6624,8 +6624,13 @@
 }
 
 .room-jump-to-latest:hover {
+  transform: translate(-50%, calc(-100% - 6px));
   background: rgba(255, 255, 255, 0.98);
   opacity: 1;
+}
+
+.room-jump-to-latest:focus-visible {
+  transform: translate(-50%, calc(-100% - 6px));
 }
 
 .room-jump-to-latest-icon {
