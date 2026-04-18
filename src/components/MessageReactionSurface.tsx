@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MessageReaction } from '../shared/types'
 import { MessageReactionPicker } from './MessageReactionPicker'
 
@@ -18,7 +18,46 @@ export function MessageReactionSurface({
 }: MessageReactionSurfaceProps) {
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
+  const [anchorWidth, setAnchorWidth] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const mainRef = useRef<HTMLDivElement | null>(null)
+
+  useLayoutEffect(() => {
+    const rootNode = rootRef.current
+    const mainNode = mainRef.current
+
+    if (!rootNode || !mainNode) {
+      return
+    }
+
+    const measuredNode =
+      (mainNode.querySelector('[data-bubble-measure="true"]') as HTMLElement | null) ??
+      (mainNode.querySelector('.bubble, .channel-post, .room-thread-source-bubble') as HTMLElement | null) ??
+      (mainNode.firstElementChild as HTMLElement | null)
+
+    if (!measuredNode) {
+      setAnchorWidth(null)
+      return
+    }
+
+    const updateAnchorWidth = () => {
+      const nextWidth = Math.ceil(measuredNode.getBoundingClientRect().width)
+      setAnchorWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
+    }
+
+    updateAnchorWidth()
+
+    const observer = new ResizeObserver(() => {
+      updateAnchorWidth()
+    })
+
+    observer.observe(rootNode)
+    observer.observe(measuredNode)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [bubble, reactions.length])
 
   useEffect(() => {
     if (!open) {
@@ -81,13 +120,22 @@ export function MessageReactionSurface({
     </button>
   ) : null
 
+  const style =
+    anchorWidth !== null
+      ? ({ '--message-reaction-anchor-width': `${anchorWidth}px` } as CSSProperties)
+      : undefined
+
   return (
     <div
       ref={rootRef}
       className={`message-reaction-surface${mine ? ' mine' : ''}${canReact ? ' can-react' : ''}${open ? ' reaction-picker-open' : ''}`}
+      style={style}
     >
       {mine ? trigger : null}
-      <div className={`message-reaction-surface-main${reactions.length > 0 ? ' has-reactions' : ''}`}>
+      <div
+        ref={mainRef}
+        className={`message-reaction-surface-main${reactions.length > 0 ? ' has-reactions' : ''}`}
+      >
         {bubble}
         {reactions.length > 0 ? (
           <div className={`message-reaction-list${mine ? ' mine' : ''}`}>

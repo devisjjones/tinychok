@@ -4289,14 +4289,14 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  right: -52px;
+  right: calc(100% - var(--message-reaction-anchor-width, 100%) - 52px);
   width: 52px;
   z-index: 1;
 }
 
 .message-reaction-surface.mine.can-react::after {
   right: auto;
-  left: -52px;
+  left: calc(100% - var(--message-reaction-anchor-width, 100%) - 52px);
 }
 
 .message-reaction-surface-main {
@@ -4314,7 +4314,7 @@
 .message-reaction-trigger {
   position: absolute;
   top: 50%;
-  right: -38px;
+  right: calc(100% - var(--message-reaction-anchor-width, 100%) - 38px);
   z-index: 2;
   display: inline-flex;
   align-items: center;
@@ -4340,7 +4340,7 @@
 
 .message-reaction-surface.mine > .message-reaction-trigger {
   right: auto;
-  left: -38px;
+  left: calc(100% - var(--message-reaction-anchor-width, 100%) - 38px);
 }
 
 .message-reaction-surface:hover > .message-reaction-trigger,
